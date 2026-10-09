@@ -1,0 +1,11 @@
+{
+  "name": "tesla-dashcam-studio-companion",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Plug in the Tesla USB drive, walk away, come back to finished videos.",
+  "bin": { "dashcam-companion": "dashcam-companion.js" },
+  "engines": { "node": ">=18" },
+  "dependencies": {},
+  "scripts": { "start": "node dashcam-companion.js run", "doctor": "node dashcam-companion.js doctor" },
+  "license": "MIT"
+}

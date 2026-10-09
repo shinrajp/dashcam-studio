@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Dashcam Studio — Tesla Sentry &amp; Dashcam viewer</title>
+  <meta name="color-scheme" content="dark">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="css/app.css">
+</head>
+<body class="simple">
+  <header class="topbar">
+    <div class="brand">
+      <svg viewBox="0 0 32 32" class="logo" aria-hidden="true"><rect x="2" y="6" width="28" height="20" rx="5" fill="none" stroke="currentColor" stroke-width="2.4"/><circle cx="16" cy="16" r="5.2" fill="none" stroke="#3E6AE1" stroke-width="2.4"/><circle cx="16" cy="16" r="1.8" fill="#3E6AE1"/><circle cx="25" cy="10.5" r="1.4" fill="#ff5a4f"/></svg>
+      <div><div class="brand-name">Dashcam Studio</div><div class="brand-sub">Tesla Sentry &amp; Dashcam</div></div>
+    </div>
+    <div class="event-title" id="eventTitle"><span class="et-main">No event loaded</span><span class="et-sub" id="eventSub"></span></div>
+    <div class="top-actions">
+      <button class="btn ghost" id="btnOpenFolder" title="Open a TeslaCam folder or USB drive">
+        <svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg><span>Open folder</span></button>
+      <button class="btn ghost adv-only" id="btnOpenFiles" title="Add individual video files"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg><span>Add files</span></button>
+      <button class="btn tesla" id="btnUnlock" hidden><svg viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg><span id="btnUnlockText">Unlock with Tesla</span></button>
+      <button class="btn primary" id="btnExport" disabled><svg viewBox="0 0 24 24"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg><span>Export</span></button>
+      <label class="switch" title="Show advanced options (codecs, resolution, HUD items, sections)"><input type="checkbox" id="advToggle"><span class="track"><span class="knob"></span></span><span class="switch-label">Advanced</span></label>
+      <button class="btn icon adv-only" id="btnSettings" title="Settings"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button>
+    </div>
+  </header>
+
+  <div class="body">
+    <aside class="library" id="library" hidden>
+      <div class="lib-head">
+        <div><div class="lib-title">Events</div><div class="lib-sub" id="libSub"></div></div>
+      </div>
+      <button class="btn primary wide" id="btnExportAll"><svg viewBox="0 0 24 24"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg><span id="btnExportAllText">Export all</span></button>
+      <div class="lib-list" id="libList"></div>
+    </aside>
+
+    <main class="viewport" id="viewport">
+      <div class="stage" id="stage" hidden>
+        <div class="grid" id="grid"></div>
+        <div class="overlay-layer" id="overlayLayer"></div>
+        <div class="stage-time" id="stageTime" hidden></div>
+      </div>
+      <section class="empty" id="emptyState">
+        <div class="empty-card">
+          <svg viewBox="0 0 64 64" class="empty-icon" aria-hidden="true"><rect x="10" y="18" width="44" height="34" rx="6"/><path d="M22 18v-6h20v6M24 30h16M24 38h10"/></svg>
+          <h1>Drop your TeslaCam folder or USB drive here</h1>
+          <p>Every Sentry and Dashcam event is found and grouped automatically — all six cameras, telemetry and the route map. Nothing is uploaded; everything stays on this computer.</p>
+          <div class="empty-actions">
+            <button class="btn primary big" id="btnEmptyFolder"><svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg><span>Open TeslaCam folder</span></button>
+            <button class="btn ghost big" id="btnEmptyFiles"><span>Choose video files</span></button>
+          </div>
+          <ol class="steps">
+            <li><b>Plug in</b> the USB drive or SSD from your Tesla.</li>
+            <li><b>Drag</b> the drive (or its <code>TeslaCam</code> folder) onto this window.</li>
+            <li><b>Click Export all</b> — one shareable video per event, HUD and map included.</li>
+          </ol>
+          <p class="fine">Want it fully hands-free? The <b>Dashcam Studio companion</b> watches for the drive and exports new events automatically — see README.</p>
+        </div>
+      </section>
+      <div class="drop-hint" id="dropHint"><div>Drop to load your TeslaCam footage</div></div>
+      <div class="busy" id="busy" hidden><div class="spinner"></div><div id="busyText">Reading files…</div></div>
+    </main>
+  </div>
+
+  <footer class="transport" id="transport">
+    <div class="tp-buttons">
+      <button class="btn icon" id="btnStop" title="Stop (Home)"><svg viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2" class="fill"/></svg></button>
+      <button class="btn icon" id="btnBack" title="Previous frame (←)"><svg viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6"/></svg></button>
+      <button class="btn icon play" id="btnPlay" title="Play / Pause (Space)"><svg viewBox="0 0 24 24" class="i-play"><path d="M8 5l11 7-11 7z" class="fill"/></svg><svg viewBox="0 0 24 24" class="i-pause"><rect x="6" y="5" width="4" height="14" rx="1" class="fill"/><rect x="14" y="5" width="4" height="14" rx="1" class="fill"/></svg></button>
+      <button class="btn icon" id="btnFwd" title="Next frame (→)"><svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg></button>
+    </div>
+    <div class="tp-time" id="timeLabel">0:00.0 / 0:00.0</div>
+    <div class="timeline" id="timeline"><canvas id="timelineCanvas"></canvas><div class="tl-tip" id="tlTip" hidden></div></div>
+    <div class="tp-clock" id="clockLabel">—</div>
+    <div class="tp-trim adv-only" id="segBar" role="group" aria-label="Sections">
+      <button class="btn small sq" id="btnAddSeg" aria-label="Add section" title="Add a section at the playhead (A). On the timeline's lower lane: drag a section's edges to trim it, drag its middle to move it, tap to select."><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button>
+      <button class="btn small sq" id="btnIn" aria-label="Section start" title="Set the selected section's start to the playhead (I)"><svg viewBox="0 0 24 24"><path d="M9 4H6v16h3M12 12h7M16 9l3 3-3 3"/></svg></button>
+      <button class="btn small sq" id="btnOut" aria-label="Section end" title="Set the selected section's end to the playhead (O)"><svg viewBox="0 0 24 24"><path d="M15 4h3v16h-3M5 12h7M9 9l3 3-3 3"/></svg></button>
+      <button class="btn small sq" id="btnPlaySecs" aria-pressed="false" aria-label="Play sections" title="Play sections: Play runs only the sections, in time order, skipping the gaps; Stop returns to the first section (S)"><svg viewBox="0 0 24 24"><path d="M3 5v14M21 5v14"/><path d="M8 7l9 5-9 5z" class="fill"/></svg></button>
+      <button class="btn small sq ghost" id="btnDelSeg" aria-label="Delete section" title="Delete the selected section (Delete)"><svg viewBox="0 0 24 24"><path d="M5 7h14M10 7V4h4v3M7 7l1 13h8l1-13"/></svg></button>
+      <button class="btn small sq ghost" id="btnClearSegs" aria-label="Clear all sections" title="Clear all sections (back to the whole event)"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+      <span class="seg-info" id="segInfo"></span>
+    </div>
+    <select id="rateSelect" class="select small" title="Playback speed">
+      <option value="0.25">0.25×</option><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="2">2×</option><option value="4">4×</option><option value="8">8×</option>
+    </select>
+    <div class="chips" id="chips">
+      <button class="chip" data-show="labels" title="Camera labels">Labels</button>
+      <button class="chip" data-show="hud" title="Telemetry HUD (H)">HUD</button>
+      <button class="chip" data-show="map" title="Route map (M)">Map</button>
+      <button class="chip" data-show="fsd" title="Self-driving status (F)">Self-Driving</button>
+      <button class="chip" data-show="time" title="Date &amp; time">Time</button>
+    </div>
+  </footer>
+
+  <aside class="drawer" id="settings" hidden>
+    <div class="drawer-head"><h2>Settings</h2><button class="btn icon" id="btnCloseSettings" title="Close"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
+    <div class="drawer-body">
+      <section><h3>Overlays</h3><div id="setShow" class="toggles"></div></section>
+      <section><h3>HUD items</h3><div id="setHud" class="toggles"></div></section>
+      <section><h3>Units &amp; size</h3>
+        <div class="row"><span>Speed units</span><div class="seg" id="segUnits"><button data-v="mph">mph</button><button data-v="kmh">km/h</button></div></div>
+        <div class="row"><span>Overlay size</span><input type="range" id="hudScale" min="0.6" max="1.8" step="0.05"></div>
+      </section>
+      <section><h3>Map</h3>
+        <div class="row"><span>Map tiles (internet)</span><input type="checkbox" id="mapTiles"></div>
+        <div class="row"><span>Style</span><div class="seg" id="segMapStyle"><button data-v="osm">OpenStreetMap</button><button data-v="dark">Dark</button></div></div>
+        <div class="row"><span>Follow the car</span><input type="checkbox" id="mapFollow"></div>
+      </section>
+      <section><h3>Calibration</h3>
+        <p class="hint">Tesla doesn't document sign conventions. Flip these if the wheel turns the wrong way or the g-ball moves sideways when braking.</p>
+        <div class="row"><span>Invert steering</span><input type="checkbox" id="steerInvert"></div>
+        <div class="row"><span>Swap accel X/Y axes</span><input type="checkbox" id="accelSwap"></div>
+      </section>
+      <section><button class="btn ghost wide" id="btnResetLayout">Reset overlay positions</button><button class="btn ghost wide" id="btnResetAll">Reset all settings</button></section>
+    </div>
+  </aside>
+
+  <div class="modal" id="exportModal" hidden>
+    <div class="modal-card">
+      <div class="modal-head"><h2 id="exportTitle">Export video</h2><button class="btn icon" data-close title="Close"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
+      <div class="modal-body" id="exportForm">
+        <label class="preset" id="presetCompat"><input type="radio" name="preset" value="compat" checked>
+          <div><b>Most Compatible</b><span>H.264 MP4 · 1920×1080 · 30 fps — plays on iPhone, WhatsApp, Slack, QuickTime, Windows</span></div></label>
+        <label class="preset adv-only" id="presetOriginal"><input type="radio" name="preset" value="original">
+          <div><b>Original resolution</b><span id="originalDesc">All six cameras stitched pixel-for-pixel, no upscaling</span></div></label>
+        <div class="adv-only original-opts" id="originalOpts">
+          <div class="row"><span>Resolution</span><select class="select" id="exportSize"></select></div>
+          <div class="row"><span>Codec</span><select class="select" id="exportCodec"></select></div>
+        </div>
+        <div class="adv-only">
+          <div class="row"><span>Range</span><div class="seg" id="segRange"><button data-v="full">Whole event</button><button data-v="sections" id="segRangeSections">Sections (joined)</button></div></div>
+          <div class="row wrap"><span>Burn in</span><div id="exportShow" class="mini-toggles"></div></div>
+        </div>
+        <p class="hint" id="exportHint"></p>
+      </div>
+      <div class="progress" id="exportProgress" hidden>
+        <div class="bar"><div class="fill" id="exportBar"></div></div>
+        <div class="progress-text" id="exportText">Preparing…</div>
+      </div>
+      <div class="modal-foot">
+        <button class="btn ghost" id="btnExportCancel">Cancel</button>
+        <button class="btn primary" id="btnExportGo">Export</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal" id="unlockModal" hidden>
+    <div class="modal-card">
+      <div class="modal-head"><h2>Unlock encrypted clips</h2><button class="btn icon" data-close title="Close"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
+      <div class="modal-body">
+        <p>Some clips are encrypted by your Tesla. Sign in with your Tesla account to unlock them. Only each clip's key request (VIN, key id, wrapped key) is sent to Tesla. <b>The video never leaves this computer</b>, and decryption happens here.</p>
+        <button class="btn tesla big wide" id="btnUnlockGo"><svg viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg><span>Sign in with Tesla</span></button>
+        <div class="notice" id="unlockNotice" hidden></div>
+        <div class="setup" id="connectorSetup" hidden>
+          <h3 id="connectorSetupTitle">One-time setup: install the Tesla connector</h3>
+          <p>A tiny userscript lets the Tesla page hand the keys back to this window.</p>
+          <ol>
+            <li><b>Safari (Mac):</b> install the free <i>Userscripts</i> app (Mac App Store), enable it in Safari → Settings → Extensions, allow it on dashcam.tesla.com.</li>
+            <li><b>Chrome / Edge:</b> install <i>Tampermonkey</i>; on Chrome 138+ turn on “Allow user scripts” in its Details page.</li>
+            <li>Add the connector (it's also in the <code>connector/</code> folder), then try again.</li>
+          </ol>
+          <div class="btn-row"><button class="btn" id="btnDownloadConnector">Download connector</button><button class="btn ghost" id="btnCopyConnector">Copy script</button><button class="btn primary" id="btnUnlockRetry">Try again</button></div>
+        </div>
+        <details class="manual"><summary>Other ways (manual)</summary>
+          <p>1. Copy the helper, open <code>dashcam.tesla.com</code>, sign in, open the browser console, paste and press Enter. 2. Paste the JSON it prints below.</p>
+          <div class="btn-row"><button class="btn ghost" id="btnCopyHelper">Copy key helper</button></div>
+          <textarea id="pasteKeys" rows="4" placeholder='{"results":[{"id":"…","key":"base64…"}]}'></textarea>
+          <div class="btn-row"><button class="btn" id="btnApplyKeys">Apply keys</button></div>
+        </details>
+        <p class="fine">Tesla's key service is undocumented. This flow is untested against real encrypted clips — if it fails, plain (unencrypted) clips still work without signing in.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+  <input type="file" id="fileInput" multiple accept="video/mp4,.mp4,.mov,.json" hidden>
+  <input type="file" id="folderInput" webkitdirectory directory multiple hidden>
+
+  <!-- vendor (MIT) -->
+  <script src="vendor/mp4-muxer.js"></script>
+  <script src="vendor/webm-muxer.js"></script>
+  <!-- app (classic scripts: they work when opened from file://) -->
+  <script src="js/core.js"></script>
+  <script src="js/mp4.js"></script>
+  <script src="js/sei.js"></script>
+  <script src="js/crypto.js"></script>
+  <script src="js/teslacam.js"></script>
+  <script src="js/telemetry.js"></script>
+  <script src="js/library.js"></script>
+  <script src="js/player.js"></script>
+  <script src="js/draw.js"></script>
+  <script src="js/hud.js"></script>
+  <script src="js/map.js"></script>
+  <script src="js/compositor.js"></script>
+  <script src="js/overlays.js"></script>
+  <script src="js/export.js"></script>
+  <script src="js/connector-src.js"></script>
+  <script src="js/tesla-auth.js"></script>
+  <script src="js/ui.js"></script>
+  <script src="js/auto.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
