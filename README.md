@@ -17,7 +17,7 @@ A Tesla dashcam and Sentry viewer that runs entirely in your browser. Drop in yo
 
 ![Six-camera grid with HUD, route map and Self-Driving badge, mid lane change with the left blinker on](screenshots/photo-grid.png)
 
-![Sentry event at night: a hooded passer-by on the right repeater](screenshots/photo-sentry.png)
+![Sentry event at golden hour: a hooded passer-by on the right repeater](screenshots/photo-sentry.png)
 
 <details>
 <summary>More screenshots</summary>
