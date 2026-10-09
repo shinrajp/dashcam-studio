@@ -9,7 +9,7 @@ A Tesla dashcam and Sentry viewer that runs entirely in your browser. Drop in yo
 - **Route map.** A map with the route and a dot that moves with playback. Click the map to seek.
 - **Self-Driving badge.** It shows Self-Driving, Autosteer or TACC status.
 - **Toggles.** Every overlay can be switched on or off, and your choices are saved.
-- **Focus & full screen.** Click or tap any camera to enlarge it, switch angles from the camera bar or with keys 1–6, zoom in up to 4× (pinch, Ctrl+scroll or +/−) and drag to pan. You can also hide cameras in the grid and go full screen.
+- **Focus & full screen.** Click or tap any camera to enlarge it, switch angles from the camera bar or with keys 1–6, zoom in up to 4× (pinch, Ctrl+scroll or +/−) and drag to pan. You can also hide cameras in the grid and go full screen. The camera bar can be dragged anywhere on the video (grab ⋮⋮; double-click it to put it back), fades when idle, and can be switched off with the **Camera bar** switch or **C**. A small camera button brings it back.
 - **Multi-section trim** (turn on **Advanced**). Mark several sections on the timeline, drag their edges, then play or export them joined into one video. The clock and telemetry stay correct at every cut.
 - **Export.** *Most Compatible* gives you a 1080p H.264 MP4. *Original* stitches the grid at native camera resolution, pixel for pixel with no upscaling. Overlays are burned into the video.
 
@@ -27,11 +27,12 @@ A Tesla dashcam and Sentry viewer that runs entirely in your browser. Drop in yo
 |---|---|
 | Space | play / pause |
 | ← → | previous / next frame (Shift: ±5 s) |
-| 1 – 6 | focus Front, Rear, Left Pillar, Right Pillar, Left Repeater, Right Repeater |
+| 1 – 6 | focus Front, Back, Left side (pillar), Right side (pillar), Left mirror (repeater), Right mirror (repeater) |
 | [ / ] | previous / next camera |
 | G or Esc | back to the grid |
 | + / − | zoom the focused camera (pinch or Ctrl+scroll also work; drag to pan; double-click resets) |
 | F | full screen |
+| C | camera bar on / off |
 | H · M · D · L | toggle HUD · map · Self-Driving badge · camera labels |
 
 With **Advanced** on: A adds a section, I / O set its start / end, S plays only the sections, Delete removes the selected one.

@@ -8,7 +8,21 @@
   const F = (T.focus = { cam: null, z: 1, x: 0, y: 0, since: 0 });
   /** Switcher / number-key order. */
   F.ORDER = ["front", "back", "left_pillar", "right_pillar", "left_repeater", "right_repeater"];
-  const SHORT = { front: "Front", back: "Rear", left_pillar: "L Pillar", right_pillar: "R Pillar", left_repeater: "L Repeater", right_repeater: "R Repeater" };
+  // Camera-bar names in plain words (the tiles keep Tesla's names). Pillar cams sit in the door pillars and look out
+  // to the side; repeater cams sit in the front fenders and look backward, like side mirrors.
+  const NAMES = { front: "Front", back: "Back", left_pillar: "Left side", right_pillar: "Right side", left_repeater: "Left mirror", right_repeater: "Right mirror" };
+  const TIPS = {
+    front: "Front camera: looks ahead",
+    back: "Back camera: looks behind the car",
+    left_pillar: "Left side camera (left pillar): looks out of the left side",
+    right_pillar: "Right side camera (right pillar): looks out of the right side",
+    left_repeater: "Left mirror camera (left repeater): looks backward along the left side, like a side mirror",
+    right_repeater: "Right mirror camera (right repeater): looks backward along the right side, like a side mirror",
+  };
+  // tiny top-down car with a "view cone" showing where each camera looks
+  const CONE = { front: "M10 4.5L6.2 0h7.6z", back: "M10 15.5L6.2 20h7.6z", left_pillar: "M7.4 9.5L1 5.2v8.6z", right_pillar: "M12.6 9.5L19 5.2v8.6z", left_repeater: "M7.4 6.5L.6 12.4l3.3 5.4z", right_repeater: "M12.6 6.5l6.8 5.9-3.3 5.4z" };
+  const camIcon = (cam) => `<svg class="cam-ico" viewBox="0 0 20 20" aria-hidden="true"><path class="cone" d="${CONE[cam]}"/><rect class="car" x="7" y="3.5" width="6" height="13" rx="2.6"/></svg>`;
+  const GRID_ICON = '<svg class="cam-ico" viewBox="0 0 20 20" aria-hidden="true"><rect class="car" x="1.5" y="4" width="5" height="5" rx="1"/><rect class="car" x="7.5" y="4" width="5" height="5" rx="1"/><rect class="car" x="13.5" y="4" width="5" height="5" rx="1"/><rect class="car" x="1.5" y="11" width="5" height="5" rx="1"/><rect class="car" x="7.5" y="11" width="5" height="5" rx="1"/><rect class="car" x="13.5" y="11" width="5" height="5" rx="1"/></svg>';
   const MAX_Z = 4;
   const $ = (id) => document.getElementById(id);
   const P = () => T.player;
@@ -195,7 +209,7 @@
   function wake() {
     document.body.classList.remove("idle");
     clearTimeout(idleTimer);
-    idleTimer = setTimeout(() => { if (!overBar && !($("camMenu") && !$("camMenu").hidden)) document.body.classList.add("idle"); }, 2800);
+    idleTimer = setTimeout(() => { if (!overBar && !F.dragging && hintHidden() && !($("camMenu") && !$("camMenu").hidden)) document.body.classList.add("idle"); }, 2800);
   }
   F.wake = wake;
 
@@ -203,18 +217,23 @@
   function buildBar() {
     const sw = $("camSwitch");
     sw.innerHTML = "";
-    const g = T.el("button", "cam-chip grid-chip", "Grid");
-    g.dataset.cam = ""; g.title = "Back to the grid (G or Esc)";
+    const g = T.el("button", "cam-chip grid-chip");
+    g.dataset.cam = ""; g.title = "See all cameras at once (G or Esc)";
+    g.innerHTML = GRID_ICON + "<span class='nm'>All cameras</span>";
     sw.appendChild(g);
     F.ORDER.forEach((cam, i) => {
       const b = T.el("button", "cam-chip");
       b.dataset.cam = cam;
-      b.innerHTML = `<kbd>${i + 1}</kbd><span></span>`;
-      b.querySelector("span").textContent = SHORT[cam];
-      b.title = `${T.CAM_LABEL[cam]} (${i + 1})`;
+      b.innerHTML = `${camIcon(cam)}<span class="nm"></span><kbd>${i + 1}</kbd>`;
+      b.querySelector(".nm").textContent = NAMES[cam];
+      b.setAttribute("aria-label", NAMES[cam] + " camera");
       sw.appendChild(b);
     });
-    sw.addEventListener("click", (e) => { const b = e.target.closest(".cam-chip"); if (!b || b.disabled) return; e.stopPropagation(); F.focus(b.dataset.cam || null); });
+    sw.addEventListener("click", (e) => {
+      const b = e.target.closest(".cam-chip");
+      if (!b || b.disabled || performance.now() - (F.dragEnd || 0) < 250) return;
+      e.stopPropagation(); hideHint(true); F.focus(b.dataset.cam || null);
+    });
     const menu = $("camMenu");
     menu.innerHTML = "<div class='cm-title'>Show in grid</div>";
     for (const cam of T.GRID) {
@@ -242,7 +261,7 @@
     sw.querySelectorAll(".cam-chip").forEach((b) => {
       const cam = b.dataset.cam;
       b.classList.toggle("on", cam ? F.cam === cam : !F.cam);
-      if (cam) { b.disabled = !present(cam); b.title = present(cam) ? `${T.CAM_LABEL[cam]} (${F.ORDER.indexOf(cam) + 1})` : `No ${T.CAM_LABEL[cam].toLowerCase()} footage in this event`; }
+      if (cam) { b.disabled = !present(cam); b.title = present(cam) ? `${TIPS[cam]} · key ${F.ORDER.indexOf(cam) + 1}` : `This event has no ${NAMES[cam].toLowerCase()} camera video`; }
     });
     $("camMenu").querySelectorAll("input").forEach((cb) => (cb.checked = !hidden(cb.dataset.cam)));
     $("btnCams").classList.toggle("on", !$("camMenu").hidden);
@@ -251,8 +270,120 @@
     const fs = F.isFullscreen();
     for (const id of ["btnFsStage", "btnFullscreen"]) { const b = $(id); b.classList.toggle("is-fs", fs); b.title = fs ? "Exit full screen (F)" : "Full screen (F)"; }
     applyZoom();
+    syncBarVis();
   }
   F.sync = syncBar;
+
+  // ── camera bar: on/off switch, floating position (per layout, fraction of the stage), first-time hint ──
+  const CB = () => T.prefs.cameraBar;
+  const MARGIN = 8, SNAP = 18;
+  const layoutKey = () => (F.cam ? "focus" : "grid");
+  F.barOn = () => !!CB().on;
+  F.setBar = (on, quiet) => {
+    T.setPref("cameraBar.on", !!on);
+    if (!on) $("camMenu").hidden = true;
+    syncBarVis();
+    if (!quiet) T.toast(on ? "Camera bar is on" : "Camera bar hidden. Tap the little camera button on the video to bring it back.", on ? "ok" : "", 4500);
+    wake();
+  };
+  function syncBarVis() {
+    const on = F.barOn(), bar = $("stageBar");
+    bar.hidden = !on;
+    $("btnBarRestore").hidden = on || !P().ev;
+    const sw = $("chipCamBar");
+    sw.classList.toggle("on", on); sw.setAttribute("aria-pressed", String(on));
+    sw.title = on ? "Camera bar is ON. Click to hide it (C)" : "Camera bar is OFF. Click to show it (C)";
+    if (on) { placeBar(); maybeHint(); } else $("barHint").hidden = true;
+  }
+  function spans() {
+    const st = stage(), bar = $("stageBar");
+    const W = st.clientWidth, H = st.clientHeight, bw = bar.offsetWidth, bh = bar.offsetHeight;
+    return { W, H, bw, bh, sx: Math.max(0, W - bw - 2 * MARGIN), sy: Math.max(0, H - bh - 2 * MARGIN) };
+  }
+  /** Put the bar where it was left for this layout (default: top centre). Always inside the stage. */
+  function placeBar() {
+    const bar = $("stageBar");
+    if (bar.hidden || F.dragging) return;
+    const pos = CB()[layoutKey()];
+    if (!(pos && pos.fx >= 0)) { bar.classList.remove("moved"); bar.style.left = bar.style.top = ""; placeHint(); return; }
+    bar.classList.add("moved");
+    const s = spans();
+    bar.style.left = Math.round(MARGIN + T.clamp(pos.fx, 0, 1) * s.sx) + "px";
+    bar.style.top = Math.round(MARGIN + T.clamp(pos.fy, 0, 1) * s.sy) + "px";
+    placeHint();
+  }
+  F.placeBar = placeBar;
+  F.resetBarPos = () => {
+    T.prefs.cameraBar[layoutKey()] = { fx: -1, fy: -1 }; T.savePrefs();
+    placeBar(); T.toast("Camera bar is back at the top");
+  };
+  function barDrag() {
+    const bar = $("stageBar");
+    let d = null, lastTap = 0;
+    bar.addEventListener("pointerdown", (e) => {
+      e.stopPropagation(); // never reaches tile focus or zoom-pan
+      const grip = e.target.closest(".bar-grip");
+      const empty = e.target === bar || e.target.matches(".cam-switch, .zoom-ctl, .cams-wrap, .zoom-label");
+      if (!(grip || empty) || (e.pointerType === "mouse" && e.button !== 0)) return;
+      e.preventDefault();
+      const r = bar.getBoundingClientRect(), sr = stage().getBoundingClientRect();
+      d = { id: e.pointerId, x: e.clientX, y: e.clientY, l: r.left - sr.left, t: r.top - sr.top, moved: false, grip: !!grip };
+      try { bar.setPointerCapture(e.pointerId); } catch (_) {}
+      F.dragging = true; bar.classList.add("dragging"); wake();
+    });
+    bar.addEventListener("pointermove", (e) => {
+      if (!d || e.pointerId !== d.id) return;
+      const dx = e.clientX - d.x, dy = e.clientY - d.y;
+      if (!d.moved && Math.hypot(dx, dy) < 5) return;
+      d.moved = true;
+      const s = spans();
+      bar.classList.add("moved");
+      bar.style.left = Math.round(T.clamp(d.l + dx, MARGIN, MARGIN + s.sx)) + "px";
+      bar.style.top = Math.round(T.clamp(d.t + dy, MARGIN, MARGIN + s.sy)) + "px";
+      placeHint(); wake();
+    });
+    const end = (e) => {
+      if (!d || e.pointerId !== d.id) return;
+      const was = d; d = null;
+      F.dragging = false; bar.classList.remove("dragging");
+      if (was.moved) {
+        F.dragEnd = performance.now();
+        const s = spans();
+        let l = parseFloat(bar.style.left) - MARGIN, t = parseFloat(bar.style.top) - MARGIN;
+        // gentle snap: to the edges and to the horizontal centre
+        if (l < SNAP) l = 0; else if (s.sx - l < SNAP) l = s.sx; else if (Math.abs(l - s.sx / 2) < SNAP) l = s.sx / 2;
+        if (t < SNAP) t = 0; else if (s.sy - t < SNAP) t = s.sy;
+        T.prefs.cameraBar[layoutKey()] = { fx: s.sx ? l / s.sx : 0.5, fy: s.sy ? t / s.sy : 0 };
+        T.savePrefs();
+        hideHint(true);
+        placeBar();
+      } else if (was.grip && e.type === "pointerup") {
+        const now = performance.now();
+        if (now - lastTap < 400) { lastTap = 0; F.resetBarPos(); } else lastTap = now; // double-click / double-tap the grip
+      }
+      wake();
+    };
+    bar.addEventListener("pointerup", end);
+    bar.addEventListener("pointercancel", end);
+    bar.addEventListener("dblclick", (e) => e.stopPropagation());
+  }
+  const hintHidden = () => !$("barHint") || $("barHint").hidden;
+  function maybeHint() {
+    if (CB().hintSeen || !P().ev || !F.barOn()) return;
+    $("barHint").hidden = false; placeHint();
+  }
+  function hideHint(seen) {
+    if ($("barHint")) $("barHint").hidden = true;
+    if (seen && !CB().hintSeen) T.setPref("cameraBar.hintSeen", true);
+    wake();
+  }
+  F.dismissHint = () => hideHint(true);
+  function placeHint() {
+    const h = $("barHint");
+    if (!h || h.hidden) return;
+    const bar = $("stageBar"), st = stage();
+    h.classList.toggle("above", bar.offsetTop + bar.offsetHeight / 2 > st.clientHeight / 2);
+  }
 
   F.init = () => {
     buildBar();
@@ -276,12 +407,20 @@
       else if (performance.now() - F.since > 600) F.grid();
     });
     $("btnFocusClose").addEventListener("click", (e) => { e.stopPropagation(); F.grid(); });
+    $("chipCamBar").addEventListener("click", () => F.setBar(!F.barOn()));
+    $("btnBarHide").addEventListener("click", (e) => { e.stopPropagation(); F.setBar(false); });
+    $("btnBarRestore").addEventListener("click", (e) => { e.stopPropagation(); F.setBar(true); });
+    $("btnHintOk").addEventListener("click", (e) => { e.stopPropagation(); hideHint(true); });
+    barDrag();
+    new ResizeObserver(() => placeBar()).observe(stage());
+    T.on("layout", () => placeBar());
     zoomInput();
     document.addEventListener("fullscreenchange", onFsChange);
     document.addEventListener("webkitfullscreenchange", onFsChange);
     ["pointermove", "pointerdown", "keydown", "wheel"].forEach((ev) => window.addEventListener(ev, wake, { passive: true }));
     window.addEventListener("resize", () => applyZoom());
     T.on("player-open", () => { if (F.cam && !present(F.cam)) F.cam = null; applyLayout(); });
+    T.on("prefs", (p) => { if (p === "*") syncBarVis(); });
     T.on("prefs", (p) => { if (p === "*" || p === "camsHidden") applyLayout(); });
     applyLayout();
     wake();

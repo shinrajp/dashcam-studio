@@ -645,6 +645,7 @@
       else if (k === "m" || k === "M") toggleShow("map");
       else if (k === "f" || k === "F") T.focus.fullscreen();
       else if (k === "d" || k === "D") toggleShow("fsd");
+      else if (k === "c" || k === "C") T.focus.setBar(!T.focus.barOn());
       else if (/^[1-6]$/.test(k) && !e.altKey && P().ev) T.focus.byNumber(+k);
       else if ((k === "g" || k === "G" || k === "0") && P().ev) T.focus.grid();
       else if (k === "]" && P().ev) T.focus.cycle(1);
