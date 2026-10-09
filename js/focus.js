@@ -305,7 +305,16 @@
     const bar = $("stageBar");
     if (bar.hidden || F.dragging) return;
     const pos = CB()[layoutKey()];
-    if (!(pos && pos.fx >= 0)) { bar.classList.remove("moved"); bar.style.left = bar.style.top = ""; placeHint(); return; }
+    if (!(pos && pos.fx >= 0)) {
+      bar.classList.remove("moved"); bar.style.left = bar.style.top = "";
+      // default spot (top centre): step below the Self-Driving badge if they would overlap
+      const fsd = $("panel-fsd");
+      if (fsd && !fsd.hidden && fsd.offsetWidth) {
+        const a = fsd.getBoundingClientRect(), b = bar.getBoundingClientRect(), sr = stage().getBoundingClientRect();
+        if (a.bottom > b.top && a.top < b.bottom && a.right > b.left && a.left < b.right) bar.style.top = Math.round(a.bottom - sr.top + 6) + "px";
+      }
+      placeHint(); return;
+    }
     bar.classList.add("moved");
     const s = spans();
     bar.style.left = Math.round(MARGIN + T.clamp(pos.fx, 0, 1) * s.sx) + "px";
@@ -413,7 +422,7 @@
     $("btnHintOk").addEventListener("click", (e) => { e.stopPropagation(); hideHint(true); });
     barDrag();
     new ResizeObserver(() => placeBar()).observe(stage());
-    T.on("layout", () => placeBar());
+    T.on("layout", () => { placeBar(); requestAnimationFrame(() => placeBar()); });
     zoomInput();
     document.addEventListener("fullscreenchange", onFsChange);
     document.addEventListener("webkitfullscreenchange", onFsChange);

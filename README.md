@@ -13,9 +13,24 @@ A Tesla dashcam and Sentry viewer that runs entirely in your browser. Drop in yo
 - **Multi-section trim** (turn on **Advanced**). Mark several sections on the timeline, drag their edges, then play or export them joined into one video. The clock and telemetry stay correct at every cut.
 - **Export.** *Most Compatible* gives you a 1080p H.264 MP4. *Original* stitches the grid at native camera resolution, pixel for pixel with no upscaling. Overlays are burned into the video.
 
-![Grid with HUD and map](screenshots/02-grid-hud-map-1440x900.png)
+![Six-camera grid with the telemetry HUD, route map and Self-Driving badge, during a lane change with the left blinker on](screenshots/readme-grid.png)
 
-![Focused camera with the angle switcher](screenshots/21-focus-switcher.png)
+![One camera enlarged, with the floating camera bar](screenshots/readme-focus-camera-bar.png)
+
+<details>
+<summary>More screenshots</summary>
+
+![Multi-section trim: three sections marked on the timeline (Advanced)](screenshots/readme-sections.png)
+
+![Export dialog: Most Compatible MP4, sections joined, overlays burned in](screenshots/readme-export.png)
+
+![Sentry event: a passer-by on the right repeater](screenshots/readme-sentry.png)
+
+![Start screen: drop your TeslaCam folder](screenshots/readme-empty.png)
+
+</details>
+
+<sub>Screenshots use computer-generated mock-up footage of a made-up street. No real dashcam video, people or plates.</sub>
 
 ## How to use
 1. Plug your Tesla USB drive into your computer, or copy its `TeslaCam` folder somewhere.
@@ -54,7 +69,7 @@ Newer Tesla firmware can encrypt dashcam clips. Unencrypted clips need no accoun
 2. Install the connector: open [`connector/Tesla-Grid-Player-Connector.user.js`](connector/Tesla-Grid-Player-Connector.user.js) and click **Raw**. Your userscript manager should offer to install it. The app's unlock dialog also has Download and Copy buttons.
 3. In the app, click **Unlock with Tesla** and sign in to your Tesla account in the window that opens. The connector fetches the per-clip keys from Tesla, and decryption happens in your browser.
 
-![Unlock dialog](screenshots/08-unlock-dialog.png)
+![Unlock dialog](screenshots/readme-unlock.png)
 
 Some caveats:
 - The Tesla key endpoint is undocumented and may change.
