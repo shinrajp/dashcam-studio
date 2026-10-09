@@ -15,7 +15,7 @@ A Tesla dashcam and Sentry viewer that runs entirely in your browser. Drop in yo
 
 ![Full screen: front camera at golden hour with the telemetry HUD and Self-Driving badge](screenshots/photo-hero-fullscreen.png)
 
-![Six-camera grid with HUD, route map and Self-Driving badge, mid lane change with the left blinker on](screenshots/photo-grid.png)
+![Six-camera grid with HUD, route map and Self-Driving badge: left blinker on while a Cybercab overtakes, before the lane change](screenshots/photo-grid.png)
 
 ![Sentry event at golden hour: a hooded passer-by on the right repeater](screenshots/photo-sentry.png)
 
