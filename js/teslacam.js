@@ -73,9 +73,12 @@
   /**
    * Group files into events → clips → cameras.
    * items: [{ path, name, size, ...anything }]; jsonByDir: { dir: parsedEventJson }
+   * looseJson: [parsedEventJson] read from files without a folder path (multi-file picker, single dropped files);
+   * they are matched to folder-less events by their "timestamp".
    * Consecutive clips in one folder belong to the same event unless the gap exceeds gapMs.
+   * An event.json is never applied to more than one event; when the match is ambiguous the event gets none.
    */
-  function group(items, jsonByDir, gapMs) {
+  function group(items, jsonByDir, gapMs, looseJson) {
     gapMs = gapMs || 90000;
     const byDir = new Map();
     const loose = [];
@@ -108,8 +111,8 @@
       for (const it of loose) if (!files[it.cam]) files[it.cam] = it;
       events.push({ dir: "", source: "Files", clips: [{ stamp: null, time: null, files }] });
     }
+    assignMeta(events, jsonByDir, looseJson);
     for (const ev of events) {
-      ev.meta = (jsonByDir && jsonByDir[ev.dir]) || null;
       ev.time = ev.clips[0].time;
       ev.id = (ev.dir || "files") + "|" + (ev.clips[0].stamp || "loose");
       ev.trigger = triggerOf(ev.meta && ev.meta.reason, ev.source);
@@ -122,6 +125,50 @@
     }
     events.sort((a, b) => (b.time || 0) - (a.time || 0));
     return events;
+  }
+
+  const CLIP_MS = 60000, MATCH_SLACK_MS = 60000;
+  /** ms between an event.json timestamp and an event's clip span [first clip start, last clip start + 60 s]. */
+  function distanceTo(ev, t) {
+    const a = ev.clips[0].time, b = ev.clips[ev.clips.length - 1].time;
+    if (a == null || b == null) return Infinity;
+    return t < a ? a - t : t > b + CLIP_MS ? t - (b + CLIP_MS) : 0;
+  }
+  /** Match event.json objects to candidate events by timestamp. Returns Map(event → json); ambiguous → no entry. */
+  function matchByTime(jsons, cands) {
+    const got = new Map(); // event → [json…]
+    for (const j of jsons) {
+      const t = parseIsoLocal(j && j.timestamp);
+      if (t == null) continue;
+      let best = null, bestD = Infinity, tie = false;
+      for (const ev of cands) {
+        const d = distanceTo(ev, t);
+        if (d > MATCH_SLACK_MS) continue;
+        if (d < bestD) { best = ev; bestD = d; tie = false; } else if (d === bestD) tie = true;
+      }
+      if (best && !tie) { if (!got.has(best)) got.set(best, []); got.get(best).push(j); }
+    }
+    const out = new Map();
+    for (const [ev, js] of got) if (js.length === 1) out.set(ev, js[0]); // two event.json files → can't tell which
+    return out;
+  }
+  function assignMeta(events, jsonByDir, looseJson) {
+    for (const ev of events) ev.meta = null;
+    const byDir = new Map();
+    for (const ev of events) { if (!byDir.has(ev.dir)) byDir.set(ev.dir, []); byDir.get(ev.dir).push(ev); }
+    const loose = (looseJson || []).slice();
+    if (jsonByDir && jsonByDir[""]) loose.push(jsonByDir[""]);
+    for (const [dir, evs] of byDir) {
+      if (dir === "") continue;
+      const j = jsonByDir && jsonByDir[dir];
+      if (!j) continue;
+      if (evs.length === 1) { evs[0].meta = j; continue; }       // the normal case: one event per folder
+      for (const [ev, m] of matchByTime([j], evs)) ev.meta = m;  // folder split into several events by gaps
+    }
+    const cands = byDir.get("") || [];
+    if (!cands.length || !loose.length) return;
+    if (cands.length === 1 && loose.length === 1 && parseIsoLocal(loose[0] && loose[0].timestamp) == null) { cands[0].meta = loose[0]; return; }
+    for (const [ev, m] of matchByTime(loose, cands)) ev.meta = m;
   }
 
   return { parseName, sourceOf, dirOf, baseName, group, triggerOf, parseIsoLocal, SOURCES };

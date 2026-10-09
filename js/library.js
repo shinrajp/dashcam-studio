@@ -4,7 +4,7 @@
   const T = window.TDC;
   const TC = T.teslacam;
 
-  const lib = (T.library = { items: new Map(), jsonByDir: {}, events: [], keyCache: new Map(), keyErrors: new Map() });
+  const lib = (T.library = { items: new Map(), jsonByDir: {}, looseJson: new Map(), events: [], keyCache: new Map(), keyErrors: new Map() });
 
   // ── reading dropped folders ──
   async function walkEntry(entry, out, depth) {
@@ -43,7 +43,12 @@
     for (const { file, path } of list) {
       const name = TC.baseName(path);
       if (/^event\.json$/i.test(name)) {
-        try { lib.jsonByDir[TC.dirOf(path)] = JSON.parse(await file.text()); } catch (_) {}
+        try {
+          const txt = await file.text(), j = JSON.parse(txt), dir = TC.dirOf(path);
+          // No folder path (multi-file picker / single dropped files): several event.json files share the
+          // name, so keep them all and let grouping match each one to its event by timestamp.
+          if (dir) lib.jsonByDir[dir] = j; else lib.looseJson.set(txt.trim(), j);
+        } catch (_) {}
         continue;
       }
       if (!isVideo(name) || name.startsWith("._")) continue; // skip macOS resource forks
@@ -75,7 +80,7 @@
   lib.regroup = () => {
     const prev = new Map(lib.events.map((e) => [e.id, e]));
     const items = [...lib.items.values()].filter((it) => it.kind !== "unknown" && it.kind !== "empty");
-    const events = TC.group(items, lib.jsonByDir);
+    const events = TC.group(items, lib.jsonByDir, undefined, [...lib.looseJson.values()]);
     for (const ev of events) {
       const old = prev.get(ev.id);
       ev.exported = old ? old.exported : null;
@@ -204,7 +209,7 @@
   };
 
   lib.clear = () => {
-    lib.items.clear(); lib.jsonByDir = {}; lib.events = [];
+    lib.items.clear(); lib.jsonByDir = {}; lib.looseJson.clear(); lib.events = [];
     T.emit("library");
   };
 })();
