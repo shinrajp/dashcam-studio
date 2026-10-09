@@ -36,6 +36,7 @@
     },
     export: { preset: "compat", codec: "h264", res: "native", range: "full" },
     rate: 1,
+    camsHidden: { left_pillar: false, front: false, right_pillar: false, left_repeater: false, back: false, right_repeater: false },
   };
   function merge(def, val) {
     if (Array.isArray(def) || typeof def !== "object" || def === null) {

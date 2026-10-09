@@ -9,15 +9,32 @@ A Tesla dashcam and Sentry viewer that runs entirely in your browser. Drop in yo
 - **Route map.** A map with the route and a dot that moves with playback. Click the map to seek.
 - **Self-Driving badge.** It shows Self-Driving, Autosteer or TACC status.
 - **Toggles.** Every overlay can be switched on or off, and your choices are saved.
+- **Focus & full screen.** Click or tap any camera to enlarge it, switch angles from the camera bar or with keys 1–6, zoom in up to 4× (pinch, Ctrl+scroll or +/−) and drag to pan. You can also hide cameras in the grid and go full screen.
 - **Multi-section trim** (turn on **Advanced**). Mark several sections on the timeline, drag their edges, then play or export them joined into one video. The clock and telemetry stay correct at every cut.
 - **Export.** *Most Compatible* gives you a 1080p H.264 MP4. *Original* stitches the grid at native camera resolution, pixel for pixel with no upscaling. Overlays are burned into the video.
 
 ![Grid with HUD and map](screenshots/02-grid-hud-map-1440x900.png)
 
+![Focused camera with the angle switcher](screenshots/21-focus-switcher.png)
+
 ## How to use
 1. Plug your Tesla USB drive into your computer, or copy its `TeslaCam` folder somewhere.
 2. Open the [app](https://shinrajp.github.io/dashcam-studio/). Then either drag the `TeslaCam` folder onto the window or click **Open folder**.
 3. Pick an event on the left and press play, or click **Export all** to make one MP4 per event.
+
+## Keyboard shortcuts
+| Key | Action |
+|---|---|
+| Space | play / pause |
+| ← → | previous / next frame (Shift: ±5 s) |
+| 1 – 6 | focus Front, Rear, Left Pillar, Right Pillar, Left Repeater, Right Repeater |
+| [ / ] | previous / next camera |
+| G or Esc | back to the grid |
+| + / − | zoom the focused camera (pinch or Ctrl+scroll also work; drag to pan; double-click resets) |
+| F | full screen |
+| H · M · D · L | toggle HUD · map · Self-Driving badge · camera labels |
+
+With **Advanced** on: A adds a section, I / O set its start / end, S plays only the sections, Delete removes the selected one.
 
 ## Privacy
 - **Your footage never leaves your computer.** The video files are read and processed locally in your browser. Nothing is uploaded and there's no server or account.

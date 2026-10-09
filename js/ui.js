@@ -7,13 +7,15 @@
   const U = (T.ui = { current: null, segs: [], selSeg: null, playSecs: false, playIdx: 0 });
   const P = () => T.player;
 
-  // ── stage fitting: keep the 3×2 grid's aspect and fit the viewport (no cut-off bottom row) ──
+  // ── stage fitting: keep the grid's aspect (3×2, fewer cameras, or one focused camera) and fit the viewport ──
   U.fit = () => {
     const vp = $("viewport"), stage = $("stage");
     const ev = P().ev;
     const tile = ev && ev.tile ? ev.tile : { w: 1448, h: 938 };
-    const aspect = (3 * tile.w) / (2 * tile.h);
-    const W = vp.clientWidth - 20, H = vp.clientHeight - 20;
+    const d = T.focus ? T.focus.dims() : { cols: 3, rows: 2 };
+    const aspect = (d.cols * tile.w) / (d.rows * tile.h);
+    const pad = document.body.classList.contains("fs") ? 0 : 20;
+    const W = vp.clientWidth - pad, H = vp.clientHeight - pad;
     let w = W, h = W / aspect;
     if (h > H) { h = H; w = H * aspect; }
     stage.style.width = Math.floor(w) + "px";
@@ -551,6 +553,7 @@
   U.init = () => {
     T.player.init($("grid"));
     T.overlays.init($("stage"), $("overlayLayer"));
+    T.focus.init();
     T.auth.init();
     new ResizeObserver(() => { U.fit(); U.drawTimeline(); }).observe($("viewport"));
     document.body.classList.add("no-event");
@@ -640,14 +643,27 @@
       else if (k === "End") P().seek(P().duration());
       else if (k === "h" || k === "H") toggleShow("hud");
       else if (k === "m" || k === "M") toggleShow("map");
-      else if (k === "f" || k === "F") toggleShow("fsd");
+      else if (k === "f" || k === "F") T.focus.fullscreen();
+      else if (k === "d" || k === "D") toggleShow("fsd");
+      else if (/^[1-6]$/.test(k) && !e.altKey && P().ev) T.focus.byNumber(+k);
+      else if ((k === "g" || k === "G" || k === "0") && P().ev) T.focus.grid();
+      else if (k === "]" && P().ev) T.focus.cycle(1);
+      else if (k === "[" && P().ev) T.focus.cycle(-1);
+      else if ((k === "+" || k === "=") && T.focus.cam) T.focus.zoomBy(1.5);
+      else if ((k === "-" || k === "_") && T.focus.cam) T.focus.zoomBy(1 / 1.5);
       else if (k === "l" || k === "L") toggleShow("labels");
       else if ((k === "i" || k === "I") && T.prefs.advanced) $("btnIn").click();
       else if ((k === "o" || k === "O") && T.prefs.advanced) $("btnOut").click();
       else if ((k === "a" || k === "A") && T.prefs.advanced && P().ev) U.addSeg();
       else if ((k === "s" || k === "S") && T.prefs.advanced && U.segs.length) $("btnPlaySecs").click();
       else if ((k === "Delete" || k === "Backspace") && T.prefs.advanced && U.selectedSeg()) { e.preventDefault(); U.deleteSeg(); }
-      else if (k === "Escape") { document.querySelectorAll(".modal").forEach((m) => { if (!T.exporter.running) m.hidden = true; }); $("settings").hidden = true; }
+      else if (k === "Escape") {
+        const open = [...document.querySelectorAll(".modal")].some((m) => !m.hidden) || !$("settings").hidden || !$("camMenu").hidden;
+        document.querySelectorAll(".modal").forEach((m) => { if (!T.exporter.running) m.hidden = true; }); $("settings").hidden = true; $("camMenu").hidden = true;
+        if (open) return;
+        if (T.focus.cam) T.focus.grid();                   // Esc: focused camera → grid → leave full screen
+        else if (T.focus.isFullscreen()) T.focus.fullscreen(false);
+      }
     });
     U.fit();
   };

@@ -40,6 +40,20 @@
         <div class="grid" id="grid"></div>
         <div class="overlay-layer" id="overlayLayer"></div>
         <div class="stage-time" id="stageTime" hidden></div>
+        <div class="stage-bar" id="stageBar">
+          <div class="cam-switch" id="camSwitch" role="group" aria-label="Camera"></div>
+          <div class="zoom-ctl focus-only" id="zoomCtl" role="group" aria-label="Zoom">
+            <button class="btn icon sm" id="btnZoomOut" title="Zoom out (−)" aria-label="Zoom out"><svg viewBox="0 0 24 24"><path d="M6 12h12"/></svg></button>
+            <span class="zoom-label" id="zoomLabel">1×</span>
+            <button class="btn icon sm" id="btnZoomIn" title="Zoom in (+) · pinch or Ctrl+scroll · drag to pan · double-click resets" aria-label="Zoom in"><svg viewBox="0 0 24 24"><path d="M12 6v12M6 12h12"/></svg></button>
+          </div>
+          <div class="cams-wrap grid-only">
+            <button class="btn small ghost" id="btnCams" title="Show or hide cameras in the grid"><svg viewBox="0 0 24 24"><rect x="3" y="6" width="13" height="12" rx="2"/><path d="M16 10l5-3v10l-5-3"/></svg><span>Cameras</span></button>
+            <div class="cam-menu" id="camMenu" hidden></div>
+          </div>
+          <button class="btn icon sm fs-btn" id="btnFsStage" title="Full screen (F)" aria-label="Full screen"><svg viewBox="0 0 24 24" class="i-fs"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg><svg viewBox="0 0 24 24" class="i-fsx"><path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"/></svg></button>
+          <button class="btn icon sm focus-only" id="btnFocusClose" title="Back to the grid (Esc)" aria-label="Back to the grid"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+        </div>
       </div>
       <section class="empty" id="emptyState">
         <div class="empty-card">
@@ -89,9 +103,10 @@
       <button class="chip" data-show="labels" title="Camera labels">Labels</button>
       <button class="chip" data-show="hud" title="Telemetry HUD (H)">HUD</button>
       <button class="chip" data-show="map" title="Route map (M)">Map</button>
-      <button class="chip" data-show="fsd" title="Self-driving status (F)">Self-Driving</button>
+      <button class="chip" data-show="fsd" title="Self-driving status (D)">Self-Driving</button>
       <button class="chip" data-show="time" title="Date &amp; time">Time</button>
     </div>
+    <button class="btn icon fs-btn" id="btnFullscreen" title="Full screen (F)" aria-label="Full screen"><svg viewBox="0 0 24 24" class="i-fs"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg><svg viewBox="0 0 24 24" class="i-fsx"><path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"/></svg></button>
   </footer>
 
   <aside class="drawer" id="settings" hidden>
@@ -195,6 +210,7 @@
   <script src="js/map.js"></script>
   <script src="js/compositor.js"></script>
   <script src="js/overlays.js"></script>
+  <script src="js/focus.js"></script>
   <script src="js/export.js"></script>
   <script src="js/connector-src.js"></script>
   <script src="js/tesla-auth.js"></script>
