@@ -10,8 +10,9 @@ A Tesla dashcam and Sentry viewer that runs entirely in your browser. Drop in yo
 - **Self-Driving badge.** It shows Self-Driving, Autosteer or TACC status.
 - **Toggles.** Every overlay can be switched on or off, and your choices are saved.
 - **Focus & full screen.** Click or tap any camera to enlarge it, switch angles from the camera bar or with keys 1–6, zoom in up to 4× (pinch, Ctrl+scroll or +/−) and drag to pan. You can also hide cameras in the grid and go full screen. The camera bar can be dragged anywhere on the video (grab ⋮⋮; double-click it to put it back), fades when idle, and can be switched off with the **Camera bar** switch or **C**. A small camera button brings it back.
-- **Multi-section trim** (turn on **Advanced**). Mark several sections on the timeline, drag their edges, then play or export them joined into one video. The clock and telemetry stay correct at every cut.
+- **Multi-section trim** (turn on **Advanced**). The timeline runs the full width of the window, with a scrub band on top and a tall section lane underneath. Mark several sections, drag their wide edge handles to trim them, drag the middle to move one, or split a section at the playhead. Pinch or Ctrl+scroll zooms the timeline so short cuts are easy to fine-tune. Then play or export the sections joined into one video. The clock and telemetry stay correct at every cut.
 - **Export.** *Most Compatible* gives you a 1080p H.264 MP4. *Original* stitches the grid at native camera resolution, pixel for pixel with no upscaling. Overlays are burned into the video.
+- **iPhone & iPad.** Touch-sized controls, a 2×3 grid on a phone held upright, and Save / Share to Photos or Files after an export.
 
 ![Full screen: front camera at golden hour with the telemetry HUD and Self-Driving badge](screenshots/photo-hero-fullscreen.png)
 
@@ -24,7 +25,9 @@ A Tesla dashcam and Sentry viewer that runs entirely in your browser. Drop in yo
 
 ![One camera enlarged, with the floating camera bar](screenshots/photo-focus-camera-bar.png)
 
-![Multi-section trim: three sections marked on the timeline (Advanced)](screenshots/photo-sections.png)
+![Multi-section trim: three labelled sections on the full-width timeline (Advanced)](screenshots/photo-sections.png)
+
+![iPhone (portrait): 2×3 camera grid with the full-width timeline and section lane](screenshots/photo-iphone.png)
 
 ![Export dialog: Most Compatible MP4, sections joined, overlays burned in](screenshots/photo-export.png)
 
@@ -41,6 +44,8 @@ A Tesla dashcam and Sentry viewer that runs entirely in your browser. Drop in yo
 2. Open the [app](https://shinrajp.github.io/dashcam-studio/). Then either drag the `TeslaCam` folder onto the window or click **Open folder**.
 3. Pick an event on the left and press play, or click **Export all** to make one MP4 per event.
 
+**On iPhone or iPad:** copy the clips into the Files app first, for example from the USB drive with a USB-C adapter. Then tap **Add files** and select the `.mp4` files (and `event.json` if there is one). The app groups them into events by the timestamps in their file names. Safari can't open a whole folder, so pick the files themselves. Use Files rather than the Photos picker, which may convert the videos.
+
 ## Keyboard shortcuts
 | Key | Action |
 |---|---|
@@ -54,7 +59,7 @@ A Tesla dashcam and Sentry viewer that runs entirely in your browser. Drop in yo
 | C | camera bar on / off |
 | H · M · D · L | toggle HUD · map · Self-Driving badge · camera labels |
 
-With **Advanced** on: A adds a section, I / O set its start / end, S plays only the sections, Delete removes the selected one.
+With **Advanced** on: A adds a section, B splits the section at the playhead, I / O set its start / end, S plays only the sections, Delete removes the selected one. On the timeline, Ctrl+scroll or a pinch zooms in, scrolling sideways pans, and double-clicking (or the zoom button) zooms back out.
 
 ## Privacy
 - **Your footage never leaves your computer.** The video files are read and processed locally in your browser. Nothing is uploaded and there's no server or account.
@@ -64,7 +69,8 @@ With **Advanced** on: A adds a section, I / O set its start / end, S plays only 
 ## Browser support
 - **Chrome or Edge (desktop): best.** You get fast hardware-accelerated export, and *Export all* can save straight into a folder you pick.
 - **Safari (Mac):** playback, overlays and trimming work. Export may be slower, and *Export all* saves each video to Downloads one at a time.
-- Firefox has not been tested. Phones aren't a target, because they can't read a Tesla USB drive easily.
+- **Safari on iPhone and iPad (iOS 16.4+):** playback, overlays, focus view and trimming work with touch. Export runs in the browser (WebCodecs). When it finishes, tap **Save / Share** to send the video to Photos or Files. Keep the tab in front while it exports, and prefer short sections, because long or *Original* exports can run out of memory on a phone. Older iOS versions fall back to a slower real-time recording, and if a browser can't do either, the export dialog says so. iPhone Safari has no real full-screen mode, so **Full screen** fills the browser window instead. *Export all* saves the videos one at a time.
+- Firefox has not been tested.
 
 ## Encrypted clips (optional)
 Newer Tesla firmware can encrypt dashcam clips. Unencrypted clips need no account at all.

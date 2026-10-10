@@ -63,7 +63,7 @@
     const tel = T.telemetry;
     const show = T.prefs.show;
     const g = grid();
-    const s = T.compositor.unitScale(g.h);
+    const s = T.compositor.liveScale(g.w, g.h);
     const r = dpr();
     O.stage.classList.toggle("hide-labels", !show.labels);
     // HUD
@@ -156,7 +156,7 @@
       e.preventDefault(); e.stopPropagation();
       grip.setPointerCapture(e.pointerId);
       const mp = T.prefs.panels.map;
-      st = { x: e.clientX, y: e.clientY, wu: mp.wu, hu: mp.hu, s: T.compositor.unitScale(grid().h) };
+      st = { x: e.clientX, y: e.clientY, wu: mp.wu, hu: mp.hu, s: T.compositor.liveScale(grid().w, grid().h) };
     });
     grip.addEventListener("pointermove", (e) => {
       if (!st) return;

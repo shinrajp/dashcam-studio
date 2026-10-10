@@ -32,12 +32,17 @@
 
   // ── layout ──
   /** Columns × rows of the live view: 1×1 when focused, otherwise fits the visible cameras. */
+  // portrait phones stack the grid 2 columns × 3 rows (CSS orders the tiles: Front | Back, sides, mirrors)
+  const mqPortrait = window.matchMedia ? matchMedia("(max-width: 900px) and (orientation: portrait)") : { matches: false };
+  F.portrait = () => !!mqPortrait.matches;
   F.dims = () => {
     if (F.cam) return { cols: 1, rows: 1 };
     const n = T.GRID.filter((c) => !hidden(c)).length;
+    if (F.portrait()) return n <= 1 ? { cols: 1, rows: 1 } : n <= 3 ? { cols: 1, rows: n } : n === 4 ? { cols: 2, rows: 2 } : { cols: 2, rows: 3 };
     return n <= 1 ? { cols: 1, rows: 1 } : n === 2 ? { cols: 2, rows: 1 } : n === 3 ? { cols: 3, rows: 1 } : n === 4 ? { cols: 2, rows: 2 } : { cols: 3, rows: 2 };
   };
-  function applyLayout() {
+  function applyLayout(keepZoom) {
+    document.body.classList.toggle("portrait", F.portrait());
     const d = F.dims(), grid = $("grid");
     grid.style.gridTemplateColumns = `repeat(${d.cols}, 1fr)`;
     grid.style.gridTemplateRows = `repeat(${d.rows}, 1fr)`;
@@ -50,7 +55,7 @@
     }
     stage().classList.toggle("focus", !!F.cam);
     document.body.classList.toggle("focused", !!F.cam);
-    resetZoom();
+    if (!keepZoom) resetZoom();
     syncBar();
     if (T.ui && T.ui.fit) T.ui.fit();
   }
@@ -397,9 +402,26 @@
   F.init = () => {
     buildBar();
     // tap / click a tile in the grid → focus it; the corner button does the same (discoverable on hover)
+    // on touch, a tap while the controls are faded only brings them back (it doesn't also enlarge a tile)
+    window.addEventListener("pointerdown", (e) => {
+      // only taps on the video wake-and-swallow (or anywhere in full screen, where every control fades);
+      // the top bar and the transport never fade outside full screen, so taps there always act
+      const onVideo = e.target && e.target.closest && e.target.closest("#stage");
+      if (e.pointerType !== "mouse" && document.body.classList.contains("idle") && (F.isFullscreen() || (F.barOn() && onVideo))) F.tapWoke = performance.now();
+      else F.tapWoke = 0; // controls already visible: the next tap acts normally
+    }, { capture: true, passive: true });
+    // the waking tap only wakes: the bar fades back in under the finger, so its click must not press a bar button
+    // (or enlarge a tile). Swallowed once, in the capture phase, before any handler sees it.
+    window.addEventListener("click", (e) => {
+      if (!F.tapWoke || performance.now() - F.tapWoke > 700) return;
+      F.tapWoke = 0;
+      if (e.target.closest && e.target.closest(".tile-expand")) return;
+      e.preventDefault(); e.stopPropagation();
+    }, { capture: true });
     $("grid").addEventListener("click", (e) => {
       const tile = e.target.closest(".tile");
       if (!tile || F.cam || !P().ev) return;
+      if (F.tapWoke && performance.now() - F.tapWoke < 700 && !e.target.closest(".tile-expand")) { F.tapWoke = 0; return; } // swallow only the waking tap
       F.focus(tile.dataset.cam);
     });
     for (const cam of T.GRID) {
@@ -428,6 +450,8 @@
     document.addEventListener("webkitfullscreenchange", onFsChange);
     ["pointermove", "pointerdown", "keydown", "wheel"].forEach((ev) => window.addEventListener(ev, wake, { passive: true }));
     window.addEventListener("resize", () => applyZoom());
+    const onOrient = () => applyLayout(true); // rotating keeps the focus zoom/pan
+    if (mqPortrait.addEventListener) mqPortrait.addEventListener("change", onOrient); else if (mqPortrait.addListener) mqPortrait.addListener(onOrient);
     T.on("player-open", () => { if (F.cam && !present(F.cam)) F.cam = null; applyLayout(); });
     T.on("prefs", (p) => { if (p === "*") syncBarVis(); });
     T.on("prefs", (p) => { if (p === "*" || p === "camsHidden") applyLayout(); });

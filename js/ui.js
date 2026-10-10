@@ -14,8 +14,8 @@
     const tile = ev && ev.tile ? ev.tile : { w: 1448, h: 938 };
     const d = T.focus ? T.focus.dims() : { cols: 3, rows: 2 };
     const aspect = (d.cols * tile.w) / (d.rows * tile.h);
-    const pad = document.body.classList.contains("fs") ? 0 : 20;
-    const W = vp.clientWidth - pad, H = vp.clientHeight - pad;
+    const cs = getComputedStyle(vp);
+    const W = vp.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight), H = vp.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
     let w = W, h = W / aspect;
     if (h > H) { h = H; w = H * aspect; }
     stage.style.width = Math.floor(w) + "px";
@@ -59,6 +59,17 @@
       list.appendChild(b);
     }
     const n = evs.length;
+    const pick = $("eventPick");
+    pick.innerHTML = "";
+    evs.forEach((ev, i) => {
+      const d = ev.time ? new Date(ev.time) : null;
+      const o = document.createElement("option");
+      o.value = String(i);
+      o.textContent = (d ? `${T.fmtDate(d).slice(5)} ${T.fmtClock(d).slice(0, 5)} · ` : "") + ev.trigger.label + (ev.locked ? " 🔒" : "");
+      if (ev === U.current) o.selected = true;
+      pick.appendChild(o);
+    });
+    document.body.classList.toggle("multi-ev", n > 1);
     $("libSub").textContent = `${n} event${n === 1 ? "" : "s"} · ${evs.reduce((a, e) => a + e.clips.length, 0)} clips`;
     $("btnExportAllText").textContent = n > 1 ? `Export all ${n} events` : "Export this event";
     const locked = T.library.lockedCount();
@@ -69,7 +80,7 @@
   // ── event activation ──
   U.activate = async (ev, startAt) => {
     if (!ev) return;
-    if (ev !== U.current) { U.segs = []; U.selSeg = null; U.playIdx = 0; } // sections belong to one event
+    if (ev !== U.current) { U.segs = []; U.selSeg = null; U.playIdx = 0; view.z = 1; view.v0 = 0; } // sections belong to one event
     U.current = ev;
     busy(true, "Preparing event…");
     try { await T.library.prepare(ev); } finally { busy(false); }
@@ -106,21 +117,64 @@
     T.toast(`${n} event${n === 1 ? "" : "s"} found${T.library.lockedCount() ? ` · ${T.library.lockedCount()} encrypted file(s) — click Unlock with Tesla` : ""}`, "ok");
   };
 
-  // ── timeline ──
+  // ── timeline: its own full-width row (like the Grid Player's multi-trim bar). Upper band = scrub (Self-Driving,
+  // brake, speed); lower lane = sections (Advanced). The visible window can be zoomed (Ctrl+scroll, trackpad or
+  // two-finger pinch) and panned (scroll sideways); the playhead is followed while playing. ──
+  const view = { z: 1, v0: 0 };
+  const MAX_TL_Z = 40;
+  const isCoarse = () => !!(window.matchMedia && matchMedia("(pointer: coarse)").matches);
+  const laneOn = () => !!(T.prefs.advanced && P().ev);
+  function span() { const d = P().duration() || 0; return d / view.z; }
+  function clampView() {
+    const d = P().duration() || 0;
+    view.z = T.clamp(view.z, 1, Math.max(1, Math.min(MAX_TL_Z, d / 0.8)));
+    view.v0 = T.clamp(view.v0, 0, Math.max(0, d - d / view.z));
+    const b = $("btnTlZoom");
+    if (b) { b.hidden = view.z <= 1.01; b.textContent = (view.z < 10 ? view.z.toFixed(1) : Math.round(view.z)) + "×"; }
+  }
+  U.tlZoom = (z, tAnchor) => {
+    const d = P().duration() || 0;
+    if (!d) return;
+    const old = span(), a = tAnchor == null ? view.v0 + old / 2 : tAnchor, frac = (a - view.v0) / old;
+    view.z = z; clampView();
+    view.v0 = a - frac * span(); clampView();
+    U.drawTimeline();
+  };
+  U.tlReset = () => { view.z = 1; view.v0 = 0; clampView(); U.drawTimeline(); };
+  /** Geometry of the bands in CSS px (relative to the timeline box). */
+  function geom(h) {
+    const top = 6, bottom = h - 3;
+    if (!laneOn()) return { top, bh: bottom - top, laneTop: 0, laneH: 0 };
+    const laneH = Math.max(24, Math.round((bottom - top) * 0.52));
+    return { top, bh: bottom - top - laneH - 4, laneTop: bottom - laneH, laneH };
+  }
+  /** For tests and tools: page coordinates of the timeline, its visible window and band centres. */
+  U.tlGeom = () => {
+    const r = $("timeline").getBoundingClientRect(), g = geom(r.height), sp = span();
+    return { left: r.left, top: r.top, w: r.width, h: r.height, v0: view.v0, span: sp, z: view.z,
+      scrubY: r.top + g.top + g.bh / 2, laneY: g.laneH ? r.top + g.laneTop + g.laneH / 2 : null,
+      x: (t) => r.left + ((t - view.v0) / sp) * r.width };
+  };
+  const NICE = [0.1, 0.2, 0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 900, 1800];
   U.drawTimeline = () => {
     const cv = $("timelineCanvas"), ev = P().ev;
     const r = Math.min(2, window.devicePixelRatio || 1);
     const w = cv.clientWidth, h = cv.clientHeight;
     if (!w) return;
-    if (cv.width !== Math.round(w * r)) { cv.width = Math.round(w * r); cv.height = Math.round(h * r); }
+    if (cv.width !== Math.round(w * r) || cv.height !== Math.round(h * r)) { cv.width = Math.round(w * r); cv.height = Math.round(h * r); }
     const ctx = cv.getContext("2d");
     ctx.setTransform(r, 0, 0, r, 0, 0);
     ctx.clearRect(0, 0, w, h);
-    const top = 8, bh = h - 16;
-    T.draw.rr(ctx, 0, top, w, bh, 6); ctx.fillStyle = "#1c2028"; ctx.fill();
+    clampView();
+    const g = geom(h), top = g.top, bh = g.bh;
+    T.draw.rr(ctx, 0, top, w, bh, 7); ctx.fillStyle = "#1c2028"; ctx.fill();
+    if (g.laneH) { T.draw.rr(ctx, 0, g.laneTop, w, g.laneH, 7); ctx.fillStyle = "#12151b"; ctx.fill(); ctx.strokeStyle = "rgba(255,255,255,0.07)"; ctx.lineWidth = 1; ctx.stroke(); }
     if (!ev || !ev.duration) return;
-    const X = (t) => (t / ev.duration) * w;
-    ctx.save(); T.draw.rr(ctx, 0, top, w, bh, 6); ctx.clip();
+    const sp = span(), v0 = view.v0;
+    const X = (t) => ((t - v0) / sp) * w;
+    const tl = $("timeline");
+    tl.setAttribute("aria-valuemax", ev.duration.toFixed(1)); tl.setAttribute("aria-valuenow", P().time.toFixed(1));
+    ctx.save(); T.draw.rr(ctx, 0, top, w, bh, 7); ctx.clip();
     // self-driving / autosteer bands + speed sparkline from parsed telemetry
     const tel = T.telemetry;
     let vmax = 1;
@@ -128,75 +182,121 @@
     ev.clips.forEach((c, i) => {
       const tr = tel.tracks[i];
       if (!tr) return;
-      const step = Math.max(1, Math.floor(tr.n / Math.max(1, X(c.dur))));
+      const step = Math.max(1, Math.floor(tr.n / Math.max(1, (c.dur / sp) * w)));
+      const bw = Math.max(1, ((tr.med * step) / sp) * w + 0.5);
       for (let k = 0; k < tr.n; k += step) {
         const m = tr.msgs[k], x = X(c.start + tr.pts[k]);
-        if (m.ap === 1 || m.ap === 2) { ctx.fillStyle = m.ap === 1 ? "rgba(62,106,225,0.45)" : "rgba(62,106,225,0.22)"; ctx.fillRect(x, top, Math.max(1, X(tr.med * step) + 0.5), bh); }
-        if (m.brake) { ctx.fillStyle = "rgba(255,90,79,0.55)"; ctx.fillRect(x, top + bh - 3, Math.max(1, X(tr.med * step) + 0.5), 3); }
+        if (x < -bw || x > w) continue;
+        if (m.ap === 1 || m.ap === 2) { ctx.fillStyle = m.ap === 1 ? "rgba(62,106,225,0.45)" : "rgba(62,106,225,0.22)"; ctx.fillRect(x, top, bw, bh); }
+        if (m.brake) { ctx.fillStyle = "rgba(255,90,79,0.6)"; ctx.fillRect(x, top + bh - 3, bw, 3); }
       }
       ctx.beginPath();
-      for (let k = 0; k < tr.n; k += step) { const x = X(c.start + tr.pts[k]), y = top + bh - 4 - ((tr.msgs[k].speed || 0) / vmax) * (bh - 8); k === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y); }
+      for (let k = 0; k < tr.n; k += step) { const x = X(c.start + tr.pts[k]), y = top + bh - 4 - ((tr.msgs[k].speed || 0) / vmax) * (bh - 12); k === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y); }
       ctx.strokeStyle = "rgba(255,255,255,0.45)"; ctx.lineWidth = 1.3; ctx.stroke();
     });
     // played
-    ctx.fillStyle = "rgba(255,255,255,0.07)"; ctx.fillRect(0, top, X(P().time), bh);
-    // sections (Advanced): dim the gaps, tint each section, coloured bars in the lower "section lane"
+    ctx.fillStyle = "rgba(255,255,255,0.07)"; ctx.fillRect(0, top, Math.max(0, X(P().time)), bh);
+    // time ticks (nice steps, ≥ 70 px apart)
+    const stepT = NICE.find((s) => (s / sp) * w >= 70) || 3600;
+    ctx.fillStyle = "rgba(255,255,255,0.28)";
+    for (let t = Math.ceil(v0 / stepT) * stepT; t <= v0 + sp + 1e-6; t += stepT) {
+      const x = Math.round(X(t)) + 0.5;
+      ctx.fillRect(x - 0.5, top, 1, 4);
+      if (x > 4 && x < w - 30) T.draw.text(ctx, T.fmtTime(t, stepT < 1), x + 3, top + 9, 9, "rgba(255,255,255,0.42)", "left", 600);
+    }
     const secs = U.activeSegs();
-    if (secs.length) {
+    if (secs.length) { // dim the gaps, tint the sections
       ctx.fillStyle = "rgba(0,0,0,0.5)";
       let cover = 0;
       for (const sg of secs) { if (sg.start > cover) ctx.fillRect(X(cover), top, X(sg.start) - X(cover), bh); cover = Math.max(cover, sg.end); }
-      if (cover < ev.duration) ctx.fillRect(X(cover), top, w - X(cover), bh);
-      const ly = laneY(h), lh = top + bh - ly;
-      secs.forEach((sg, i) => {
-        const col = SEG_COLORS[i % SEG_COLORS.length], x0 = X(sg.start), x1 = X(sg.end);
-        ctx.fillStyle = col + "26"; ctx.fillRect(x0, top, x1 - x0, ly - top);
-        ctx.fillStyle = col + (sg.id === U.selSeg ? "f0" : "b0"); ctx.fillRect(x0, ly, x1 - x0, lh);
-        if (x1 - x0 > 26) T.draw.text(ctx, "S" + (i + 1), (x0 + x1) / 2, ly + lh / 2 + 0.5, 10, "#0b0c0f", "center", 800);
-      });
-    }
-    ctx.restore();
-    if (secs.length) {
-      const ly = laneY(h), lh = top + bh - ly;
-      secs.forEach((sg) => {
-        const x0 = X(sg.start), x1 = X(sg.end), sel = sg.id === U.selSeg;
-        ctx.fillStyle = sel ? "#fff" : "rgba(0,0,0,0.55)";
-        for (const x of [x0, x1]) { T.draw.rr(ctx, x - (sel ? 2.5 : 1), ly - (sel ? 3 : 0), sel ? 5 : 2, lh + (sel ? 6 : 0), 2); ctx.fill(); }
-        if (sel) { ctx.strokeStyle = "rgba(255,255,255,0.9)"; ctx.lineWidth = 1.5; ctx.strokeRect(x0, ly + 0.75, x1 - x0, lh - 1.5); }
-      });
+      if (cover < ev.duration) ctx.fillRect(X(cover), top, X(ev.duration) - X(cover), bh);
+      secs.forEach((sg, i) => { ctx.fillStyle = SEG_COLORS[i % SEG_COLORS.length] + "26"; ctx.fillRect(X(sg.start), top, X(sg.end) - X(sg.start), bh); });
     }
     // clip boundaries
     ctx.fillStyle = "rgba(255,255,255,0.35)";
-    ev.clips.forEach((c, i) => { if (i) ctx.fillRect(Math.round(X(c.start)), top - 3, 1, bh + 6); });
+    ev.clips.forEach((c, i) => { if (i) ctx.fillRect(Math.round(X(c.start)), top, 1, bh); });
+    ctx.restore();
+    // section lane: labelled blocks with wide edge handles
+    if (g.laneH) {
+      const ly = g.laneTop + 3, lh = g.laneH - 6;
+      ctx.save(); T.draw.rr(ctx, 0, g.laneTop, w, g.laneH, 7); ctx.clip();
+      if (!secs.length) T.draw.text(ctx, isCoarse() ? "Sections: tap + to add one at the playhead" : "Sections: press + (or A) to add one at the playhead, then drag its edges", w / 2, g.laneTop + g.laneH / 2 + 0.5, 11, "rgba(255,255,255,0.32)", "center", 600);
+      secs.forEach((sg, i) => {
+        const col = SEG_COLORS[i % SEG_COLORS.length], x0 = X(sg.start), x1 = X(sg.end), sel = sg.id === U.selSeg;
+        if (x1 < -10 || x0 > w + 10) return;
+        T.draw.rr(ctx, x0, ly, Math.max(2, x1 - x0), lh, 6); ctx.fillStyle = col + (sel ? "f2" : "b8"); ctx.fill();
+        if (sel) { ctx.strokeStyle = "#fff"; ctx.lineWidth = 2; ctx.stroke(); }
+        const len = sg.end - sg.start, bwid = x1 - x0;
+        const lab = bwid > 110 ? `S${i + 1} · ${T.fmtTime(len, true)}` : bwid > 34 ? `S${i + 1}` : "";
+        if (lab) T.draw.text(ctx, lab, T.clamp((Math.max(0, x0) + Math.min(w, x1)) / 2, x0 + 16, x1 - 16), ly + lh / 2 + 0.5, 11, "#0b0c0f", "center", 800);
+      });
+      ctx.restore();
+      secs.forEach((sg) => { // handles (drawn unclipped so they stay visible at the ends)
+        const x0 = X(sg.start), x1 = X(sg.end), sel = sg.id === U.selSeg;
+        for (const x of [x0, x1]) {
+          if (x < -8 || x > w + 8) continue;
+          const hw = sel ? 8 : 6;
+          T.draw.rr(ctx, x - hw / 2, g.laneTop + 1, hw, g.laneH - 2, 3);
+          ctx.fillStyle = sel ? "#fff" : "rgba(255,255,255,0.78)"; ctx.fill();
+          ctx.fillStyle = "rgba(0,0,0,0.45)";
+          const cy = g.laneTop + g.laneH / 2;
+          ctx.fillRect(x - 1.5, cy - 5, 1, 10); ctx.fillRect(x + 0.5, cy - 5, 1, 10);
+        }
+      });
+    }
     // event marker (event.json timestamp)
     if (ev.eventTime && ev.clips[0].time) {
       const t = (ev.eventTime - ev.clips[0].time) / 1000;
-      if (t >= 0 && t <= ev.duration) {
+      if (t >= v0 && t <= v0 + sp) {
         const x = X(t);
         ctx.fillStyle = "#FF5A4F";
         ctx.beginPath(); ctx.moveTo(x - 5, 0); ctx.lineTo(x + 5, 0); ctx.lineTo(x, 7); ctx.closePath(); ctx.fill();
         ctx.fillRect(x - 0.75, 6, 1.5, bh + 2);
       }
     }
-    // playhead
+    // playhead: line through both bands + an easy-to-grab knob
     const x = X(P().time);
-    ctx.fillStyle = "#fff";
-    ctx.fillRect(x - 1, 2, 2, h - 4);
-    ctx.beginPath(); ctx.arc(x, 4, 4, 0, Math.PI * 2); ctx.fill();
+    if (x >= -6 && x <= w + 6) {
+      ctx.fillStyle = "#fff";
+      ctx.fillRect(x - 1, 2, 2, h - 4);
+      const kw = isCoarse() ? 14 : 12, kh = Math.min(bh, isCoarse() ? 20 : 16);
+      ctx.save(); ctx.shadowColor = "rgba(0,0,0,0.6)"; ctx.shadowBlur = 4;
+      T.draw.rr(ctx, x - kw / 2, top + (bh - kh) / 2, kw, kh, 4); ctx.fill(); ctx.restore();
+      ctx.fillStyle = "rgba(0,0,0,0.35)"; ctx.fillRect(x - 0.5, top + (bh - kh) / 2 + 4, 1, kh - 8);
+    }
   };
 
   function timelineInput() {
     const tl = $("timeline"), tip = $("tlTip");
-    let drag = false, segDrag = null;
-    const tAt = (e) => { const r = tl.getBoundingClientRect(); return T.clamp((e.clientX - r.left) / r.width, 0, 1) * (P().duration() || 0); };
+    let drag = false, segDrag = null, pinch = null;
+    const pts = new Map();
+    const tAt = (e) => { const r = tl.getBoundingClientRect(); return T.clamp(view.v0 + ((e.clientX - r.left) / r.width) * span(), 0, P().duration() || 0); };
+    const showTip = (e) => {
+      const t = tAt(e), r = tl.getBoundingClientRect();
+      tip.hidden = false; tip.style.left = T.clamp(e.clientX - r.left, 40, r.width - 40) + "px";
+      const d = P().wallClock(t);
+      tip.textContent = T.fmtTime(t, true) + (d ? "  " + T.fmtClock(d) : "");
+    };
     tl.addEventListener("pointerdown", (e) => {
       if (!P().ev || T.exporter.running) return;
-      const hit = segHit(e);
+      if (e.pointerType === "mouse" && e.button !== 0) return;
+      e.preventDefault();
+      pts.set(e.pointerId, e.clientX);
       try { tl.setPointerCapture(e.pointerId); } catch (_) {}
+      if (pts.size === 2) { // two fingers: pinch-zoom the timeline (undo whatever the first finger started)
+        if (segDrag) { const sg = U.segs.find((x) => x.id === segDrag.id); if (sg) { sg.start = segDrag.a0; sg.end = segDrag.b0; } segDrag = null; }
+        drag = false;
+        const [a, b] = [...pts.values()], r = tl.getBoundingClientRect();
+        pinch = { d: Math.abs(a - b) || 1, z: view.z, t: view.v0 + (((a + b) / 2 - r.left) / r.width) * span() };
+        U.drawTimeline(); U.syncSegUi();
+        return;
+      }
+      if (pts.size > 2) return;
+      const hit = segHit(e);
       U.wasPlaying = P().playing; P().pause();
+      showTip(e);
       if (hit) {
         // edge = trim that side, middle = move the whole section (pointer captured: keeps tracking outside the bar)
-        e.preventDefault();
         U.selSeg = hit.seg.id;
         segDrag = { id: hit.seg.id, handle: hit.handle, x0: e.clientX, a0: hit.seg.start, b0: hit.seg.end, moved: false, pid: e.pointerId };
         if (hit.handle !== "body") P().seek(hit.handle === "start" ? hit.seg.start : Math.max(hit.seg.start, hit.seg.end - 0.001));
@@ -207,28 +307,42 @@
     });
     tl.addEventListener("pointermove", (e) => {
       if (!P().ev) return;
-      const t = tAt(e), r = tl.getBoundingClientRect();
-      tip.hidden = false; tip.style.left = (e.clientX - r.left) + "px";
-      const d = P().wallClock(t);
-      tip.textContent = T.fmtTime(t, true) + (d ? "  " + T.fmtClock(d) : "");
+      if (pts.has(e.pointerId)) pts.set(e.pointerId, e.clientX);
+      if (pinch) {
+        if (pts.size < 2) return;
+        const [a, b] = [...pts.values()], r = tl.getBoundingClientRect();
+        const d = Math.abs(a - b) || 1;
+        view.z = pinch.z * (d / pinch.d); clampView();
+        view.v0 = pinch.t - (((a + b) / 2 - r.left) / r.width) * span(); clampView();
+        U.drawTimeline();
+        return;
+      }
+      if (e.pointerType === "mouse" || drag || segDrag) showTip(e);
+      const r = tl.getBoundingClientRect();
       if (segDrag) {
+        if (e.pointerId !== segDrag.pid) return;
         const sg = U.segs.find((x) => x.id === segDrag.id), dur = P().duration();
         if (!sg || !(r.width > 0)) return;
         if (Math.abs(e.clientX - segDrag.x0) >= 3) segDrag.moved = true;
         if (!segDrag.moved) return;
-        const dt = ((e.clientX - segDrag.x0) / r.width) * dur;
+        const dt = ((e.clientX - segDrag.x0) / r.width) * span();
         if (segDrag.handle === "start") { sg.start = T.clamp(segDrag.a0 + dt, 0, sg.end - MIN_SEG); P().seek(sg.start); }
         else if (segDrag.handle === "end") { sg.end = T.clamp(segDrag.b0 + dt, sg.start + MIN_SEG, dur); P().seek(Math.max(sg.start, sg.end - 0.001)); }
         else { const len = segDrag.b0 - segDrag.a0; sg.start = T.clamp(segDrag.a0 + dt, 0, Math.max(0, dur - len)); sg.end = sg.start + len; }
         U.drawTimeline(); U.syncSegUi();
         return;
       }
-      if (drag) P().seek(t);
-      else { const h = segHit(e); tl.style.cursor = h ? (h.handle === "body" ? "grab" : "ew-resize") : ""; }
+      if (drag) P().seek(tAt(e));
+      else if (e.pointerType === "mouse") { const h = segHit(e); tl.style.cursor = h ? (h.handle === "body" ? "grab" : "ew-resize") : ""; }
     });
-    tl.addEventListener("pointerleave", () => { tip.hidden = true; });
+    tl.addEventListener("pointerleave", (e) => { if (!drag && !segDrag) tip.hidden = true; });
     const up = (e) => {
+      const had = pts.delete(e.pointerId);
+      if (pinch) { if (pts.size < 2) pinch = null; if (!pts.size) tip.hidden = e.pointerType !== "mouse"; return; }
+      if (!had && e.type !== "pointerup") return;
+      if (e.pointerType !== "mouse") tip.hidden = true;
       if (segDrag) {
+        if (e.pointerId !== segDrag.pid) return;
         const sd = segDrag; segDrag = null;
         if (!sd.moved && e.type === "pointerup") P().seek(tAt(e)); // a tap on a section selects it and moves the playhead there
         U.drawTimeline(); U.syncSegUi();
@@ -238,13 +352,29 @@
       if (drag) { drag = false; if (U.wasPlaying) U.play(); }
     };
     tl.addEventListener("pointerup", up); tl.addEventListener("pointercancel", up);
+    // Ctrl/⌘+scroll (and trackpad pinch in Chrome/Edge/Firefox) zooms; sideways scroll pans when zoomed
+    tl.addEventListener("wheel", (e) => {
+      if (!P().ev) return;
+      if (e.ctrlKey || e.metaKey) { e.preventDefault(); U.tlZoom(view.z * Math.exp(-e.deltaY * 0.01), tAt(e)); return; }
+      if (view.z <= 1.01) return;
+      const dx = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
+      e.preventDefault();
+      view.v0 += (dx / Math.max(1, tl.clientWidth)) * span(); clampView(); U.drawTimeline();
+    }, { passive: false });
+    // Safari on a Mac trackpad sends gesture events for pinch
+    let g0 = 1, gt = 0;
+    tl.addEventListener("gesturestart", (e) => { e.preventDefault(); g0 = view.z; gt = view.v0 + span() / 2; });
+    tl.addEventListener("gesturechange", (e) => { e.preventDefault(); if (pts.size < 2) U.tlZoom(g0 * e.scale, gt); });
+    tl.addEventListener("gestureend", (e) => e.preventDefault());
+    tl.addEventListener("dblclick", (e) => { if (view.z > 1.01 && !segHit(e)) U.tlReset(); });
+    $("btnTlZoom").addEventListener("click", () => U.tlReset());
+    tl.addEventListener("contextmenu", (e) => e.preventDefault());
   }
 
   // ── multi-section trim (Advanced). No sections = the whole event, exactly as before. ──
   const SEG_COLORS = ["#38bdf8", "#a78bfa", "#34d399", "#fbbf24", "#f472b6", "#fb923c", "#67e8f9", "#c4b5fd"];
   const MIN_SEG = 0.15;
   let nextSegId = 1;
-  function laneY(h) { const top = 8, bh = h - 16; return top + bh - Math.round(bh * 0.5); }
   U.sortedSegs = () => [...U.segs].sort((a, b) => a.start - b.start || a.end - b.end || a.id - b.id);
   /** Sections that are in effect (only with Advanced on). */
   U.activeSegs = () => (T.prefs.advanced && P().ev ? U.sortedSegs() : []);
@@ -252,23 +382,24 @@
   function segHit(e) {
     const segs = U.activeSegs(), ev = P().ev;
     if (!segs.length || !ev || !ev.duration) return null;
-    const tl = $("timeline"), r = tl.getBoundingClientRect();
+    const tl = $("timeline"), r = tl.getBoundingClientRect(), g = geom(r.height);
+    if (!g.laneH) return null;
     const x = e.clientX - r.left, y = e.clientY - r.top;
-    if (y < laneY(r.height) - 5) return null; // upper part of the bar always scrubs the playhead
-    const X = (t) => (t / ev.duration) * r.width;
-    const tol = e.pointerType === "touch" || e.pointerType === "pen" ? 14 : 7;
+    if (y < g.laneTop - 4) return null; // the upper band always scrubs the playhead
+    const sp = span(), X = (t) => ((t - view.v0) / sp) * r.width;
+    const tol = e.pointerType === "touch" || e.pointerType === "pen" ? 22 : 10; // wide handles
     const sel = U.selectedSeg();
     const order = sel ? [sel, ...segs.filter((s) => s !== sel)] : segs;
     let best = null;
     for (const sg of order) {
-      const t = Math.min(tol, Math.max(3, (X(sg.end) - X(sg.start)) / 3)); // keep a grabbable middle on short sections
+      const t = Math.min(tol, Math.max(4, (X(sg.end) - X(sg.start)) / 3)); // keep a grabbable middle on short sections
       for (const [handle, ex] of [["start", X(sg.start)], ["end", X(sg.end)]]) {
         const d = Math.abs(x - ex) - (sg === sel ? 1.5 : 0);
         if (Math.abs(x - ex) <= t && (!best || d < best.d)) best = { seg: sg, handle, d };
       }
     }
     if (best) return best;
-    const t = (x / r.width) * ev.duration;
+    const t = view.v0 + (x / r.width) * sp;
     const inside = order.filter((sg) => t >= sg.start && t <= sg.end);
     return inside.length ? { seg: inside[0], handle: "body" } : null;
   }
@@ -323,6 +454,18 @@
     U.selSeg = nx ? nx.id : null;
     segsChanged();
   };
+  /** Split the section under the playhead (the selected one first) into two at the playhead. */
+  U.splitSeg = () => {
+    const t = P().time, sel = U.selectedSeg();
+    const inside = (sg) => sg && t > sg.start + MIN_SEG - 1e-6 && t < sg.end - MIN_SEG + 1e-6;
+    const sg = inside(sel) ? sel : U.sortedSegs().find(inside);
+    if (!sg) { T.toast(U.segs.length ? "Move the playhead inside a section to split it" : "Add a section first, then split it at the playhead", "err"); return null; }
+    const nw = { id: nextSegId++, start: t, end: sg.end };
+    sg.end = t; U.segs.push(nw); U.selSeg = nw.id;
+    T.toast(`Section split at ${T.fmtTime(t, true)}`);
+    segsChanged();
+    return nw;
+  };
   U.clearSegs = () => { U.segs = []; U.selSeg = null; U.playIdx = 0; segsChanged(); };
   /** I / O: set the selected section's start / end to the playhead (creates a section if there is none). */
   U.setEdge = (which) => {
@@ -343,6 +486,7 @@
     $("segInfo").title = U.sortedSegs().map((x, i) => `S${i + 1} ${T.fmtTime(x.start, true)} → ${T.fmtTime(x.end, true)}`).join("\n");
     $("btnAddSeg").disabled = !has;
     $("btnDelSeg").disabled = !sel;
+    $("btnSplitSeg").disabled = !segs.length;
     $("btnClearSegs").disabled = !segs.length;
     $("btnPlaySecs").disabled = !segs.length;
     $("btnPlaySecs").setAttribute("aria-pressed", String(U.playSecs && !!segs.length));
@@ -401,7 +545,10 @@
     enforceSections(t);
     t = P().time;
     const ev = P().ev;
-    $("timeLabel").textContent = `${T.fmtTime(t, true)} / ${T.fmtTime(ev ? ev.duration : 0, true)}`;
+    $("timeLabel").textContent = T.fmtTime(t, true);
+    $("durLabel").textContent = T.fmtTime(ev ? ev.duration : 0, true);
+    // zoomed timeline: keep the playhead in view while playing
+    if (view.z > 1.01 && P().playing && (t < view.v0 || t > view.v0 + span() * 0.95)) { view.v0 = t - span() * 0.1; clampView(); }
     const d = P().wallClock(t);
     $("clockLabel").textContent = d ? T.fmtClock(d) : "—";
     U.drawTimeline();
@@ -475,6 +622,10 @@
       box.appendChild(c);
     }
     updateExportHint();
+    const cap = T.exporter.capability();
+    $("exportUnsupported").hidden = cap.mode !== "none";
+    $("exportUnsupported").textContent = cap.reason || "";
+    $("btnExportGo").disabled = cap.mode === "none";
     // mark unsupported codecs for the chosen size (async)
     const sz = sizes.find((s) => s.id === $("exportSize").value) || sizes[0];
     T.exporter.supportedCodecs(sz.W, sz.H, ev.fps).then((sup) => {
@@ -489,7 +640,8 @@
     let hint = rs.length > 1 ? `${T.fmtTime(dur, true)} of video (${rs.length} sections joined in time order). ` : `${T.fmtTime(dur)} of video. `;
     hint += preset === "compat" ? "Best for sharing." : "Large file; HEVC/AV1 keep it smaller. If the encoder can't do this size, it steps down and tells you.";
     if (tel === "none") hint += " No telemetry in these clips, so the HUD is left out.";
-    if (!T.exporter.webcodecs()) hint += " This browser lacks WebCodecs: the export records in real time.";
+    if (!T.exporter.webcodecs() && T.exporter.capability().mode === "realtime") hint += " This browser lacks WebCodecs: the export records in real time (keep this tab open and the screen on).";
+    if (T.isIOS && T.exporter.webcodecs()) hint += " On iPhone/iPad keep this tab in front until it finishes; very long exports can run out of memory.";
     $("exportHint").textContent = hint;
     $("originalOpts").style.opacity = preset === "original" ? 1 : 0.4;
     if (ev && ev.locked) $("exportHint").textContent += ` ${ev.locked} encrypted file(s) are still locked and will appear as placeholders.`;
@@ -503,7 +655,16 @@
     $("btnExportCancel").textContent = "Cancel";
     $("exportTitle").textContent = title;
     $("exportBar").style.width = "0%";
+    U.shareFiles = []; $("shareRow").hidden = true;
   };
+  /** iPhone / iPad: hand finished exports to the share sheet (Save Video, Save to Files…) — needs a tap, so offer buttons. */
+  const shareMode = () => T.isIOS && T.canShareFiles([new File([new Uint8Array(1)], "x.mp4", { type: "video/mp4" })]);
+  U.shareFiles = [];
+  async function shareNow() {
+    const files = U.shareFiles.map((r) => new File([r.blob], r.name, { type: r.blob.type || "video/mp4" }));
+    try { await navigator.share({ files, title: files.length > 1 ? "Dashcam exports" : files[0].name }); }
+    catch (e) { if (e && e.name !== "AbortError") { T.toast("Sharing didn't work here — use Download instead", "err"); } }
+  }
   U.progress = (pct, text) => { $("exportBar").style.width = T.clamp(pct, 0, 100).toFixed(1) + "%"; if (text != null) $("exportText").textContent = text; };
 
   /** Save an export: into the chosen folder (Chrome/Edge) or as a download. */
@@ -515,8 +676,13 @@
         return "saved to the folder you chose";
       } catch (e) { console.warn("folder write failed, downloading instead", e); }
     }
-    T.download(res.blob, res.name);
     window.__tdcLastExport = res;
+    if (shareMode()) {
+      U.shareFiles.push(res); $("shareRow").hidden = false;
+      $("btnShare").textContent = U.shareFiles.length > 1 ? `Save / Share ${U.shareFiles.length} videos…` : "Save / Share…";
+      return "ready: tap Save / Share to put it in Photos or Files";
+    }
+    T.download(res.blob, res.name);
     return "downloaded";
   };
 
@@ -564,7 +730,11 @@
     document.body.classList.toggle("simple", !T.prefs.advanced);
     $("advToggle").addEventListener("change", (e) => { T.setPref("advanced", e.target.checked); document.body.classList.toggle("simple", !e.target.checked); if (!e.target.checked) $("settings").hidden = true; U.drawTimeline(); });
 
-    const pickFolder = () => $("folderInput").click();
+    // iPhone / iPad can't pick (or drag) folders: use the multi-file picker — in Files, open TeslaCam, tap Select, pick the clips
+    const pickFolder = () => {
+      if (T.isIOS) { T.toast("In the picker choose Browse / Files, open the TeslaCam folder, tap Select and pick the clips (and event.json)", "ok", 7000); return $("fileInput").click(); }
+      $("folderInput").click();
+    };
     const pickFiles = () => $("fileInput").click();
     $("btnOpenFolder").onclick = pickFolder; $("btnEmptyFolder").onclick = pickFolder;
     $("btnOpenFiles").onclick = pickFiles; $("btnEmptyFiles").onclick = pickFiles;
@@ -581,6 +751,15 @@
       U.ingest(await T.library.filesFromDataTransfer(e.dataTransfer));
     });
 
+    $("eventPick").addEventListener("change", (e) => { const ev = T.library.events[+e.target.value]; if (ev) U.activate(ev); e.target.blur(); });
+    // CSS knows the bar heights (drawer / toasts sit above the transport, full screen overlays it)
+    const sizeVars = () => {
+      document.documentElement.style.setProperty("--tp-h", $("transport").offsetHeight + "px");
+      document.documentElement.style.setProperty("--top-h", document.querySelector(".topbar").offsetHeight + "px");
+    };
+    new ResizeObserver(() => { sizeVars(); U.drawTimeline(); }).observe($("transport"));
+    sizeVars();
+
     // transport
     $("btnPlay").onclick = () => U.toggle();
     $("btnStop").onclick = () => U.stop();
@@ -593,6 +772,7 @@
     $("btnIn").onclick = () => U.setEdge("start");
     $("btnOut").onclick = () => U.setEdge("end");
     $("btnDelSeg").onclick = () => U.deleteSeg();
+    $("btnSplitSeg").onclick = () => U.splitSeg();
     $("btnClearSegs").onclick = () => U.clearSegs();
     $("btnPlaySecs").onclick = () => {
       U.playSecs = !U.playSecs; U.syncSegUi();
@@ -627,6 +807,8 @@
     $("btnExportGo").onclick = runSingleExport;
     $("btnExportCancel").onclick = () => { if (T.exporter.running) T.exporter.cancel(); else $("exportModal").hidden = true; };
     $("btnExportAll").onclick = () => T.auto.exportAllInteractive();
+    $("btnShare").onclick = shareNow;
+    $("btnShareDownload").onclick = () => U.shareFiles.forEach((r) => T.download(r.blob, r.name));
 
     // unlock
     $("btnUnlock").onclick = () => { $("unlockModal").hidden = false; };
@@ -656,6 +838,7 @@
       else if ((k === "i" || k === "I") && T.prefs.advanced) $("btnIn").click();
       else if ((k === "o" || k === "O") && T.prefs.advanced) $("btnOut").click();
       else if ((k === "a" || k === "A") && T.prefs.advanced && P().ev) U.addSeg();
+      else if ((k === "b" || k === "B") && T.prefs.advanced && P().ev) U.splitSeg();
       else if ((k === "s" || k === "S") && T.prefs.advanced && U.segs.length) $("btnPlaySecs").click();
       else if ((k === "Delete" || k === "Backspace") && T.prefs.advanced && U.selectedSeg()) { e.preventDefault(); U.deleteSeg(); }
       else if (k === "Escape") {

@@ -8,6 +8,9 @@
 
   /** Overlay unit scale for a grid of height gh px. */
   C.unitScale = (gh) => (gh / 900) * T.prefs.hudScale;
+  /** Live view only: like unitScale, but capped by the width so overlays fit narrow layouts (portrait phone 2×3 grid).
+   *  Identical to unitScale for the 3×2 grid and a focused camera (they are wider than 1300:900). Exports keep unitScale. */
+  C.liveScale = (gw, gh) => Math.min(gh / 900, gw / 1300) * T.prefs.hudScale;
   /** Top-left of a panel (pw × ph px) inside grid rect g, from saved fractions. */
   C.place = (g, pw, ph, pos) => ({ x: g.x + T.clamp(pos.fx, 0, 1) * Math.max(0, g.w - pw), y: g.y + T.clamp(pos.fy, 0, 1) * Math.max(0, g.h - ph) });
   C.cellRect = (g, i, gap) => {

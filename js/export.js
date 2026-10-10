@@ -15,6 +15,13 @@
     vp9: { label: "VP9", ext: "webm", mux: "V_VP9" },
   };
   X.webcodecs = () => typeof VideoEncoder !== "undefined" && typeof VideoDecoder !== "undefined" && typeof VideoFrame !== "undefined" && typeof Mp4Muxer !== "undefined";
+  /** How this browser can export: "webcodecs" (fast, frame-exact), "realtime" (MediaRecorder capture while playing), or "none". */
+  X.capability = () => {
+    if (X.webcodecs()) return { mode: "webcodecs" };
+    const c = document.createElement("canvas");
+    if (window.MediaRecorder && typeof c.captureStream === "function") return { mode: "realtime" };
+    return { mode: "none", reason: "This browser has neither WebCodecs (VideoEncoder) nor MediaRecorder canvas capture, so it can't make a video file. Playback, sections and screenshots still work — export on a computer with Chrome, Edge or Safari 16.4+." };
+  };
   const even = (n) => Math.max(2, Math.round(n / 2) * 2);
   const hex2 = (n) => n.toString(16).toUpperCase().padStart(2, "0");
 

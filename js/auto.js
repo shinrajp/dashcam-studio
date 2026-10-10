@@ -56,7 +56,7 @@
         console.error(e); skipped.push(ev);
       }
     }
-    U.progress(100, `✓ Exported ${done.length} video${done.length === 1 ? "" : "s"}${U.outDir ? " to " + U.outDir.name : " (check your Downloads)"}${skipped.length ? ` · skipped ${skipped.length} (locked or failed)` : ""}.`);
+    U.progress(100, `✓ Exported ${done.length} video${done.length === 1 ? "" : "s"}${U.outDir ? " to " + U.outDir.name : U.shareFiles && U.shareFiles.length ? " · tap Save / Share" : " (check your Downloads)"}${skipped.length ? ` · skipped ${skipped.length} (locked or failed)` : ""}.`);
     $("btnExportCancel").textContent = "Done";
     T.exporter.cancelled = false;
   };

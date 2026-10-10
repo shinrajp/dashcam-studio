@@ -119,41 +119,39 @@ body.dragover .drop-hint { display: grid; }
 .spinner { width: 34px; height: 34px; border-radius: 50%; border: 3px solid rgba(255,255,255,0.15); border-top-color: var(--blue); animation: spin .8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
-/* ── transport ── */
-.transport { height: 62px; flex: none; display: flex; align-items: center; gap: 12px; padding: 0 14px; background: var(--bg2); border-top: 1px solid var(--line); }
+/* ── transport: a full-width timeline row (like the Grid Player's multi-trim bar) above the controls row ── */
+.transport { flex: none; display: flex; flex-direction: column; gap: 2px; padding: 6px max(14px, env(safe-area-inset-right)) max(6px, env(safe-area-inset-bottom)) max(14px, env(safe-area-inset-left)); background: var(--bg2); border-top: 1px solid var(--line); }
+.tp-scrub { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.tp-controls { display: flex; align-items: center; gap: 12px; min-height: 44px; min-width: 0; }
+.tp-spacer { flex: 1; min-width: 0; }
 .tp-buttons { display: flex; align-items: center; gap: 2px; }
 .btn.play { width: 42px; height: 42px; border-radius: 50%; background: #fff; color: #111; }
 .btn.play:hover { background: #dfe3ea; }
 .btn.play .i-pause { display: none; }
 body.playing .btn.play .i-play { display: none; }
 body.playing .btn.play .i-pause { display: block; }
-.tp-time { font: 600 12px ui-monospace, Menlo, Consolas, monospace; color: var(--dim); min-width: 118px; text-align: center; }
+.tp-time, .tp-dur { font: 600 12px ui-monospace, Menlo, Consolas, monospace; color: var(--text); min-width: 58px; flex: none; }
+.tp-time { text-align: right; }
+.tp-dur { text-align: left; color: var(--dim); }
 .tp-clock { font: 600 12px ui-monospace, Menlo, Consolas, monospace; color: var(--dim); min-width: 70px; text-align: center; }
-.timeline { flex: 1; min-width: 120px; height: 40px; position: relative; cursor: pointer; }
+.timeline { flex: 1; min-width: 0; height: 44px; position: relative; cursor: pointer; touch-action: none; -webkit-user-select: none; -webkit-touch-callout: none; outline: none; }
+body:not(.simple) .timeline { height: 70px; }
 .timeline canvas { width: 100%; height: 100%; display: block; }
-.tl-tip { position: absolute; bottom: 44px; transform: translateX(-50%); background: #000; padding: 3px 7px; border-radius: 6px; font: 600 11px ui-monospace, Menlo, monospace; pointer-events: none; white-space: nowrap; }
-.tp-trim { display: flex; gap: 4px; align-items: center; }
-.tp-trim .btn.sq { width: 28px; padding: 0; justify-content: center; }
-.tp-trim .btn.sq svg { width: 15px; height: 15px; }
+.tl-tip { position: absolute; bottom: calc(100% + 4px); transform: translateX(-50%); background: #000; padding: 3px 7px; border-radius: 6px; font: 600 11px ui-monospace, Menlo, monospace; pointer-events: none; white-space: nowrap; z-index: 5; }
+.tl-zoom { flex: none; min-width: 44px; justify-content: center; font: 700 11px ui-monospace, Menlo, Consolas, monospace; }
+.tp-trim { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+.tp-trim .btn.sq { width: 32px; height: 32px; padding: 0; justify-content: center; }
+.tp-trim .btn.sq svg { width: 16px; height: 16px; }
 #btnPlaySecs[aria-pressed=true] { background: rgba(62,106,225,0.25); border-color: rgba(62,106,225,0.7); color: #dbe4ff; }
-.seg-info { font: 600 11px ui-monospace, Menlo, Consolas, monospace; color: var(--dim); white-space: nowrap; }
-.timeline { touch-action: none; }
-@media (max-width: 1599px) { .seg-info { display: none; } }
-@media (max-width: 1180px) { /* Advanced + narrow window: give the timeline its own full-width row so sections stay easy to grab */
-  body:not(.simple) .transport { height: auto; flex-wrap: wrap; row-gap: 2px; padding: 4px 14px 6px; }
-  body:not(.simple) .timeline { order: -1; flex-basis: 100%; height: 44px; }
-  body:not(.simple) .tl-tip { bottom: 48px; }
-  body:not(.simple) .drawer { bottom: 106px; }
-}
-body:not(.simple) .timeline { height: 48px; }
-body:not(.simple) .tl-tip { bottom: 52px; }
+.seg-info { font: 600 11px ui-monospace, Menlo, Consolas, monospace; color: var(--dim); white-space: nowrap; margin-left: 4px; }
+@media (max-width: 1099px) { .seg-info { display: none; } }
 .chips { display: flex; gap: 4px; }
 .chip { height: 28px; padding: 0 10px; border-radius: 14px; border: 1px solid var(--line); background: transparent; color: var(--faint); font-size: 12px; font-weight: 650; cursor: pointer; }
 .chip.on { background: rgba(62,106,225,0.18); border-color: rgba(62,106,225,0.6); color: #cfdaff; }
 body.no-event .transport { opacity: .45; pointer-events: none; }
 
 /* ── drawer ── */
-.drawer { position: fixed; right: 0; top: 58px; bottom: 62px; width: 330px; background: var(--panel); border-left: 1px solid var(--line); z-index: 30; display: flex; flex-direction: column; box-shadow: -10px 0 30px rgba(0,0,0,0.4); }
+.drawer { position: fixed; right: 0; top: var(--top-h, 58px); bottom: var(--tp-h, 62px); width: 330px; background: var(--panel); border-left: 1px solid var(--line); z-index: 30; display: flex; flex-direction: column; box-shadow: -10px 0 30px rgba(0,0,0,0.4); }
 .drawer-head, .modal-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px; border-bottom: 1px solid var(--line); }
 .drawer-head h2, .modal-head h2 { margin: 0; font-size: 16px; }
 .drawer-body { overflow-y: auto; padding: 6px 16px 16px; }
@@ -197,7 +195,7 @@ input[type=range] { accent-color: var(--blue); width: 150px; }
 .manual summary { cursor: pointer; color: var(--dim); font-weight: 600; }
 .manual p { margin: 8px 0; font-size: 12px; }
 textarea { width: 100%; background: var(--bg2); color: var(--text); border: 1px solid var(--line); border-radius: 9px; padding: 8px; font: 12px ui-monospace, Menlo, monospace; margin: 8px 0; }
-.toast { position: fixed; left: 50%; bottom: 80px; transform: translate(-50%, 20px); opacity: 0; background: #1f242d; border: 1px solid var(--line); padding: 10px 16px; border-radius: 10px; font-weight: 600; pointer-events: none; transition: all .2s; z-index: 60; max-width: 80vw; }
+.toast { position: fixed; left: 50%; bottom: calc(var(--tp-h, 62px) + 16px); transform: translate(-50%, 20px); opacity: 0; background: #1f242d; border: 1px solid var(--line); padding: 10px 16px; border-radius: 10px; font-weight: 600; pointer-events: none; transition: all .2s; z-index: 60; max-width: 80vw; }
 .toast.show { opacity: 1; transform: translate(-50%, 0); }
 .toast.err { border-color: rgba(255,90,79,0.6); }
 .toast.ok { border-color: rgba(46,230,110,0.5); }
@@ -261,7 +259,7 @@ body.fs .transport { position: fixed; left: 0; right: 0; bottom: 0; z-index: 40;
 body.fs.idle .transport { opacity: 0; pointer-events: none; }
 body.fs.idle, body.fs.idle * { cursor: none !important; }
 body.fs .drawer { top: 0; }
-body.fs .toast { bottom: 90px; }
+body.fs .toast { bottom: calc(var(--tp-h, 62px) + 16px); }
 
 /* small screens / phones */
 @media (max-width: 760px) {
@@ -272,9 +270,8 @@ body.fs .toast { bottom: 90px; }
   .topbar { gap: 8px; padding: 0 10px; }
   .brand { min-width: 0; }
   .brand > div, .top-actions .btn span { display: none; }
-  .transport { height: auto; flex-wrap: wrap; row-gap: 4px; padding: 6px 10px; }
-  .timeline { order: -1; flex-basis: 100%; }
-  .tp-time { min-width: 0; }
+  .tp-controls { flex-wrap: wrap; gap: 6px 8px; }
+  .tp-time, .tp-dur { min-width: 0; }
   .stage-bar { top: 6px; gap: 3px; }
   .cam-chip { padding: 0 8px; }
   .zoom-label { min-width: 24px; }
@@ -329,3 +326,96 @@ body.idle .stage-bar.dragging { opacity: 1; pointer-events: auto; }
 }
 body.fs .bar-restore { bottom: 76px; }
 .stage-bar .btn.icon.sm, .bar-grip { flex-shrink: 0; }
+
+/* ── phones, tablets, iOS Safari ── */
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+body { height: 100vh; height: 100dvh; }
+* { -webkit-tap-highlight-color: transparent; }
+button, .btn, .chip, select, label, .ev, .cam-chip, .bar-restore { touch-action: manipulation; } /* no double-tap zoom on controls */
+.topbar { height: calc(58px + env(safe-area-inset-top)); padding-top: env(safe-area-inset-top); padding-left: max(16px, env(safe-area-inset-left)); padding-right: max(16px, env(safe-area-inset-right)); }
+.library { padding-left: max(12px, env(safe-area-inset-left)); }
+body.fs .viewport { padding: env(safe-area-inset-top) env(safe-area-inset-right) 0 env(safe-area-inset-left); }
+/* portrait phone: 2 columns × 3 rows — Front | Back, then the side (pillar) cams, then the mirror (repeater) cams */
+body.portrait .grid .tile[data-cam=front] { order: 1; }
+body.portrait .grid .tile[data-cam=back] { order: 2; }
+body.portrait .grid .tile[data-cam=left_pillar] { order: 3; }
+body.portrait .grid .tile[data-cam=right_pillar] { order: 4; }
+body.portrait .grid .tile[data-cam=left_repeater] { order: 5; }
+body.portrait .grid .tile[data-cam=right_repeater] { order: 6; }
+body.portrait .tile-label { font-size: 10px; padding: 2px 6px; left: 5px; top: 5px; }
+body.portrait .viewport { padding: 6px; }
+/* touch screens: ≥ 44 px targets everywhere in the transport, taller timeline */
+@media (pointer: coarse) {
+  .btn.icon { width: 44px; height: 44px; }
+  .btn.play { width: 48px; height: 48px; }
+  .tp-trim .btn.sq { width: 44px; height: 44px; }
+  .select.small { height: 44px; font-size: 14px; }
+  .chip { height: 44px; min-width: 44px; padding: 0 14px; border-radius: 22px; }
+  .tl-zoom { height: 44px; }
+  .timeline { height: 52px; }
+  body:not(.simple) .timeline { height: 80px; }
+  .btn { min-height: 44px; }
+  .btn.small { height: 44px; }
+  .tile-expand { width: 44px; height: 44px; }
+}
+@media (max-width: 760px) {
+  .tp-clock, .tp-spacer { display: none; }
+  .tp-controls { justify-content: center; }
+  .tp-trim { order: 10; flex-basis: 100%; justify-content: center; }
+  .topbar { gap: 6px; }
+  .top-actions { gap: 4px; }
+  .event-title .et-sub { display: none; }
+  .chips { display: flex; order: 11; flex-basis: 100%; justify-content: center; flex-wrap: wrap; }
+  /* phones: time readouts on a slim row above, the timeline itself spans the full width */
+  .tp-scrub { display: grid; grid-template-columns: auto 1fr auto auto; grid-template-areas: "cur . zoom dur" "tl tl tl tl"; column-gap: 8px; row-gap: 2px; }
+  .tp-scrub #timeLabel { grid-area: cur; }
+  .tp-scrub #durLabel { grid-area: dur; }
+  .tp-scrub #btnTlZoom { grid-area: zoom; }
+  .tp-scrub #timeline { grid-area: tl; width: 100%; }
+}
+/* short landscape phones: slimmer bars so the 3×2 grid gets the height */
+@media (max-height: 500px) and (orientation: landscape) {
+  .topbar { height: calc(44px + env(safe-area-inset-top)); }
+  .brand-sub, .event-title .et-sub { display: none; }
+  .transport { padding-top: 2px; }
+  .timeline { height: 40px; }
+  body:not(.simple) .timeline { height: 64px; }
+  .tp-controls { min-height: 44px; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+  .tp-controls::-webkit-scrollbar { display: none; }
+  .tp-trim { order: 0; flex-basis: auto; flex-wrap: nowrap; }
+  .viewport { padding: 4px; }
+}
+.export-unsupported { padding: 10px 12px; border-radius: 10px; background: rgba(255,176,32,0.12); border: 1px solid rgba(255,176,32,0.45); color: #ffd58a; font-size: 13px; }
+.share-row { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition-duration: 0.01ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; }
+  .spinner { animation: spin 2.4s linear infinite !important; }
+  .toast { transform: translate(-50%, 0); }
+}
+.event-pick { display: none; max-width: 100%; }
+@media (max-width: 960px) {
+  body.multi-ev .event-pick { display: block; }
+  body.multi-ev .event-title .et-main { display: none; }
+}
+.tp-controls .btn, .tp-controls .chip, .tp-controls .select, .tp-buttons { flex-shrink: 0; } /* never squeeze a tap target */
+/* small phones (portrait): one row for play/rate/camera bar/full screen — stop is the same as ⏮ + pause, so it goes */
+@media (max-width: 430px) {
+  .tp-controls { gap: 6px; }
+  #btnStop { display: none; }
+  #rateSelect { width: 66px; padding: 0 4px 0 8px; }
+}
+/* short landscape phones: everything in one scrollable controls row, readouts beside the timeline */
+@media (max-height: 500px) and (orientation: landscape) {
+  .chips { order: 0; flex-basis: auto; flex-wrap: nowrap; }
+  .tp-scrub { display: flex; }
+  .tp-controls { justify-content: flex-start; gap: 6px; }
+  #btnStop { display: none; }
+}
+.row > .select { min-width: 0; max-width: 64%; text-overflow: ellipsis; } /* long option labels never push past a phone-width dialog */
+/* tablets (touch, 761–1366 px, 44 px targets): the section buttons get their own centred row instead of wrapping inside the bar */
+@media (pointer: coarse) and (min-width: 761px) and (max-width: 1366px) {
+  .tp-controls { flex-wrap: wrap; justify-content: center; row-gap: 6px; }
+  .tp-clock, .tp-spacer { display: none; }
+  .tp-trim { order: 10; flex-basis: 100%; justify-content: center; flex-wrap: nowrap; }
+}
+.tp-trim { flex-wrap: nowrap; }

@@ -93,6 +93,10 @@
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 120000);
   };
+  /** iPhone / iPad (iPadOS reports itself as a Mac, but with touch). */
+  T.isIOS = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+  /** Can this browser hand files to the system share sheet (iOS: Save Video / Save to Files / AirDrop)? */
+  T.canShareFiles = (files) => { try { return !!(navigator.canShare && navigator.share && navigator.canShare({ files })); } catch (_) { return false; } };
   T.blobReader = (blob) => ({ size: blob.size, read: async (a, b) => new Uint8Array(await blob.slice(a, b).arrayBuffer()) });
 
   let toastTimer = 0;
