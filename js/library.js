@@ -93,6 +93,34 @@
     T.emit("library");
   };
 
+  function filesOf(ev) {
+    const out = [];
+    for (const c of ev.clips || []) for (const it of Object.values(c.files || {})) if (it) out.push(it);
+    return out;
+  }
+  function dropUrl(it) {
+    if (it && it.url) { try { URL.revokeObjectURL(it.url); } catch (_) {} it.url = null; }
+  }
+  /** Remove one event from the list. Does not delete files on disk. */
+  lib.removeEvent = (id) => {
+    const ev = lib.events.find((e) => e.id === id);
+    if (!ev) return false;
+    const keys = new Set(filesOf(ev).map((it) => it.key));
+    for (const it of lib.items.values()) if (keys.has(it.key)) { dropUrl(it); lib.items.delete(it.key); }
+    if (ev.dir && ![...lib.items.values()].some((it) => TC.dirOf(it.path) === ev.dir)) delete lib.jsonByDir[ev.dir];
+    lib.regroup();
+    return true;
+  };
+  /** Drop every loaded event and go back to an empty library. */
+  lib.clear = () => {
+    for (const it of lib.items.values()) dropUrl(it);
+    lib.items.clear();
+    for (const k of Object.keys(lib.jsonByDir)) delete lib.jsonByDir[k];
+    lib.looseJson.clear();
+    lib.events = [];
+    T.emit("library");
+  };
+
   function layout(ev) {
     let s = 0;
     for (const c of ev.clips) { c.start = s; s += c.dur; }
@@ -164,7 +192,7 @@
       if (it.kind !== "encrypted" || it.blob || lib.keyCache.has(it.header.wrappedHex)) continue;
       if (seen.has(it.header.wrappedHex)) continue;
       seen.add(it.header.wrappedHex);
-      if (!it.requestId) it.requestId = "r" + (++reqSeq) + "-" + Math.random().toString(36).slice(2, 8);
+      if (!it.requestId) it.requestId = (it.header && it.header.id) || ("r" + (++reqSeq) + "-" + Math.random().toString(36).slice(2, 8));
       const h = it.header;
       out.push({ id: it.requestId, vin: h.vin, key_id: h.key_id, timestamp: h.timestamp, wrapped_key: h.wrapped_key, public_key: h.public_key });
     }

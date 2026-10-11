@@ -22,9 +22,20 @@
     makePanel("hud", "hud-panel");
     const map = makePanel("map", "map-panel");
     const grip = T.el("div", "resize-grip");
-    grip.title = "Drag to resize";
+    grip.title = "Drag to resize the map";
     map.el.appendChild(grip);
     enableResize(map, grip);
+    const move = T.el("button", "map-move", "Beside video");
+    move.type = "button";
+    move.title = "Move the map off the video. Export can still burn it in.";
+    move.addEventListener("pointerdown", (e) => e.stopPropagation());
+    move.addEventListener("click", (e) => {
+      e.stopPropagation();
+      T.setPref("mapDock", T.prefs.mapDock === "aside" ? "over" : "aside");
+      if (T.ui && T.ui.fit) T.ui.fit();
+      O.invalidate();
+    });
+    map.el.appendChild(move);
     makePanel("fsd", "fsd-panel");
     ["time", "telemetry", "prefs", "map-tile", "player-open", "library", "layout"].forEach((e) => T.on(e, O.invalidate));
     new ResizeObserver(O.invalidate).observe(stage);
@@ -43,6 +54,40 @@
     if (p.cv.width !== cw || p.cv.height !== ch) { p.cv.width = cw; p.cv.height = ch; }
     p.ctx.setTransform(1, 0, 0, 1, 0, 0);
     p.ctx.clearRect(0, 0, cw, ch);
+  }
+  function asideWanted() { return T.prefs.mapDock === "aside"; }
+  O.dockWidth = (maxH, maxW) => {
+    if (!asideWanted() || !T.prefs.show.map || !T.player.ev) return 0;
+    const mp = T.prefs.panels.map;
+    const capW = Math.min(520, Math.max(180, maxW * 0.4));
+    const sc = Math.min(1, maxH / mp.hu, capW / mp.wu);
+    return Math.round(mp.wu * Math.max(0.35, sc));
+  };
+  function dockBox() {
+    const mp = T.prefs.panels.map;
+    const vp = T.$("viewport");
+    const maxH = Math.max(160, (vp ? vp.clientHeight : 600) - 24);
+    const maxW = vp ? vp.clientWidth : 1200;
+    const w = O.dockWidth(maxH, maxW);
+    return { w, h: Math.round(mp.hu * (w / mp.wu)) };
+  }
+  function syncDock(mapOn) {
+    const aside = mapOn && asideWanted();
+    document.body.classList.toggle("map-aside", aside);
+    const dock = T.$("mapDock");
+    const map = O.panels.map;
+    if (dock) {
+      dock.hidden = !aside;
+      if (aside) { if (map.el.parentElement !== dock) dock.appendChild(map.el); }
+      else if (map.el.parentElement !== O.layer) O.layer.appendChild(map.el);
+    }
+    const btn = map.el.querySelector(".map-move");
+    if (btn) {
+      btn.textContent = aside ? "On video" : "Beside video";
+      btn.title = aside ? "Put the map back on the video" : "Move the map off the video. Export can still burn it in.";
+    }
+    const cb = T.$("mapAside");
+    if (cb && cb.checked !== aside) cb.checked = aside;
   }
   function place(p, pos) {
     const g = grid();
@@ -86,11 +131,22 @@
     map.el.hidden = !mapOn;
     if (mapOn) {
       const mp = T.prefs.panels.map;
-      size(map, mp.wu * s, mp.hu * s);
-      place(map, mp);
-      map.ctx.scale(s * r, s * r);
-      T.map.draw(map.ctx, mp.wu, mp.hu, s * r, t);
+      const aside = asideWanted();
+      if (aside) {
+        const box = dockBox();
+        size(map, box.w, box.h);
+        map.el.style.transform = "none";
+        const sc = box.w / mp.wu;
+        map.ctx.scale(sc * r, sc * r);
+        T.map.draw(map.ctx, mp.wu, mp.hu, sc * r, t);
+      } else {
+        size(map, mp.wu * s, mp.hu * s);
+        place(map, mp);
+        map.ctx.scale(s * r, s * r);
+        T.map.draw(map.ctx, mp.wu, mp.hu, s * r, t);
+      }
     }
+    syncDock(mapOn);
     // self-driving badge
     const fsd = O.panels.fsd;
     const st = tel.at(t);
@@ -115,7 +171,8 @@
   function enableDrag(p) {
     let start = null;
     p.el.addEventListener("pointerdown", (e) => {
-      if (e.button !== 0 || e.target.classList.contains("resize-grip")) return;
+      if (e.button !== 0 || e.target.classList.contains("resize-grip") || e.target.classList.contains("map-move")) return;
+      if (p.id === "map" && asideWanted()) return;
       e.preventDefault();
       p.el.setPointerCapture(e.pointerId);
       const pos = T.prefs.panels[p.id];
@@ -156,14 +213,15 @@
       e.preventDefault(); e.stopPropagation();
       grip.setPointerCapture(e.pointerId);
       const mp = T.prefs.panels.map;
-      st = { x: e.clientX, y: e.clientY, wu: mp.wu, hu: mp.hu, s: T.compositor.liveScale(grid().w, grid().h) };
+      st = { x: e.clientX, y: e.clientY, wu: mp.wu, hu: mp.hu, s: Math.max(0.2, p.w / mp.wu) };
     });
     grip.addEventListener("pointermove", (e) => {
       if (!st) return;
       const mp = T.prefs.panels.map;
       mp.wu = T.clamp(st.wu + (e.clientX - st.x) / st.s, 220, 1100);
       mp.hu = T.clamp(st.hu + (e.clientY - st.y) / st.s, 160, 800);
-      O.invalidate();
+      if (asideWanted() && T.ui && T.ui.fit) T.ui.fit();
+      else O.invalidate();
     });
     const end = () => { if (st) { st = null; T.savePrefs(); } };
     grip.addEventListener("pointerup", end);

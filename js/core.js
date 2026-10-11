@@ -29,6 +29,7 @@
     mapTiles: true,
     mapStyle: "osm",
     mapFollow: false,
+    mapDock: "over",
     panels: {
       hud: { fx: 0.5, fy: 0.975 },
       map: { fx: 0.985, fy: 0.975, wu: 400, hu: 300 },

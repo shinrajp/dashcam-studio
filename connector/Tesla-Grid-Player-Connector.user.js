@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Tesla Grid Player Connector
 // @namespace    tesla-dashcam-grid
-// @version      1.2.0
+// @version      1.3.0
 // @description  One-click key fetch for Tesla Dashcam Studio (and the earlier Grid Player). Runs on dashcam.tesla.com ONLY when that tab was opened by the player's “Unlock with Tesla” button; fetches decryption keys from Tesla's own endpoint and hands them back to the player window.
 // @match        https://dashcam.tesla.com/*
 // @run-at       document-idle
@@ -21,9 +21,11 @@
  *     {type:"tesla-dashcam-items", nonce, items} — the key requests for the clips you dropped.
  *     We only accept the answer from window.opener, with the same nonce, from an allowed player origin
  *     (the browser fills in event.origin, so it can't be faked).
- *  3. Once you are signed in, we read Tesla's access token from this page (same logic as the player's
- *     Connect bookmarklet) and POST the items to /api/1/decrypt/batch on dashcam.tesla.com itself.
- *  4. The key results go back to the player (and the token, for players on localhost only). Then this window closes.
+ *  3. Once you are signed in, we try to read Tesla's access token from this page.
+ *     If automatic detection fails (current Tesla site), a banner button lets you paste the Bearer token
+ *     from the Network tab.
+ *  4. We POST the items to /api/1/decrypt/batch on dashcam.tesla.com itself.
+ *  5. The key results go back to the player (and the token, for players on localhost only). Then this window closes.
  * Nothing is sent anywhere except Tesla's own endpoint on this origin and the Grid Player window that opened us.
  */
 (function () {
@@ -35,8 +37,9 @@
   const HELLO = "tesla-dashcam-hello", ITEMS = "tesla-dashcam-items", STATUS = "tesla-dashcam-status";
   const KEYS = "tesla-dashcam-keys", KEYS_ERROR = "tesla-dashcam-keys-error", TOKEN = "tesla-dashcam-token";
   const STORE = "teslaGridPlayerConnector";   // sessionStorage: survives the sign-in redirects inside this tab
+  const MANUAL_TOKEN_KEY = "manualTeslaToken";
   const SIGNIN_TIMEOUT_MS = 5 * 60 * 1000;
-  const VERSION = "1.2.0";
+  const VERSION = "1.3.0";
 
   // Not opened by another window (e.g. you visited Tesla yourself), not top-level, or not Tesla → do nothing.
   if (location.origin !== "https://dashcam.tesla.com" || window.top !== window || !window.opener) return;
@@ -100,7 +103,7 @@
   }, 1000);
   post({ type: HELLO, version: VERSION }, helloTarget);
 
-  // ── 3. Token picker (same rules as the player's Connect bookmarklet) ──
+  // ── 3. Token picker (automatic + manual fallback) ──
   function pickToken() {
     try {
       const bad = /refresh|id_?token|csrf|xsrf/i;
@@ -128,7 +131,31 @@
         if (mm) return mm[0];
       }
     } catch (_) {}
+
+    // Manual fallback (stored from the paste button)
+    try {
+      const manual = sessionStorage.getItem(MANUAL_TOKEN_KEY);
+      if (manual && manual.length > 20) return manual.replace(/^Bearer\s+/i, "").trim();
+    } catch (_) {}
+
     return null;
+  }
+
+  function promptManualToken() {
+    const raw = prompt(
+      "Paste the Bearer token from the Network tab\n\n" +
+      "1. In DevTools → Network, find the /api/1/decrypt/batch request\n" +
+      "2. Copy the Authorization header value (starts with Bearer eyJ…)\n\n" +
+      "Paste it here:"
+    );
+    if (!raw) return;
+    const token = raw.replace(/^Bearer\s+/i, "").trim();
+    if (token.length < 20) {
+      alert("That doesn’t look like a valid token (too short).");
+      return;
+    }
+    try { sessionStorage.setItem(MANUAL_TOKEN_KEY, token); } catch (_) {}
+    setTimeout(run, 100);
   }
 
   function originAllowed(o) { return ALLOWED_PLAYER_ORIGINS.some((re) => re.test(o)); }
@@ -156,12 +183,19 @@
       if (Date.now() - started > SIGNIN_TIMEOUT_MS) {
         stop();
         post({ type: KEYS_ERROR, error: "No Tesla access token found on dashcam.tesla.com (signed in?)" }, target());
-        return show("Couldn't find a Tesla access token on this page. Make sure you're signed in (open any clip once), then click “Unlock with Tesla” in the player again.", "err");
+        return show("Couldn't find a Tesla access token. Click the button and paste the one from the Network tab.", "err", {
+          label: "Paste token from Network tab",
+          onClick: promptManualToken
+        });
       }
       if (Date.now() - started > 60000) warned = true;
       return show(warned
-        ? "Still no Tesla session found. If you're already signed in, open any clip on this page — the connector looks for Tesla's access token in this page's cookies/storage."
-        : "Sign in to your Tesla account here — keys go to the dashcam player automatically.");
+        ? "Still no Tesla session found. Click the button to paste a token from the Network tab."
+        : "Sign in to your Tesla account here — or paste a token if you're already signed in.",
+        "", {
+          label: "Paste token from Network tab",
+          onClick: promptManualToken
+        });
     }
     if (playerOrigin === "null" && !confirmed) {
       // A local-file player can't be told apart from other "null"-origin pages, so ask once.

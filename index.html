@@ -23,6 +23,10 @@
     <div class="top-actions">
       <button class="btn ghost" id="btnOpenFolder" title="Open a TeslaCam folder or USB drive">
         <svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg><span>Open folder</span></button>
+      <button class="btn ghost" id="btnRemoveEvent" hidden title="Remove this event from the list. Files on the USB are not deleted.">
+        <svg viewBox="0 0 24 24"><path d="M5 7h14M10 7V4h4v3M7 7l1 13h8l1-13"/></svg><span>Remove</span></button>
+      <button class="btn ghost" id="btnClearEvents" hidden title="Clear every loaded event and return to the start. Files on the USB are not deleted.">
+        <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg><span>Clear</span></button>
       <button class="btn ghost adv-only" id="btnOpenFiles" title="Add individual video files"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg><span>Add files</span></button>
       <button class="btn tesla" id="btnUnlock" hidden><svg viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg><span id="btnUnlockText">Unlock with Tesla</span></button>
       <button class="btn primary" id="btnExport" disabled><svg viewBox="0 0 24 24"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg><span>Export</span></button>
@@ -35,6 +39,7 @@
     <aside class="library" id="library" hidden>
       <div class="lib-head">
         <div><div class="lib-title">Events</div><div class="lib-sub" id="libSub"></div></div>
+        <button class="btn small ghost" id="btnClearLib" hidden title="Clear every loaded event. Files on the USB are not deleted.">Clear</button>
       </div>
       <button class="btn primary wide" id="btnExportAll"><svg viewBox="0 0 24 24"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg><span id="btnExportAllText">Export all</span></button>
       <div class="lib-list" id="libList"></div>
@@ -67,6 +72,7 @@
         </div>
         <button class="bar-restore" id="btnBarRestore" title="Show the camera bar (C)" aria-label="Show the camera bar" hidden><svg viewBox="0 0 24 24"><rect x="3" y="6" width="13" height="12" rx="2"/><path d="M16 10l5-3v10l-5-3"/></svg></button>
       </div>
+      <div class="map-dock" id="mapDock" hidden></div>
       <section class="empty" id="emptyState">
         <div class="empty-card">
           <svg viewBox="0 0 64 64" class="empty-icon" aria-hidden="true"><rect x="10" y="18" width="44" height="34" rx="6"/><path d="M22 18v-6h20v6M24 30h16M24 38h10"/></svg>
@@ -143,6 +149,8 @@
         <div class="row"><span>Map tiles (internet)</span><input type="checkbox" id="mapTiles"></div>
         <div class="row"><span>Style</span><div class="seg" id="segMapStyle"><button data-v="osm">OpenStreetMap</button><button data-v="dark">Dark</button></div></div>
         <div class="row"><span>Follow the car</span><input type="checkbox" id="mapFollow"></div>
+        <div class="row"><span>Beside the video</span><input type="checkbox" id="mapAside"></div>
+        <p class="hint">Beside the video keeps the map off the cameras while you watch. Drag the corner to resize it. Export still burns the map onto the video when Map is included.</p>
       </section>
       <section><h3>Calibration</h3>
         <p class="hint">Tesla doesn't document sign conventions. Flip these if the wheel turns the wrong way or the g-ball moves sideways when braking.</p>
@@ -204,10 +212,19 @@
           </ol>
           <div class="btn-row"><button class="btn" id="btnDownloadConnector">Download connector</button><button class="btn ghost" id="btnCopyConnector">Copy script</button><button class="btn primary" id="btnUnlockRetry">Try again</button></div>
         </div>
-        <details class="manual"><summary>Other ways (manual)</summary>
-          <p>1. Copy the helper, open <code>dashcam.tesla.com</code>, sign in, open the browser console, paste and press Enter. 2. Paste the JSON it prints below.</p>
+        <details class="manual"><summary>Other ways (manual) — Key fetch blocked (CORS)</summary>
+          <p>If the connector can't run, use this Tesla-origin helper instead. It runs on <code>dashcam.tesla.com</code> itself so there is no CORS problem.</p>
+          <ol class="howto">
+            <li>Click <strong>Copy key helper</strong> below.</li>
+            <li>Open <a href="https://dashcam.tesla.com/" target="_blank" rel="noopener">dashcam.tesla.com</a> in a new tab and sign in.</li>
+            <li>Open the browser console (Develop → Show JavaScript Console, or Option-Command-C) and paste the helper. Press Enter.</li>
+            <li>It will print (and try to copy) the keys JSON. Paste that JSON into the box below and click <strong>Apply keys</strong>.</li>
+          </ol>
+          <label class="block" style="font-size:0.78rem;color:var(--muted,#8b95a8);margin:0.6rem 0 0.25rem">Pending key requests (for reference)</label>
+          <textarea id="pendingItemsJson" rows="3" readonly style="width:100%;font-family:ui-monospace,monospace;font-size:0.75rem"></textarea>
           <div class="btn-row"><button class="btn ghost" id="btnCopyHelper">Copy key helper</button></div>
-          <textarea id="pasteKeys" rows="4" placeholder='{"results":[{"id":"…","key":"base64…"}]}'></textarea>
+          <label class="block" style="font-size:0.78rem;color:var(--muted,#8b95a8);margin:0.6rem 0 0.25rem">Paste keys JSON</label>
+          <textarea id="pasteKeys" rows="4" placeholder='{"results":[{"id":"…","key":"base64…"}]}' style="width:100%;font-family:ui-monospace,monospace;font-size:0.75rem"></textarea>
           <div class="btn-row"><button class="btn" id="btnApplyKeys">Apply keys</button></div>
         </details>
         <p class="fine">Tesla's key service is undocumented. This flow is untested against real encrypted clips — if it fails, plain (unencrypted) clips still work without signing in.</p>

@@ -15,7 +15,11 @@
     const d = T.focus ? T.focus.dims() : { cols: 3, rows: 2 };
     const aspect = (d.cols * tile.w) / (d.rows * tile.h);
     const cs = getComputedStyle(vp);
-    const W = vp.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight), H = vp.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
+    const W0 = vp.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight), H = vp.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
+    let dockW = 0;
+    if (T.overlays && T.overlays.dockWidth) dockW = T.overlays.dockWidth(H, W0);
+    if (dockW) dockW += 12;
+    const W = Math.max(160, W0 - dockW);
     let w = W, h = W / aspect;
     if (h > H) { h = H; w = H * aspect; }
     stage.style.width = Math.floor(w) + "px";
@@ -41,7 +45,9 @@
       const d = ev.time ? new Date(ev.time) : null;
       const day = d ? T.fmtDateLong(d) : "Other files";
       if (day !== lastDay) { list.appendChild(T.el("div", "lib-day", day)); lastDay = day; }
-      const b = T.el("button", `ev k-${ev.trigger.kind}` + (ev === U.current ? " active" : ""));
+      const b = T.el("div", `ev k-${ev.trigger.kind}` + (ev === U.current ? " active" : ""));
+      b.setAttribute("role", "button");
+      b.tabIndex = 0;
       const dur = ev.prepared ? T.fmtTime(ev.duration) : `${ev.clips.length} clip${ev.clips.length > 1 ? "s" : ""}`;
       const meta = [ev.location.city, `${ev.cams.length} cam${ev.cams.length === 1 ? "" : "s"}`, ev.source !== "Files" ? ev.source.replace("Clips", "") : null].filter(Boolean).join(" · ");
       b.innerHTML = `<div class="ev-icon">${ICONS[ev.trigger.kind] || ICONS.files}</div>
@@ -55,7 +61,15 @@
       if (ev.locked) badges.appendChild(T.el("span", "badge lock", "🔒 locked"));
       if (ev.exportState === "running") badges.appendChild(T.el("span", "badge run", "exporting"));
       else if (ev.exported) badges.appendChild(T.el("span", "badge ok", "✓ exported"));
+      const x = T.el("button", "ev-x");
+      x.type = "button";
+      x.title = "Remove this event from the list. Files on the USB are not deleted.";
+      x.setAttribute("aria-label", "Remove event");
+      x.innerHTML = '<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>';
+      x.addEventListener("click", (e) => { e.stopPropagation(); U.removeEvent(ev); });
+      badges.appendChild(x);
       b.addEventListener("click", () => U.activate(ev));
+      b.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); U.activate(ev); } });
       list.appendChild(b);
     }
     const n = evs.length;
@@ -72,6 +86,9 @@
     document.body.classList.toggle("multi-ev", n > 1);
     $("libSub").textContent = `${n} event${n === 1 ? "" : "s"} · ${evs.reduce((a, e) => a + e.clips.length, 0)} clips`;
     $("btnExportAllText").textContent = n > 1 ? `Export all ${n} events` : "Export this event";
+    $("btnClearLib").hidden = !n;
+    $("btnClearEvents").hidden = !n;
+    $("btnRemoveEvent").hidden = !U.current;
     const locked = T.library.lockedCount();
     $("btnUnlock").hidden = !locked;
     $("btnUnlockText").textContent = `Unlock ${locked} encrypted file${locked === 1 ? "" : "s"}`;
@@ -98,6 +115,51 @@
     U.drawTimeline();
     U.syncSegUi();
     return ev;
+  };
+
+  function showEmpty() {
+    U.current = null;
+    U.segs = [];
+    U.selSeg = null;
+    U.playIdx = 0;
+    try { P().pause(); } catch (_) {}
+    P().open(null);
+    $("stage").hidden = true;
+    $("emptyState").hidden = false;
+    document.body.classList.add("no-event");
+    $("btnExport").disabled = true;
+    $("btnRemoveEvent").hidden = true;
+    $("btnClearEvents").hidden = true;
+    $("btnClearLib").hidden = true;
+    $("eventTitle").querySelector(".et-main").textContent = "No event loaded";
+    $("eventSub").textContent = "";
+    $("timeLabel").textContent = "0:00.0";
+    $("durLabel").textContent = "0:00.0";
+    $("clockLabel").textContent = "—";
+    U.drawTimeline();
+  }
+
+  U.removeEvent = (ev) => {
+    if (!ev) return;
+    if (ev.exportState === "running") { T.toast("Wait until this export finishes, then remove it.", "err"); return; }
+    const id = ev.id;
+    const wasCurrent = U.current && U.current.id === id;
+    const idx = T.library.events.findIndex((e) => e.id === id);
+    if (!T.library.removeEvent(id)) return;
+    const left = T.library.events;
+    if (!left.length) showEmpty();
+    else if (wasCurrent) U.activate(left[Math.min(Math.max(idx, 0), left.length - 1)]);
+    T.toast("Removed from the list. Nothing was deleted from the USB.", "ok");
+  };
+
+  U.clearLibrary = () => {
+    const n = T.library.events.length;
+    if (!n) return;
+    if (T.library.events.some((e) => e.exportState === "running")) { T.toast("Wait until the export finishes, then clear.", "err"); return; }
+    if (!confirm(`Clear all ${n} event${n === 1 ? "" : "s"} from Dashcam Studio?\n\nThis only clears this page. Nothing is deleted from the USB drive.`)) return;
+    T.library.clear();
+    showEmpty();
+    T.toast("Cleared. Drop the TeslaCam folder again whenever you want it back.", "ok");
   };
 
   function busy(on, text) { $("busy").hidden = !on; if (text) $("busyText").textContent = text; }
@@ -738,6 +800,9 @@
     const pickFiles = () => $("fileInput").click();
     $("btnOpenFolder").onclick = pickFolder; $("btnEmptyFolder").onclick = pickFolder;
     $("btnOpenFiles").onclick = pickFiles; $("btnEmptyFiles").onclick = pickFiles;
+    $("btnRemoveEvent").onclick = () => U.removeEvent(U.current);
+    $("btnClearEvents").onclick = () => U.clearLibrary();
+    $("btnClearLib").onclick = () => U.clearLibrary();
     $("folderInput").addEventListener("change", (e) => { U.ingest(T.library.filesFromInput(e.target)); e.target.value = ""; });
     $("fileInput").addEventListener("change", (e) => { U.ingest(T.library.filesFromInput(e.target)); e.target.value = ""; });
 
@@ -796,6 +861,8 @@
     $("hudScale").oninput = (e) => T.setPref("hudScale", +e.target.value);
     $("mapTiles").onchange = (e) => T.setPref("mapTiles", e.target.checked);
     $("mapFollow").onchange = (e) => T.setPref("mapFollow", e.target.checked);
+    $("mapAside").checked = T.prefs.mapDock === "aside";
+    $("mapAside").onchange = (e) => { T.setPref("mapDock", e.target.checked ? "aside" : "over"); U.fit(); };
     $("steerInvert").onchange = (e) => T.setPref("steerInvert", e.target.checked);
     $("accelSwap").onchange = (e) => T.setPref("accelSwap", e.target.checked);
     $("btnResetLayout").onclick = () => { T.resetPrefs("panels"); T.toast("Overlay positions reset"); };

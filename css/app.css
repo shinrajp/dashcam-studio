@@ -58,7 +58,7 @@ body.simple .adv-only { display: none !important; }
 .lib-sub { font-size: 12px; color: var(--dim); }
 .lib-list { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; padding-right: 2px; }
 .lib-day { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--faint); margin: 8px 6px 2px; }
-.ev { display: grid; grid-template-columns: 34px 1fr auto; gap: 10px; align-items: center; padding: 9px 10px; border-radius: 10px; cursor: pointer; border: 1px solid transparent; background: transparent; text-align: left; width: 100%; }
+.ev { display: grid; grid-template-columns: 34px 1fr auto; gap: 10px; align-items: center; padding: 9px 10px; border-radius: 10px; cursor: pointer; border: 1px solid transparent; background: transparent; text-align: left; width: 100%; color: inherit; font: inherit; }
 .ev:hover { background: rgba(255,255,255,0.04); }
 .ev.active { background: rgba(62,106,225,0.14); border-color: rgba(62,106,225,0.5); }
 .ev-icon { width: 34px; height: 34px; border-radius: 9px; display: grid; place-items: center; background: #232833; }
@@ -72,6 +72,11 @@ body.simple .adv-only { display: none !important; }
 .ev-label { font-size: 12px; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ev-meta { font-size: 11px; color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ev-badges { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; font-size: 11px; color: var(--dim); }
+.ev-x { appearance: none; border: 0; background: transparent; color: var(--dim); width: 22px; height: 22px; border-radius: 6px; display: grid; place-items: center; cursor: pointer; padding: 0; opacity: 0; }
+.ev:hover .ev-x, .ev:focus-within .ev-x, .ev-x:focus { opacity: 1; }
+.ev-x:hover { color: #ff8a80; background: rgba(255,90,79,0.14); }
+@media (hover: none) { .ev-x { opacity: 0.85; } }
+.ev-x svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; }
 .badge { font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 6px; background: rgba(255,255,255,0.08); color: var(--dim); }
 .badge.ok { background: rgba(46,230,110,0.14); color: #6ff0a0; }
 .badge.lock { background: rgba(255,255,255,0.1); color: #fff; }
@@ -98,8 +103,14 @@ body.simple .adv-only { display: none !important; }
 .float-panel.dragging { cursor: grabbing; filter: drop-shadow(0 10px 28px rgba(0,0,0,0.6)); }
 .float-panel:hover { outline: 1px dashed rgba(255,255,255,0.25); outline-offset: 3px; border-radius: 22px; }
 .map-panel { cursor: pointer; }
-.resize-grip { position: absolute; right: 2px; bottom: 2px; width: 18px; height: 18px; cursor: nwse-resize; border-right: 3px solid rgba(255,255,255,0.5); border-bottom: 3px solid rgba(255,255,255,0.5); border-radius: 0 0 14px 0; opacity: 0; transition: opacity .15s; }
+.map-move { position: absolute; left: 6px; top: 6px; z-index: 3; height: 26px; padding: 0 8px; border-radius: 7px; border: 1px solid rgba(255,255,255,0.22); background: rgba(0,0,0,0.62); color: #fff; font: 600 11px inherit; cursor: pointer; }
+.map-move:hover { background: rgba(0,0,0,0.82); }
+.resize-grip { position: absolute; right: 2px; bottom: 2px; width: 18px; height: 18px; cursor: nwse-resize; border-right: 3px solid rgba(255,255,255,0.7); border-bottom: 3px solid rgba(255,255,255,0.7); border-radius: 0 0 14px 0; opacity: 0.7; transition: opacity .15s; }
 .map-panel:hover .resize-grip { opacity: 1; }
+.map-dock { display: none; }
+body.map-aside .viewport { display: flex; align-items: center; justify-content: center; gap: 12px; }
+body.map-aside .map-dock { display: block; flex: none; position: relative; z-index: 3; }
+body.map-aside .map-dock .map-panel { position: relative; transform: none !important; }
 .stage-time { position: absolute; right: 8px; top: 8px; padding: 3px 9px; border-radius: 6px; background: rgba(0,0,0,0.55); font: 700 11px ui-monospace, Menlo, Consolas, monospace; pointer-events: none; }
 
 /* ── empty state / drop ── */
@@ -201,7 +212,7 @@ textarea { width: 100%; background: var(--bg2); color: var(--text); border: 1px 
 .toast.ok { border-color: rgba(46,230,110,0.5); }
 
 @media (max-width: 1180px) {
-  .brand-sub, .switch-label, #btnOpenFolder span { display: none; }
+  .brand-sub, .switch-label, #btnOpenFolder span, #btnRemoveEvent span, #btnClearEvents span { display: none; }
   .library { width: 236px; }
   .chips .chip { padding: 0 7px; }
   .tp-clock { display: none; }

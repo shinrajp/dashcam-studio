@@ -258,7 +258,12 @@
     const vin = String.fromCharCode(...vinB);
     if (!VIN_RE.test(vin)) continue;
     if (isZero(wrapped)) return { ok: false, reason: "Blank wrapped key (copied while still recording?)" };
-    return { ok: true, header: { vin, key_id: keyId, timestamp: beU64(u8, c.vin + 17), wrapped_key: b64(wrapped), public_key: b64(u8.subarray(pk, pk + c.len)), wrappedHex: toHex(wrapped) } };
+    return { ok: true, header: { 
+      id: (u8.length >= 20 ? toHex(u8.subarray(4, 20)) : null),
+      vin, key_id: keyId, timestamp: beU64(u8, c.vin + 17), 
+      wrapped_key: b64(wrapped), public_key: b64(u8.subarray(pk, pk + c.len)), 
+      wrappedHex: toHex(wrapped) 
+    } };
   }
   return { ok: false, reason: "Unrecognised key area layout" };
   }

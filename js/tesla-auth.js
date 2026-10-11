@@ -57,10 +57,28 @@
   }
   A.applyAndDecrypt = applyAndDecrypt;
 
+  // Accept keys from the connector handshake OR from the manual console helper.
+  // The helper posts {type: tesla-dashcam-keys, results} with no nonce. If Unlock
+  // already opened the Tesla window, A.job is set — do not drop that message.
   window.addEventListener("message", (ev) => {
     if (ev.origin !== ORIGIN) return;
     const d = ev.data;
-    if (!d || typeof d !== "object" || !A.job || d.nonce !== A.job.nonce || ev.source !== A.job.popup) return;
+    if (!d || typeof d !== "object") return;
+
+    if (d.type === KEYS && Array.isArray(d.results)) {
+      if (d.nonce && A.job && d.nonce !== A.job.nonce) return;
+      if (A.job) { A.job.done = true; clearTimeout(A.job.timer); }
+      try { T.toast("Keys received from Tesla — decrypting…", "ok", 6000); } catch (_) {}
+      applyAndDecrypt(d.results, "Auto-applied from Tesla page").then((r) => {
+        const msg = (!r || !r.applied)
+          ? "Keys arrived but none matched these clips. Reload the folder, copy the helper again, and retry."
+          : "Unlocked " + r.applied + " clip key(s)";
+        try { T.toast(msg, !r || !r.applied ? "err" : "ok", 8000); } catch (_) {}
+      }).catch((e) => { try { T.toast("Apply failed: " + (e.message || e), "err", 8000); } catch (_) {} });
+      return;
+    }
+
+    if (!A.job || d.nonce !== A.job.nonce || ev.source !== A.job.popup) return;
     if (d.type === HELLO) {
       A.job.hello = true; clearTimeout(A.job.timer);
       try { localStorage.setItem(SEEN_KEY, "1"); } catch (_) {}
@@ -78,34 +96,137 @@
       A.job.done = true;
       notice("Unlock failed: " + String(d.error || "unknown error").slice(0, 300), "err");
     } else if (d.type === TOKEN && typeof d.token === "string" && d.token.length >= 20 && d.token.length <= 16384) {
-      // Only sent to http(s)://localhost players. Kept in memory; the companion (if running) may store it in the OS keychain.
       A.token = d.token;
       T.emit("tesla-token", d.token);
     }
   });
 
-  /** Console helper for manual key fetch (run on dashcam.tesla.com while signed in). */
+  /** Console helper for manual key fetch (run on dashcam.tesla.com while signed in).
+   * Works even when the token is not in cookies/storage — the user can paste a Bearer token when prompted. */
   A.helperSource = () => {
-    const items = JSON.stringify(T.library.pendingKeyItems());
-    return `(async()=>{const pick=()=>{for(const st of [sessionStorage,localStorage])for(let i=0;i<st.length;i++){const k=st.key(i);if(/refresh|id_?token|csrf/i.test(k))continue;const v=st.getItem(k)||"";const m=v.match(/eyJ[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+/);if(/token|auth/i.test(k)&&m)return m[0];}return null;};const t=pick();const h={"Content-Type":"application/json"};if(t)h.Authorization="Bearer "+t;const r=await fetch("/api/1/decrypt/batch",{method:"POST",credentials:"include",headers:h,body:JSON.stringify({items:${items}})});const txt=await r.text();console.log(txt);try{copy(txt);console.log("Copied — paste it into Dashcam Studio → Paste keys");}catch(e){}})();`;
+    const items = JSON.stringify(A.items());
+    return `(async()=>{
+  const items = ${items};
+  const pick = () => {
+    try {
+      for (const st of [sessionStorage, localStorage]) for (let i = 0; i < st.length; i++) {
+        const k = st.key(i); if (/refresh|id_?token|csrf/i.test(k)) continue;
+        const v = st.getItem(k) || "";
+        const m = v.match(/eyJ[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+/);
+        if (/token|auth/i.test(k) && m) return m[0];
+      }
+    } catch (_) {}
+    return null;
+  };
+  let token = pick();
+  if (!token) {
+    const raw = prompt("No token found in storage.\\n\\nPaste the Bearer token from the Network tab\\n(DevTools → Network → /api/1/decrypt/batch → Authorization header):");
+    if (!raw) { console.log("Cancelled"); return; }
+    token = raw.replace(/^Bearer\\s+/i, "").trim();
+  }
+  const headers = { "Content-Type": "application/json" };
+  if (token) headers.Authorization = "Bearer " + token;
+  const r = await fetch("/api/1/decrypt/batch", {
+    method: "POST", credentials: "include", headers,
+    body: JSON.stringify({ items })
+  });
+  const txt = await r.text();
+  console.log("HTTP", r.status);
+  let data = null;
+  try { data = JSON.parse(txt); } catch (_) {}
+  if (!r.ok || !data) {
+    console.error("Key fetch failed", r.status, txt.slice(0, 200));
+    return;
+  }
+  const results = Array.isArray(data) ? data : (data.results || []);
+  const clean = JSON.stringify({ results });
+  let nonce = null;
+  try {
+    const hm = /[#&]gridplayer=([0-9a-f]{16,64})/i.exec(location.hash);
+    if (hm) nonce = hm[1];
+    else {
+      const saved = JSON.parse(sessionStorage.getItem("teslaGridPlayerConnector") || "null");
+      if (saved && saved.nonce) nonce = saved.nonce;
+    }
+  } catch (_) {}
+  const msg = { type: "tesla-dashcam-keys", results };
+  if (nonce) msg.nonce = nonce;
+
+  try {
+    if (window.opener && !window.opener.closed) {
+      window.opener.postMessage(msg, "*");
+      console.log("✓ Keys sent to Dashcam Studio" + (nonce ? " (nonce " + nonce.slice(0, 8) + "…)" : " (no nonce in this tab)"));
+    } else {
+      console.log("No opener — this tab was not opened by Dashcam Studio, so keys cannot be applied automatically.");
+    }
+  } catch (e) { console.warn("postMessage failed", e); }
+
+  // Always leave a clipboard copy too, in case the opener ignores the message.
+  console.log(clean);
+  try { copy(clean); console.log("✓ Clean keys JSON also copied — paste into Dashcam Studio only if it did not unlock by itself"); } catch (_) {}
+  return clean;
+})();`;
   };
 
   A.init = () => {
-    T.$("btnUnlockGo").addEventListener("click", () => A.start());
-    T.$("btnUnlockRetry").addEventListener("click", () => A.start());
-    T.$("btnDownloadConnector").addEventListener("click", () => T.download(new Blob([T.CONNECTOR_SRC], { type: "text/javascript" }), T.CONNECTOR_FILENAME));
-    T.$("btnCopyConnector").addEventListener("click", async () => {
-      try { await navigator.clipboard.writeText(T.CONNECTOR_SRC); notice("Connector copied — create a new script in Userscripts / Tampermonkey and paste it.", "ok"); }
-      catch (_) { notice("Copy failed — use Download instead.", "err"); }
-    });
-    T.$("btnCopyHelper").addEventListener("click", async () => {
-      try { await navigator.clipboard.writeText(A.helperSource()); notice("Helper copied. Open dashcam.tesla.com, sign in, open the browser console, paste, press Enter.", "ok"); }
-      catch (_) { T.$("pasteKeys").value = A.helperSource(); }
-    });
-    T.$("btnApplyKeys").addEventListener("click", () => {
-      let data = null;
-      try { data = JSON.parse(T.$("pasteKeys").value); } catch (_) { return notice("That isn't valid JSON.", "err"); }
-      applyAndDecrypt(Array.isArray(data) ? data : data.results || [], "Pasted keys");
-    });
+    try {
+      T.$("btnUnlockGo")?.addEventListener("click", () => A.start());
+      T.$("btnUnlockRetry")?.addEventListener("click", () => A.start());
+      T.$("btnDownloadConnector")?.addEventListener("click", () => T.download(new Blob([T.CONNECTOR_SRC], { type: "text/javascript" }), T.CONNECTOR_FILENAME));
+      T.$("btnCopyConnector")?.addEventListener("click", async () => {
+        try { await navigator.clipboard.writeText(T.CONNECTOR_SRC); notice("Connector copied — create a new script in Userscripts / Tampermonkey and paste it.", "ok"); }
+        catch (_) { notice("Copy failed — use Download instead.", "err"); }
+      });
+      T.$("btnCopyHelper")?.addEventListener("click", async () => {
+        const src = A.helperSource();
+        try { await navigator.clipboard.writeText(src); notice("Helper copied. Open dashcam.tesla.com, sign in, open the console, paste, press Enter.", "ok"); }
+        catch (_) { notice("Copy failed — select and copy the helper manually.", "err"); }
+      });
+      T.$("btnApplyKeys")?.addEventListener("click", async () => {
+        let raw = (T.$("pasteKeys")?.value || "").trim();
+        raw = raw.replace(/^HTTP\s*\d+\s*/i, "").replace(/^["']|["']$/g, "").trim();
+        if (!raw) { alert("Paste the keys JSON first."); return; }
+        let data = null;
+        try { data = JSON.parse(raw); } catch (e) { alert("That isn't valid JSON.\n\n" + e.message); return; }
+        const results = Array.isArray(data) ? data : (data.results || []);
+        if (!results.length) { alert("No results found in the JSON."); return; }
+        try {
+          const r = await applyAndDecrypt(results, "Pasted keys");
+          if (!r.applied) alert("No usable keys were applied. Check the message in the dialog.");
+        } catch (e) {
+          console.error(e);
+          alert("Apply keys failed: " + (e.message || e));
+        }
+      });
+      // Auto-apply keys from clipboard when the user returns to this page (safe — cannot break startup)
+      try {
+        let lastClip = "";
+        async function tryAutoApplyFromClipboard() {
+          if (!navigator.clipboard || !navigator.clipboard.readText) return;
+          try {
+            const text = (await navigator.clipboard.readText() || "").trim();
+            if (!text || text === lastClip) return;
+            lastClip = text;
+            let clean = text.replace(/^HTTP\s*\d+\s*/i, "").replace(/^["']|["']$/g, "").trim();
+            clean = clean.replace(/\\"/g, '"');
+            const data = JSON.parse(clean);
+            const results = Array.isArray(data) ? data : (data.results || []);
+            if (!results.length || !results[0].key) return;
+            notice("Keys found on clipboard — applying…", "ok");
+            await applyAndDecrypt(results, "Auto-applied from clipboard");
+          } catch (_) {}
+        }
+        window.addEventListener("focus", tryAutoApplyFromClipboard);
+        document.addEventListener("visibilitychange", () => { if (!document.hidden) tryAutoApplyFromClipboard(); });
+      } catch (e) { console.warn("clipboard auto-apply disabled", e); }
+      const refreshPending = () => {
+        const el = T.$("pendingItemsJson");
+        if (el) el.value = JSON.stringify(A.items(), null, 2);
+      };
+      refreshPending();
+      T.on("library", refreshPending);
+    } catch (e) {
+      console.warn("Tesla auth init skipped", e);
+    }
   };
 })();
