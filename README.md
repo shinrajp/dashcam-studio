@@ -7,6 +7,7 @@ A Tesla dashcam and Sentry viewer that runs entirely in your browser. Drop in yo
 - **6-camera grid.** Front, rear, both pillars and both repeaters play in sync in a labelled 3×2 grid, with multi-clip events joined into one timeline.
 - **Telemetry HUD.** A draggable graphic HUD with speed, gear, steering wheel, brake, accelerator, blinking turn signals, compass, g-force and GPS. It needs clips with Tesla's embedded telemetry, which arrived in firmware 2025.44.25+ on HW3 and newer.
 - **Route map.** A map with the route and a dot that moves with playback. Click the map to seek. **Beside video** parks it next to the picture so it doesn't cover a camera. Drag the corner to resize. Export still burns the map onto the video.
+- **One search box.** Tap **🔍 Search** (or press `/` or Ctrl/Cmd+K) to find a moment or hide text from one floating box. It stays an icon until you need it, so it doesn't cover the video. On phones it opens as a bottom sheet above the keyboard.
 - **Find in the video.** Describe what you see, for example "a person in a hoodie and a mask." Matches are marked on the timeline. Click one to jump there, or turn them into sections. Frames stay on this computer. The first search downloads a vision model once (about 150 MB). Hits are guesses, not proof.
 - **Redact in the window.** Type a name or other words, such as `Jane Doe` or `Taco Bell, Costco`. Only those words are covered. **All text** covers every word. Nothing to install.
 - **Self-Driving badge.** It shows Self-Driving, Autosteer or TACC status.
@@ -35,6 +36,12 @@ A Tesla dashcam and Sentry viewer that runs entirely in your browser. Drop in yo
 ![Redact in use: "blur all text" applied to the front camera, with Show blur on](screenshots/photo-redact.png)
 *Redact: one click blurs text, plates or faces on the picture. Export uses the same blur.*
 
+![Unified search on desktop: "Find moment" and "Blur text" in one floating box, with Find matches and blurred text regions listed by time](screenshots/phase4-after-desktop-open.png)
+*One search box (new): Find matches and blurred text regions in one list. Click a row to jump there.*
+
+![Phone: the search opens as a bottom sheet that sits above the keyboard; the video is not resized](screenshots/phase4-after-phone-sheet-keyboard.png)
+*On a phone the search is a bottom sheet above the keyboard. The video underneath doesn't move.*
+
 ![Multi-section trim: three labelled sections on the full-width timeline (Advanced)](screenshots/photo-sections.png)
 
 ![iPhone (portrait): 2×3 camera grid with the full-width timeline and section lane](screenshots/photo-iphone.png)
@@ -58,9 +65,21 @@ A Tesla dashcam and Sentry viewer that runs entirely in your browser. Drop in yo
 
 **On iPhone or iPad:** copy the clips into the Files app first, for example from the USB drive with a USB-C adapter. Then tap **Add files** and select the `.mp4` files (and `event.json` if there is one). The app groups them into events by the timestamps in their file names. Safari can't open a whole folder, so pick the files themselves. Use Files rather than the Photos picker, which may convert the videos.
 
+## Search (Find + Redact in one box)
+Tap **🔍 Search** next to the clock (on a phone, the round 🔍 button above the controls), or press **/** or **Ctrl+K / Cmd+K**. Type, then:
+- **Find moment** (Enter) looks for a scene or object, such as "a cyclist in the bike lane".
+- **Blur text** (Shift+Enter) hides those words wherever they appear. The chips (**Blur plates**, **Blur faces**, **Street signs**, **All text**) work as before.
+
+Results drop down in two groups, **Find matches** and **Blurred text / regions**, each with its time. Click or tap one to jump there: a Find match switches to that camera and draws the gold box, and a text region focuses its camera and flashes a gold outline around it. **Esc** closes the box (a second Esc leaves the focused camera as before). The 🔍 button shows how many results there are.
+
+On phones and narrow windows the box is a bottom sheet pinned above the on-screen keyboard. The video grid isn't resized while you type.
+
+**Classic search bars:** Settings ▸ Search ▸ *Classic search bars* (or the checkbox at the bottom of the search box) brings back the original Find and Redact bars under the video. You can also open the app with `?search=classic`. If the new search ever fails to start, the classic bars appear on their own.
+
 ## Keyboard shortcuts
 | Key | Action |
 |---|---|
+| / or Ctrl/Cmd+K | open search (Esc closes it) |
 | Space | play / pause |
 | ← → | previous / next frame (Shift: ±5 s) |
 | 1 – 6 | focus Front, Back, Left side (pillar), Right side (pillar), Left mirror (repeater), Right mirror (repeater) |
@@ -82,7 +101,7 @@ With **Advanced** on: A adds a section, B splits the section at the playhead, I 
 - **Saved keys:** off by default. Only if you tick **Remember keys on this device** are the 16-byte clip keys stored in this browser (IndexedDB, not encrypted), so anyone using this browser profile could unlock those clips. **Forget saved keys** wipes them, the keys used in the current tab, and clipboard auto-apply, and re-locks open clips. Bearer tokens you paste are kept in memory only and never stored.
 
 ## Redact plates, faces, and text
-Nothing to install. Use the **Redact** bar under the search box. Type the words to hide, such as a person's name or `Taco Bell, Costco`, and press **Apply**. Only the text that matches those words is covered. Other words stay visible. **All text** is the switch that covers every word. Plates and faces are separate buttons. The effect shows on the picture and is included when you export. **Clear** takes it off. The original file on the USB drive is not changed.
+Nothing to install. Open **🔍 Search** (or use the classic **Redact** bar). Type the words to hide, such as a person's name or `Taco Bell, Costco`, and press **Blur text** (**Apply** on the classic bar). Only the text that matches those words is covered. Other words stay visible. **All text** is the switch that covers every word. Plates and faces are separate buttons. The effect shows on the picture and is included when you export. **Clear** takes it off. The original file on the USB drive is not changed.
 
 The text finder is [PP-OCRv4](https://github.com/PaddlePaddle/PaddleOCR) (Apache-2.0), the same kind of detector as the Python tool's CRAFT model, converted so it runs inside the page. The letter models are already in the folder, so Apply works from a downloaded copy with no internet. The video is not uploaded. Plates are the wide text-shaped regions low in the frame. Faces use the browser's face finder. This does not remove an arbitrary object such as "the yellow truck."
 

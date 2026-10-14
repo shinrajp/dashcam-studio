@@ -15,3 +15,16 @@ Tests: `node test/batching.test.js`; headless: test/smoke.js, test/phase2.js, te
 Opt-in "Remember keys on this device" in the Unlock dialog (OFF by default). Keys go in IndexedDB "tdc-saved-keys",
 keyed by each clip's wrapped-key fingerprint from its encrypted header. They are saved from every route and re-applied
 when a folder is opened. "Forget saved keys" wipes them; Clear index does not. Without IndexedDB: nothing is saved.
+
+## Phase 4: unified search, mobile-first (branch feature/phase4-search, tag phase4-search)
+Rollback: `git checkout pre-phase4` (main before Phase 4). To switch the new UI off without code: Settings ▸ Search ▸ Classic search bars, or `?search=classic`.
+
+- `js/search-ui.js` (new) and CSS at the end of `css/app.css`: one floating search for Find (object/scene) and Redact (text/plates/faces).
+  - It's an icon by default. Tap it, or press `/` or Ctrl/Cmd+K, to expand it; Esc closes it (captured first, so Esc doesn't also leave a focused camera).
+  - Results appear in a light dropdown grouped as Find matches and Blurred text/regions, each with a time.
+  - Picking a Find match uses search.js's own jump (seek, switch camera, gold box). Picking a text region seeks, focuses that camera and flashes a gold outline around the region.
+  - Phones and narrow or touch screens get a bottom sheet with `position: fixed`, kept above the keyboard with `visualViewport`. It sets `interactive-widget=overlays-content` while open so Android doesn't resize the page. The grid isn't reflowed. The input font is 16px so iOS doesn't zoom.
+  - It drives the classic bars' inputs and buttons. search.js, redact.js, decryption, grid, export, key flows and the connector are unchanged (index.html adds one script tag; app.js adds one guarded init call).
+  - Fallback: init runs in try/catch. On failure it removes anything half-built and never adds `body.usearch`, so the classic Find and Redact bars stay visible. The "Classic search bars" setting (localStorage `tdc.classicSearch`) shows them on purpose.
+- Test: `node test/phase4-search.js http://127.0.0.1:8770/index.html` (desktop 1440×900 plus iPhone 390×844 with touch and a simulated keyboard; covers shortcuts, jumps, Classic toggle, and two forced-failure fallbacks).
+- Screenshots: `screenshots/phase4-before-*.png` and `phase4-after-*.png`.
