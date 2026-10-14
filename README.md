@@ -18,7 +18,7 @@ A Tesla dashcam and Sentry viewer that runs entirely in your browser. Drop in yo
 
 ![Full screen: front camera at golden hour with the telemetry HUD and Self-Driving badge](screenshots/photo-hero-fullscreen.png)
 
-![Six-camera grid with HUD, route map and Self-Driving badge: left blinker on while a Cybercab overtakes, before the lane change](screenshots/photo-grid.png)
+![Six-camera grid with HUD, route map and Self-Driving badge, with the Find and Redact bars under the video: left blinker on while a Cybercab overtakes, before the lane change](screenshots/photo-grid.png)
 
 ![Sentry event at golden hour: a hooded passer-by on the right repeater](screenshots/photo-sentry.png)
 
@@ -26,6 +26,12 @@ A Tesla dashcam and Sentry viewer that runs entirely in your browser. Drop in yo
 <summary>More screenshots</summary>
 
 ![One camera enlarged, with the floating camera bar](screenshots/photo-focus-camera-bar.png)
+
+![Find in the video: "a cyclist in the bike lane" returns two matches, marked in yellow on the timeline, with a gold box on the front camera](screenshots/photo-find.png)
+*Find in the video: type what you're looking for. Matches show as chips and yellow marks on the timeline.*
+
+![Redact in use: "blur all text" applied to the front camera, with Show blur on](screenshots/photo-redact.png)
+*Redact: one click blurs text, plates or faces on the picture. Export uses the same blur.*
 
 ![Multi-section trim: three labelled sections on the full-width timeline (Advanced)](screenshots/photo-sections.png)
 
