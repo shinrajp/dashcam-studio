@@ -507,3 +507,12 @@ body.usearch:not(.usearch-classic) .transport > #redactStatus { display: none !i
 .us-panel.sheet .us-item { min-height: 44px; }
 .us-panel.sheet .us-actions .btn, .us-panel.sheet .us-chip { min-height: 36px; }
 @media (max-width: 760px) { .us-btn .us-lbl { display: none; } }
+.us-row input::-webkit-search-cancel-button { -webkit-appearance: none; display: none; }  /* we have our own close */
+@media (max-width: 760px) {   /* phone: the control row is full, so the icon floats just above the transport */
+  .tp-controls .us-btn { position: fixed; z-index: 35; right: max(12px, env(safe-area-inset-right)); bottom: calc(var(--tp-h, 62px) + 10px); width: 44px; height: 44px; padding: 0; justify-content: center; border-radius: 22px;
+    background: rgba(23,26,32,0.82); border: 1px solid rgba(255,255,255,0.14); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); box-shadow: 0 4px 14px rgba(0,0,0,.45); }
+  .tp-controls .us-btn svg { width: 20px; height: 20px; }
+  .tp-controls .us-btn .us-count { position: absolute; top: -4px; right: -4px; }
+  body.us-open .tp-controls .us-btn { display: none; }
+  body.no-event .tp-controls .us-btn { display: none; }
+}
