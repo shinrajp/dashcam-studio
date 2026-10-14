@@ -1,0 +1,7 @@
+# Local redaction only. Install PyTorch for your GPU first, then:
+#   pip install -r tools/requirements-redact.txt
+# Apple Silicon:  pip install torch torchvision   (the default wheel includes MPS)
+# NVIDIA CUDA:    install the matching torch wheel from https://pytorch.org first
+opencv-python
+numpy
+easyocr

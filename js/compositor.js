@@ -71,8 +71,10 @@
     T.GRID.forEach((cam, i) => {
       const r = C.cellRect(grid, i, 0);
       const f = frames[cam];
-      if (f && f.img) drawContain(ctx, f.img, f.w, f.h, r);
-      else placeholder(ctx, r, cam, s, clip);
+      if (f && f.img) {
+        drawContain(ctx, f.img, f.w, f.h, r);
+        if (T.redact && T.redact.burn) T.redact.burn(ctx, cam, t, r, f.w, f.h, f.img);
+      } else placeholder(ctx, r, cam, s, clip);
       if (show.labels) label(ctx, T.CAM_LABEL[cam], r, s * 0.9);
     });
     const tel = T.telemetry;

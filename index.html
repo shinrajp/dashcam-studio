@@ -96,6 +96,40 @@
   </div>
 
   <footer class="transport" id="transport">
+    <div class="find-bar">
+      <input id="findQuery" type="search" placeholder="Find in the video — a person in a hoodie and a mask" autocomplete="off" spellcheck="false">
+      <select id="findCam" class="select small" title="Which cameras to look at">
+        <option value="front">Front camera</option>
+        <option value="around">Front, sides, and rear</option>
+      </select>
+      <label class="find-opt" title="One camera switches to it. Several cameras return to the grid with a gold box on each" hidden><input type="checkbox" id="findFollow" checked> Switch to match</label>
+      <label class="find-opt" title="Draw or hide the gold box around the match" hidden><input type="checkbox" id="findShow" checked> Gold box</label>
+      <button class="btn primary" id="btnFind" type="button">Find</button>
+      <button class="btn ghost" id="btnFindStop" type="button" hidden>Stop</button>
+      <button class="btn ghost" id="btnFindMarks" type="button" hidden title="Add a short section around each match">Make sections</button>
+      <button class="btn ghost" id="btnFindClear" type="button" hidden>Clear</button>
+    </div>
+    <div class="find-status" id="findStatus" hidden></div>
+    <div class="find-hits" id="findHits"></div>
+    <div class="redact-bar">
+      <input id="redactQuery" type="text" placeholder="Kato Rd, Fremont Blvd, Cushing Pkwy, Page Ave" autocomplete="off" spellcheck="false">
+      <select id="redactCam" class="select small" title="Which cameras to redact">
+        <option value="front">Front camera</option>
+        <option value="around">Front, sides, and rear</option>
+      </select>
+      <button class="btn primary" id="btnRedact" type="button">Apply</button>
+      <label class="redact-toggle" id="redactShowWrap" title="Show or hide the blur on the video. After Apply, this switches instantly." hidden><input type="checkbox" id="redactShow" checked> Show blur</label>
+      <button class="btn ghost" id="btnRedactStop" type="button" hidden>Stop</button>
+      <button class="btn ghost" id="btnRedactClear" type="button" hidden>Clear</button>
+      <div class="redact-presets">
+        <button type="button" data-q="blur the license plate">Blur plates</button>
+        <button type="button" data-q="remove the license plate">Remove plates</button>
+        <button type="button" data-q="blur faces">Blur faces</button>
+        <button type="button" data-q="blur street signs">Street signs</button>
+        <button type="button" data-q="blur all text">All text</button>
+      </div>
+    </div>
+    <div class="find-status" id="redactStatus" hidden></div>
     <div class="tp-scrub">
       <div class="tp-time" id="timeLabel" title="Current position">0:00.0</div>
       <div class="timeline" id="timeline" role="slider" tabindex="-1" aria-label="Timeline: drag to scrub. Sections (Advanced) sit on the lower lane." aria-valuemin="0" aria-valuemax="0" aria-valuenow="0"><canvas id="timelineCanvas"></canvas><div class="tl-tip" id="tlTip" hidden></div></div>
@@ -239,6 +273,8 @@
   <!-- vendor (MIT) -->
   <script src="vendor/mp4-muxer.js"></script>
   <script src="vendor/webm-muxer.js"></script>
+  <script src="vendor/ort.wasm.min.js"></script>
+  <script src="vendor/ocr-pack.js"></script>
   <!-- app (classic scripts: they work when opened from file://) -->
   <script src="js/core.js"></script>
   <script src="js/mp4.js"></script>
@@ -255,6 +291,8 @@
   <script src="js/overlays.js"></script>
   <script src="js/focus.js"></script>
   <script src="js/export.js"></script>
+  <script src="js/search.js"></script>
+  <script src="js/redact.js"></script>
   <script src="js/connector-src.js"></script>
   <script src="js/tesla-auth.js"></script>
   <script src="js/ui.js"></script>

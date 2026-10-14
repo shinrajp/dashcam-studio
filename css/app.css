@@ -133,7 +133,32 @@ body.dragover .drop-hint { display: grid; }
 /* ── transport: a full-width timeline row (like the Grid Player's multi-trim bar) above the controls row ── */
 .transport { flex: none; display: flex; flex-direction: column; gap: 2px; padding: 6px max(14px, env(safe-area-inset-right)) max(6px, env(safe-area-inset-bottom)) max(14px, env(safe-area-inset-left)); background: var(--bg2); border-top: 1px solid var(--line); }
 .tp-scrub { display: flex; align-items: center; gap: 10px; min-width: 0; }
-.tp-controls { display: flex; align-items: center; gap: 12px; min-height: 44px; min-width: 0; }
+.find-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 0 2px 6px; }
+.find-bar input[type="search"] { flex: 1; min-width: 8rem; height: 34px; border-radius: 9px; border: 1px solid var(--line); background: #1a1e26; color: var(--text); padding: 0 10px; font-size: 13px; }
+.find-bar input[type="search"]::placeholder { color: var(--faint); }
+.find-status { font-size: 12px; color: var(--dim); padding: 0 2px 6px; line-height: 1.35; }
+.find-hits { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 2px 8px; }
+.find-hits:empty { display: none; }
+.find-hit { appearance: none; border: 1px solid var(--line); background: #1a1e26; color: var(--text); border-radius: 999px; padding: 4px 10px; font-size: 12px; font-weight: 650; cursor: pointer; }
+.find-hit.on { border-color: #e6b450; color: #ffe3a3; }
+.find-hit.picked { background: #3a3018; box-shadow: inset 0 0 0 1px #e6b450; }
+.find-hit.weak { opacity: 0.75; }
+.find-opt { display: inline-flex; align-items: center; gap: 6px; height: 34px; font-size: 12px; font-weight: 650; color: var(--dim); white-space: nowrap; }
+.find-opt input { accent-color: #e6b450; }
+.tile.find-on { box-shadow: inset 0 0 0 3px #e6b450; z-index: 4; }
+.tile .find-layer { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 4; transform-origin: 50% 50%; }
+.redact-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 0 2px 6px; }
+.redact-toggle { position: relative; display: inline-flex; align-items: center; height: 34px; padding: 0 16px; border-radius: 9px; border: 2px solid #e6b450; background: #e6b450; color: #1a1408; font-size: 14px; font-weight: 800; letter-spacing: 0.01em; white-space: nowrap; cursor: pointer; }
+.redact-toggle[hidden] { display: none; }
+.redact-toggle input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.redact-toggle:not(:has(input:checked)) { background: transparent; color: #ffe3a3; border-color: #e6b450; }
+.redact-bar input[type="text"] { flex: 1; min-width: 12rem; height: 34px; border-radius: 9px; border: 1px solid var(--line); background: #1a1e26; color: var(--text); padding: 0 10px; font-size: 13px; }
+.redact-bar input[type="text"]::placeholder { color: var(--faint); }
+.redact-presets { display: flex; flex-wrap: wrap; gap: 6px; }
+.redact-presets button { appearance: none; border: 1px solid var(--line); background: #1a1e26; color: var(--text); border-radius: 999px; padding: 4px 10px; font-size: 12px; font-weight: 650; cursor: pointer; }
+.redact-presets button:hover { border-color: #e6b450; color: #ffe3a3; }
+.tile .redact-layer { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 2; }
+.tile-label { z-index: 3; }
 .tp-spacer { flex: 1; min-width: 0; }
 .tp-buttons { display: flex; align-items: center; gap: 2px; }
 .btn.play { width: 42px; height: 42px; border-radius: 50%; background: #fff; color: #111; }
@@ -143,6 +168,7 @@ body.playing .btn.play .i-play { display: none; }
 body.playing .btn.play .i-pause { display: block; }
 .tp-time, .tp-dur { font: 600 12px ui-monospace, Menlo, Consolas, monospace; color: var(--text); min-width: 58px; flex: none; }
 .tp-time { text-align: right; }
+.tp-controls { display: flex; align-items: center; gap: 12px; min-height: 44px; min-width: 0; }
 .tp-dur { text-align: left; color: var(--dim); }
 .tp-clock { font: 600 12px ui-monospace, Menlo, Consolas, monospace; color: var(--dim); min-width: 70px; text-align: center; }
 .timeline { flex: 1; min-width: 0; height: 44px; position: relative; cursor: pointer; touch-action: none; -webkit-user-select: none; -webkit-touch-callout: none; outline: none; }

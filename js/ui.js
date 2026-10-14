@@ -136,6 +136,7 @@
     $("timeLabel").textContent = "0:00.0";
     $("durLabel").textContent = "0:00.0";
     $("clockLabel").textContent = "—";
+    if (T.search) T.search.clear();
     U.drawTimeline();
   }
 
@@ -306,6 +307,14 @@
         }
       });
     }
+    // search markers
+    const hits = (T.search && T.search.hits) || [];
+    hits.forEach((h) => {
+      if (h.t < v0 - 0.2 || h.t > v0 + sp + 0.2) return;
+      const x = X(h.t);
+      ctx.fillStyle = h.weak ? "rgba(230,180,80,0.55)" : "#ffd36a";
+      ctx.beginPath(); ctx.moveTo(x - 5, top - 1); ctx.lineTo(x + 5, top - 1); ctx.lineTo(x, top + 8); ctx.closePath(); ctx.fill();
+    });
     // event marker (event.json timestamp)
     if (ev.eventTime && ev.clips[0].time) {
       const t = (ev.eventTime - ev.clips[0].time) / 1000;
