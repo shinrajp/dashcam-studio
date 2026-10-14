@@ -163,6 +163,14 @@ Tick **Remember keys on this device** in the dialog to store each clip's key in 
 
 ![Unlock dialog](screenshots/photo-unlock.png)
 
+![Locked event: encrypted cameras, the sidebar's All/Undecrypted/Decrypted filter, and "0 saved key(s)"](screenshots/07-encrypted-locked.png)
+
+![Mock dashcam.tesla.com with the connector v1.4.3 badge: keys sent back to Dashcam Studio](screenshots/09-mock-tesla-connector.png)
+
+![Unlocked and playing: the top button now reads 🔑 Keys (6 saved)](screenshots/10-encrypted-unlocked-playing.png)
+
+![Remembered events panel in the library sidebar](screenshots/photo-library-index.png)
+
 ### Troubleshooting
 - **"Connector not detected"** after 20 s: there's no badge on the Tesla page, so the script isn't running. Recheck *Allow user scripts* (Chrome) or the Userscripts extension and site permission (Safari), and remove duplicate or old copies.
 - **Safari, no badge:** turn on Safari ▸ Settings ▸ Advanced ▸ **Show features for web developers**, then on the Tesla tab choose Develop ▸ **Show JavaScript Console**, reload, and look for lines starting with `[DashcamStudio]`. No `connector 1.4.3 starting` line means Userscripts isn't injecting it.
