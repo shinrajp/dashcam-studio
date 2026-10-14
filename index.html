@@ -240,13 +240,24 @@
           <h3 id="connectorSetupTitle">One-time setup: install the Tesla connector</h3>
           <p>A tiny userscript lets the Tesla page hand the keys back to this window.</p>
           <ol>
-            <li><b>Safari (Mac):</b> install the free <i>Userscripts</i> app (Mac App Store), enable it in Safari → Settings → Extensions, allow it on dashcam.tesla.com.</li>
+            <li><b>Safari (Mac):</b> install the free <i>Userscripts</i> app (Mac App Store) and open it once. In Safari ▸ Settings ▸ Extensions tick <i>Userscripts</i>, then <i>Edit Websites…</i> ▸ set <code>dashcam.tesla.com</code> to <i>Allow</i>. The Userscripts icon should now appear in Safari's toolbar.</li>
+            <li><b>Safari, install the connector:</b> click <i>Download connector</i> below (it saves <code>Tesla-Grid-Player-Connector.user.js</code>), then move that file into the folder chosen in the Userscripts app (“Change save location”), or open it in Safari and use the Userscripts toolbar icon ▸ Install. Make sure it's switched on in the Userscripts list, then reload dashcam.tesla.com — a blue “connector v1.4.3 active” badge should appear at the bottom left.</li>
+            <li><b>Safari, still no badge?</b> In the Userscripts app delete older copies of “Tesla Grid Player Connector” (1.4.0 or earlier can't run on Tesla's page in Safari) and any empty “NewScript-…” script, keeping only v1.4.3+. Then turn on Safari ▸ Settings ▸ Advanced ▸ “Show features for web developers”, open the Tesla tab, choose Develop ▸ Show JavaScript Console, reload, and look for lines starting with <code>[DashcamStudio]</code>. A red “connector error” badge shows the message too.</li>
             <li><b>Chrome / Edge:</b> install <i>Tampermonkey</i>; on Chrome 138+ turn on “Allow user scripts” in its Details page.</li>
             <li>Add the connector (it's also in the <code>connector/</code> folder), then try again.</li>
           </ol>
           <div class="btn-row"><button class="btn" id="btnDownloadConnector">Download connector</button><button class="btn ghost" id="btnCopyConnector">Copy script</button><button class="btn primary" id="btnUnlockRetry">Try again</button></div>
         </div>
-        <details class="manual"><summary>Other ways (manual) — Key fetch blocked (CORS)</summary>
+        <div class="inapp-keys" id="inAppKeys" style="margin:0.8rem 0;padding:0.7rem;border:1px solid rgba(127,127,127,.35);border-radius:10px">
+          <h3 style="margin:0 0 0.35rem;font-size:0.95rem">Import keys or token (no console needed)</h3>
+          <p class="fine" style="margin:0 0 0.5rem">Works on phones too. Choose a keys file saved by the helper, or paste keys JSON / a Bearer token. Keys are applied in batches of up to 30 clips.</p>
+          <div class="btn-row"><button class="btn" id="btnImportKeysFile" type="button">Import keys file…</button></div>
+          <input type="file" id="keysFileInput" accept=".json,.txt,application/json,text/plain" hidden>
+          <textarea id="inAppKeyText" rows="3" placeholder='Paste keys JSON ({"results":[…]}) or a Bearer token (eyJ…)' style="width:100%;font-family:ui-monospace,monospace;font-size:0.75rem;margin-top:0.4rem" autocomplete="off" autocapitalize="off" spellcheck="false"></textarea>
+          <div class="btn-row"><button class="btn primary" id="btnInAppApply" type="button">Unlock with pasted keys / token</button></div>
+          <div class="notice" id="inAppNotice" hidden></div>
+        </div>
+        <details class="manual" open><summary>Manual console method (fallback) — Key fetch blocked (CORS)</summary>
           <p>If the connector can't run, use this Tesla-origin helper instead. It runs on <code>dashcam.tesla.com</code> itself so there is no CORS problem.</p>
           <ol class="howto">
             <li>Click <strong>Copy key helper</strong> below.</li>
@@ -282,6 +293,7 @@
   <script src="js/crypto.js"></script>
   <script src="js/teslacam.js"></script>
   <script src="js/telemetry.js"></script>
+  <script src="js/batching.js"></script>
   <script src="js/library.js"></script>
   <script src="js/player.js"></script>
   <script src="js/draw.js"></script>
@@ -295,7 +307,11 @@
   <script src="js/redact.js"></script>
   <script src="js/connector-src.js"></script>
   <script src="js/tesla-auth.js"></script>
+  <script src="js/key-import.js"></script>
+  <script src="js/key-store.js"></script>
   <script src="js/ui.js"></script>
+  <script src="js/lib-index.js"></script>
+  <script src="js/lib-index-ui.js"></script>
   <script src="js/auto.js"></script>
   <script src="js/app.js"></script>
 </body>

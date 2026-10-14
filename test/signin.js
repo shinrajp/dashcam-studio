@@ -1,0 +1,12 @@
+const puppeteer = require("puppeteer-core");
+(async () => { const url = process.argv[2];
+  const b = await puppeteer.launch({ executablePath: "/usr/bin/google-chrome", headless: true, args: ["--no-sandbox"] });
+  const p = await b.newPage(); const errs=[]; p.on("pageerror", e=>errs.push(e.message)); await p.goto(url);
+  const out = await p.evaluate(() => { const T = window.TDC, opened = []; window.open = (u) => { opened.push(u.slice(0, 40)); return { closed: false, close() {} }; };
+    const r = {}; document.getElementById("unlockModal").hidden = false;
+    document.getElementById("btnUnlockGo").click(); r.empty = { opened: opened.length, notice: document.getElementById("unlockNotice").textContent.slice(0, 70) };
+    T.library.items.set("f1", { key: "f1", path: "SentryClips/x/2026-10-02_10-00-00-front.mp4", name: "f", kind: "encrypted", header: { wrappedHex: "h1", id: "id1" } });
+    document.getElementById("btnUnlockGo").click(); r.withClip = { opened: opened.length, url: opened[0] };
+    r.helper = T.auth.helperSource().includes("const batches"); return r; });
+  await new Promise(r=>setTimeout(r,50)); out.label = await p.$eval("#btnUnlockGo span", e => e.textContent);
+  console.log(JSON.stringify(out), errs); await b.close(); })();

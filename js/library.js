@@ -192,11 +192,27 @@
       if (it.kind !== "encrypted" || it.blob || lib.keyCache.has(it.header.wrappedHex)) continue;
       if (seen.has(it.header.wrappedHex)) continue;
       seen.add(it.header.wrappedHex);
-      if (!it.requestId) it.requestId = (it.header && it.header.id) || ("r" + (++reqSeq) + "-" + Math.random().toString(36).slice(2, 8));
+      if (!it.requestId) {
+        // The header id should be unique per file; if two different files share it, give this one its own id
+        // so keys can't be mixed up and session batching doesn't drop it.
+        const hid = it.header && it.header.id;
+        const clash = hid && [...lib.items.values()].some((o) => o !== it && o.requestId === hid && o.header && o.header.wrappedHex !== it.header.wrappedHex);
+        it.requestId = (hid && !clash) ? hid : ("r" + (++reqSeq) + "-" + Math.random().toString(36).slice(2, 8));
+      }
       const h = it.header;
       out.push({ id: it.requestId, vin: h.vin, key_id: h.key_id, timestamp: h.timestamp, wrapped_key: h.wrapped_key, public_key: h.public_key });
     }
     return out;
+  };
+  /** Session-aware batches (≤ T.batching.MAX_PER_BATCH key requests each, whole 4/6-angle sessions together). */
+  lib.pendingKeyBatches = (max) => {
+    const reqs = lib.pendingKeyItems();
+    if (!T.batching) return reqs.length ? [reqs] : [];
+    const byId = new Map(reqs.map((r) => [r.id, r]));
+    const entries = [];
+    for (const it of lib.items.values()) if (it.requestId && byId.has(it.requestId)) { entries.push({ path: it.path, request: byId.get(it.requestId) }); byId.delete(it.requestId); }
+    for (const r of byId.values()) entries.push({ path: "", request: r }); // never drop a request
+    return T.batching.planBatches(entries, max).map((b) => b.entries.map((e) => e.request));
   };
   lib.lockedCount = () => [...lib.items.values()].filter((it) => it.kind === "encrypted" && !it.blob).length;
 
@@ -230,6 +246,7 @@
       } catch (e) { it.decryptError = e.message; failed++; console.warn("decrypt failed", it.name, e); }
       done++;
       if (onProgress) onProgress(done, todo.length);
+      await new Promise((r) => setTimeout(r, 0)); // keep the UI responsive on big libraries
     }
     for (const ev of lib.events) { summarizeEvent(ev); ev.prepared = false; }
     T.emit("library");

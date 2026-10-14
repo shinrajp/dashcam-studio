@@ -1,0 +1,18 @@
+const puppeteer = require("puppeteer-core"); const fs = require("fs");
+const dir = "/workspace/encfix/SentryClips/2026-10-05_09-00-00", files = fs.readdirSync(dir).map((f) => dir + "/" + f);
+const keys = fs.readFileSync("/workspace/encfix/keys.json", "utf8");
+(async () => { const url = process.argv[2] || "http://127.0.0.1:8770/index.html";
+  const b = await puppeteer.launch({ executablePath: "/usr/bin/google-chrome", headless: true, args: ["--no-sandbox"], userDataDir: "/tmp/tdc-kb-" + Date.now() });
+  const p = await b.newPage(); const errs = []; p.on("pageerror", (e) => errs.push(e.message)); p.on("dialog", (d) => d.accept());
+  const W = (ms) => new Promise((r) => setTimeout(r, ms));
+  const btn = () => p.evaluate(() => ({ hidden: document.getElementById("btnUnlock").hidden, text: document.getElementById("btnUnlockText").textContent }));
+  await p.goto(url); await W(500); const R = {};
+  await p.evaluate(() => { const c = document.getElementById("chkRememberKeys"); if (c) { c.checked = true; c.dispatchEvent(new Event("change")); } });
+  await (await p.$("#fileInput")).uploadFile(...files); await W(1500); R.locked = await btn();
+  await p.evaluate((k) => { document.getElementById("pasteKeys").value = k; document.getElementById("btnApplyKeys").click(); }, keys); await W(1500);
+  R.afterUnlock = await btn();
+  R.openViaButton = await p.evaluate(() => { const m = document.getElementById("unlockModal"); m.hidden = true; document.getElementById("btnUnlock").click(); return !m.hidden && !!document.getElementById("btnForgetKeys") && !!document.getElementById("btnCopyHelper"); });
+  R.openViaCount = await p.evaluate(() => { const m = document.getElementById("unlockModal"); m.hidden = true; const c = document.getElementById("savedKeyCount"); if (!c) return "no count"; c.click(); return !m.hidden; });
+  await p.evaluate(() => { document.querySelectorAll("#libList .ev-x").forEach((x) => x.click()); }); await W(500); R.noEventsButSaved = await btn();
+  await p.evaluate(() => document.getElementById("btnForgetKeys") && document.getElementById("btnForgetKeys").click()); await W(600); R.afterForgetNoClips = await btn();
+  console.log(JSON.stringify(R), errs); await b.close(); })();

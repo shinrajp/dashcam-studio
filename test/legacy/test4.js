@@ -1,0 +1,21 @@
+const puppeteer=require('puppeteer-core');const fs=require('fs');
+const OUT='/workspace/tesla-dashcam-demo/screenshots';
+(async()=>{
+ const browser=await puppeteer.launch({executablePath:'/usr/bin/google-chrome',headless:'new',args:['--no-sandbox','--host-resolver-rules=MAP dashcam.tesla.com 127.0.0.1:18443','--ignore-certificate-errors']});
+ const page=await browser.newPage();await page.setViewport({width:1280,height:800});
+ const logs=[];page.on('console',m=>logs.push(m.type()+': '+m.text()));page.on('pageerror',e=>logs.push('PAGEERROR '+e.message));
+ await page.goto('http://127.0.0.1:18780/');
+ await page.screenshot({path:OUT+'/11-companion-library-before-signin.png'});
+ const link=await page.$('a[href="/signin"]');console.log('signin link present:',!!link);
+ await Promise.all([page.waitForNavigation(),link.click()]);
+ console.log('url:',page.url().replace(/token=\w+/,'token=…'));
+ await page.waitForSelector('#unlockModal:not([hidden])');
+ await page.screenshot({path:OUT+'/12-companion-signin-page.png'});
+ const popupP=new Promise(res=>browser.once('targetcreated',t=>res(t.page())));
+ await page.click('#btnUnlockGo');
+ const popup=await popupP;
+ await page.waitForFunction(()=>/Keys handed/.test(document.body.innerText)||/Keys handed/.test((document.getElementById('toast')||{}).textContent||''),{timeout:30000}).catch(e=>console.log('no toast',e.message));
+ console.log('popup closed?',popup.isClosed());
+ console.log(logs.filter(l=>/error|PAGEERROR/i.test(l)).join('\n')||'no page errors');
+ await browser.close();
+})().catch(e=>{console.error(e);process.exit(1);});
