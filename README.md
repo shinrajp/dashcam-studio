@@ -165,7 +165,7 @@ Tick **Remember keys on this device** in the dialog to store each clip's key in 
 
 ![Locked event: encrypted cameras, the sidebar's All/Undecrypted/Decrypted filter, and "0 saved key(s)"](screenshots/07-encrypted-locked.png)
 
-![Mock dashcam.tesla.com with the connector v1.4.3 badge: keys sent back to Dashcam Studio](screenshots/09-mock-tesla-connector.png)
+![Official dashcam.tesla.com with the connector v1.4.3 badge: keys sent back to Dashcam Studio](screenshots/09-tesla-connector.png)
 
 ![Unlocked and playing: the top button now reads 🔑 Keys (6 saved)](screenshots/10-encrypted-unlocked-playing.png)
 
