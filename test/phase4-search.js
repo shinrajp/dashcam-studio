@@ -20,7 +20,7 @@ async function page(b, vp, pre) {
   await W(1500);
   return p;
 }
-const vis = (p, sel) => p.evaluate((s) => { const n = document.querySelector(s); return !!n && n.offsetParent !== null && getComputedStyle(n).display !== "none"; }, sel);
+const vis = (p, sel) => p.evaluate((s) => { const n = document.querySelector(s); if (!n) return false; const r = n.getBoundingClientRect(), cs = getComputedStyle(n); return r.width > 0 && r.height > 0 && cs.display !== "none" && cs.visibility !== "hidden" && r.bottom > 0 && r.top < innerHeight; }, sel);
 
 async function common(p, tag) {
   ok(tag + " init ok", await p.evaluate(() => TDC.searchUI.ok && document.body.classList.contains("usearch")));
