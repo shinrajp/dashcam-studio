@@ -84,3 +84,15 @@ Rollback: `git checkout pre-live-labels` (= connector-lan-origins, 858059d).
 - The overlay canvas keeps `pointer-events: none`, so it never blocks the tile buttons or the camera bar. It works with the camera bar on the video or docked beside it, and in the phone portrait grid.
 - If `burn-boxes.js` is missing, the viewer falls back to the plain gold box. The "Gold box" checkbox still hides it.
 - Test: `node test/live-labels.js http://127.0.0.1:8770/index.html` (desktop, bar docked, iPhone portrait, fallback; `SHOTS=file.png` saves screenshots).
+
+## Phase 5: object detection (tag phase5-detection)
+Rollback: `git checkout pre-phase5` (= live-detection-labels, 355b10b), or leave Settings ▸ Object detection off (the default). With it off, nothing new loads.
+
+- `js/detect-worker.js`: YOLO11 in a Web Worker (onnxruntime-web 1.22 from jsDelivr). Tries WebGPU first, but skips software adapters (SwiftShader/llvmpipe), which were about 25× slower than WASM in testing; otherwise uses WASM. Input is a 640 letterbox; output is decoded with class-wise NMS. Models are cached in IndexedDB `tdc-models` (works on insecure http), and cache errors are ignored.
+- `js/gdino-worker.js`: experimental Grounding DINO tiny via transformers.js 3.8.1 (module worker; q4f16 on WebGPU, int8 on WASM). Not exercised in the automated tests.
+- `js/detect.js`: settings (`tdc.detect.v1`: enabled=false, model nano on phones / small on desktop, conf 0.35, live=false, optional custom `urls`), COCO class and synonym matching, worker RPC, greedy IoU tracker with linear interpolation, `boxesAt(cam, t)`, detector search, throttled live detection, and the Settings UI (model picker, toggle, threshold, live toggle, status with the backend, "Load model now").
+- `search.js`: class-name queries go to the detector when it's enabled; any failure falls back to the CLIP search. Opening a hit tracks the object ±2.5 s (0.25 s steps on desktop, 0.5 s on phones, 25 s time budget), and CLIP hits get a box that follows too. The viewer draws tracked or live boxes through `burnBoxes.draw`.
+- `burn-boxes.js`: `at()` prefers tracked boxes, so export shows the same moving boxes and labels ("car 91%").
+- `models/yolo11n.onnx`, `models/yolo11s.onnx`: exported from the official Ultralytics weights; AGPL-3.0, see models/README.md.
+- Measured in headless Chrome on the box CPU (WASM, 1 thread, 640×640): nano about 0.33 s per frame, small about 1.2 s per frame, model start under 1 s. A real "car" search over 25 frames took 9.6 s. Software WebGPU: nano 9 s, small 17 s per frame (hence the skip).
+- Test: `node test/phase5-detection.js http://127.0.0.1:8770/index.html` (unit, settings, mock end-to-end, failure, real nano + small; `REAL=0` skips the real part; `SHOTS=dir` saves phase5-*.png).

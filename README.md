@@ -90,6 +90,18 @@ On phones and narrow windows the box is a bottom sheet pinned above the on-scree
 
 **Classic search bars:** Settings ▸ Search ▸ *Classic search bars* (or the checkbox at the bottom of the search box) brings back the original Find and Redact bars under the video. You can also open the app with `?search=classic`. If the new search ever fails to start, the classic bars appear on their own.
 
+## Object detection (beta)
+Settings ▸ **Object detection** (off until you turn it on). When it's on, a search for an object name (**car**, **person**, **truck**, **bicycle**, **dog**, **traffic light**… any of the 80 COCO classes, plurals and a few synonyms such as "people" or "bike") uses a YOLO11 object detector instead of the picture search. Results show the real class and confidence ("car 91%") on the gold box, and the box **follows the object**: frames ±2.5 s around the match are detected and linked with a simple IoU tracker. Export burns the same boxes in when **Burn detection boxes** is ticked. Any other phrase still uses the existing picture search. With **Grounding DINO** picked, any phrase goes to the detector.
+
+- **Model:** YOLO11 nano (10.7 MB, the default on phones), YOLO11 small (38 MB, the default on computers), or Grounding DINO tiny (experimental: 150–200 MB download, only sensible on a computer with WebGPU).
+- **Confidence:** the threshold (default 35%). **Detect while playing:** optional, runs on the focused camera about once a second (every 2 s on phones).
+- It runs in a background worker with onnxruntime-web: WebGPU when the device has a real GPU adapter, otherwise WASM. The status line shows which one. The model is downloaded once, then kept in IndexedDB. That works on plain-http home-network addresses too, where the browser cache isn't available.
+- If the model or runtime can't load (offline, blocked CDN, old browser), the app says so and falls back to the picture search. Playback, keys and export are not affected.
+- First use needs internet: the runtime comes from cdn.jsdelivr.net, and the models from this site (`models/`) or GitHub.
+- **License:** the YOLO11 weights are **AGPL-3.0** (Ultralytics). See [`models/README.md`](models/README.md).
+
+![Real YOLO11 nano detections on the sample clips](screenshots/phase5-live.png)
+
 ## Keyboard shortcuts
 | Key | Action |
 |---|---|
