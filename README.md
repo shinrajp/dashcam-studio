@@ -63,6 +63,11 @@ A Tesla dashcam and Sentry viewer that runs entirely in your browser. Drop in yo
 4. **Remove** drops one event from the list. **Clear** drops all of them. Neither deletes files on the USB drive. Open the folder again to bring them back.
 5. The **library index** in the sidebar remembers events you've opened before, even after you close the browser. Use the filter (**All**, **Undecrypted only**, **Already decrypted**) to find what's left to unlock, and tick **reviewed** as you go. Remembered events show as "not loaded" until you open their folder again (browsers can't reopen a folder by themselves). **Clear index** forgets the list; it does not delete files and does not remove saved keys. If the browser blocks storage, the app still works and simply doesn't remember between visits.
 
+**Phone and tablet layout:** held upright, the cameras stack 2 across and 3 down: **Front | Back**, then **Left pillar | Right pillar**, then **Left repeater | Right repeater**. Older cars without pillar cameras get two rows. Every tile is half the screen wide at the camera's own shape, never shrunk to fit. If the three rows don't fit above the controls (small phones, or with the classic search bars on), swipe the cameras up and down; the timeline and buttons stay put. Bigger screens fit all three rows. Turned sideways, phones use the same layout as a computer, and rotating switches right away. Tap a camera to enlarge it as before (pinch and drag stay inside that camera).
+
+![iPhone portrait: Front | Back, pillars, repeaters](screenshots/mobile-portrait-iphone-pro-max.png)
+*iPhone, upright: 2 × 3 grid. Small phones scroll the grid instead of shrinking it.*
+
 **On iPhone or iPad:** copy the clips into the Files app first, for example from the USB drive with a USB-C adapter. Then tap **Add files** and select the `.mp4` files (and `event.json` if there is one). The app groups them into events by the timestamps in their file names. Safari can't open a whole folder, so pick the files themselves. Use Files rather than the Photos picker, which may convert the videos.
 
 ## Search (Find + Redact in one box)

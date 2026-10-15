@@ -28,3 +28,14 @@ Rollback: `git checkout pre-phase4` (main before Phase 4). To switch the new UI 
   - Fallback: init runs in try/catch. On failure it removes anything half-built and never adds `body.usearch`, so the classic Find and Redact bars stay visible. The "Classic search bars" setting (localStorage `tdc.classicSearch`) shows them on purpose.
 - Test: `node test/phase4-search.js http://127.0.0.1:8770/index.html` (desktop 1440×900 plus iPhone 390×844 with touch and a simulated keyboard; covers shortcuts, jumps, Classic toggle, and two forced-failure fallbacks).
 - Screenshots: `screenshots/phase4-before-*.png` and `phase4-after-*.png`.
+
+## Mobile portrait grid (branch feature/mobile-portrait-grid, tag mobile-portrait-grid)
+Rollback: `git checkout pre-mobile-portrait` (Phase 4 without this) or `pre-phase4`.
+
+- Portrait means portrait orientation on a window ≤ 900px wide, or a touch tablet ≤ 1366px wide (so iPad Pro is included). It's decided by the window size, not the device model, and updates live on rotation.
+- Order: Front | Back, Left pillar | Right pillar, Left repeater | Right repeater. 4-angle cars (no pillar cameras) get 2 rows with no empty slots. If only one pillar file is missing, its slot is kept so the rows don't shift.
+- Tiles are always (width − gaps)/2 at the camera's own aspect ratio. When 3 rows don't fit above the controls, the camera area scrolls vertically (`overflow-y: auto`, momentum, `overscroll-behavior: contain`) and the controls stay pinned. A focused camera always fits and doesn't scroll, so pinch/pan isn't fought. Safe-area insets are respected.
+- Landscape and desktop are unchanged. This is display-only: export doesn't read the live layout. The new code paths are wrapped in try/catch and fall back to the previous layout.
+- Code: `js/focus.js` (portrait query, 4-angle collapse), `js/ui.js` (`U.fit` doesn't shrink in portrait and toggles `body.portrait-scroll`), and CSS at the end of `css/app.css`.
+- Test: `node test/portrait-grid.js http://127.0.0.1:8770/index.html` (79 checks: iPhone SE 1st gen 320×568, SE 375×667, 15/16 393×852, Pro Max 430×932, iPad 820×1180, each in portrait and landscape; 6/5/4-angle events; scrolling, pinned controls, rotation, focus, search sheet; desktop unchanged).
+- Screenshots: `screenshots/mobile-*.png`.
