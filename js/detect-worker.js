@@ -4,12 +4,45 @@
 "use strict";
 let RT = null, session = null, backend = null, modelUrl = null, inputName = null, outputName = null, size = 640;
 
-function loadOrt(base) {
+// Report anything that goes wrong with a real message (a bare worker "error" event has none).
+self.addEventListener("error", (e) => { try { postMessage({ type: "fatal", error: "worker: " + (e.message || "error") + (e.filename ? " (" + e.filename + ":" + e.lineno + ")" : "") }); } catch (_) {} });
+self.addEventListener("unhandledrejection", (e) => { try { postMessage({ type: "fatal", error: "worker: " + String((e.reason && e.reason.message) || e.reason) }); } catch (_) {} });
+
+async function realGpu(prefer) {
+  if (!prefer || typeof navigator === "undefined" || !navigator.gpu) return false;
+  try {   // skip software WebGPU (SwiftShader, llvmpipe): far slower than WASM
+    const ad = await navigator.gpu.requestAdapter(); const inf = (ad && ad.info) || {};
+    return !!ad && !ad.isFallbackAdapter && !inf.isFallbackAdapter && !/swiftshader|llvmpipe|software/i.test((inf.vendor || "") + " " + (inf.architecture || "") + " " + (inf.description || ""));
+  } catch (_) { return false; }
+}
+// Fetch bytes (no MIME checks, unlike importScripts/import()), trying each base in turn; cached in IndexedDB.
+async function getFile(bases, name, useCache) {
+  let last = null;
+  for (const base of bases) {
+    const url = base + name;
+    if (useCache) { const hit = await cacheGet(url); if (hit && hit.byteLength) return hit; }
+    try { const r = await fetch(url); if (!r.ok) throw new Error("HTTP " + r.status + " " + url); const buf = await r.arrayBuffer(); if (useCache) cachePut(url, buf); return buf; }
+    catch (e) { last = e; }
+  }
+  throw new Error("couldn't fetch " + name + ": " + ((last && last.message) || last));
+}
+let rtGpu = false;
+async function loadOrt(msg) {
   if (RT) return;
-  const tries = [base + "ort.all.min.js", base + "ort.wasm.min.js"];
-  let err = null;
-  for (const src of tries) { try { importScripts(src); if (self.ort) { RT = self.ort; RT.env.wasm.wasmPaths = base; return; } } catch (e) { err = e; } }
-  throw new Error("Could not load the detection runtime (onnxruntime-web) from " + base + (err ? ": " + (err.message || err) : ""));
+  const bases = [].concat(msg.ortBases || msg.ortBase || []);
+  rtGpu = await realGpu(msg.preferGpu !== false);
+  const js = rtGpu ? "ort.webgpu.min.js" : "ort.wasm.min.js", core = rtGpu ? "ort-wasm-simd-threaded.jsep" : "ort-wasm-simd-threaded";
+  try {
+    const [src, mjs, wasm] = await Promise.all([getFile(bases, js, msg.useCache), getFile(bases, core + ".mjs", msg.useCache), getFile(bases, core + ".wasm", msg.useCache)]);
+    // Load everything from blob: URLs with the right types, so a server that sends the wrong MIME type
+    // (Windows python http.server, some NAS servers) or a blocked CDN can't break it.
+    importScripts(URL.createObjectURL(new Blob([src], { type: "text/javascript" })));
+    if (!self.ort) throw new Error("onnxruntime-web did not initialise");
+    RT = self.ort;
+    RT.env.wasm.wasmPaths = { mjs: URL.createObjectURL(new Blob([mjs], { type: "text/javascript" })), wasm: URL.createObjectURL(new Blob([wasm], { type: "application/wasm" })) };
+    RT.env.wasm.numThreads = self.crossOriginIsolated ? Math.min(4, (navigator.hardwareConcurrency || 2)) : 1;   // threads need COOP/COEP
+    RT.env.wasm.proxy = false;
+  } catch (e) { RT = null; throw new Error("Could not load the detection runtime (onnxruntime-web): " + ((e && e.message) || e)); }
 }
 
 // IndexedDB model cache (works on plain-http LAN pages too, where Cache Storage is not available). Failures are ignored.
@@ -45,20 +78,15 @@ async function fetchModel(urls, useCache, progress) {
 }
 
 async function load(msg) {
-  loadOrt(msg.ortBase);
+  await loadOrt(msg);
   if (session && modelUrl === msg.urls[0]) return { backend, url: modelUrl, cached: true };
   if (session) { try { await session.release(); } catch (_) {} session = null; }
   const t0 = Date.now();
   const got = await fetchModel(msg.urls, msg.useCache !== false, (p) => postMessage({ type: "progress", ...p }));
   const tDl = Date.now() - t0;
-  let wantGpu = msg.preferGpu !== false && typeof navigator !== "undefined" && !!navigator.gpu;
-  if (wantGpu) {   // skip software WebGPU (SwiftShader etc.): it is far slower than WASM
-    try { const ad = await navigator.gpu.requestAdapter(); const inf = ad && (ad.info || {}); wantGpu = !!ad && !ad.isFallbackAdapter && !inf.isFallbackAdapter && !/swiftshader|llvmpipe|software/i.test((inf.vendor || "") + " " + (inf.architecture || "") + " " + (inf.description || "")); }
-    catch (_) { wantGpu = false; }
-  }
+  const wantGpu = rtGpu;
   const order = wantGpu ? ["webgpu", "wasm"] : ["wasm"];
   let err = null;
-  RT.env.wasm.numThreads = msg.threads || 1;
   for (const ep of order) {
     try { session = await RT.InferenceSession.create(new Uint8Array(got.buf), { executionProviders: [ep], graphOptimizationLevel: "all" }); backend = ep; break; }
     catch (e) { err = e; session = null; }
@@ -110,5 +138,5 @@ self.onmessage = async (e) => {
   try {
     if (msg.type === "load") postMessage({ type: "loaded", id: msg.id, ...(await load(msg)) });
     else if (msg.type === "detect") postMessage({ type: "result", id: msg.id, ...(await detect(msg)) });
-  } catch (err) { postMessage({ type: "error", id: msg.id, error: String((err && err.message) || err) }); }
+  } catch (err) { postMessage({ type: "error", id: msg.id, error: String((err && err.message) || err) || "unknown worker error" }); }
 };

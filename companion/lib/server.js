@@ -7,8 +7,8 @@ const http = require("http"), fs = require("fs"), path = require("path"), crypto
 const RO = require("./readonly");
 const { log } = require("./notify");
 
-const TYPES = { ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8", ".json": "application/json", ".mp4": "video/mp4", ".png": "image/png", ".jpg": "image/jpeg", ".svg": "image/svg+xml", ".webm": "video/webm" };
-const APP_TOP = new Set(["index.html", "css", "js", "vendor"]);
+const TYPES = { ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8", ".json": "application/json", ".mp4": "video/mp4", ".png": "image/png", ".jpg": "image/jpeg", ".svg": "image/svg+xml", ".webm": "video/webm", ".mjs": "text/javascript; charset=utf-8", ".wasm": "application/wasm", ".onnx": "application/octet-stream" };
+const APP_TOP = new Set(["index.html", "css", "js", "vendor", "models"]);
 
 class Server {
   constructor(opts) {

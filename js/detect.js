@@ -17,10 +17,10 @@
     gdino: { label: "Grounding DINO tiny (any words, experimental, ~150–200 MB)", model: "onnx-community/grounding-dino-tiny-ONNX", worker: "js/gdino-worker.js", module: true },
   };
   const D = (T.detect = { COCO, MODELS, tracks: [], live: {}, status: "", backend: null, info: null, busy: false, timings: [] });
-  D.config = { ortBase: "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.22.0/dist/", tfUrl: "https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.8.1", size: 640 };
+  D.config = { ortBases: ["vendor/ort/", "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.22.0/dist/"], tfUrl: "https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.8.1", size: 640 };
   const isMobile = () => { try { return /iPhone|iPad|iPod|Android/i.test(navigator.userAgent) || (matchMedia("(pointer: coarse)").matches && Math.min(screen.width, screen.height) < 820); } catch (_) { return false; } };
   D.isMobile = isMobile;
-  D.defaults = () => ({ enabled: false, model: isMobile() ? "nano" : "small", conf: 0.35, live: false, urls: {} });
+  D.defaults = () => ({ enabled: false, model: isMobile() ? "nano" : "small", conf: 0.35, live: false, small: "auto", urls: {} });
   D.prefs = () => { const d = D.defaults(); try { const v = JSON.parse(localStorage.getItem(KEY) || "null"); if (v && typeof v === "object") { if (!MODELS[v.model]) delete v.model; const c = +v.conf; if (!(c >= 0.05 && c <= 0.95)) delete v.conf; return { ...d, ...v }; } } catch (_) {} return d; };
   D.setPref = (k, v) => { const p = D.prefs(); p[k] = v; try { localStorage.setItem(KEY, JSON.stringify(p)); } catch (_) {} if (k === "model") D.unload(); D.renderSettings(); };
   D.enabled = () => D.prefs().enabled === true;
@@ -51,37 +51,57 @@
   D.load = (name) => {
     name = name || D.prefs().model;
     if (D._mock) return Promise.resolve(D.info = { backend: "mock", mock: true });
-    if (worker && wModel === name && loading) return loading;
+    if (wModel === name && loading) return loading;
     D.unload();
     const m = MODELS[name];
     if (!m) return Promise.reject(new Error("unknown model " + name));
     if (typeof Worker === "undefined") return Promise.reject(new Error("This browser can't run background workers, so detection is off."));
-    try { worker = new Worker(m.worker, m.module ? { type: "module" } : undefined); }
-    catch (e) { worker = null; return Promise.reject(new Error("Couldn't start the detection worker: " + (e.message || e))); }
     wModel = name;
-    worker.onmessage = (e) => {
+    const started = makeWorker(m).then((w) => { worker = w; });
+    const wire = () => { worker.onmessage = (e) => {
       const d = e.data || {};
+      if (d.type === "fatal") { const err = new Error(d.error); for (const p of pending.values()) p.reject(err); pending.clear(); return; }
       if (d.type === "progress") { const mb = (x) => (x / 1048576).toFixed(1); setStatus(d.phase === "cache" ? "Model loaded from this device." : "Downloading model… " + mb(d.loaded) + (d.total ? " / " + mb(d.total) : "") + " MB"); return; }
       const p = pending.get(d.id); if (!p) return; pending.delete(d.id);
       d.type === "error" ? p.reject(new Error(d.error)) : p.resolve(d);
     };
-    worker.onerror = (e) => { const err = new Error("Detection worker failed: " + (e.message || "script error")); for (const p of pending.values()) p.reject(err); pending.clear(); };
+    worker.onerror = (e) => { e.preventDefault && e.preventDefault(); const err = new Error("Detection worker failed: " + (e.message ? e.message + (e.filename ? " (" + e.filename.split("/").pop() + ":" + e.lineno + ")" : "") : "the worker script could not start (" + workerHow + ")")); for (const p of pending.values()) p.reject(err); pending.clear(); }; };
     const urls = (D.prefs().urls && D.prefs().urls[name] ? [D.prefs().urls[name]] : []).concat(m.urls || []);
     const abs = urls.map((u) => new URL(u, location.href).href);
     setStatus("Loading " + m.label + "…");
-    loading = call({ type: "load", urls: abs, model: m.model, ortBase: D.config.ortBase, tfUrl: D.config.tfUrl, size: D.config.size, useCache: D.cacheOk(), preferGpu: true, threads: 1 })
+    loading = started.then(() => { wire(); return call({ type: "load", urls: abs, model: m.model, ortBases: D.config.ortBases.map((u) => new URL(u, location.href).href), tfUrl: D.config.tfUrl, size: D.config.size, useCache: D.cacheOk(), preferGpu: true }); })
       .then((info) => { D.backend = info.backend; D.info = info; setStatus("Ready · " + (info.backend === "webgpu" ? "WebGPU" : "WASM (CPU)") + (info.cached ? " · from this device" : info.saved ? " · saved on this device" : "")); return info; })
       .catch((e) => { setStatus("Detection unavailable: " + e.message); D.unload(); throw e; });
     return loading;
   };
 
+  // The worker is started from a blob: URL of its fetched source, so a server sending the wrong MIME type for .js
+  // (e.g. Windows python http.server) can't stop it. Falls back to a plain new Worker(url).
+  let workerHow = "";
+  async function makeWorker(m) {
+    const opts = m.module ? { type: "module" } : undefined;
+    try {
+      const r = await fetch(m.worker, { cache: "no-cache" });
+      if (!r.ok) throw new Error("HTTP " + r.status + " for " + m.worker);
+      const src = await r.text();
+      workerHow = "blob";
+      return new Worker(URL.createObjectURL(new Blob([src], { type: "text/javascript" })), opts);
+    } catch (e) {
+      console.warn("detect: blob worker failed, trying the file directly", e);
+      try { workerHow = "file " + m.worker; return new Worker(m.worker, opts); }
+      catch (e2) { throw new Error("Couldn't start the detection worker: " + (e2.message || e2) + " (and " + (e.message || e) + ")"); }
+    }
+  }
+
   // letterbox a frame into size×size
   let cv = null, cx = null;
-  function letterbox(img, iw, ih) {
+  function letterbox(img, iw, ih, crop) {
     const S = D.config.size;
     if (!cv) { cv = document.createElement("canvas"); cv.width = cv.height = S; cx = cv.getContext("2d", { willReadFrequently: true }); }
-    const scale = Math.min(S / iw, S / ih), w = Math.round(iw * scale), h = Math.round(ih * scale), padX = Math.floor((S - w) / 2), padY = Math.floor((S - h) / 2);
-    cx.fillStyle = "rgb(114,114,114)"; cx.fillRect(0, 0, S, S); cx.drawImage(img, padX, padY, w, h);
+    const c = crop || { x: 0, y: 0, w: 1, h: 1 }, sw = iw * c.w, sh = ih * c.h;
+    const scale = Math.min(S / sw, S / sh), w = Math.round(sw * scale), h = Math.round(sh * scale), padX = Math.floor((S - w) / 2), padY = Math.floor((S - h) / 2);
+    cx.fillStyle = "rgb(114,114,114)"; cx.fillRect(0, 0, S, S); cx.drawImage(img, iw * c.x, ih * c.y, sw, sh, padX, padY, w, h);
+    iw = sw; ih = sh;
     return { rgba: cx.getImageData(0, 0, S, S).data.buffer, fit: { scale, padX, padY, w: iw, h: ih } };
   }
   /** Detect objects in a video/canvas/image. Returns [{x,y,w,h,cls,conf,label}] (0..1), or [] on any problem. */
@@ -90,11 +110,24 @@
     const conf = opts.conf || D.prefs().conf;
     if (D._mock) { const r = await D._mock(img, iw, ih, opts); return (r || []).map(named).filter((b) => b.conf >= conf); }
     await D.load();
-    const lb = letterbox(img, iw, ih);
-    const r = await call({ type: "detect", rgba: lb.rgba, fit: lb.fit, conf, size: D.config.size, prompt: opts.prompt }, [lb.rgba]);
-    D.timings.push(r.ms); if (D.timings.length > 50) D.timings.shift();
-    return r.dets.map(named);
+    const one = async (crop) => {
+      const lb = letterbox(img, iw, ih, crop);
+      const r = await call({ type: "detect", rgba: lb.rgba, fit: lb.fit, conf, size: D.config.size, prompt: opts.prompt }, [lb.rgba]);
+      D.timings.push(r.ms); if (D.timings.length > 50) D.timings.shift();
+      return crop ? r.dets.map((b) => ({ ...b, x: crop.x + b.x * crop.w, y: crop.y + b.y * crop.h, w: b.w * crop.w, h: b.h * crop.h, tiled: true })) : r.dets;
+    };
+    let dets = opts.tilesOnly ? [] : await one(null);
+    if (opts.tiles) { for (const c of D.TILES) dets = dets.concat(await one(c)); dets = D.nms(dets, 0.5); }
+    return dets.map(named);
   };
+  /** 2×2 overlapping tiles (60% of the frame each): small things are about 1.7× bigger for the model. */
+  D.TILES = [{ x: 0, y: 0, w: 0.6, h: 0.6 }, { x: 0.4, y: 0, w: 0.6, h: 0.6 }, { x: 0, y: 0.4, w: 0.6, h: 0.6 }, { x: 0.4, y: 0.4, w: 0.6, h: 0.6 }];
+  D.nms = (dets, thr) => { const out = []; for (const d of dets.slice().sort((a, b) => b.conf - a.conf)) { const k = d.label || d.cls; if (!out.some((o) => (o.label || o.cls) === k && (iou(o, d) > thr || contains(o, d)))) out.push(d); } return out; };
+  const contains = (a, b) => { const x1 = Math.max(a.x, b.x), y1 = Math.max(a.y, b.y), x2 = Math.min(a.x + a.w, b.x + b.w), y2 = Math.min(a.y + a.h, b.y + b.h); return Math.max(0, x2 - x1) * Math.max(0, y2 - y1) > 0.8 * Math.min(a.w * a.h, b.w * b.h); };
+  /** Classes that are usually small in dashcam frames: lower threshold + tiles when searching for them. */
+  D.SMALL = new Set(["umbrella", "backpack", "handbag", "suitcase", "sports ball", "traffic light", "stop sign", "parking meter", "fire hydrant", "bird", "cat", "dog", "cell phone", "bottle", "cup", "kite", "frisbee", "skateboard", "tie", "bench", "potted plant", "clock"]);
+  D.classConf = (cls) => { const c = D.prefs().conf; return cls && D.SMALL.has(cls) ? Math.max(0.1, Math.round(c * 0.6 * 100) / 100) : c; };
+  D.useTiles = (cls) => { const m = D.prefs().small; return m === "on" || (m !== "off" && !!cls && D.SMALL.has(cls)); };
   const named = (b) => ({ ...b, label: b.label || COCO[b.cls] || "object" });
 
   // ── tracking ──
@@ -133,7 +166,13 @@
       const list = (D.tracks || []).filter((g) => g.cam === cam && t >= g.from - 0.05 && t <= g.to + 0.05);
       if (list.length) {
         const out = [];
-        for (const g of list) { const b = D.trackAt(g.track, t); if (b) out.push({ x: b.x, y: b.y, w: b.w, h: b.h, text: (g.text || g.track.label) + " " + pct(b.conf) }); }
+        for (const g of list) {
+          const b = D.trackAt(g.track, t); if (!b) continue;
+          // Detector hit, or a picture-search phrase that names the same class → real "car 91%".
+          // Otherwise (picture-search box that the tracker followed) keep "umbrella? (match)": the % would be for another class.
+          const same = !g.text || D.classFor(g.text) === g.track.label;
+          out.push({ x: b.x, y: b.y, w: b.w, h: b.h, text: same ? g.track.label + " " + pct(b.conf) : String(g.text).slice(0, 40) + "? (match)" });
+        }
         return out;
       }
       const lv = D.live[cam];
@@ -168,7 +207,7 @@
       for (const t of times) {
         if (performance.now() > until && frames.length >= 3) break;
         const v = await frameAt(hit.cam, t); if (!v) continue;
-        let dets = []; try { dets = await D.detectImage(v, v.videoWidth, v.videoHeight, { prompt: opts.prompt }); } catch (e) { console.warn("track frame", e); if (!frames.length) throw e; continue; }
+        let dets = []; try { dets = await D.detectImage(v, v.videoWidth, v.videoHeight, { prompt: opts.prompt, conf: hit.det && hit.label ? D.classConf(hit.label) : undefined, tiles: !!hit.tiled }); } catch (e) { console.warn("track frame", e); if (!frames.length) throw e; continue; }
         frames.push({ t, dets });
         if (opts.onProgress) opts.onProgress(frames.length, times.length);
       }
@@ -191,13 +230,18 @@
       const s = list[i];
       ui.status("Detecting " + (cls || "“" + q + "”") + " · frame " + (i + 1) + " of " + list.length + (D.backend ? " · " + (D.backend === "webgpu" ? "WebGPU" : "WASM") : "") + ". The video stays on this computer.");
       const v = await frameAt(s.cam, s.t); if (!v) continue;
-      let dets;
-      try { dets = await D.detectImage(v, v.videoWidth, v.videoHeight, { prompt: gd ? q : undefined }); }
+      let dets, mine;
+      const conf = gd ? P.conf : D.classConf(cls);
+      try {
+        dets = await D.detectImage(v, v.videoWidth, v.videoHeight, { prompt: gd ? q : undefined, conf });
+        mine = gd ? dets : dets.filter((d) => d.label === cls);
+        // small things: if the whole frame found none, look again at 2×2 zoomed tiles
+        if (!mine.length && !gd && D.useTiles(cls)) { dets = await D.detectImage(v, v.videoWidth, v.videoHeight, { conf, tiles: true, tilesOnly: true }); mine = dets.filter((d) => d.label === cls); }
+      }
       catch (e) { if (!rows.length && i === 0) throw e; console.warn(e); continue; }
-      const mine = gd ? dets : dets.filter((d) => d.label === cls);
       if (!mine.length) continue;
       const top = mine.reduce((a, b) => (b.conf > a.conf ? b : a));
-      rows.push({ t: s.t, cam: s.cam, score: top.conf, conf: top.conf, cls: top.cls, label: top.label, det: true, count: mine.length, box: { x: top.x, y: top.y, w: top.w, h: top.h } });
+      rows.push({ t: s.t, cam: s.cam, score: top.conf, conf: top.conf, cls: top.cls, label: top.label, det: true, tiled: !!top.tiled, count: mine.length, box: { x: top.x, y: top.y, w: top.w, h: top.h } });
       if ((i & 3) === 0) await new Promise((r) => setTimeout(r, 0));
     }
     D.lastSearchMs = performance.now() - t0; D.lastSearchFrames = list.length;
@@ -236,6 +280,7 @@
     row('<label style="display:flex;gap:.5rem;align-items:center"><input type="checkbox" id="detEnabled"' + (P.enabled ? " checked" : "") + "> Use object detection for search (car, person, truck…)</label>");
     row('<span>Model</span><select class="select" id="detModel">' + Object.entries(MODELS).map(([k, m]) => '<option value="' + k + '"' + (k === P.model ? " selected" : "") + ">" + m.label + "</option>").join("") + "</select>");
     row('<span>Confidence</span><input type="range" id="detConf" min="0.1" max="0.9" step="0.05" value="' + P.conf + '"><b id="detConfV">' + Math.round(P.conf * 100) + "%</b>");
+    row('<span>Small objects</span><select class="select" id="detSmall"><option value="auto"' + (P.small === "auto" ? " selected" : "") + '>Auto (umbrella, bag, sign…: zoomed second look)</option><option value="on"' + (P.small === "on" ? " selected" : "") + '>Always zoom (5× slower)</option><option value="off"' + (P.small === "off" ? " selected" : "") + ">Off</option></select>");
     row('<label style="display:flex;gap:.5rem;align-items:center"><input type="checkbox" id="detLive"' + (P.live ? " checked" : "") + "> Detect while playing (focused camera, " + (isMobile() ? "every 2 s" : "about once a second") + ")</label>");
     const st = row('<span class="hint" id="detStatus"></span>'); st.querySelector("#detStatus").textContent = D.status || (P.enabled ? "Model loads on first search." : "Off.");
     const note = document.createElement("p"); note.className = "hint";
@@ -249,6 +294,7 @@
     box.querySelector("#detModel").onchange = (e) => D.setPref("model", e.target.value);
     box.querySelector("#detConf").oninput = (e) => { box.querySelector("#detConfV").textContent = Math.round(e.target.value * 100) + "%"; };
     box.querySelector("#detConf").onchange = (e) => D.setPref("conf", +e.target.value);
+    box.querySelector("#detSmall").onchange = (e) => D.setPref("small", e.target.value);
     box.querySelector("#detLive").onchange = (e) => D.setPref("live", e.target.checked);
   };
 
