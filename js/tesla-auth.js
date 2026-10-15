@@ -228,14 +228,25 @@
       }).observe(modal, { attributes: true, attributeFilter: ["hidden"] });
       T.$("btnUnlockRetry")?.addEventListener("click", () => A.start());
       T.$("btnDownloadConnector")?.addEventListener("click", () => T.download(new Blob([T.CONNECTOR_SRC], { type: "text/javascript" }), T.CONNECTOR_FILENAME));
+      // navigator.clipboard only exists on https/localhost; on http://<LAN IP> fall back to a selected textarea + execCommand("copy")
+      async function copyText(text) {
+        if (navigator.clipboard && navigator.clipboard.writeText && window.isSecureContext !== false) { try { await navigator.clipboard.writeText(text); return; } catch (_) {} }
+        const ta = document.createElement("textarea");
+        ta.value = text; ta.setAttribute("readonly", ""); ta.style.cssText = "position:fixed;top:0;left:0;width:1px;height:1px;opacity:0;font-size:16px";
+        document.body.appendChild(ta); ta.focus(); ta.select(); try { ta.setSelectionRange(0, text.length); } catch (_) {}
+        let ok = false; try { ok = document.execCommand("copy"); } catch (_) {}
+        ta.remove();
+        if (!ok) throw new Error("copy blocked");
+      }
+      A.copyText = copyText;
       T.$("btnCopyConnector")?.addEventListener("click", async () => {
-        try { await navigator.clipboard.writeText(T.CONNECTOR_SRC); notice("Connector copied — create a new script in Userscripts / Tampermonkey and paste it.", "ok"); }
+        try { await copyText(T.CONNECTOR_SRC); notice("Connector copied — create a new script in Userscripts / Tampermonkey and paste it.", "ok"); }
         catch (_) { notice("Copy failed — use Download instead.", "err"); }
       });
       T.$("btnCopyHelper")?.addEventListener("click", async () => {
         A.suppressClipboard = false; try { localStorage.removeItem("tdc.noClipboardApply"); } catch (_) {}
         const src = A.helperSource();
-        try { await navigator.clipboard.writeText(src); notice("Helper copied. Open dashcam.tesla.com, sign in, open the console, paste, press Enter.", "ok"); }
+        try { await copyText(src); notice("Helper copied. Open dashcam.tesla.com, sign in, open the console, paste, press Enter.", "ok"); }
         catch (_) { notice("Copy failed — select and copy the helper manually.", "err"); }
       });
       T.$("btnApplyKeys")?.addEventListener("click", async () => {
