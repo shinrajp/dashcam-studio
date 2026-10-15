@@ -75,3 +75,12 @@ Rollback: `git checkout pre-connector-lan` (= burn-detection-boxes, 52743c3), th
 - Version 1.4.4 in `@version`, the guard and the badge; `js/connector-src.js` regenerated (`node tools/embed-connector.js`); README and Unlock help updated.
 - Reinstall: https://raw.githubusercontent.com/shinrajp/dashcam-studio/feature/burn-detection-boxes/connector/Tesla-Grid-Player-Connector.user.js
 - Test: `node test/connector-origins.js` (no browser needed).
+
+## Live detection labels on the gold box (tag live-detection-labels)
+Rollback: `git checkout pre-live-labels` (= connector-lan-origins, 858059d).
+
+- The viewer's gold box now shows the same label as the export burn-in (search phrase + relative match %, later Phase 5 class + confidence), via the new shared `TDC.burnBoxes.forHit()` and `TDC.burnBoxes.draw()`. The old "Camera · phrase" tag is gone; the tile's own camera label still shows the camera.
+- Font and line width scale with the tile (12 px minimum on screen). Dark outline on the box, dark background + outline behind the text. The label sits above the box, or below it when the box touches the top edge, and is clipped to the picture inside the tile. Retina sharp (canvas at devicePixelRatio, max 2).
+- The overlay canvas keeps `pointer-events: none`, so it never blocks the tile buttons or the camera bar. It works with the camera bar on the video or docked beside it, and in the phone portrait grid.
+- If `burn-boxes.js` is missing, the viewer falls back to the plain gold box. The "Gold box" checkbox still hides it.
+- Test: `node test/live-labels.js http://127.0.0.1:8770/index.html` (desktop, bar docked, iPhone portrait, fallback; `SHOTS=file.png` saves screenshots).
