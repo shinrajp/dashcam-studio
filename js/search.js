@@ -52,11 +52,34 @@
   }
 
   let tf = null;
+  const CACHE_NOTE = "Model cache unavailable on this connection (not https), so the model is downloaded again each visit.";
+  async function cacheAvailable() {
+    try {
+      if (window.isSecureContext === false || typeof caches === "undefined" || !caches) return false;
+      await caches.open("tdc-probe");   // can still throw (private mode, storage blocked)
+      return true;
+    } catch (e) { return false; }
+  }
+  S.cacheAvailable = cacheAvailable;
+  function explain(err) {
+    const m = String((err && err.message) || err || "");
+    if (/cache|storage|quota/i.test(m)) return "Search could not start: the browser blocked storage for the vision model (" + m + "). Try again; on http:// the model is loaded without a cache. The video itself is not uploaded.";
+    if (/fetch|network|load failed|offline|ERR_|import|dynamically imported module/i.test(m) || navigator.onLine === false) return "Search could not start: couldn't download the vision model (" + m + "). The first search needs internet to fetch it (about 150 MB). The video itself is not uploaded.";
+    if (/memory|allocat|RangeError|wasm/i.test(m)) return "Search could not start: the vision model ran out of memory on this device (" + m + "). Close other tabs and try again, or use a computer.";
+    return "Search could not start: " + m + ". The video itself is not uploaded.";
+  }
+  S.explain = explain;
   async function loadModel(onProgress) {
     if (tf) return tf;
     const mod = await import(CDN);
     mod.env.allowLocalModels = false;
-    mod.env.useBrowserCache = true;
+    // Cache Storage (`caches`) only exists on https:// or localhost. On http://<LAN IP> (e.g. a phone testing
+    // from the Mac) it's undefined and transformers.js throws if asked to use it, so load from the network instead.
+    S.cacheOk = await cacheAvailable();
+    mod.env.useBrowserCache = S.cacheOk;
+    if ("useFSCache" in mod.env) mod.env.useFSCache = false;
+    if ("useCustomCache" in mod.env) mod.env.useCustomCache = false;
+    if (!S.cacheOk) onProgress(CACHE_NOTE);
     if (mod.env.backends && mod.env.backends.onnx && mod.env.backends.onnx.wasm) {
       mod.env.backends.onnx.wasm.proxy = false;
       mod.env.backends.onnx.wasm.numThreads = 1;
@@ -67,10 +90,10 @@
       progress_callback: (p) => {
         if (!p) return;
         const pct = p.progress != null ? Math.round(p.progress) : null;
-        onProgress("Downloading the vision model" + (p.file ? " · " + p.file : "") + (pct != null ? " · " + pct + "%" : "") + ". Your video stays on this computer.");
+        onProgress("Downloading the vision model" + (p.file ? " · " + p.file : "") + (pct != null ? " · " + pct + "%" : "") + ". " + (S.cacheOk ? "" : "No model cache on this connection (not https). ") + "Your video stays on this computer.");
       },
     };
-    onProgress("Loading the vision model. The first search downloads it once (about 150 MB). Your video is not uploaded.");
+    onProgress(S.cacheOk ? "Loading the vision model. The first search downloads it once (about 150 MB). Your video is not uploaded." : "Loading the vision model (about 150 MB). " + CACHE_NOTE + " Your video is not uploaded.");
     const tokenizer = await mod.AutoTokenizer.from_pretrained(MODEL, opt);
     const textModel = await mod.CLIPTextModelWithProjection.from_pretrained(MODEL, opt);
     const processor = await mod.AutoProcessor.from_pretrained(MODEL);
@@ -362,7 +385,7 @@
       if (S.hits.length) openHit(S.hits[0]);
     } catch (err) {
       console.error(err);
-      status("Search could not start: " + (err && err.message ? err.message : err) + ". The page needs internet once, to download the vision model. The video itself is not uploaded.");
+      status(explain(err));
       T.toast("Video search could not start. See the note under the search box.", "err", 7000);
     } finally {
       S.running = false; S.stop = false;
