@@ -55,3 +55,13 @@ Rollback: `git checkout mobile-search-insecure-fix`, or set the camera bar back 
 - Phones: in portrait the strip sits above or below the grid and the tiles keep their full half-width (the grid scrolls if needed). In landscape the desktop arrangement is kept. Works together with the map docked beside.
 - Export is unchanged (it never drew the camera bar). If docking fails, it falls back to "over".
 - Test: `node test/camera-bar-dock.js http://127.0.0.1:8770/index.html`.
+
+## Burn detection boxes in export (tag burn-detection-boxes)
+Rollback: `git checkout pre-burn-boxes` (= camera-bar-dock, 308c8f5), or just leave the checkbox off.
+
+- New `js/burn-boxes.js` and an Export dialog checkbox **Burn detection boxes** (OFF by default, saved in localStorage `tdc.export.burnBoxes`; works in Simple and Advanced mode).
+- When on, `compositor.drawFrame` draws the gold box plus a label onto each camera tile of exported frames, using the same data the viewer overlay uses (`TDC.search.hits` with a located `.box`, kept on screen for ±2.5 s like the viewer). Boxes are mapped through each tile's own contain-fit, so they line up at any export size.
+- Label = class name + confidence. Phase 4 text-search hits use the search phrase and a relative match % (score ÷ best result, since CLIP scores aren't probabilities). Future detector hits with `{cls|label, conf}` show e.g. "car 92%".
+- Readability: line width and font scale with tile height (min 11 px), dark outline on the box, dark background plus black outline behind the text, clipped to the tile.
+- No box near a frame → nothing drawn. Missing or malformed detection data → nothing drawn, no error. Redaction blur is drawn first, then the boxes.
+- Test: `node test/burn-boxes.js http://127.0.0.1:8770/index.html` (set `SHOTS=path.png` to save an example frame).
