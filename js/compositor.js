@@ -74,6 +74,7 @@
       if (f && f.img) {
         drawContain(ctx, f.img, f.w, f.h, r);
         if (T.redact && T.redact.burn) T.redact.burn(ctx, cam, t, r, f.w, f.h, f.img);
+        if (T.burnBoxes && (show.boxes !== undefined ? show.boxes : T.burnBoxes.enabled())) T.burnBoxes.draw(ctx, cam, t, r, f.w, f.h);
       } else placeholder(ctx, r, cam, s, clip);
       if (show.labels) label(ctx, T.CAM_LABEL[cam], r, s * 0.9);
     });

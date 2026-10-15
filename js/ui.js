@@ -705,6 +705,8 @@
       c.onclick = () => { U.exportShow[k] = !U.exportShow[k]; c.classList.toggle("on", U.exportShow[k]); };
       box.appendChild(c);
     }
+    const bx = $("exportBoxes");
+    if (bx) { bx.checked = !!(T.burnBoxes && T.burnBoxes.enabled()); bx.onchange = () => { if (T.burnBoxes) T.burnBoxes.setEnabled(bx.checked); }; }
     updateExportHint();
     const cap = T.exporter.capability();
     $("exportUnsupported").hidden = cap.mode !== "none";

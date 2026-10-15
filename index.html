@@ -218,6 +218,7 @@
           <div class="row"><span>Range</span><div class="seg" id="segRange"><button data-v="full">Whole event</button><button data-v="sections" id="segRangeSections">Sections (joined)</button></div></div>
           <div class="row wrap"><span>Burn in</span><div id="exportShow" class="mini-toggles"></div></div>
         </div>
+        <label class="row burn-boxes-row" id="exportBoxesWrap" title="Draw the gold search boxes and their labels (name + confidence) into the exported video. Nothing is drawn where there is no box."><span>Burn detection boxes</span><input type="checkbox" id="exportBoxes"></label>
         <p class="hint" id="exportHint"></p>
         <div class="export-unsupported" id="exportUnsupported" hidden></div>
       </div>
@@ -312,6 +313,7 @@
   <script src="js/export.js"></script>
   <script src="js/search.js"></script>
   <script src="js/redact.js"></script>
+  <script src="js/burn-boxes.js"></script>
   <script src="js/search-ui.js"></script>
   <script src="js/connector-src.js"></script>
   <script src="js/tesla-auth.js"></script>
