@@ -1,0 +1,1 @@
+`small-umbrella-{70,45,30}.png`: a frame from the synthetic sample footage (tools/make-photo-footage.py) with one umbrella pasted in, 70, 45 or 30 px wide, at the right-hand storefront side. The umbrella is cropped from "Les Parapluies de Viborg" (Wikimedia Commons, **public domain**). Used by test/phase5-worker.js to measure small-object recall with and without tiles.
