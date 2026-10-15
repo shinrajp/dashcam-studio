@@ -65,3 +65,13 @@ Rollback: `git checkout pre-burn-boxes` (= camera-bar-dock, 308c8f5), or just le
 - Readability: line width and font scale with tile height (min 11 px), dark outline on the box, dark background plus black outline behind the text, clipped to the tile.
 - No box near a frame → nothing drawn. Missing or malformed detection data → nothing drawn, no error. Redaction blur is drawn first, then the boxes.
 - Test: `node test/burn-boxes.js http://127.0.0.1:8770/index.html` (set `SHOTS=path.png` to save an example frame).
+
+## Connector 1.4.4: home-network players (tag connector-lan-origins)
+Rollback: `git checkout pre-connector-lan` (= burn-detection-boxes, 52743c3), then reinstall connector 1.4.3.
+
+- Fixes "Connector refused: player origin http://192.168.x.x:PORT is not in ALLOWED_PLAYER_ORIGINS". `originAllowed` = the explicit allowlist (localhost, shinrajp.github.io) **or** the new `isPrivateOrigin()`.
+- `isPrivateOrigin()` parses with `URL` and needs the string to be exactly the canonical origin (no path, no user info, no hex or short IPv4 forms). It accepts http/https, any port, for localhost, `[::1]`, 127.0.0.0/8, 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16 (numeric octets ≤ 255) and `*.local` mDNS names. Lookalikes such as `192.168.1.1.evil.com`, `192.168.1.1@evil.com` and `evil.local.com` are refused.
+- Unchanged: one-time nonce handshake and opener/origin checks; the Tesla token is still only posted to localhost players.
+- Version 1.4.4 in `@version`, the guard and the badge; `js/connector-src.js` regenerated (`node tools/embed-connector.js`); README and Unlock help updated.
+- Reinstall: https://raw.githubusercontent.com/shinrajp/dashcam-studio/feature/burn-detection-boxes/connector/Tesla-Grid-Player-Connector.user.js
+- Test: `node test/connector-origins.js` (no browser needed).

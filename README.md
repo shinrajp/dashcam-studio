@@ -161,7 +161,9 @@ Newer Tesla firmware can encrypt dashcam clips. Unencrypted clips need no accoun
 
 **How keys are fetched.** Clips are grouped into recording sessions (4 cameras on older cars, 6 with the pillar cameras) and sent to Tesla in batches of at most 30 files, one batch after another, keeping whole sessions together. If Tesla refuses one batch, the others still go through and the app tells you which failed.
 
-### 1. Install the connector (v1.4.3)
+### 1. Install the connector (v1.4.4)
+
+**Running Dashcam Studio from another computer on your home network** (e.g. `http://192.168.1.20:8770`, or a `*.local` name)? Connector 1.4.4 trusts these automatically: localhost, 127.x, 10.x, 172.16–31.x, 192.168.x and `*.local`, on http or https and any port. Older connectors answer "Connector refused: player origin … is not in ALLOWED_PLAYER_ORIGINS"; reinstall to fix it. The Tesla sign-in token is still only handed to players on the same computer (localhost); network players only get the per-clip keys.
 The connector is a small userscript that runs only on `dashcam.tesla.com` and hands the keys back to Dashcam Studio. Get it from the app's **Unlock** dialog (**Download connector** / **Copy script**) or open [`connector/Tesla-Grid-Player-Connector.user.js`](connector/Tesla-Grid-Player-Connector.user.js) and click **Raw**.
 
 **Chrome or Edge (Tampermonkey)**
@@ -173,9 +175,9 @@ The connector is a small userscript that runs only on `dashcam.tesla.com` and ha
 1. Install the free **Userscripts** app from the Mac App Store and open it once (note its scripts folder, "Change save location").
 2. Safari ▸ Settings ▸ Extensions: tick **Userscripts**, then **Edit Websites…** and set `dashcam.tesla.com` to **Allow**. The Userscripts icon should appear in the toolbar.
 3. Put `Tesla-Grid-Player-Connector.user.js` in the Userscripts scripts folder (or open it in Safari and use the Userscripts toolbar icon ▸ Install), and switch it on.
-4. **Delete older copies.** Connector 1.4.0 and earlier can't run on Tesla's page in Safari. Remove them, and any empty "NewScript-…" script, so only v1.4.3 is left.
+4. **Delete older copies.** Connector 1.4.0 and earlier can't run on Tesla's page in Safari. Remove them, and any empty "NewScript-…" script, so only v1.4.4 is left.
 
-**Check it's running:** open `dashcam.tesla.com`. A small blue badge at the bottom left should say **"Dashcam Studio connector v1.4.3 active"**, followed by:
+**Check it's running:** open `dashcam.tesla.com`. A small blue badge at the bottom left should say **"Dashcam Studio connector v1.4.4 active"**, followed by:
 - **not linked**: it's installed; open Tesla from the app's **Sign in with Tesla** button.
 - **linked · N clip(s) to unlock**: connected to the app; sign in if asked.
 - **Dashcam Studio window link lost**: the sign-in redirect cut the link; when the keys are fetched, click **Copy keys for Dashcam Studio** and switch back to the app.
@@ -204,7 +206,7 @@ Tick **Remember keys on this device** in the dialog to store each clip's key in 
 
 ### Troubleshooting
 - **"Connector not detected"** after 20 s: there's no badge on the Tesla page, so the script isn't running. Recheck *Allow user scripts* (Chrome) or the Userscripts extension and site permission (Safari), and remove duplicate or old copies.
-- **Safari, no badge:** turn on Safari ▸ Settings ▸ Advanced ▸ **Show features for web developers**, then on the Tesla tab choose Develop ▸ **Show JavaScript Console**, reload, and look for lines starting with `[DashcamStudio]`. No `connector 1.4.3 starting` line means Userscripts isn't injecting it.
+- **Safari, no badge:** turn on Safari ▸ Settings ▸ Advanced ▸ **Show features for web developers**, then on the Tesla tab choose Develop ▸ **Show JavaScript Console**, reload, and look for lines starting with `[DashcamStudio]`. No `connector 1.4.4 starting` line means Userscripts isn't injecting it.
 - **"Connector detected, but no Tesla sign-in token yet":** sign in on the Tesla page, or use its **Paste token** box.
 - **"Tesla refused the key request: HTTP …":** your session may have expired, or Tesla changed the endpoint. Sign in again or use the console helper.
 - **Sign in with Tesla does nothing:** no clips are waiting. The list was cleared, or every clip already has a key. The message says which.
