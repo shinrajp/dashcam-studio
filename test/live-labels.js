@@ -37,7 +37,7 @@ function check(tag, r) {
   ok(tag + ": label at top edge stays in tile", r.back && r.back.label > 5 && r.back.minY >= 0 && r.back.maxX < r.back.w, r.back);
   ok(tag + ": camera without a hit is empty", r.left_repeater && r.left_repeater.gold === 0);
   ok(tag + ": overlay doesn't take clicks", r.front.pe === "none");
-  ok(tag + ": text matches export burn-in", r.text[0] === "white car 100%" && r.text[1] === "white car 50%" && r.exportText[0] === r.text[0], r.text);
+  ok(tag + ": text matches export burn-in", r.text[0] === "white car? (best match)" && r.text[1] === "white car? (match)" && r.exportText[0] === r.text[0], r.text);
 }
 (async () => {
   const b = await puppeteer.launch({ executablePath: "/usr/bin/google-chrome", headless: true, args: ["--no-sandbox", "--autoplay-policy=no-user-gesture-required", "--hide-scrollbars"], userDataDir: "/tmp/tdc-live-" + Date.now() });

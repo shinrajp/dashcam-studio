@@ -32,10 +32,10 @@ let fails = 0; const ok = (n, c, x) => { console.log((c ? "PASS " : "FAIL ") + n
     };
   });
   ok("label: class + confidence", u.det === "car 92%", u.det);
-  ok("label: phrase + relative match", u.rel === "red car 50%", u.rel);
+  ok("label: picture-search hit says match, no fake %", u.rel === "red car? (match)", u.rel);
   ok("no detection near t → nothing", u.none === 0 && u.cam === 0);
   ok("bad / absent data → nothing, no throw", u.bad === 0 && u.junk === 0);
-  ok("hit within window", u.hit.length === 1 && u.hit[0].text === "dog 100%");
+  ok("hit within window", u.hit.length === 1 && u.hit[0].text === "dog? (best match)");
   // render with real frames through the export compositor
   const r = await p.evaluate(async (wantShot) => {
     const P = TDC.player, ev = P.ev; P.pause(); const t = Math.min(2, ev.duration / 2); await P.seek(t); await new Promise((r) => setTimeout(r, 800));

@@ -13,11 +13,12 @@
   const validBox = (b) => b && num(b.x) && num(b.y) && num(b.w) && num(b.h) && b.w > 0 && b.h > 0;
 
   /** Label text: class name + confidence. Future detector hits carry {label|cls, conf}; Phase 4 text-search hits use the phrase + match score. */
-  // (CLIP scores are not probabilities, so text-search hits show a relative match: score ÷ best score in the results.)
+  // (CLIP scores are not probabilities, so picture-search hits are labelled "phrase? (best match)" / "phrase? (match)" without a %.)
   B.labelFor = (hit, phrase, best) => {
     const name = String(hit.label || hit.cls || hit.box.label || phrase || "match").slice(0, 40);
-    let c = num(hit.conf) ? hit.conf : num(hit.box.conf) ? hit.box.conf : num(hit.score) && num(best) && best > 0 ? hit.score / best : null;
-    if (c == null) return name;
+    let c = num(hit.conf) ? hit.conf : num(hit.box.conf) ? hit.box.conf : null;
+    // Picture-search (CLIP) hits have no real confidence: say it's a match, not a percentage.
+    if (c == null) return !hit.det && (num(hit.score) || phrase) ? name + "? (" + (num(hit.score) && num(best) && hit.score >= best ? "best match" : "match") + ")" : name;
     if (c > 1) c = c / 100;
     return name + " " + Math.round(Math.max(0, Math.min(1, c)) * 100) + "%";
   };
