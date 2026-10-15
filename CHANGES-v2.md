@@ -46,3 +46,12 @@ Rollback: `git checkout pre-mobile-portrait` (Phase 4 without this) or `pre-phas
 - **Fix in tesla-auth.js:** Copy connector / Copy helper fall back to a selected textarea plus `execCommand("copy")`. Clipboard auto-apply already skipped cleanly when there's no clipboard.
 - **Checked and unchanged:** Redact/OCR is vendored and uses no cache. Face blur uses the native FaceDetector or MediaPipe from the CDN, with no cache. IndexedDB (library index, saved keys) works on http.
 - **Test:** `node test/insecure-origin.js http://<non-localhost-ip>:PORT/index.html`.
+
+## Camera bar dock (tag camera-bar-dock)
+Rollback: `git checkout mobile-search-insecure-fix`, or set the camera bar back to "On video".
+
+- New pref `cameraBar.dock` ("over" by default, or "beside") plus `cameraBar.side` ("top" or "bottom"). It follows the map's Beside video pattern: a button on the bar (**Beside video** / **On video**) and Settings ▸ Camera bar (a checkbox and Above/Below). It's remembered in prefs.
+- When docked, the bar moves into `#barDock`, a strip glued to the stage's top or bottom edge. `U.fit` reserves its height and shifts the stage, so the bar never covers a camera. Dragging the ⋮⋮ grip up or down past the middle of the video switches sides. Camera switching, focus zoom buttons and Hide all work from the dock. The bar doesn't fade when idle because it's off the video.
+- Phones: in portrait the strip sits above or below the grid and the tiles keep their full half-width (the grid scrolls if needed). In landscape the desktop arrangement is kept. Works together with the map docked beside.
+- Export is unchanged (it never drew the camera bar). If docking fails, it falls back to "over".
+- Test: `node test/camera-bar-dock.js http://127.0.0.1:8770/index.html`.

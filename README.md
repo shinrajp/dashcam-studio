@@ -65,6 +65,11 @@ A Tesla dashcam and Sentry viewer that runs entirely in your browser. Drop in yo
 
 **Phone and tablet layout:** held upright, the cameras stack 2 across and 3 down: **Front | Back**, then **Left pillar | Right pillar**, then **Left repeater | Right repeater**. Older cars without pillar cameras get two rows. Every tile is half the screen wide at the camera's own shape, never shrunk to fit. If the three rows don't fit above the controls (small phones, or with the classic search bars on), swipe the cameras up and down; the timeline and buttons stay put. Bigger screens fit all three rows. Turned sideways, phones use the same layout as a computer, and rotating switches right away. Tap a camera to enlarge it as before (pinch and drag stay inside that camera).
 
+**Camera bar beside the video:** press **Beside video** on the camera bar (or Settings ▸ Camera bar) to move it off the cameras into a strip above the video. Drag its ⋮⋮ grip down to put it below instead. **On video** puts it back. The choice is remembered. On phones the strip sits above or below the grid and the tiles keep their size. Export never includes the camera bar.
+
+![Camera bar docked above the video, covering no camera](screenshots/camera-bar-beside-desktop.png)
+*Camera bar beside the video: it no longer covers the top row.*
+
 ![iPhone portrait: Front | Back, pillars, repeaters](screenshots/mobile-portrait-iphone-pro-max.png)
 *iPhone, upright: 2 × 3 grid. Small phones scroll the grid instead of shrinking it.*
 
