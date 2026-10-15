@@ -177,8 +177,14 @@
       const ctx = cv.getContext("2d");
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, tw, th);
+      const goldOn = !$("findShow") || $("findShow").checked;
+      const det = goldOn && video && video.videoWidth && T.detect && T.burnBoxes ? T.detect.boxesAt(cam, T.player.time || 0) : null;
+      if (det) {   // Phase 5: boxes that follow the object (tracked) or live detections
+        if (det.length) { tile.tile.classList.add("find-on"); T.burnBoxes.draw(ctx, cam, T.player.time, { x: 0, y: 0, w: tw, h: th }, video.videoWidth, video.videoHeight, det, 12); }
+        continue;
+      }
       if (!near || !cams.has(cam) || !video || !video.videoWidth) continue;
-      const hit = group.find((g) => g.cam === cam && g.box);
+      const hit = group.find((g) => g.cam === cam && g.box && !g.tracked);
       if (!hit) continue;
       const item = T.burnBoxes && T.burnBoxes.forHit(hit);
       if (item) {   // same box + label text as "Burn detection boxes" in export; 12 px minimum on screen
@@ -193,6 +199,7 @@
     }
   }
 
+  S.seekSample = (v, it, local) => seekSample(v, it, local);
   async function seekSample(video, it, local) {
     const url = it.url || (it.url = URL.createObjectURL(it.blob));
     if (video._src !== url) {
@@ -269,16 +276,28 @@
     if (show) {
       status("Outlining “" + (S.phrase || "the match") + "”…");
       for (const g of group) {
-        if (g.box && g.box.w <= 0.2) continue;
+        if (g.det || (g.box && g.box.w <= 0.2)) continue;
         try { g.box = await locate(g); }
         catch (err) { console.warn(err); }
       }
     }
     const n = group.filter((g) => g.box).length;
+    const isDet = group.some((g) => g.det);
     if (follow || (show && n)) {
-      status((follow ? (cams.length <= 1 ? "Switched to " + (CAM_LABEL[cams[0] || hit.cam] || "that camera") + ". " : "Showing all " + cams.length + " cameras that see it. ") : "") + (show && n ? "The gold box is the part of the picture that best matches the words. It is a guess." : ""));
+      status((follow ? (cams.length <= 1 ? "Switched to " + (CAM_LABEL[cams[0] || hit.cam] || "that camera") + ". " : "Showing all " + cams.length + " cameras that see it. ") : "") + (show && n ? (isDet ? "The gold box is what the object detector found, with its confidence." : "The gold box is the part of the picture that best matches the words. It is a guess.") : ""));
     }
     paintBoxes();
+    // Phase 5: follow the object across nearby frames with the detector (only when detection is turned on)
+    if (show && n && T.detect && T.detect.enabled()) {
+      const token = (S.trackToken = (S.trackToken || 0) + 1);
+      try {
+        group.forEach((g) => { g.phrase = g.det ? null : S.phrase; });
+        status("Following the object across nearby frames…");
+        const tracks = await T.detect.trackAround(group.filter((g) => g.box), { prompt: T.detect.prefs().model === "gdino" ? S.phrase : undefined });
+        if (token === S.trackToken && S.anchor === hit.t) { T.detect.tracks = tracks; status(tracks.length ? "The gold box now follows the object (" + tracks.length + " tracked)." : "Couldn't follow the object; showing the box at the match only."); }
+      } catch (err) { console.warn("tracking skipped", err); status("Object tracking unavailable (" + (err.message || err) + "). The gold box stays at the match."); }
+      paintBoxes();
+    }
     if (T.ui && T.ui.drawTimeline) T.ui.drawTimeline();
   }
 
@@ -311,6 +330,7 @@
     S.anchor = null;
     S.query = null;
     S.phrase = "";
+    if (T.detect) T.detect.clear();
     renderHits();
     paintBoxes();
     status("");
@@ -342,7 +362,27 @@
     $("btnFind").disabled = true;
     $("btnFindStop").hidden = false;
     S.hits = [];
+    if (T.detect) T.detect.clear();
     renderHits();
+    if (T.detect && T.detect.handlesQuery(q)) {
+      let done = false;
+      try {
+        S.phrase = q; S.query = null; S.anchor = null;
+        const rows = await T.detect.runSearch(q, list, { status, stopped: () => S.stop });
+        S.hits = cluster(rows);
+        renderHits();
+        if (!S.hits.length) status("The detector found no " + (T.detect.classFor(q) || "“" + q + "”") + " above " + Math.round(T.detect.prefs().conf * 100) + "% confidence. Lower the confidence in Settings, or try other cameras.");
+        else status(S.hits.length + " moment" + (S.hits.length === 1 ? "" : "s") + " with " + (T.detect.classFor(q) || "“" + q + "”") + ". Click one to jump there.");
+        if (S.hits.length) openHit(S.hits[0]);
+        done = true;
+        return;
+      } catch (err) {
+        console.warn("detector search failed, using the picture search instead", err);
+        T.toast("Object detection unavailable (" + (err.message || err) + "). Using the regular picture search.", "err", 6000);
+      } finally {
+        if (done) { S.running = false; S.stop = false; $("btnFind").disabled = false; $("btnFindStop").hidden = true; }
+      }
+    }
     try {
       const model = await loadModel(status);
       if (S.stop) return;

@@ -29,10 +29,11 @@
       hits = hits || (S && S.hits) || [];
       phrase = phrase != null ? phrase : (S && S.phrase) || "";
       if (!Array.isArray(hits) || !num(t)) return [];
+      if (T.detect && T.detect.boxesAt) { const tr = T.detect.boxesAt(cam, t); if (tr) return tr; }   // Phase 5: tracked / detected boxes
       const out = [];
       const best = hits.reduce((m, h) => (h && num(h.score) && h.score > m ? h.score : m), 0);
       for (const h of hits) {
-        if (!h || h.cam !== cam || !num(h.t) || Math.abs(h.t - t) > NEAR || !validBox(h.box)) continue;
+        if (!h || h.tracked || h.cam !== cam || !num(h.t) || Math.abs(h.t - t) > NEAR || !validBox(h.box)) continue;
         out.push({ x: h.box.x, y: h.box.y, w: h.box.w, h: h.box.h, text: B.labelFor(h, phrase, best) });
       }
       return out;
