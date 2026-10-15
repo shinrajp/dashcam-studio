@@ -516,3 +516,10 @@ body.usearch:not(.usearch-classic) .transport > #redactStatus { display: none !i
   body.us-open .tp-controls .us-btn { display: none; }
   body.no-event .tp-controls .us-btn { display: none; }
 }
+
+/* ---------- portrait grid that scrolls instead of shrinking (small phones) ---------- */
+body.portrait-scroll .viewport { place-items: start center; overflow-x: hidden; overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; touch-action: pan-y;
+  padding-left: max(6px, env(safe-area-inset-left)); padding-right: max(6px, env(safe-area-inset-right)); }
+body.portrait-scroll .viewport .stage { flex: none; margin-bottom: 6px; }
+body.portrait-scroll .tile { touch-action: pan-y; }          /* vertical swipe scrolls the grid; a tap still focuses */
+body.portrait .viewport { padding-left: max(6px, env(safe-area-inset-left)); padding-right: max(6px, env(safe-area-inset-right)); }

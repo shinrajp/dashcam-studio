@@ -21,7 +21,13 @@
     if (dockW) dockW += 12;
     const W = Math.max(160, W0 - dockW);
     let w = W, h = W / aspect;
-    if (h > H) { h = H; w = H * aspect; }
+    // Portrait multi-camera grid: never shrink tiles to fit the height. Each tile is (width - gaps)/2 at the
+    // native camera aspect; if the rows don't fit above the controls, the viewport scrolls (controls stay put).
+    let scroll = false;
+    try { scroll = !!(T.focus && T.focus.portrait && T.focus.portrait() && !T.focus.cam && d.cols > 1 && h > H + 1); } catch (e) { scroll = false; }
+    if (!scroll && h > H) { h = H; w = H * aspect; }
+    document.body.classList.toggle("portrait-scroll", scroll);
+    if (!scroll && vp.scrollTop) vp.scrollTop = 0;
     stage.style.width = Math.floor(w) + "px";
     stage.style.height = Math.floor(h) + "px";
     T.emit("layout");

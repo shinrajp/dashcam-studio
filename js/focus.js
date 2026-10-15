@@ -33,14 +33,27 @@
   // ── layout ──
   /** Columns × rows of the live view: 1×1 when focused, otherwise fits the visible cameras. */
   // portrait phones stack the grid 2 columns × 3 rows (CSS orders the tiles: Front | Back, sides, mirrors)
-  const mqPortrait = window.matchMedia ? matchMedia("(max-width: 900px) and (orientation: portrait)") : { matches: false };
+  // portrait = portrait orientation on a narrow window or a touch tablet (iPad Pro 1024 included); decided by the window, not the device model
+  const mqPortrait = window.matchMedia ? matchMedia("(orientation: portrait) and (max-width: 900px), (orientation: portrait) and (pointer: coarse) and (max-width: 1366px)") : { matches: false };
   F.portrait = () => !!mqPortrait.matches;
   F.dims = () => {
     if (F.cam) return { cols: 1, rows: 1 };
     const n = T.GRID.filter((c) => !hidden(c)).length;
+    if (F.portrait()) {
+      // 4-angle events (no pillar cameras) collapse to Front | Back, Left | Right repeater: no empty pillar slots
+      try { const m = T.GRID.filter((c) => portraitOn(c)).length; if (m !== n) return m <= 1 ? { cols: 1, rows: 1 } : m <= 3 ? { cols: 1, rows: m } : { cols: 2, rows: Math.ceil(m / 2) }; } catch (e) { console.warn("portrait layout", e); }
+    }
     if (F.portrait()) return n <= 1 ? { cols: 1, rows: 1 } : n <= 3 ? { cols: 1, rows: n } : n === 4 ? { cols: 2, rows: 2 } : { cols: 2, rows: 3 };
     return n <= 1 ? { cols: 1, rows: 1 } : n === 2 ? { cols: 2, rows: 1 } : n === 3 ? { cols: 3, rows: 1 } : n === 4 ? { cols: 2, rows: 2 } : { cols: 3, rows: 2 };
   };
+  // portrait only: pillar slots are dropped for 4-angle cars (no pillar cameras)
+  function portraitOn(cam) {
+    if (hidden(cam)) return false;
+    if (cam !== "left_pillar" && cam !== "right_pillar") return true;
+    const ev = P().ev;   // collapse only when the car has no pillar cameras at all; one missing file keeps its slot
+    return !(ev && ev.cams && ev.cams.length && !ev.cams.includes("left_pillar") && !ev.cams.includes("right_pillar"));
+  }
+  F.portraitOn = portraitOn;
   function applyLayout(keepZoom) {
     document.body.classList.toggle("portrait", F.portrait());
     const d = F.dims(), grid = $("grid");
@@ -49,7 +62,8 @@
     for (const cam of T.GRID) {
       const t = P().tiles[cam];
       if (!t) continue;
-      const on = F.cam ? cam === F.cam : !hidden(cam);
+      let on = F.cam ? cam === F.cam : !hidden(cam);
+      if (on && !F.cam && F.portrait()) { try { on = portraitOn(cam); } catch (e) { /* keep the old layout */ } }
       t.tile.classList.toggle("off", !on);
       t.tile.classList.toggle("focused", F.cam === cam);
     }
