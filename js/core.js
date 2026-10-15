@@ -37,7 +37,7 @@
     },
     export: { preset: "compat", codec: "h264", res: "native", range: "full" },
     rate: 1,
-    cameraBar: { on: true, hintSeen: false, grid: { fx: -1, fy: -1 }, focus: { fx: -1, fy: -1 } },
+    cameraBar: { on: true, hintSeen: false, dock: "over", side: "top", grid: { fx: -1, fy: -1 }, focus: { fx: -1, fy: -1 } },
     camsHidden: { left_pillar: false, front: false, right_pillar: false, left_repeater: false, back: false, right_repeater: false },
   };
   function merge(def, val) {

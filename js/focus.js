@@ -298,6 +298,48 @@
   const MARGIN = 8, SNAP = 18;
   const layoutKey = () => (F.cam ? "focus" : "grid");
   F.barOn = () => !!CB().on;
+  // ── dock: "over" (floating on the video, default) or "beside" (a strip above/below the video, like the map's dock) ──
+  F.barDocked = () => CB().dock === "beside" && F.barOn() && !!P().ev;
+  F.barDockH = () => { if (!F.barDocked()) return 0; const b = $("stageBar"); return (b && b.offsetHeight ? b.offsetHeight : 44) + 8; };
+  function syncBarDock() {
+    const bar = $("stageBar"), dock = $("barDock");
+    if (!bar || !dock) return;
+    const docked = F.barDocked();
+    document.body.classList.toggle("bar-aside", docked);
+    document.body.classList.toggle("bar-below", docked && CB().side === "bottom");
+    dock.hidden = !docked;
+    if (docked) { if (bar.parentElement !== dock) dock.appendChild(bar); bar.classList.remove("moved"); bar.style.left = bar.style.top = bar.style.transform = ""; }
+    else if (bar.parentElement !== stage()) stage().insertBefore(bar, $("btnBarRestore"));
+    const btn = $("btnBarDock");
+    if (btn) {
+      const on = CB().dock === "beside";
+      btn.setAttribute("aria-pressed", String(on));
+      btn.querySelector("span").textContent = on ? "On video" : "Beside video";
+      btn.title = on ? "Put the camera bar back on the video" : "Move the camera bar off the video (above or below it)";
+    }
+    const cb = $("barAside"); if (cb) cb.checked = CB().dock === "beside";
+    document.querySelectorAll("#segBarSide button").forEach((b) => b.classList.toggle("on", b.dataset.v === (CB().side || "top")));
+  }
+  /** Keep the dock strip glued to the stage's top or bottom edge (the stage itself is shifted by U.fit). */
+  function placeDock() {
+    const dock = $("barDock");
+    if (!dock || dock.hidden) return;
+    const st = stage(), h = F.barDockH();
+    dock.style.left = st.offsetLeft + "px";
+    dock.style.width = st.offsetWidth + "px";
+    dock.style.top = (CB().side === "bottom" ? st.offsetTop + st.offsetHeight + 8 : st.offsetTop - h) + "px";
+  }
+  F.placeDock = placeDock;
+  F.setBarDock = (dock, side) => {
+    try {
+      if (dock) T.prefs.cameraBar.dock = dock;
+      if (side) T.prefs.cameraBar.side = side;
+      T.savePrefs();
+      syncBarDock();
+      if (T.ui && T.ui.fit) T.ui.fit();
+      placeBar();
+    } catch (e) { console.warn("camera bar dock", e); T.prefs.cameraBar.dock = "over"; syncBarDock(); if (T.ui && T.ui.fit) T.ui.fit(); }
+  };
   F.setBar = (on, quiet) => {
     T.setPref("cameraBar.on", !!on);
     if (!on) $("camMenu").hidden = true;
@@ -312,6 +354,7 @@
     const sw = $("chipCamBar");
     sw.classList.toggle("on", on); sw.setAttribute("aria-pressed", String(on));
     sw.title = on ? "Camera bar is ON. Click to hide it (C)" : "Camera bar is OFF. Click to show it (C)";
+    try { syncBarDock(); } catch (e) { console.warn(e); }
     if (on) { placeBar(); maybeHint(); } else $("barHint").hidden = true;
   }
   function spans() {
@@ -323,6 +366,7 @@
   function placeBar() {
     const bar = $("stageBar");
     if (bar.hidden || F.dragging) return;
+    if (F.barDocked()) { placeDock(); placeHint(); return; }
     const pos = CB()[layoutKey()];
     if (!(pos && pos.fx >= 0)) {
       bar.classList.remove("moved"); bar.style.left = bar.style.top = "";
@@ -364,6 +408,7 @@
       const dx = e.clientX - d.x, dy = e.clientY - d.y;
       if (!d.moved && Math.hypot(dx, dy) < 5) return;
       d.moved = true;
+      if (F.barDocked()) { bar.style.transform = "translateY(" + Math.round(dy) + "px)"; return; }   // docked: drag up/down to switch side
       const s = spans();
       bar.classList.add("moved");
       bar.style.left = Math.round(T.clamp(d.l + dx, MARGIN, MARGIN + s.sx)) + "px";
@@ -374,7 +419,12 @@
       if (!d || e.pointerId !== d.id) return;
       const was = d; d = null;
       F.dragging = false; bar.classList.remove("dragging");
-      if (was.moved) {
+      if (was.moved && F.barDocked()) {
+        F.dragEnd = performance.now();
+        bar.style.transform = "";
+        const sr = stage().getBoundingClientRect();
+        F.setBarDock("beside", e.clientY > sr.top + sr.height / 2 ? "bottom" : "top");
+      } else if (was.moved) {
         F.dragEnd = performance.now();
         const s = spans();
         let l = parseFloat(bar.style.left) - MARGIN, t = parseFloat(bar.style.top) - MARGIN;
@@ -453,6 +503,12 @@
     });
     $("btnFocusClose").addEventListener("click", (e) => { e.stopPropagation(); F.grid(); });
     $("chipCamBar").addEventListener("click", () => F.setBar(!F.barOn()));
+    $("btnBarDock").addEventListener("pointerdown", (e) => e.stopPropagation());
+    $("btnBarDock").addEventListener("click", (e) => { e.stopPropagation(); F.setBarDock(CB().dock === "beside" ? "over" : "beside"); });
+    if ($("barAside")) $("barAside").addEventListener("change", (e) => F.setBarDock(e.target.checked ? "beside" : "over"));
+    document.querySelectorAll("#segBarSide button").forEach((b) => b.addEventListener("click", () => F.setBarDock(null, b.dataset.v)));
+    T.on("layout", placeDock);
+    T.on("player-open", () => { syncBarDock(); });
     $("btnBarHide").addEventListener("click", (e) => { e.stopPropagation(); F.setBar(false); });
     $("btnBarRestore").addEventListener("click", (e) => { e.stopPropagation(); F.setBar(true); });
     $("btnHintOk").addEventListener("click", (e) => { e.stopPropagation(); hideHint(true); });

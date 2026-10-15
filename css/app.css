@@ -523,3 +523,16 @@ body.portrait-scroll .viewport { place-items: start center; overflow-x: hidden; 
 body.portrait-scroll .viewport .stage { flex: none; margin-bottom: 6px; }
 body.portrait-scroll .tile { touch-action: pan-y; }          /* vertical swipe scrolls the grid; a tap still focuses */
 body.portrait .viewport { padding-left: max(6px, env(safe-area-inset-left)); padding-right: max(6px, env(safe-area-inset-right)); }
+
+/* ---------- camera bar docked beside the video (cameraBar.dock = "beside") ---------- */
+.bar-dock { position: absolute; z-index: 7; display: flex; justify-content: center; pointer-events: none; }
+.bar-dock[hidden] { display: none; }
+.bar-dock .stage-bar { position: relative; left: auto !important; top: auto !important; transform: none; margin: 0 auto; pointer-events: auto; max-width: 100%; opacity: 1 !important; }
+.bar-dock .stage-bar.dragging { transition: none; }
+.bar-dock-btn span { font-size: 12px; }
+.bar-dock-btn[aria-pressed="true"] { color: #cfdaff; }
+body.bar-aside .bar-restore { display: none; }
+@media (max-width: 760px) { .bar-dock-btn span { display: none; } .bar-dock-btn { padding: 0 8px; } }
+body.focused .bar-dock .stage-bar .focus-only { display: flex; }
+body.focused .bar-dock .stage-bar .grid-only { display: none; }
+body.idle .bar-dock .stage-bar { pointer-events: auto; }   /* off the video: no need to fade it out */

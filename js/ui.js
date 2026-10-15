@@ -15,7 +15,10 @@
     const d = T.focus ? T.focus.dims() : { cols: 3, rows: 2 };
     const aspect = (d.cols * tile.w) / (d.rows * tile.h);
     const cs = getComputedStyle(vp);
-    const W0 = vp.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight), H = vp.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
+    const W0 = vp.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight), H0 = vp.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
+    let barH = 0;
+    try { barH = T.focus && T.focus.barDockH ? T.focus.barDockH() : 0; } catch (e) { barH = 0; }
+    const H = barH ? Math.max(80, H0 - barH) : H0;
     let dockW = 0;
     if (T.overlays && T.overlays.dockWidth) dockW = T.overlays.dockWidth(H, W0);
     if (dockW) dockW += 12;
@@ -30,6 +33,10 @@
     if (!scroll && vp.scrollTop) vp.scrollTop = 0;
     stage.style.width = Math.floor(w) + "px";
     stage.style.height = Math.floor(h) + "px";
+    // camera bar docked beside the video: shift the stage so the strip has its own room (never over a camera)
+    const below = document.body.classList.contains("bar-below");
+    stage.style.marginTop = barH && !below ? barH + "px" : "";
+    stage.style.marginBottom = barH && below ? barH + "px" : "";
     T.emit("layout");
   };
 
