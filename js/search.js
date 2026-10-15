@@ -180,20 +180,16 @@
       if (!near || !cams.has(cam) || !video || !video.videoWidth) continue;
       const hit = group.find((g) => g.cam === cam && g.box);
       if (!hit) continue;
+      const item = T.burnBoxes && T.burnBoxes.forHit(hit);
+      if (item) {   // same box + label text as "Burn detection boxes" in export; 12 px minimum on screen
+        T.burnBoxes.draw(ctx, cam, S.anchor, { x: 0, y: 0, w: tw, h: th }, video.videoWidth, video.videoHeight, [item], 12);
+        continue;
+      }
+      // fallback (burn-boxes.js missing): original plain box
       const fit = contain(video.videoWidth, video.videoHeight, { x: 0, y: 0, w: tw, h: th });
       const box = hit.box;
-      const x = fit.x + box.x * fit.w, y = fit.y + box.y * fit.h;
-      const bw = box.w * fit.w, bh = box.h * fit.h;
-      ctx.strokeStyle = "#e6b450";
-      ctx.lineWidth = 3;
-      ctx.strokeRect(x, y, bw, bh);
-      const label = (CAM_LABEL[cam] || cam) + (S.phrase ? " · " + S.phrase : "");
-      ctx.font = "700 12px sans-serif";
-      const lw = ctx.measureText(label).width + 10;
-      ctx.fillStyle = "rgba(0,0,0,0.72)";
-      ctx.fillRect(x, Math.max(0, y - 18), lw, 18);
-      ctx.fillStyle = "#ffe3a3";
-      ctx.fillText(label, x + 5, Math.max(13, y - 5));
+      ctx.strokeStyle = "#e6b450"; ctx.lineWidth = 3;
+      ctx.strokeRect(fit.x + box.x * fit.w, fit.y + box.y * fit.h, box.w * fit.w, box.h * fit.h);
     }
   }
 

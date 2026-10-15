@@ -39,8 +39,20 @@
     } catch (_) { return []; }
   };
 
-  /** Draw onto an export canvas. r = camera tile rect, iw/ih = source frame size (image is drawn "contain" in r). */
-  B.draw = (ctx, cam, t, r, iw, ih, list) => {
+  /** One hit → drawable box with the same label text the export uses (live viewer overlay). */
+  B.forHit = (hit, hits, phrase) => {
+    try {
+      const S = T.search;
+      if (!hit || !validBox(hit.box)) return null;
+      hits = hits || (S && S.hits) || [];
+      phrase = phrase != null ? phrase : (S && S.phrase) || "";
+      const best = (Array.isArray(hits) ? hits : []).reduce((m, h) => (h && num(h.score) && h.score > m ? h.score : m), 0);
+      return { x: hit.box.x, y: hit.box.y, w: hit.box.w, h: hit.box.h, text: B.labelFor(hit, phrase, best) };
+    } catch (_) { return null; }
+  };
+
+  /** Draw onto an export canvas (or the viewer's per-tile layer). r = camera tile rect, iw/ih = source frame size (image is drawn "contain" in r). */
+  B.draw = (ctx, cam, t, r, iw, ih, list, minFont) => {
     try {
       if (!iw || !ih || !r || r.w <= 0 || r.h <= 0) return 0;
       const boxes = list || B.at(cam, t);
@@ -48,7 +60,7 @@
       const s = Math.min(r.w / iw, r.h / ih), fw = iw * s, fh = ih * s;
       const fx = r.x + (r.w - fw) / 2, fy = r.y + (r.h - fh) / 2;
       const lw = Math.max(2, Math.round(fh * 0.006));
-      const fs = Math.max(11, Math.round(fh * 0.045));   // font scales with tile height: readable on phone-size exports
+      const fs = Math.max(minFont || 11, Math.round(fh * 0.045));   // font scales with tile height: readable on phone-size exports
       ctx.save();
       ctx.beginPath(); ctx.rect(fx, fy, fw, fh); ctx.clip();
       ctx.font = "700 " + fs + "px -apple-system, system-ui, sans-serif";
