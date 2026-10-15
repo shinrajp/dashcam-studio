@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Tesla Grid Player Connector
 // @namespace    tesla-dashcam-grid
-// @version      1.4.3
+// @version      1.4.4
 // @description  One-click key fetch for Tesla Dashcam Studio (and the earlier Grid Player). Runs on dashcam.tesla.com ONLY when that tab was opened by the player's “Unlock with Tesla” button; fetches decryption keys from Tesla's own endpoint and hands them back to the player window.
 // @match        https://dashcam.tesla.com/*
 // @run-at       document-idle
@@ -46,7 +46,7 @@
     } catch (_) {}
   }
   // Version guard: if a newer copy of the connector already claimed this page, this (older) copy steps aside.
-  var MY_VERSION = "1.4.3";
+  var MY_VERSION = "1.4.4";
   var cmp = function (a, b) { var x = String(a).split("."), y = String(b).split("."); for (var i = 0; i < 3; i++) { var d = (+x[i] || 0) - (+y[i] || 0); if (d) return d; } return 0; };
   try {
     var claimed = document.documentElement && document.documentElement.getAttribute("data-tdc-connector");
@@ -60,12 +60,33 @@
   // Player origins allowed to receive keys without asking. Add your own, e.g. "http://my-nas.local:8080".
   const LOCAL_PLAYER_ORIGINS = [/^http:\/\/localhost(:\d+)?$/, /^http:\/\/127\.0\.0\.1(:\d+)?$/, /^http:\/\/\[::1\](:\d+)?$/];
   const ALLOWED_PLAYER_ORIGINS = LOCAL_PLAYER_ORIGINS.concat([/^https:\/\/shinrajp\.github\.io$/]); // + hosted Dashcam Studio (GitHub Pages)
+  // <origin-check> (extracted by test/connector-origins.js — keep self-contained)
+  // 1.4.4: also trust players served from this home network: http/https on localhost, 127.0.0.0/8, ::1,
+  // 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16 or a *.local (mDNS) name, any port. Parsed with URL + numeric
+  // octets; the string must be exactly a canonical origin, so "http://192.168.1.1.evil.com" or "http://0xc0.168.1.1" fail.
+  function isPrivateOrigin(o) {
+    if (typeof o !== "string" || o.length > 300) return false;
+    let u;
+    try { u = new URL(o); } catch (_) { return false; }
+    if (u.protocol !== "http:" && u.protocol !== "https:") return false;
+    if (u.origin !== o || u.username || u.password) return false;
+    const h = u.hostname.toLowerCase();
+    if (h === "localhost" || h === "[::1]") return true;
+    const v4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(h);
+    if (v4) {
+      const a = v4.slice(1).map(Number);
+      if (a.some((n) => n > 255)) return false;
+      return a[0] === 10 || a[0] === 127 || (a[0] === 172 && a[1] >= 16 && a[1] <= 31) || (a[0] === 192 && a[1] === 168);
+    }
+    return /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+local$/.test(h) && !/\.\.|^\./.test(h);
+  }
+  // </origin-check>
   const HELLO = "tesla-dashcam-hello", ITEMS = "tesla-dashcam-items", STATUS = "tesla-dashcam-status";
   const KEYS = "tesla-dashcam-keys", KEYS_ERROR = "tesla-dashcam-keys-error", TOKEN = "tesla-dashcam-token";
   const STORE = "teslaGridPlayerConnector";   // sessionStorage: survives the sign-in redirects inside this tab
   const MANUAL_TOKEN_KEY = "manualTeslaToken";
   const SIGNIN_TIMEOUT_MS = 5 * 60 * 1000;
-  const VERSION = "1.4.3";
+  const VERSION = "1.4.4";
 
   if (location.origin !== "https://dashcam.tesla.com" || window.top !== window) return;
 
@@ -234,7 +255,7 @@
     box.querySelector("textarea").focus();
   }
 
-  function originAllowed(o) { return ALLOWED_PLAYER_ORIGINS.some((re) => re.test(o)); }
+  function originAllowed(o) { return ALLOWED_PLAYER_ORIGINS.some((re) => re.test(o)) || isPrivateOrigin(o); }
 
   // ── 4. Wait for sign-in, fetch keys on Tesla's origin, send them back ──
   const started = Date.now();
@@ -252,7 +273,7 @@
     if (playerOrigin !== "null" && !originAllowed(playerOrigin)) {
       stop();
       post({ type: KEYS_ERROR, error: "Connector refused: player origin " + playerOrigin + " is not in ALLOWED_PLAYER_ORIGINS" }, playerOrigin);
-      return show("Refused to send keys to " + playerOrigin + " (not an allowed player origin — edit ALLOWED_PLAYER_ORIGINS in the script).", "err");
+      return show("Refused to send keys to " + playerOrigin + " (not an allowed player origin: only localhost, home-network addresses, *.local and the hosted app are trusted — edit ALLOWED_PLAYER_ORIGINS in the script to add another).", "err");
     }
     const token = pickToken();
     if (!token) {
