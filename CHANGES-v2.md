@@ -39,3 +39,10 @@ Rollback: `git checkout pre-mobile-portrait` (Phase 4 without this) or `pre-phas
 - Code: `js/focus.js` (portrait query, 4-angle collapse), `js/ui.js` (`U.fit` doesn't shrink in portrait and toggles `body.portrait-scroll`), and CSS at the end of `css/app.css`.
 - Test: `node test/portrait-grid.js http://127.0.0.1:8770/index.html` (79 checks: iPhone SE 1st gen 320×568, SE 375×667, 15/16 393×852, Pro Max 430×932, iPad 820×1180, each in portrait and landscape; 6/5/4-angle events; scrolling, pinned controls, rotation, focus, search sheet; desktop unchanged).
 - Screenshots: `screenshots/mobile-*.png`.
+
+## Insecure-origin fix (tag mobile-search-insecure-fix)
+- **Problem:** on `http://<Mac LAN IP>:port` (the phone test setup) the page isn't a secure context, so the Cache Storage API (`caches`) and `navigator.clipboard` don't exist. search.js forced transformers.js `env.useBrowserCache = true`, so it threw "Browser cache is not available in this environment", and the message wrongly blamed the internet.
+- **Fix in search.js:** probe `isSecureContext` and `caches.open()` before loading. When there's no cache, set `useBrowserCache = false` and load the model from the network for that session. The status says "Model cache unavailable on this connection (not https), so the model is downloaded again each visit." Errors now say whether storage, network or memory is the problem.
+- **Fix in tesla-auth.js:** Copy connector / Copy helper fall back to a selected textarea plus `execCommand("copy")`. Clipboard auto-apply already skipped cleanly when there's no clipboard.
+- **Checked and unchanged:** Redact/OCR is vendored and uses no cache. Face blur uses the native FaceDetector or MediaPipe from the CDN, with no cache. IndexedDB (library index, saved keys) works on http.
+- **Test:** `node test/insecure-origin.js http://<non-localhost-ip>:PORT/index.html`.
