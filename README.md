@@ -82,9 +82,9 @@ Tap **🔍 Search** next to the clock (on a phone, the round 🔍 button above t
 
 Results drop down in two groups, **Find matches** and **Blurred text / regions**, each with its time. Click or tap one to jump there: a Find match switches to that camera and draws the gold box, and a text region focuses its camera and flashes a gold outline around it. **Esc** closes the box (a second Esc leaves the focused camera as before). The 🔍 button shows how many results there are.
 
-The gold box on the video carries a small label with what was searched for and how well it matched (e.g. "white car 100%", the best match = 100%), the same text the export burns in. It scales with the camera tile and never covers the buttons. See `screenshots/live-labels.png`.
+The gold box on the video carries a small label with what was searched for. A picture-search result is labelled as a guess, e.g. "white car? (best match)" or "white car? (match)", never with a %. With object detection on, a detector result shows the real class and confidence, e.g. "car 91%". It's the same text the export burns in. It scales with the camera tile and never covers the buttons. See `screenshots/live-labels.png`.
 
-**Burn detection boxes into the export:** in the Export dialog, tick **Burn detection boxes** (off by default; the choice is remembered). The gold box and its label (what was searched for and how well it matched, e.g. "white car 100%") are then drawn into the exported video on the right camera, for the same few seconds the viewer shows it. Text size follows the video size, with a dark background so it stays readable on a phone. Frames with no box are left untouched. See `screenshots/burn-boxes.png`.
+**Burn detection boxes into the export:** in the Export dialog, tick **Burn detection boxes** (off by default; the choice is remembered). The gold box and its label (e.g. "white car? (best match)", or "car 91%" from the object detector) are then drawn into the exported video on the right camera, for the same few seconds the viewer shows it. Text size follows the video size, with a dark background so it stays readable on a phone. Frames with no box are left untouched. See `screenshots/burn-boxes.png`.
 
 On phones and narrow windows the box is a bottom sheet pinned above the on-screen keyboard. The video grid isn't resized while you type.
 
@@ -94,10 +94,12 @@ On phones and narrow windows the box is a bottom sheet pinned above the on-scree
 Settings ▸ **Object detection** (off until you turn it on). When it's on, a search for an object name (**car**, **person**, **truck**, **bicycle**, **dog**, **traffic light**… any of the 80 COCO classes, plurals and a few synonyms such as "people" or "bike") uses a YOLO11 object detector instead of the picture search. Results show the real class and confidence ("car 91%") on the gold box, and the box **follows the object**: frames ±2.5 s around the match are detected and linked with a simple IoU tracker. Export burns the same boxes in when **Burn detection boxes** is ticked. Any other phrase still uses the existing picture search. With **Grounding DINO** picked, any phrase goes to the detector.
 
 - **Model:** YOLO11 nano (10.7 MB, the default on phones), YOLO11 small (38 MB, the default on computers), or Grounding DINO tiny (experimental: 150–200 MB download, only sensible on a computer with WebGPU).
+- **Small objects:** umbrellas, bags, signs and other usually-small classes get a lower threshold (60% of the setting) and, when the whole frame finds none, a second look at four zoomed, overlapping tiles. This costs up to 5× the time for those frames. **Always zoom** applies it to every search; **Off** disables it.
 - **Confidence:** the threshold (default 35%). **Detect while playing:** optional, runs on the focused camera about once a second (every 2 s on phones).
 - It runs in a background worker with onnxruntime-web: WebGPU when the device has a real GPU adapter, otherwise WASM. The status line shows which one. The model is downloaded once, then kept in IndexedDB. That works on plain-http home-network addresses too, where the browser cache isn't available.
 - If the model or runtime can't load (offline, blocked CDN, old browser), the app says so and falls back to the picture search. Playback, keys and export are not affected.
-- First use needs internet: the runtime comes from cdn.jsdelivr.net, and the models from this site (`models/`) or GitHub.
+- The detection runtime (onnxruntime-web 1.22) is included in `vendor/ort/`, with jsDelivr only as a backup. YOLO needs no internet once the page is served. Grounding DINO still downloads transformers.js and its model from the internet.
+- It works with any static web server, including ones that send the wrong file types for `.js`/`.mjs`/`.wasm` (e.g. Windows `python -m http.server`). The worker and runtime are loaded from in-memory copies with the right type.
 - **License:** the YOLO11 weights are **AGPL-3.0** (Ultralytics). See [`models/README.md`](models/README.md).
 
 ![Real YOLO11 nano detections on the sample clips](screenshots/phase5-live.png)
