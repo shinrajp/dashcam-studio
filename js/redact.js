@@ -241,8 +241,14 @@
     return !box || box.checked;
   }
 
+  // Phase 6: plates found by the plate detector (Settings ▸ Plates & text ▸ Blur plates) are blurred too.
+  function plateBlur(cam, t) { try { return T.plates && T.plates.blurOn() ? T.plates.blurBoxesAt(cam, t) : []; } catch (_) { return []; } }
+
   R.burn = (ctx, cam, t, cell, iw, ih, img) => {
-    if (!R.active || !blurOn() || !iw || !ih) return;
+    if (!iw || !ih) return;
+    const pb = plateBlur(cam, t);
+    if (pb.length) { const fit = contain(iw, ih, cell); for (const box of pb) paintBox(ctx, img, iw, ih, fit, box, "blur"); }
+    if (!R.active || !blurOn()) return;
     const boxes = boxesAt(cam, t);
     if (!boxes.length) return;
     const fit = contain(iw, ih, cell);
@@ -277,7 +283,10 @@
       const ctx = cv.getContext("2d");
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, tw, th);
-      if (!R.active || !blurOn() || !video || !video.videoWidth) continue;
+      if (!video || !video.videoWidth) continue;
+      const pb = plateBlur(cam, t);
+      if (pb.length) { const fit = contain(video.videoWidth, video.videoHeight, { x: 0, y: 0, w: tw, h: th }); for (const box of pb) paintBox(ctx, video, video.videoWidth, video.videoHeight, fit, box, "blur"); }
+      if (!R.active || !blurOn()) continue;
       const boxes = boxesAt(cam, t);
       if (!boxes.length) continue;
       const fit = contain(video.videoWidth, video.videoHeight, { x: 0, y: 0, w: tw, h: th });
@@ -472,7 +481,13 @@
     const wantSign = targets.indexOf("sign") >= 0;
     let reads = 0;
     if (targets.indexOf("plate") >= 0) {
-      for (const box of plateBoxes(ranked.map((row) => row.box))) boxes.push(box);
+      // Phase 6: the real plate detector when Plates & text is on; the text-shape guess otherwise (or if it fails)
+      let real = null;
+      if (T.plates && T.plates.enabled()) {
+        try { real = (await T.plates.detectPlates(canvas, canvas.width, canvas.height)).map((d) => ({ x: Math.max(0, d.x - d.w * 0.12), y: Math.max(0, d.y - d.h * 0.2), w: Math.min(1, d.w * 1.24), h: Math.min(1, d.h * 1.4) })); }
+        catch (err) { console.warn("plate detector unavailable, using text shapes", err); real = null; }
+      }
+      for (const box of real || plateBoxes(ranked.map((row) => row.box))) boxes.push(box);
     }
     for (const row of ranked) {
       const box = row.box;
@@ -513,6 +528,31 @@
     return boxes;
   }
 
+  /** Phase 6: read street names / sign text in a frame (canvas). → [{box, text, conf}] (letters only, ≥ 3). */
+  R.readSigns = async (canvas) => {
+    const session = await textSession();
+    const cand = [];
+    for (const box of signColorBoxes(canvas)) cand.push({ box, pri: 3 });
+    try {
+      for (const row of await regionBoxes(topCrop(canvas), session)) {
+        const box = { x: row.box.x, y: row.box.y * 0.55, w: row.box.w, h: row.box.h * 0.55 };
+        if (box.h >= 0.004 && box.w <= 0.45) cand.push({ box, pri: 2 });
+      }
+    } catch (err) { console.warn(err); }
+    for (const row of (await regionBoxes(canvas, session)).slice(0, 10)) cand.push({ box: row.box, pri: row.box.y < 0.55 ? 1 : 0 });
+    cand.sort((a, b) => b.pri - a.pri);
+    const out = [];
+    for (const c of cand) {
+      if (out.length >= 8 || out.some((o) => overlaps(o.box, c.box))) continue;
+      let text = "";
+      try { text = await recognize(canvas, c.box, true); } catch (err) { continue; }
+      const letters = (text.match(/[A-Za-z]/g) || []).length;
+      if (letters < 3 || letters < text.replace(/\s/g, "").length * 0.5 || (R.lastScore || 0) < 0.5) continue;
+      out.push({ box: c.box, text: text.replace(/\s+/g, " ").trim(), conf: Math.round((R.lastScore || 0) * 100) / 100 });
+    }
+    return out;
+  };
+
   async function recognize(canvas, box, boost) {
     const x = Math.max(0, Math.floor(box.x * canvas.width));
     const y = Math.max(0, Math.floor(box.y * canvas.height));
@@ -541,14 +581,15 @@
     const result = await R.rec.run({ x: tensor });
     const out = result[R.rec.outputNames[0]];
     const time = out.dims[1], classes = out.dims[2], map = out.data, dict = R.dict;
-    let prev = -1, text = "";
+    let prev = -1, text = "", sum = 0, cnt = 0;
     for (let t = 0; t < time; t++) {
       let best = 0, score = -1;
       const off = t * classes;
       for (let c = 0; c < classes; c++) if (map[off + c] > score) { score = map[off + c]; best = c; }
-      if (best !== 0 && best !== prev && best - 1 < dict.length) text += dict[best - 1];
+      if (best !== 0 && best !== prev && best - 1 < dict.length) { text += dict[best - 1]; sum += score; cnt++; }
       prev = best;
     }
+    R.lastScore = cnt ? sum / cnt : 0;   // mean character confidence (Phase 6 street-text index)
     return text.trim();
   }
 
