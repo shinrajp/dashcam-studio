@@ -97,7 +97,7 @@ body.simple .adv-only { display: none !important; }
 .tile-empty.locked { color: #dfe4ec; }
 .tile-empty.locked .ph-icon { border-radius: 6px; width: 26px; height: 20px; margin-top: 10px; }
 .tile-empty.locked .ph-icon::after { left: 3px; top: -13px; bottom: auto; width: 16px; height: 12px; border: 2px solid currentColor; border-bottom: 0; border-radius: 9px 9px 0 0; background: none; transform: none; }
-.overlay-layer { position: absolute; inset: 0; pointer-events: none; }
+.overlay-layer { position: absolute; inset: 0; pointer-events: none; z-index: 5; }   /* above tiles, incl. .tile.find-on (z 4) in single-camera / subset views; below the 360 view (z 5, later in DOM) and the camera bar (z 6) */
 .float-panel { position: absolute; left: 0; top: 0; pointer-events: auto; cursor: grab; touch-action: none; filter: drop-shadow(0 6px 18px rgba(0,0,0,0.45)); }
 .float-panel canvas { display: block; width: 100%; height: 100%; }
 .float-panel.dragging { cursor: grabbing; filter: drop-shadow(0 10px 28px rgba(0,0,0,0.6)); }
@@ -111,7 +111,7 @@ body.simple .adv-only { display: none !important; }
 body.map-aside .viewport { display: flex; align-items: center; justify-content: center; gap: 12px; }
 body.map-aside .map-dock { display: block; flex: none; position: relative; z-index: 3; }
 body.map-aside .map-dock .map-panel { position: relative; transform: none !important; }
-.stage-time { position: absolute; right: 8px; top: 8px; padding: 3px 9px; border-radius: 6px; background: rgba(0,0,0,0.55); font: 700 11px ui-monospace, Menlo, Consolas, monospace; pointer-events: none; }
+.stage-time { position: absolute; z-index: 5; right: 8px; top: 8px; padding: 3px 9px; border-radius: 6px; background: rgba(0,0,0,0.55); font: 700 11px ui-monospace, Menlo, Consolas, monospace; pointer-events: none; }
 
 /* ── empty state / drop ── */
 .empty { position: absolute; inset: 0; display: grid; place-items: center; padding: 20px; overflow: auto; }
