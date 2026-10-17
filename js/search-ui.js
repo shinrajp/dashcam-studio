@@ -3,7 +3,11 @@
  * redact.js are unchanged. Collapsed to an icon by default; expands on tap, "/" or Cmd/Ctrl+K; Esc closes.
  * On phones it is a bottom sheet pinned above the on-screen keyboard with visualViewport (position: fixed,
  * the video grid is never resized). If anything here fails, body never gets the "usearch" class, so the
- * classic bars stay visible. Settings → "Classic search bars" (or ?search=classic) also shows them. */
+ * classic bars stay visible. Settings → "Classic search bars" (or ?search=classic) also shows them.
+ * Window modes (search-float): "dock" (default) puts the panel in normal page flow BELOW the video, so it never
+ * covers a camera (the grid is refitted into the remaining height, like the camera bar's "Beside video" dock).
+ * "float" detaches it into a draggable window (drag the header; mouse, pen or touch; arrow keys on the grip),
+ * clamped to the viewport and resizable; "pin" locks it where the user put it. Saved in localStorage. */
 (function () {
   "use strict";
   const T = window.TDC;
@@ -45,6 +49,143 @@
     U.keyboard = kb;
     const tp = $("transport");
     p.style.setProperty("--us-tp", (tp && !document.body.classList.contains("fs") ? tp.offsetHeight : 90) + "px");
+    // phone, docked, typing: lift the panel above the keyboard (a spacer keeps the grid exactly where it was)
+    typing(U.open && W.mode === "dock" && U.narrow() && kb > 40 && document.activeElement === $("usQuery"));
+    if (W.mode === "float") placeFloat();
+  }
+  function typing(on) {
+    const p = $("usPanel"), d = $("usDock");
+    if (!p || !d) return;
+    if (on && !p.classList.contains("sheet")) { d.style.height = d.offsetHeight + "px"; p.classList.add("sheet"); }
+    else if (!on && p.classList.contains("sheet")) { p.classList.remove("sheet"); d.style.height = ""; }
+  }
+
+  /* ---------- window: dock below the video / float / pin ---------- */
+  const WKEY = "tdc.searchPanel.v1";
+  const W = (U.win = { mode: "dock", x: null, y: null, w: null, h: null, pinned: false });
+  try { const o = JSON.parse(localStorage.getItem(WKEY) || "null"); if (o && typeof o === "object") { if (o.mode === "float") W.mode = "float"; ["x", "y", "w", "h"].forEach((k) => { if (Number.isFinite(o[k])) W[k] = o[k]; }); W.pinned = !!o.pinned; } } catch (e) {}
+  function saveWin() { try { localStorage.setItem(WKEY, JSON.stringify(W)); } catch (e) {} }
+  function view() {   // the visible area: the visual viewport when the keyboard shrinks it
+    const v = vv();
+    return v ? { l: v.offsetLeft || 0, t: v.offsetTop || 0, w: v.width, h: v.height } : { l: 0, t: 0, w: window.innerWidth, h: window.innerHeight };
+  }
+  const M = 6;
+  /** Clamp the floating window into the visible area. The saved x/y stay as the user set them, so the window
+   *  goes back there when the viewport grows again. */
+  function placeFloat() {
+    const p = $("usPanel");
+    if (!p || W.mode !== "float") return;
+    const v = view();
+    if (W.w) p.style.width = Math.min(W.w, v.w - 2 * M) + "px";
+    if (W.h) p.style.height = Math.min(W.h, v.h - 2 * M) + "px";
+    const pw = p.offsetWidth || 360, ph = p.offsetHeight || 200;
+    let x = W.x == null ? v.w - pw - 16 : W.x, y = W.y == null ? 70 : W.y;
+    x = Math.max(v.l + M, Math.min(x, v.l + v.w - pw - M));
+    y = Math.max(v.t + M, Math.min(y, v.t + v.h - ph - M));
+    p.style.left = Math.round(x) + "px";
+    p.style.top = Math.round(y) + "px";
+  }
+  U.placeFloat = placeFloat;
+  function applyMode() {
+    const p = $("usPanel"), d = $("usDock");
+    if (!p || !d) return;
+    const fl = W.mode === "float";
+    p.classList.toggle("floating", fl);
+    p.classList.toggle("docked", !fl);
+    p.classList.toggle("pinned", fl && W.pinned);
+    if (fl) {
+      if (p.parentNode !== document.body) document.body.appendChild(p);
+      placeFloat();
+    } else {
+      if (p.parentNode !== d) d.appendChild(p);
+      p.style.left = p.style.top = p.style.width = p.style.height = "";
+    }
+    const dockShown = !fl && U.open;
+    if (d.hidden === dockShown) { d.hidden = !dockShown; if (T.ui && T.ui.fit) requestAnimationFrame(() => { try { T.ui.fit(); } catch (e) {} }); }
+    document.body.classList.toggle("us-docked", dockShown);
+    const fb = $("usFloat"), pb = $("usPin");
+    if (fb) {
+      fb.setAttribute("aria-pressed", String(fl));
+      fb.title = fl ? "Dock below the video" : "Float: move the search window anywhere";
+      fb.setAttribute("aria-label", fl ? "Dock search below the video" : "Float the search window");
+      fb.classList.toggle("is-float", fl);
+    }
+    if (pb) {
+      pb.hidden = !fl;
+      pb.setAttribute("aria-pressed", String(fl && W.pinned));
+      pb.title = W.pinned ? "Unpin: allow moving and resizing" : "Pin: lock the window where it is";
+      pb.setAttribute("aria-label", W.pinned ? "Unpin the search window" : "Pin the search window in place");
+    }
+    const g = $("usGrip");
+    if (g) { g.tabIndex = fl && !W.pinned ? 0 : -1; g.setAttribute("aria-disabled", String(!fl || W.pinned)); }
+  }
+  U.applyMode = applyMode;
+  /** mode: "dock" | "float". Floating starts where the docked panel was, unless a position was saved. */
+  U.setMode = (mode) => {
+    const p = $("usPanel");
+    if (mode === "float" && W.mode !== "float" && p && W.x == null) {
+      const r = p.getBoundingClientRect();
+      const w = Math.min(480, window.innerWidth - 2 * M);
+      W.w = W.w || w;
+      W.x = r.width ? r.left + Math.max(0, (r.width - w) / 2) : null;
+      W.y = r.height ? Math.max(70, r.top - 260) : null;
+    }
+    W.mode = mode === "float" ? "float" : "dock";
+    if (W.mode === "dock") typing(false);
+    saveWin(); applyMode();
+  };
+  U.setPinned = (on) => { W.pinned = !!on; saveWin(); applyMode(); };
+  U.moveBy = (dx, dy) => {
+    if (W.mode !== "float" || W.pinned) return false;
+    const p = $("usPanel"), r = p.getBoundingClientRect();
+    W.x = r.left + dx; W.y = r.top + dy; placeFloat();
+    const r2 = p.getBoundingClientRect(); W.x = r2.left; W.y = r2.top; saveWin();
+    return true;
+  };
+  function wireDrag(p) {
+    const head = $("usHead");
+    let drag = null;
+    head.addEventListener("pointerdown", (e) => {
+      if (W.mode !== "float" || W.pinned || e.button > 0 || e.target.closest("button, input, select")) return;
+      const r = p.getBoundingClientRect();
+      drag = { id: e.pointerId, dx: e.clientX - r.left, dy: e.clientY - r.top };
+      try { head.setPointerCapture(e.pointerId); } catch (err) {}
+      p.classList.add("dragging");
+      e.preventDefault();
+    });
+    head.addEventListener("pointermove", (e) => {
+      if (!drag || e.pointerId !== drag.id) return;
+      W.x = e.clientX - drag.dx; W.y = e.clientY - drag.dy; placeFloat();
+    });
+    const end = (e) => {
+      if (!drag || e.pointerId !== drag.id) return;
+      drag = null; p.classList.remove("dragging");
+      const r = p.getBoundingClientRect(); W.x = r.left; W.y = r.top; saveWin();
+    };
+    head.addEventListener("pointerup", end);
+    head.addEventListener("pointercancel", end);
+    head.addEventListener("dblclick", (e) => { if (!e.target.closest("button")) U.setMode(W.mode === "float" ? "dock" : "float"); });
+    $("usGrip").addEventListener("keydown", (e) => {
+      const k = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[e.key];
+      if (!k) return;
+      e.preventDefault(); e.stopPropagation();
+      const step = e.shiftKey ? 60 : 12;
+      U.moveBy(k[0] * step, k[1] * step);
+    });
+    // user resize (CSS resize handle on the floating window): remember the size
+    if (typeof ResizeObserver === "function") {
+      let t = 0;
+      new ResizeObserver(() => {
+        if (W.mode !== "float" || W.pinned || p.hidden || drag) return;
+        clearTimeout(t);
+        t = setTimeout(() => {   // the browser writes the new size into style.width/height; ignore our own clamping
+          const v = view(), sw = parseFloat(p.style.width), sh = parseFloat(p.style.height);
+          if (Number.isFinite(sw) && sw < v.w - 2 * M - 1 && sw !== W.w) W.w = Math.round(sw);
+          if (Number.isFinite(sh) && sh < v.h - 2 * M - 1 && sh !== W.h) W.h = Math.round(sh);
+          saveWin();
+        }, 250);
+      }).observe(p);
+    }
   }
   function setOverlaysContent(on) {   // Android Chrome: keyboard overlays the page instead of resizing it
     const m = document.querySelector('meta[name="viewport"]');
@@ -58,11 +199,10 @@
     if (!p) return;
     U.open = true;
     p.hidden = false;
-    const sheet = U.narrow();
-    p.classList.toggle("sheet", sheet);
     document.body.classList.add("us-open");
     $("usBtn").setAttribute("aria-expanded", "true");
-    if (sheet) setOverlaysContent(true);
+    if (U.narrow()) setOverlaysContent(true);
+    applyMode();
     placeSheet();
     refresh();
     if (focus !== false) { const q = $("usQuery"); try { q.focus({ preventScroll: true }); } catch (e) { q.focus(); } }
@@ -76,6 +216,8 @@
     $("usBtn").setAttribute("aria-expanded", "false");
     if (document.activeElement && p.contains(document.activeElement)) document.activeElement.blur();
     setOverlaysContent(false);
+    typing(false);
+    applyMode();
   };
   U.toggle = () => (U.open ? U.hide() : U.show());
 
@@ -92,7 +234,7 @@
     syncCam(); $("redactQuery").value = q; U.mode = "redact"; $("btnRedact").click(); refresh();
   };
   U.stop = () => { const a = $("btnFindStop"), b = $("btnRedactStop"); if (a && !a.hidden) a.click(); if (b && !b.hidden) b.click(); };
-  U.clear = () => { if (T.search) T.search.clear(); if (T.redact) T.redact.clear(); clearHighlight(); refresh(); };
+  U.clear = () => { if (T.search) T.search.clear(); if (T.redact) T.redact.clear(); clearHighlight(); refresh(); if (T.searchStrip && T.searchStrip.ok) T.searchStrip.update(); };
 
   /* ---------- results ---------- */
   U.redactRuns = () => {   // consecutive samples with boxes, per camera, grouped into runs
@@ -178,7 +320,7 @@
     if (kind === "find") {
       const btn = document.querySelectorAll("#findHits .find-hit")[i];   // search.js openHit: seek, switch camera, gold box
       if (btn) btn.click();
-      else if (T.search.hits[i]) T.player.seek(T.search.hits[i].t);
+      else if (T.search.hits[i]) { if (T.search.openHit) T.search.openHit(T.search.hits[i]); else T.player.seek(T.search.hits[i].t); }
     } else {
       const r = U.redactRuns()[i];
       if (!r) return;
@@ -205,8 +347,12 @@
     const presets = [...document.querySelectorAll(".redact-presets button")].map((b) => '<button type="button" class="us-chip" data-q="' + esc(b.getAttribute("data-q")) + '">' + esc(b.textContent) + "</button>").join("");
     const p = el("div", { class: "us-panel", id: "usPanel", role: "dialog", "aria-label": "Search the video", hidden: "" },
       '<div class="us-grab" aria-hidden="true"></div>' +
-      '<div class="us-row">' + svg + '<input id="usQuery" type="search" enterkeyhint="search" autocomplete="off" spellcheck="false" placeholder="A cyclist in the bike lane · or text to hide: Oak Ave" aria-label="Search">' +
-      '<button type="button" class="btn icon us-x" id="usClose" aria-label="Close search (Esc)" title="Close (Esc)"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>' +
+      '<div class="us-head" id="usHead"><span class="us-grip" id="usGrip" role="button" tabindex="-1" aria-label="Move the search window (arrow keys, Shift for bigger steps)" title="Drag to move · arrow keys move it">' +
+      '<svg viewBox="0 0 10 16" aria-hidden="true"><circle cx="3" cy="3" r="1.4"/><circle cx="7" cy="3" r="1.4"/><circle cx="3" cy="8" r="1.4"/><circle cx="7" cy="8" r="1.4"/><circle cx="3" cy="13" r="1.4"/><circle cx="7" cy="13" r="1.4"/></svg>Search</span>' +
+      '<button type="button" class="btn icon sm us-float" id="usFloat" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true" class="i-float"><rect x="3" y="12" width="18" height="9" rx="2"/><rect x="7" y="3" width="12" height="7" rx="1.5"/></svg><svg viewBox="0 0 24 24" aria-hidden="true" class="i-dock"><rect x="3" y="3" width="18" height="11" rx="2"/><path d="M3 19h18"/></svg></button>' +
+      '<button type="button" class="btn icon sm us-pin" id="usPin" aria-pressed="false" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3h6l-1 6 3 3v2H7v-2l3-3z"/><path d="M12 14v7"/></svg></button>' +
+      '<button type="button" class="btn icon sm us-x" id="usClose" aria-label="Close search (Esc)" title="Close (Esc)"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>' +
+      '<div class="us-row">' + svg + '<input id="usQuery" type="search" enterkeyhint="search" autocomplete="off" spellcheck="false" placeholder="A cyclist in the bike lane · or text to hide: Oak Ave" aria-label="Search"></div>' +
       '<div class="us-actions"><select id="usCam" class="select small" aria-label="Cameras"><option value="front">Front camera</option><option value="around">All cameras</option></select>' +
       '<button type="button" class="btn primary small" id="usFind" title="Find the moment that matches the words (Enter)">Find moment</button>' +
       '<button type="button" class="btn small" id="usRedact" title="Blur this text wherever it appears (Shift+Enter)">Blur text</button>' +
@@ -215,8 +361,13 @@
       '<div class="us-status" id="usStatus" hidden></div>' +
       '<div class="us-results" id="usResults" role="listbox" aria-label="Results" hidden></div>' +
       '<div class="us-foot"><label title="Show the original Find and Redact bars under the video"><input type="checkbox" id="usClassic"> Classic search bars</label><button type="button" class="btn ghost small" id="usClear" hidden>Clear results</button></div>');
-    document.body.appendChild(p);
-    built.push(p);
+    // dock: a strip in normal page flow between the video area and the transport (never over a camera)
+    const dock = el("div", { class: "us-dock", id: "usDock", hidden: "" });
+    const tp = $("transport");
+    tp.parentNode.insertBefore(dock, tp);
+    dock.appendChild(p);
+    built.push(p, dock);
+    wireDrag(p);
 
     // Settings drawer toggle
     const body = document.querySelector("#settings .drawer-body");
@@ -229,6 +380,8 @@
 
     btn.addEventListener("click", () => U.toggle());
     $("usClose").addEventListener("click", () => U.hide());
+    $("usFloat").addEventListener("click", () => U.setMode(W.mode === "float" ? "dock" : "float"));
+    $("usPin").addEventListener("click", () => U.setPinned(!W.pinned));
     $("usFind").addEventListener("click", () => U.find());
     $("usRedact").addEventListener("click", () => U.redact());
     $("usStop").addEventListener("click", U.stop);
@@ -253,17 +406,13 @@
       else if (e.key === "/" && !typing && !e.metaKey && !e.ctrlKey && !e.altKey) { e.preventDefault(); e.stopImmediatePropagation(); U.show(); }
       else if (e.key === "Escape" && U.open) { e.preventDefault(); e.stopImmediatePropagation(); U.hide(); }
     }, true);
-    // tap outside closes on desktop (not while a sheet is pinned above the keyboard)
-    document.addEventListener("pointerdown", (e) => {
-      if (!U.open || p.classList.contains("sheet")) return;
-      if (p.contains(e.target) || btn.contains(e.target) || (e.target.closest && e.target.closest(".modal, .drawer"))) return;
-      U.hide();
-    }, true);
+    // (no tap-outside close: docked and floating panels stay until closed with × / Esc / the Search button)
 
     const v = vv();
     if (v) { v.addEventListener("resize", placeSheet); v.addEventListener("scroll", placeSheet); }
     $("usQuery").addEventListener("focus", () => setTimeout(placeSheet, 300));   // iOS reports the keyboard late
-    window.addEventListener("resize", () => { placeSheet(); if (U.open) p.classList.toggle("sheet", U.narrow()); });
+    window.addEventListener("resize", () => { placeSheet(); placeFloat(); });
+    $("usQuery").addEventListener("blur", () => setTimeout(() => { if (document.activeElement !== $("usQuery")) typing(false); }, 150));
 
     const mo = new MutationObserver(() => refresh());
     for (const id of ["findHits", "findStatus", "redactStatus", "btnFindStop", "btnRedactStop", "btnRedactClear", "btnFindClear"]) if ($(id)) mo.observe($(id), { childList: true, characterData: true, subtree: true, attributes: true });
@@ -278,6 +427,7 @@
       U.ok = true;
       U.setClassic(U.classic());
       document.body.classList.add("usearch");
+      applyMode();
       placeSheet();
       refresh();
     } catch (err) {

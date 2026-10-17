@@ -325,6 +325,8 @@
     if (T.ui && T.ui.drawTimeline) T.ui.drawTimeline();
   }
 
+  S.openHit = (hit) => openHit(hit);       // used by the phone thumbnail strip / search panel when no classic button exists
+  S.renderHits = () => renderHits();
   S.clear = () => {
     S.hits = [];
     S.anchor = null;
