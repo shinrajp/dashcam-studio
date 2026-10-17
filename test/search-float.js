@@ -137,6 +137,7 @@ async function phone(b, tag, vp, shot) {
   await p.evaluate(() => { TDC.focus.focus("front"); TDC.focus.fullscreen(true); }); await W(900);
   const st = await p.evaluate(() => { const s = document.getElementById("usStrip"), r = s.getBoundingClientRect(), tp = document.getElementById("transport").getBoundingClientRect(), tile = document.querySelector('#grid .tile[data-cam="front"]').getBoundingClientRect(), v = document.querySelector('#grid .tile[data-cam="front"] video') ;
     return { shown: !s.hidden && r.height > 0, b: r.bottom, t: r.top, tpTop: tp.top, items: s.querySelectorAll(".ss-item").length, tileB: tile.bottom }; });
+  if (!st.shown) st.dbg = await p.evaluate(() => ({ phone: TDC.searchStrip.phone(), wanted: TDC.searchStrip.wanted(), ev: !!TDC.player.ev, fs: document.body.className, cam: TDC.focus.cam, err: TDC.searchStrip.error, mm: [matchMedia("(pointer: coarse)").matches, innerWidth] }));
   ok(tag + " full screen + one camera: strip appears with 3 results", st.shown && st.items === 3, st);
   ok(tag + " strip sits above the controls (doesn't cover them)", st.b <= st.tpTop + 1, st);
   if (portrait) ok(tag + " portrait: strip doesn't cover the video", st.tileB <= st.t + 1, st);
@@ -184,9 +185,8 @@ async function phone(b, tag, vp, shot) {
     await phone(b, name + " 844x390", { width: 844, height: 390 }, name === "chromium" ? "search-float-mobile-landscape-strip.png" : "");
     // fallback: strip init throws -> nothing breaks
     const ctx = await b.newContext({ viewport: { width: 390, height: 844 }, isMobile: name !== "webkit" ? true : undefined, hasTouch: true });
-    const p = await ctx.newPage(); p.errs = []; p.on("pageerror", (e) => p.errs.push(e.message));
-    await p.addInitScript(() => { window.__TDC_STRIP_FAIL = true; });
-    await open(p);
+    await ctx.addInitScript(() => { window.__TDC_STRIP_FAIL = true; });
+    const p = await openPage(ctx);
     ok(name + " strip forced failure: no strip, search still ok", await p.evaluate(() => !document.getElementById("usStrip") && TDC.searchUI.ok && !TDC.searchStrip.ok), await p.evaluate(() => TDC.searchStrip.error));
     ok(name + " strip forced failure: no page errors", !p.errs.length, p.errs);
     await ctx.close(); await b.close();

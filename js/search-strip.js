@@ -194,8 +194,9 @@
       if (c) { c.dataset.cam ? T.focus.focus(c.dataset.cam) : T.focus.grid(); setTimeout(update, 50); }
     });
     if (typeof IntersectionObserver === "function") io = new IntersectionObserver((ents) => ents.forEach((en) => { if (en.isIntersecting) { io.unobserve(en.target); enqueue(en.target); } }), { root: $("ssRow"), rootMargin: "0px 120px" });
-    let raf = 0;
-    const soon = () => { if (!raf) raf = requestAnimationFrame(() => { raf = 0; update(); }); };
+    let pend = false;   // coalesce bursts; rAF can stall (hidden tab, headless WebKit), so a timer backs it up
+    const run = () => { if (!pend) return; pend = false; update(); };
+    const soon = () => { if (pend) return; pend = true; requestAnimationFrame(run); setTimeout(run, 120); };
     const mo = new MutationObserver(soon);
     mo.observe(document.body, { attributes: true, attributeFilter: ["class"] });
     for (const id of ["findHits", "redactStatus"]) if ($(id)) mo.observe($(id), { childList: true, subtree: true, characterData: true });
