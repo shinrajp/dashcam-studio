@@ -1,0 +1,73 @@
+[
+ {
+  "file": "plate-front-36px.jpg",
+  "cam": "front",
+  "text": "7TST123",
+  "box": {
+   "x": 0.4859375,
+   "y": 0.5111111111111111,
+   "w": 0.028125,
+   "h": 0.025
+  },
+  "plateWidthPx": 36
+ },
+ {
+  "file": "plate-front-50px.jpg",
+  "cam": "front",
+  "text": "8DEM042",
+  "box": {
+   "x": 0.48046875,
+   "y": 0.5152777777777777,
+   "w": 0.0390625,
+   "h": 0.034722222222222224
+  },
+  "plateWidthPx": 50
+ },
+ {
+  "file": "plate-front-69px.jpg",
+  "cam": "front",
+  "text": "4QZX907",
+  "box": {
+   "x": 0.47265625,
+   "y": 0.5208333333333334,
+   "w": 0.05390625,
+   "h": 0.04722222222222222
+  },
+  "plateWidthPx": 69
+ },
+ {
+  "file": "plate-front-92px.jpg",
+  "cam": "front",
+  "text": "6PLT518",
+  "box": {
+   "x": 0.4640625,
+   "y": 0.5291666666666667,
+   "w": 0.071875,
+   "h": 0.06388888888888888
+  },
+  "plateWidthPx": 92
+ },
+ {
+  "file": "plate-pillar-52px.jpg",
+  "cam": "left_pillar",
+  "text": "5SMP260",
+  "box": {
+   "x": 0.43125,
+   "y": 0.6430555555555556,
+   "w": 0.040625,
+   "h": 0.03611111111111111
+  },
+  "plateWidthPx": 52
+ },
+ {
+  "file": "street-sign-palm-ave.jpg",
+  "cam": "front",
+  "street": "Palm Ave",
+  "box": {
+   "x": 0.56640625,
+   "y": 0.16944444444444445,
+   "w": 0.1484375,
+   "h": 0.13194444444444445
+  }
+ }
+]
