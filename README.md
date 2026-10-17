@@ -124,6 +124,17 @@ Settings ▸ **Plates & text** (off until you turn it on). Then type a plate in 
 
 The first plate search on an event reads it once (about one frame per second per camera; the status line counts the frames). The plates and street text are kept in this browser's library index, so later searches on that event, even after a reload, are instant. The index stores only the text, time, camera, box and confidence (never pictures or video). **Forget plate & text index** clears it. Results show as `0:04.2 · Front · 7TST123 98%`; the gold box reads `plate 7TST123 98%` and follows the plate across nearby frames, and **Burn detection boxes** puts the same label in the export.
 
+**Results and Best match:** every reading of the same plate (any camera, any time in the event) is merged into one result; its gold box and thumbnail use the clearest sighting. Each result is labelled the same way in the results list, on the gold box, in the exported video and in the phone strip:
+
+`7ABC234 · match 100% · read 91% · seen 2× · Best match`
+
+- **match** = how closely the reading fits what you typed (100% exact, 95% wildcard, 90% part of a plate, lower for look-alikes or one wrong character). Left out for `plates` / `street` with no words, where everything matches.
+- **read** = how sure the on-device reader is about the characters. **checked by Grok / Claude / Gemini** is added after a cloud re-check.
+- **seen N×** = the plate showed up N separate times (different cameras, or more than 2 s apart).
+- **Best match** = the highest *match × read*. Plates within 2 points of the top all get it (a tie).
+
+Tick **Best match only** in the search box (or **★ Best only** in the phone strip) to show just the best match. The list, gold box, timeline marks, phone thumbnails and *Burn detection boxes* in the export then follow it; plate blurring does not (every plate found is still blurred). The choice is remembered on this device. See `screenshots/plate-bestmatch-*.png`.
+
 **Blur licence plates:** tick it in Settings ▸ Plates & text or in the Export dialog. Plates found by the reader are blurred on the live player and in the exported video. If the event hasn't been read yet, export reads every camera first (one time). The existing **Blur plates** chip in Redact now uses the real plate finder too when Plates & text is on (otherwise it keeps the old text-shape guess).
 
 - **Models** (all MIT, included in `models/plates/`, so it works offline and on plain-http home-network addresses): [open-image-models](https://github.com/ankandrew/open-image-models) YOLOv9-tiny plate finder, **Fast** 384 px (default on phones) or **Accurate** 640 px (default on computers), 7.8 MB each; [fast-plate-ocr](https://github.com/ankandrew/fast-plate-ocr) CCT-S reader, 5.3 MB. Street text uses the PP-OCR text finder already bundled for Redact. Details and checksums: [`models/README.md`](models/README.md).
