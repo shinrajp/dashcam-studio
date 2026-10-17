@@ -288,7 +288,15 @@
     }
     paintBoxes();
     // Phase 5: follow the object across nearby frames with the detector (only when detection is turned on)
-    if (show && n && T.detect && T.detect.enabled()) {
+    if (show && n && T.plates && group.some((g) => g.plate)) {   // Phase 6: follow the plate with the plate detector
+      const token = (S.trackToken = (S.trackToken || 0) + 1);
+      try {
+        status("Following the plate across nearby frames…");
+        const tracks = await T.plates.trackAround(group.filter((g) => g.box && g.plate));
+        if (token === S.trackToken && S.anchor === hit.t && T.detect) { T.detect.tracks = tracks; status(tracks.length ? "The gold box follows the plate. " + (hit.text ? "Read as " + hit.text + "." : "") : "Showing the plate at the match only."); }
+      } catch (err) { console.warn("plate tracking skipped", err); status("Plate tracking unavailable (" + (err.message || err) + "). The gold box stays at the match."); }
+      paintBoxes();
+    } else if (show && n && T.detect && T.detect.enabled()) {
       const token = (S.trackToken = (S.trackToken || 0) + 1);
       try {
         group.forEach((g) => { g.phrase = g.det ? null : S.phrase; });
@@ -311,7 +319,7 @@
       b.type = "button";
       const picked = group.indexOf(h) >= 0;
       b.className = "find-hit" + (h.weak ? " weak" : " on") + (picked ? " picked" : "");
-      b.textContent = T.fmtTime(h.t, true) + " · " + (CAM_LABEL[h.cam] || h.cam) + (h.weak ? " · weak" : "");
+      b.textContent = T.fmtTime(h.t, true) + " · " + (CAM_LABEL[h.cam] || h.cam) + (h.text ? " · " + h.text : "") + (h.weak ? " · weak" : "");
       b.title = "Jump to this moment and outline it";
       b.addEventListener("click", () => openHit(h));
       box.appendChild(b);
@@ -364,6 +372,25 @@
     S.hits = [];
     if (T.detect) T.detect.clear();
     renderHits();
+    // Phase 6: plates ("plate 7AB*", "7ABC 23", "plates") and street names ("street Palm Ave"), read on this device
+    if (T.plates && T.plates.handlesQuery(q)) {
+      try {
+        S.phrase = q; S.query = null; S.anchor = null;
+        const parsed = T.plates.parse(q);
+        const rows = await T.plates.runSearch(q, ev, cams, { status, stopped: () => S.stop });
+        S.hits = T.plates.cluster ? T.plates.cluster(rows) : cluster(rows);
+        renderHits();
+        const others = (T.plates.lastOthers || []).length;
+        const more = others ? " Also seen in " + others + " other indexed event" + (others === 1 ? "" : "s") + "." : "";
+        if (!S.hits.length) status("No " + (parsed.kind === "plate" ? "plate matching " + parsed.label : "street text matching “" + parsed.label + "”") + " in this event." + more + " Readings can be wrong; try a shorter pattern like 7AB*, or more cameras.");
+        else status(S.hits.length + " moment" + (S.hits.length === 1 ? "" : "s") + " with " + (parsed.kind === "plate" ? "plate " + parsed.label : "“" + parsed.label + "”") + "." + more + " Read on this device; check the video, readings can be wrong.");
+        if (S.hits.length) openHit(S.hits[0]);
+      } catch (err) {
+        console.warn("plate search failed", err);
+        status(String(err.message) === "stopped" ? "Stopped." : "Plate reading unavailable (" + (err.message || err) + "). Nothing else changed.");
+      } finally { S.running = false; S.stop = false; $("btnFind").disabled = false; $("btnFindStop").hidden = true; }
+      return;
+    }
     if (T.detect && T.detect.handlesQuery(q)) {
       let done = false;
       try {

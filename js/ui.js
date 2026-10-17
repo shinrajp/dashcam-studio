@@ -779,6 +779,11 @@
     U.progressUi("Exporting…");
     const t0 = performance.now();
     try {
+      // Phase 6: "Blur licence plates" — scan the event for plates first (skipped, with a note, if it fails)
+      if (T.plates && T.plates.blurOn()) {
+        try { await T.plates.exportPrep(ev, (s) => U.progress(0, s)); }
+        catch (e) { console.warn("plate blur skipped", e); T.toast("Plates could not be found (" + (e.message || e) + "). Exporting without plate blur.", "err", 7000); }
+      }
       const res = await T.exporter.run({
         preset, codec: $("exportCodec").value, sizeId: $("exportSize").value, ranges: U.ranges(),
         show: T.prefs.advanced ? U.exportShow : { ...T.prefs.show },

@@ -199,6 +199,7 @@
         <div class="row"><span>Swap accel X/Y axes</span><input type="checkbox" id="accelSwap"></div>
       </section>
       <section><h3>Object detection (beta)</h3><div id="setDetect" class="toggles"></div></section>
+      <section><h3>Plates &amp; text (beta)</h3><div id="setPlates" class="toggles"></div></section>
       <section><button class="btn ghost wide" id="btnResetLayout">Reset overlay positions</button><button class="btn ghost wide" id="btnResetAll">Reset all settings</button></section>
     </div>
   </aside>
@@ -220,6 +221,7 @@
           <div class="row wrap"><span>Burn in</span><div id="exportShow" class="mini-toggles"></div></div>
         </div>
         <label class="row burn-boxes-row" id="exportBoxesWrap" title="Draw the gold search boxes and their labels (name + confidence) into the exported video. Nothing is drawn where there is no box."><span>Burn detection boxes</span><input type="checkbox" id="exportBoxes"></label>
+        <label class="row burn-boxes-row" id="exportPlatesWrap" hidden title="Blur licence plates found by the plate reader (Settings ▸ Plates & text). The first export of an event scans it for plates first."><span>Blur licence plates</span><input type="checkbox" id="exportPlates"></label>
         <p class="hint" id="exportHint"></p>
         <div class="export-unsupported" id="exportUnsupported" hidden></div>
       </div>
@@ -316,6 +318,8 @@
   <script src="js/redact.js"></script>
   <script src="js/burn-boxes.js"></script>
   <script src="js/detect.js"></script>
+  <script src="js/plate-text.js"></script>
+  <script src="js/plates.js"></script>
   <script src="js/search-ui.js"></script>
   <script src="js/connector-src.js"></script>
   <script src="js/tesla-auth.js"></script>
