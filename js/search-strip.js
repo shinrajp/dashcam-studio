@@ -26,7 +26,7 @@
 
   /* ---------- items ---------- */
   function label(h, best) {
-    if ((h.plate || h.streetText) && h.text) return h.text + (h.weak ? " weak" : "");   // Phase 6: "7ABC234 91%" (· checked by …)
+    if ((h.plate || h.streetText) && (h.boxText || h.text)) return (h.boxText || h.text) + (h.weak ? " · weak" : "");   // Phase 6: "7ABC234 91%" (· checked by …)
     if (h.label && h.conf != null) return h.label + " " + Math.round(h.conf * 100) + "%";
     try { if (h.box && T.burnBoxes && T.burnBoxes.labelFor) return T.burnBoxes.labelFor(h, T.search.phrase, best); } catch (e) {}
     return (T.search.phrase || "match") + "?" + (h.weak ? " weak" : "");
@@ -35,7 +35,7 @@
     const out = [];
     const hits = (T.search && T.search.hits) || [];
     const best = hits.reduce((m, h) => Math.max(m, h.score || 0), 0);
-    hits.forEach((h, i) => out.push({ kind: "find", i, t: h.t, cam: h.cam, box: h.box, text: label(h, best), picked: T.search.anchor != null && Math.abs(T.search.anchor - h.t) < 0.05 && T.search.pickedCam === h.cam }));
+    hits.forEach((h, i) => out.push({ kind: "find", i, t: h.t, cam: h.cam, box: h.box, text: label(h, best), best: !!h.best, picked: T.search.anchor != null && Math.abs(T.search.anchor - h.t) < 0.05 && T.search.pickedCam === h.cam }));
     const runs = (T.searchUI && T.searchUI.redactRuns && T.searchUI.redactRuns()) || [];
     runs.forEach((r, i) => out.push({ kind: "redact", i, t: r.t, cam: r.cam, box: r.boxes && r.boxes[0], text: (T.redact.action === "remove" ? "removed" : "blurred") + " · " + r.spots }));
     return out;
@@ -121,6 +121,9 @@
     $("ssCount").textContent = list.length ? String(list.length) : "";
     $("ssTabRes").setAttribute("aria-pressed", String(SS.tab === "results"));
     $("ssTabCam").setAttribute("aria-pressed", String(SS.tab === "cams"));
+    const S = T.search, hasBest = !!(S && S.hasBest && S.hasBest());
+    $("ssBest").hidden = !hasBest || SS.tab !== "results";
+    $("ssBest").setAttribute("aria-pressed", String(hasBest && S.bestOnly()));
     $("ssToggle").setAttribute("aria-expanded", String(!SS.collapsed));
     $("ssToggle").setAttribute("aria-label", SS.collapsed ? "Show thumbnails" : "Hide thumbnails");
     $("usStrip").classList.toggle("collapsed", SS.collapsed);
@@ -130,7 +133,7 @@
     if (SS.tab === "results") {
       if (!list.length) h = '<div class="ss-empty">No search results yet. Search, then tap a thumbnail to jump there.</div>';
       for (const it of list) {
-        h += '<button type="button" class="ss-item' + (it.picked ? " picked" : "") + '" role="option" data-kind="' + it.kind + '" data-i="' + it.i + '" data-k="' + esc(keyOf(it)) + '" aria-label="' + esc(fmt(it.t) + ", " + (CAM[it.cam] || it.cam) + ", " + it.text) + '">' +
+        h += '<button type="button" class="ss-item' + (it.picked ? " picked" : "") + (it.best ? " best" : "") + '" role="option" data-kind="' + it.kind + '" data-i="' + it.i + '" data-k="' + esc(keyOf(it)) + '" aria-label="' + esc(fmt(it.t) + ", " + (CAM[it.cam] || it.cam) + ", " + it.text) + '">' +
           '<span class="ss-img"></span><span class="ss-meta"><span class="ss-t">' + esc(fmt(it.t)) + '</span><span class="ss-c">' + esc(CAM[it.cam] || it.cam) + '</span></span><span class="ss-l">' + esc(it.text) + "</span></button>";
       }
     } else {
@@ -181,6 +184,7 @@
       '<div class="ss-head">' +
       '<button type="button" class="ss-tab" id="ssTabRes" aria-pressed="true">Results <span class="ss-n" id="ssCount"></span></button>' +
       '<button type="button" class="ss-tab" id="ssTabCam" aria-pressed="false">Cameras</button>' +
+      '<button type="button" class="ss-tab ss-best" id="ssBest" aria-pressed="false" hidden title="Show only the best match">★ Best only</button>' +
       '<button type="button" class="ss-tog" id="ssToggle" aria-expanded="true" aria-controls="ssRow"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></button></div>' +
       '<div class="ss-row" id="ssRow" role="listbox" aria-label="Search results"></div>';
     const tp = $("transport");
@@ -188,6 +192,7 @@
     $("ssTabRes").addEventListener("click", () => SS.setTab("results"));
     $("ssTabCam").addEventListener("click", () => SS.setTab("cams"));
     $("ssToggle").addEventListener("click", () => SS.setCollapsed(!SS.collapsed));
+    $("ssBest").addEventListener("click", () => { const S = T.search; if (S.setBestOnly) S.setBestOnly(!S.bestOnly()); if (T.searchUI && T.searchUI.refresh) T.searchUI.refresh(); update(); });
     $("ssRow").addEventListener("click", (e) => {
       const it = e.target.closest(".ss-item");
       if (it) { T.searchUI.select(it.dataset.kind, +it.dataset.i); setTimeout(update, 50); return; }

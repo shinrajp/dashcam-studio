@@ -651,3 +651,14 @@ body.fs.ss-on .toast { bottom: calc(var(--tp-h, 62px) + var(--ss-h, 0px) + 12px)
 .pano-calib .pc-row b { text-align: right; font-variant-numeric: tabular-nums; }
 .pano-calib .pc-btns { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 6px; }
 .stage.pano-on .tile-expand { display: none; }
+
+/* ---------- plates: best match ---------- */
+.us-best { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--dim); cursor: pointer; }
+.us-best[hidden] { display: none; }
+.us-best span { color: var(--faint); }
+.us-item.best .us-t::after { content: "★"; margin-left: 4px; color: #e6b422; }
+.ss-best[aria-pressed="true"] { background: rgba(230,180,34,.18); color: #f3cf5a; border-color: rgba(230,180,34,.5); }
+.ss-item.best .ss-img { box-shadow: 0 0 0 1px #e6b422 inset; }
+.ss-item .ss-l { white-space: normal; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; line-height: 1.25; }
+.ss-item.best .ss-t::after { content: " ★"; color: #e6b422; }
+@media (max-height: 500px) and (orientation: landscape) { .ss-item .ss-l { display: none; } }

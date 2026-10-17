@@ -335,10 +335,28 @@
     if (T.ui && T.ui.drawTimeline) T.ui.drawTimeline();
   }
 
+  // ── "Best match only" (plate / street-text results carry .best): S.allHits keeps every result, S.hits is what is shown,
+  // boxed, tracked, burned into the export and listed in the strip. Saved in localStorage. ──
+  const BEST_KEY = "tdc.search.bestOnly";
+  S.bestOnly = () => { try { return localStorage.getItem(BEST_KEY) === "1"; } catch (e) { return false; } };
+  S.hasBest = () => !!(S.allHits && S.allHits.some((h) => h.best));
+  function applyBest() {
+    if (!S.allHits) return;
+    const keep = S.bestOnly() && S.hasBest() ? S.allHits.filter((h) => h.best) : S.allHits.slice();
+    S.hits = keep;
+    if (T.detect && T.detect.tracks) T.detect.tracks = T.detect.tracks.filter((g) => !g.hit || keep.includes(g.hit));
+  }
+  S.setBestOnly = (on) => {
+    try { on ? localStorage.setItem(BEST_KEY, "1") : localStorage.removeItem(BEST_KEY); } catch (e) {}
+    applyBest();
+    if (S.anchor != null && !S.hits.some((h) => Math.abs(h.t - S.anchor) < 0.05)) { S.anchor = null; const b = S.hits.find((h) => h.best) || S.hits[0]; if (b) openHit(b); }
+    renderHits(); paintBoxes();
+    T.emit && T.emit("search-filter", !!on);
+  };
   S.openHit = (hit) => openHit(hit);       // used by the phone thumbnail strip / search panel when no classic button exists
   S.renderHits = () => renderHits();
   S.clear = () => {
-    S.hits = [];
+    S.hits = []; S.allHits = null;
     S.anchor = null;
     S.query = null;
     S.phrase = "";
@@ -373,7 +391,7 @@
     S.running = true; S.stop = false;
     $("btnFind").disabled = true;
     $("btnFindStop").hidden = false;
-    S.hits = [];
+    S.hits = []; S.allHits = null;
     if (T.detect) T.detect.clear();
     renderHits();
     // Phase 6 part B: "ask <anything>" → the user's own cloud provider (opt-in, consent first), on a few sampled frames
@@ -398,13 +416,14 @@
         S.phrase = q; S.query = null; S.anchor = null;
         const parsed = T.plates.parse(q);
         const rows = await T.plates.runSearch(q, ev, cams, { status, stopped: () => S.stop });
-        S.hits = T.plates.cluster ? T.plates.cluster(rows) : cluster(rows);
+        S.allHits = T.plates.cluster ? T.plates.cluster(rows) : cluster(rows);
+        applyBest();
         renderHits();
         const others = (T.plates.lastOthers || []).length;
         const more = others ? " Also seen in " + others + " other indexed event" + (others === 1 ? "" : "s") + "." : "";
         if (!S.hits.length) status("No " + (parsed.kind === "plate" ? "plate matching " + parsed.label : "street text matching “" + parsed.label + "”") + " in this event." + more + " Readings can be wrong; try a shorter pattern like 7AB*, or more cameras.");
-        else status(S.hits.length + " moment" + (S.hits.length === 1 ? "" : "s") + " with " + (parsed.kind === "plate" ? "plate " + parsed.label : "“" + parsed.label + "”") + "." + more + " Read on this device; check the video, readings can be wrong.");
-        if (S.hits.length) openHit(S.hits[0]);
+        else status((S.hits.length < S.allHits.length ? "Best match only: " + S.hits.length + " of " + S.allHits.length : String(S.hits.length)) + " result" + (S.allHits.length === 1 ? "" : "s") + " with " + (parsed.kind === "plate" ? "plate " + parsed.label : "“" + parsed.label + "”") + " (same readings merged)." + more + " Read on this device; check the video, readings can be wrong.");
+        if (S.hits.length) openHit(S.hits.find((h) => h.best) || S.hits[0]);
         if (T.cloud) T.cloud.syncButton();
       } catch (err) {
         console.warn("plate search failed", err);

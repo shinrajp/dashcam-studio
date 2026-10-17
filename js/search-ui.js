@@ -261,7 +261,7 @@
     if (hits.length) {
       h += '<div class="us-group">Find matches <span>' + hits.length + "</span></div>";
       hits.forEach((x, i) => {
-        h += '<button type="button" class="us-item" role="option" data-kind="find" data-i="' + i + '"><span class="us-t">' + esc(fmt(x.t)) + "</span><span>" + esc(CAM[x.cam] || x.cam) + (x.text ? " · " + esc(x.text) : "") + (x.weak ? ' <em>weak</em>' : "") + "</span></button>";
+        h += '<button type="button" class="us-item' + (x.best ? " best" : "") + '" role="option" data-kind="find" data-i="' + i + '"><span class="us-t">' + esc(fmt(x.t)) + "</span><span>" + esc(CAM[x.cam] || x.cam) + (x.text ? " · " + esc(x.text) : "") + (x.weak ? ' <em>weak</em>' : "") + "</span></button>";
       });
     }
     if (runs.length) {
@@ -293,6 +293,10 @@
     $("usFind").disabled = !!(T.search && T.search.running);
     $("usRedact").disabled = !!(T.redact && T.redact.running);
     $("usBtn").classList.toggle("busy", !!running);
+    const S = T.search, has = !!(S && S.hasBest && S.hasBest());
+    $("usBestWrap").hidden = !has;
+    $("usBest").checked = !!(S && S.bestOnly && S.bestOnly());
+    $("usBestN").textContent = has && S.allHits ? "(" + S.allHits.filter((h) => h.best).length + " of " + S.allHits.length + ")" : "";
     results();
   }
   U.refresh = refresh;
@@ -359,6 +363,7 @@
       '<button type="button" class="btn ghost small" id="usStop" hidden>Stop</button></div>' +
       '<div class="us-presets">' + presets + "</div>" +
       '<div class="us-status" id="usStatus" hidden></div>' +
+      '<label class="us-best" id="usBestWrap" hidden title="Show only the best-matching plate or text (best text match × read confidence)"><input type="checkbox" id="usBest"> Best match only <span id="usBestN"></span></label>' +
       '<div class="us-results" id="usResults" role="listbox" aria-label="Results" hidden></div>' +
       '<div class="us-foot"><label title="Show the original Find and Redact bars under the video"><input type="checkbox" id="usClassic"> Classic search bars</label><button type="button" class="btn ghost small" id="usClear" hidden>Clear results</button></div>');
     // dock: a strip in normal page flow between the video area and the transport (never over a camera)
@@ -387,6 +392,7 @@
     $("usStop").addEventListener("click", U.stop);
     $("usClear").addEventListener("click", U.clear);
     $("usClassic").addEventListener("change", (e) => U.setClassic(e.target.checked));
+    $("usBest").addEventListener("change", (e) => { if (T.search.setBestOnly) T.search.setBestOnly(e.target.checked); refresh(); if (T.searchStrip && T.searchStrip.ok) T.searchStrip.update(); });
     $("usQuery").addEventListener("keydown", (e) => {
       if (e.key === "Enter") { e.preventDefault(); e.shiftKey ? U.redact() : U.find(); }
       else if (e.key === "ArrowDown") { const f = $("usResults").querySelector(".us-item"); if (f) { e.preventDefault(); f.focus(); } }
