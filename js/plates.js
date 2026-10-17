@@ -38,40 +38,62 @@
   L.unload = () => { try { worker && worker.terminate(); } catch (_) {} worker = null; loading = null; loadedModel = null; L.info = null; for (const p of pending.values()) p.reject(new Error("plate reader stopped")); pending.clear(); };
   const call = (msg, transfer) => new Promise((resolve, reject) => { const id = ++seq; pending.set(id, { resolve, reject }); worker.postMessage({ ...msg, id }, transfer || []); });
   const urlsFor = (file, custom) => (custom ? [custom] : []).concat(["models/plates/" + file].concat(L.BASE ? [L.BASE + file] : [])).map((u) => new URL(u, location.href).href);
+  // Same MIME-proof start as object detection (worker-start.js), whether or not detection is turned on.
   async function startWorker() {
     const m = { worker: "js/detect-worker.js" };
-    if (T.detect && T.detect.makeWorker) return T.detect.makeWorker(m);
-    return new Worker(m.worker);
+    if (T.workerStart) return T.workerStart.start(m, "plate worker");
+    if (T.detect && T.detect.makeWorker) return { worker: await T.detect.makeWorker(m), how: "detect" };
+    return { worker: new Worker(m.worker), how: "file " + m.worker };
   }
+  const gpuOk = () => (T.workerStart ? T.workerStart.gpuOk() : true) && !isMobile() && !L._noGpu;
   /** Load (once) detector + reader. Rejects with a readable reason. */
-  L.load = () => {
+  L.load = (retry) => {
     if (L._mock) return Promise.resolve((L.info = { backend: "mock", size: 640 }));
     const P = L.prefs(), name = P.model;
-    if (loading && loadedModel === name) return loading;
+    if (loading && loadedModel === name && !retry) return loading;
     L.unload();
     if (typeof Worker === "undefined") return Promise.reject(new Error("This browser can't run background workers, so plate reading is off."));
     loadedModel = name;
     const D = T.detect || {}, cfg = D.config || { ortBases: ["vendor/ort/"] };
     const useCache = D.cacheOk ? D.cacheOk() : true;
     setStatus("Loading the plate finder…");
-    loading = startWorker().then((w) => {
-      worker = w;
+    const preferGpu = gpuOk();
+    let stage = "", how = "", died = false;
+    loading = startWorker().then((st) => {
+      const w = (worker = st.worker); how = st.how;
       worker.onmessage = (e) => {
         const d = e.data || {};
+        if (d.type === "stage") { stage = d.stage; L.stage = d.stage; return; }
         if (d.type === "fatal") { const err = new Error(d.error); for (const p of pending.values()) p.reject(err); pending.clear(); return; }
         if (d.type === "progress") { if (d.phase !== "cache") setStatus("Downloading " + (d.what === "ocr" ? "plate reader" : "plate finder") + "… " + (d.loaded / 1048576).toFixed(1) + (d.total ? " / " + (d.total / 1048576).toFixed(1) : "") + " MB"); return; }
         const p = pending.get(d.id); if (!p) return; pending.delete(d.id);
         d.type === "error" ? p.reject(new Error(d.error)) : p.resolve(d);
       };
-      worker.onerror = (e) => { e.preventDefault && e.preventDefault(); const err = new Error("Plate worker failed: " + (e.message || "could not start")); for (const p of pending.values()) p.reject(err); pending.clear(); };
+      // A bare "error" event (no message) means the script didn't start or the browser killed the worker. Give the
+      // worker's own "fatal" report a moment to arrive first, then say what it was doing.
+      worker.onerror = (e) => {
+        e.preventDefault && e.preventDefault();
+        const msg = e && e.message;
+        setTimeout(() => {
+          if (worker !== w) return;
+          died = !msg && !!stage && stage !== "ready";
+          const err = new Error("Plate worker failed: " + (T.workerStart ? T.workerStart.describe(e, stage, how) : msg || "could not start (" + how + ")"));
+          err.died = died; for (const p of pending.values()) p.reject(err); pending.clear();
+          if (!msg && L.info) { console.warn("plates: worker stopped by the browser; it restarts on the next scan"); L.unload(); }
+        }, msg ? 0 : 400);
+      };
       const ortBases = cfg.ortBases.map((u) => new URL(u, location.href).href);
-      return call({ type: "load", urls: urlsFor(MODELS[name].file, P.urls && P.urls[name]), ortBases, useCache, preferGpu: !isMobile() })
+      return call({ type: "load", urls: urlsFor(MODELS[name].file, P.urls && P.urls[name]), ortBases, useCache, preferGpu })
         .then((det) => call({ type: "loadOcr", urls: urlsFor(OCR.file, P.urls && P.urls.ocr), ortBases, useCache }).then((ocr) => ({ ...det, ocr })));
     }).then((info) => {
       L.info = info;
       setStatus("Ready · " + (info.backend === "webgpu" ? "WebGPU" : "WASM (CPU)") + " · " + MODELS[name].label.split(" (")[0] + (info.cached && info.ocr && info.ocr.cached ? " · from this device" : info.saved ? " · saved on this device" : ""));
       return info;
-    }).catch((e) => { setStatus("Plate reading unavailable: " + e.message); L.unload(); throw e; });
+    }).catch((e) => {
+      // Killed while starting WebGPU: try once more on WASM (CPU) before giving up.
+      if (e && e.died && preferGpu && !retry) { L._noGpu = true; console.warn("plates: worker died on WebGPU, retrying on WASM", e); L.unload(); return L.load(true); }
+      setStatus("Plate reading unavailable: " + e.message); L.unload(); throw e;
+    });
     return loading;
   };
 

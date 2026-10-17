@@ -10,6 +10,9 @@ let ocr = null, ocrUrl = null;   // Phase 6 plate OCR session (separate from the
 
 // Report anything that goes wrong with a real message (a bare worker "error" event has none).
 self.addEventListener("error", (e) => { try { postMessage({ type: "fatal", error: "worker: " + (e.message || "error") + (e.filename ? " (" + e.filename + ":" + e.lineno + ")" : "") }); } catch (_) {} });
+// Tell the page where we are, so a worker the browser kills (no error text) can still be explained.
+const stage = (st) => { try { postMessage({ type: "stage", stage: st }); } catch (_) {} };
+stage("started");
 self.addEventListener("unhandledrejection", (e) => { try { postMessage({ type: "fatal", error: "worker: " + String((e.reason && e.reason.message) || e.reason) }); } catch (_) {} });
 
 async function realGpu(prefer) {
@@ -37,9 +40,11 @@ async function loadOrt(msg) {
   rtGpu = await realGpu(msg.preferGpu !== false);
   const js = rtGpu ? "ort.webgpu.min.js" : "ort.wasm.min.js", core = rtGpu ? "ort-wasm-simd-threaded.jsep" : "ort-wasm-simd-threaded";
   try {
+    stage("downloading the " + (rtGpu ? "WebGPU" : "WASM") + " runtime");
     const [src, mjs, wasm] = await Promise.all([getFile(bases, js, msg.useCache), getFile(bases, core + ".mjs", msg.useCache), getFile(bases, core + ".wasm", msg.useCache)]);
     // Load everything from blob: URLs with the right types, so a server that sends the wrong MIME type
     // (Windows python http.server, some NAS servers) or a blocked CDN can't break it.
+    stage("starting the " + (rtGpu ? "WebGPU" : "WASM") + " runtime");
     importScripts(URL.createObjectURL(new Blob([src], { type: "text/javascript" })));
     if (!self.ort) throw new Error("onnxruntime-web did not initialise");
     RT = self.ort;
@@ -92,10 +97,12 @@ async function load(msg) {
   const order = wantGpu ? ["webgpu", "wasm"] : ["wasm"];
   let err = null;
   for (const ep of order) {
+    stage("starting the model on " + (ep === "webgpu" ? "WebGPU" : "WASM"));
     try { session = await RT.InferenceSession.create(new Uint8Array(got.buf), { executionProviders: [ep], graphOptimizationLevel: "all" }); backend = ep; break; }
     catch (e) { err = e; session = null; }
   }
   if (!session) throw new Error("Could not start the model: " + ((err && err.message) || err));
+  stage("ready");
   inputName = session.inputNames[0]; outputName = session.outputNames[0];
   const meta = session.inputMetadata && session.inputMetadata[0];
   if (meta && meta.shape && +meta.shape[2] > 0) size = +meta.shape[2];
@@ -145,8 +152,10 @@ async function loadOcr(msg) {
   await loadOrt(msg);
   if (ocr && ocrUrl === msg.urls[0]) return { cached: true, url: ocrUrl };
   const got = await fetchModel(msg.urls, msg.useCache !== false, (p) => postMessage({ type: "progress", ...p, what: "ocr" }));
+  stage("starting the plate reader on WASM");
   ocr = await RT.InferenceSession.create(new Uint8Array(got.buf), { executionProviders: ["wasm"], graphOptimizationLevel: "all" });
   ocrUrl = msg.urls[0];
+  stage("ready");
   const meta = ocr.inputMetadata && ocr.inputMetadata[0];
   return { url: got.url, cached: got.cached, saved: got.saved, bytes: got.buf.byteLength, shape: meta && meta.shape };
 }
