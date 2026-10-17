@@ -462,7 +462,8 @@ body.usearch:not(.usearch-classic) .transport > .find-bar,
 body.usearch:not(.usearch-classic) .transport > .redact-bar,
 body.usearch:not(.usearch-classic) .transport > #findStatus,
 body.usearch:not(.usearch-classic) .transport > #findHits,
-body.usearch:not(.usearch-classic) .transport > #redactStatus { display: none !important; }
+body.usearch:not(.usearch-classic) .transport > #redactStatus,
+body.usearch:not(.usearch-classic) .transport > #btnCloudRecheck { display: none !important; }
 .us-btn { display: inline-flex; align-items: center; gap: 6px; }
 .us-btn svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
 .us-btn[aria-expanded="true"] { background: var(--blue); color: #fff; border-color: var(--blue); }
