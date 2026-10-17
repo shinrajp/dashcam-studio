@@ -26,6 +26,7 @@
 
   /* ---------- items ---------- */
   function label(h, best) {
+    if ((h.plate || h.streetText) && h.text) return h.text + (h.weak ? " weak" : "");   // Phase 6: "7ABC234 91%" (· checked by …)
     if (h.label && h.conf != null) return h.label + " " + Math.round(h.conf * 100) + "%";
     try { if (h.box && T.burnBoxes && T.burnBoxes.labelFor) return T.burnBoxes.labelFor(h, T.search.phrase, best); } catch (e) {}
     return (T.search.phrase || "match") + "?" + (h.weak ? " weak" : "");
