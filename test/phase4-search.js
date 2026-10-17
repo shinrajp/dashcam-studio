@@ -68,9 +68,10 @@ async function common(p, tag) {
   // desktop
   const d = await page(b, { width: 1440, height: 900 });
   await common(d, "desktop");
-  ok("desktop panel is a floating popover (not a sheet)", await d.evaluate(() => { const p = document.getElementById("usPanel"); return !p.classList.contains("sheet") && p.getBoundingClientRect().width <= 560; }));
+  ok("desktop panel docked below the video (search-float default, not a sheet)", await d.evaluate(() => { const p = document.getElementById("usPanel"); return !p.classList.contains("sheet") && p.classList.contains("docked") && p.getBoundingClientRect().top >= document.getElementById("stage").getBoundingClientRect().bottom - 1; }));
   await d.mouse.click(300, 300); await W(150);
-  ok("desktop click outside closes", await d.evaluate(() => !TDC.searchUI.open));
+  ok("desktop click on the video keeps the docked panel open", await d.evaluate(() => TDC.searchUI.open));
+  await d.evaluate(() => TDC.searchUI.hide());
   // Classic toggle
   await d.evaluate(() => TDC.searchUI.setClassic(true));
   ok("Classic search bars shows old bars", (await vis(d, ".find-bar")) && (await vis(d, ".redact-bar")) && (await vis(d, "#usBtn")));
@@ -86,7 +87,7 @@ async function common(p, tag) {
   await m.evaluate(() => TDC.searchUI.show());
   await W(200);
   const before = await m.evaluate(() => { const r = document.getElementById("grid").getBoundingClientRect(); return { top: r.top, h: r.height, w: r.width, sheet: document.getElementById("usPanel").classList.contains("sheet"), bottom: document.getElementById("usPanel").getBoundingClientRect().bottom }; });
-  ok("phone uses a bottom sheet at the bottom", before.sheet && Math.abs(before.bottom - 844) < 2, before);
+  ok("phone: docked under the video, above the controls (no sheet until typing)", !before.sheet && before.bottom <= 844 - 40 && before.bottom > before.top + before.h, before);
   // simulated keyboard: the visual viewport shrinks by 336 px (iOS keyboard), the layout viewport does not
   await m.evaluate(() => {
     const fake = new EventTarget(); fake.height = 844 - 336; fake.offsetTop = 0; fake.width = 390; fake.scale = 1;
@@ -95,7 +96,7 @@ async function common(p, tag) {
   });
   await W(250);
   const after = await m.evaluate(() => { const r = document.getElementById("grid").getBoundingClientRect(); const pr = document.getElementById("usPanel").getBoundingClientRect(); return { top: r.top, h: r.height, w: r.width, panelBottom: pr.bottom, panelTop: pr.top, scrollY: window.scrollY, kb: TDC.searchUI.keyboard }; });
-  ok("phone sheet sits above the keyboard", Math.abs(after.panelBottom - (844 - 336)) < 2 && after.panelTop >= 0, after);
+  ok("phone typing: panel lifted above the keyboard", Math.abs(after.panelBottom - (844 - 336)) < 2 && after.panelTop >= 0, after);
   ok("phone grid not resized or moved by keyboard", after.top === before.top && after.h === before.h && after.w === before.w && after.scrollY === 0, { before, after });
   ok("phone input font >= 16px (no iOS zoom)", await m.evaluate(() => parseFloat(getComputedStyle(document.getElementById("usQuery")).fontSize) >= 16));
   await m.screenshot({ path: process.env.SHOT || "/tmp/p4-phone-kb.png" });

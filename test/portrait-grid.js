@@ -75,9 +75,10 @@ async function open(p, re) { await p.evaluate((re) => { const e = TDC.library.ev
       ok(tag + " classic off: back to the normal state", (await layout(p)).scroll === L.scroll);
     }
     if (SHOTS && (d.w === 375 || /Pro Max|iPad/.test(d.name))) { await p.evaluate(() => { document.getElementById("viewport").scrollTop = 0; TDC.player.seek(4); }); await W(900); await p.screenshot({ path: `${SHOTS}/portrait-${d.name.replace(/\W+/g, "-").toLowerCase()}.png` }); }
-    // search sheet still works in portrait
-    const sheet = await p.evaluate(() => { TDC.searchUI.show(false); const r = document.getElementById("usPanel").classList.contains("sheet"); TDC.searchUI.hide(); return r; });
-    ok(tag + " search bottom sheet works", sheet);
+    // search panel still works in portrait: docked under the grid (search-float), visible above the controls
+    const sheet = await p.evaluate(() => { TDC.searchUI.show(false); const pn = document.getElementById("usPanel"), r = pn.getBoundingClientRect(), tp = document.getElementById("transport").getBoundingClientRect();
+      const okk = pn.classList.contains("docked") && r.height > 60 && r.bottom <= tp.top + 1 && r.top >= document.getElementById("viewport").getBoundingClientRect().bottom - 1; TDC.searchUI.hide(); return okk; });
+    ok(tag + " search panel docked under the grid works", sheet);
     // 4-angle
     await open(p, "2026-10-07_18-4"); L = await layout(p);
     ok(tag + " 4-cam collapses to Front|Back, repeaters (2x2, no pillar slots)", L.order.join() === P4.join() && L.rows === 2 && L.cols === 2, L.order);
