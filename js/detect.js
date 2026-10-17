@@ -93,6 +93,8 @@
     }
   }
 
+  D.makeWorker = makeWorker;   // Phase 6 plates.js starts its own worker the same MIME-proof way
+
   // letterbox a frame into size×size
   let cv = null, cx = null;
   function letterbox(img, iw, ih, crop) {

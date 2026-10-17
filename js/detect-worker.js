@@ -1,8 +1,12 @@
 /* detect-worker.js — YOLO11 (COCO, 80 classes) object detection in a Web Worker with onnxruntime-web.
+ * Phase 6: the same worker also runs the licence-plate detector (YOLOv9 "end2end" export: NMS inside the
+ * model, output [N, 7] = batch, x1, y1, x2, y2, class, score) and the plate OCR model (fast-plate-ocr,
+ * uint8 [n, 64, 128, 3] → [n, slots, alphabet] probabilities). Each kind keeps its own session.
  * WebGPU when the browser has it, otherwise WASM. The main thread sends a 640×640 letterboxed RGBA frame;
  * we answer with boxes normalised to the original frame. No video ever leaves this computer. */
 "use strict";
 let RT = null, session = null, backend = null, modelUrl = null, inputName = null, outputName = null, size = 640;
+let ocr = null, ocrUrl = null;   // Phase 6 plate OCR session (separate from the detector)
 
 // Report anything that goes wrong with a real message (a bare worker "error" event has none).
 self.addEventListener("error", (e) => { try { postMessage({ type: "fatal", error: "worker: " + (e.message || "error") + (e.filename ? " (" + e.filename + ":" + e.lineno + ")" : "") }); } catch (_) {} });
@@ -114,6 +118,9 @@ async function detect(msg) {
   const ms = Date.now() - t0;
   const o = out[outputName], d = o.data, C = o.dims[1] - 4, N = o.dims[2];   // [1, 4+80, 8400]: cx, cy, w, h, class scores
   const conf = msg.conf || 0.35, cand = [];
+  if (o.dims.length === 2 && o.dims[1] === 7) {   // end2end export (NMS already done): [N, 7] = batch, x1, y1, x2, y2, cls, score
+    for (let j = 0; j < o.dims[0]; j++) { const r = j * 7; if (d[r + 6] >= conf) cand.push({ b: [d[r + 1], d[r + 2], d[r + 3], d[r + 4]], conf: d[r + 6], cls: d[r + 5] | 0 }); }
+  } else
   for (let j = 0; j < N; j++) {
     let best = 0, cls = -1;
     for (let c = 0; c < C; c++) { const v = d[(4 + c) * N + j]; if (v > best) { best = v; cls = c; } }
@@ -133,10 +140,33 @@ async function detect(msg) {
   return { dets, ms, backend };
 }
 
+// ── Phase 6: plate OCR (fast-plate-ocr CCT, MIT). Input: crops already resized to w×h RGBA on the main thread. ──
+async function loadOcr(msg) {
+  await loadOrt(msg);
+  if (ocr && ocrUrl === msg.urls[0]) return { cached: true, url: ocrUrl };
+  const got = await fetchModel(msg.urls, msg.useCache !== false, (p) => postMessage({ type: "progress", ...p, what: "ocr" }));
+  ocr = await RT.InferenceSession.create(new Uint8Array(got.buf), { executionProviders: ["wasm"], graphOptimizationLevel: "all" });
+  ocrUrl = msg.urls[0];
+  const meta = ocr.inputMetadata && ocr.inputMetadata[0];
+  return { url: got.url, cached: got.cached, saved: got.saved, bytes: got.buf.byteLength, shape: meta && meta.shape };
+}
+async function runOcr(msg) {
+  if (!ocr) throw new Error("plate reader not loaded");
+  const n = msg.n, W = msg.w, H = msg.h, px = new Uint8ClampedArray(msg.rgba), plane = W * H;
+  const u8 = new Uint8Array(n * plane * 3);
+  for (let i = 0, o = 0; i < n * plane; i++) { u8[o++] = px[i * 4]; u8[o++] = px[i * 4 + 1]; u8[o++] = px[i * 4 + 2]; }
+  const t0 = Date.now();
+  const out = await ocr.run({ [ocr.inputNames[0]]: new RT.Tensor("uint8", u8, [n, H, W, 3]) });
+  const plate = out[ocr.outputNames.find((k) => /plate/.test(k)) || ocr.outputNames[0]];
+  return { probs: plate.data, slots: plate.dims[1], classes: plate.dims[2], ms: Date.now() - t0 };
+}
+
 self.onmessage = async (e) => {
   const msg = e.data || {};
   try {
     if (msg.type === "load") postMessage({ type: "loaded", id: msg.id, ...(await load(msg)) });
     else if (msg.type === "detect") postMessage({ type: "result", id: msg.id, ...(await detect(msg)) });
+    else if (msg.type === "loadOcr") postMessage({ type: "loaded", id: msg.id, ...(await loadOcr(msg)) });
+    else if (msg.type === "ocr") postMessage({ type: "result", id: msg.id, ...(await runOcr(msg)) });
   } catch (err) { postMessage({ type: "error", id: msg.id, error: String((err && err.message) || err) || "unknown worker error" }); }
 };
