@@ -235,14 +235,39 @@
   };
 
   // ── search ──
-  /** Group rows per camera + text within 4 s (keep the best), at most 20, in time order. */
+  /** Merge sightings of the same reading (any camera, any time) into one result: the best sighting is the hit,
+   *  the rest are kept in hit.sightings. Then mark the best match(es) and build the shared label text.
+   *  Ranking = text match to the query × read confidence (hit.score). Distinct readings within BEST_EPS of the
+   *  top score all count as best. At most 20 results, in time order. */
+  L.BEST_EPS = 0.02;
+  const groupKey = (r) => {
+    const P = PT();
+    return (r.plate ? "p:" : "t:") + (r.plate && P && P.canon && P.clean ? P.canon(P.clean(r.reading || "")) : String(r.reading || r.label || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim());
+  };
   L.cluster = (rows) => {
-    const groups = [];
-    for (const r of rows.slice().sort((a, b) => b.score - a.score)) {
-      if (groups.some((g) => g.cam === r.cam && g.label === r.label && Math.abs(g.t - r.t) < 4)) continue;
-      groups.push(r);
+    const groups = new Map();
+    for (const r of rows.slice().sort((a, b) => b.score - a.score || b.conf - a.conf)) {
+      const k = groupKey(r), g = groups.get(k);
+      if (!g) { groups.set(k, { ...r, sightings: [{ t: r.t, cam: r.cam, conf: r.conf, box: r.box }] }); continue; }
+      if (!g.sightings.some((x) => x.cam === r.cam && Math.abs(x.t - r.t) < 2)) g.sightings.push({ t: r.t, cam: r.cam, conf: r.conf, box: r.box });
     }
-    return groups.slice(0, 20).sort((a, b) => a.t - b.t);
+    const out = [...groups.values()].sort((a, b) => b.score - a.score).slice(0, 20);
+    const top = out.length ? out[0].score : 0;
+    out.forEach((h) => { h.best = top > 0 && h.score >= top - L.BEST_EPS; h.text = L.labelText(h); h.boxText = h.text; });
+    return out.sort((a, b) => a.t - b.t);
+  };
+  const pc = (c) => Math.round(Math.max(0, Math.min(1, c)) * 100) + "%";
+  /** One format everywhere (results list, gold box, export burn-in, phone strip):
+   *  "7ABC234 · match 100% · read 91% · checked by Grok · seen 2× · Best match". "match" is left out for "plates"/"street" with
+   *  no pattern (every reading matches), "· Best match" only on the top result(s). */
+  L.labelText = (h) => {
+    const parts = [String(h.reading || "").slice(0, 24)];
+    if (h.match != null && !h.matchAll) parts.push("match " + pc(h.match));
+    if (h.conf != null) parts.push("read " + pc(h.conf));
+    if (h.cloud) parts.push("checked by " + ({ grok: "Grok", claude: "Claude", gemini: "Gemini" }[h.cloud] || "cloud"));
+    if (h.sightings && h.sightings.length > 1) parts.push("seen " + h.sightings.length + "×");
+    if (h.best) parts.push("Best match");
+    return parts.join(" · ");
   };
   const pct = (c) => Math.round(Math.max(0, Math.min(1, c)) * 100) + "%";
   /** Search the open event (scanning it first if needed). Returns rows for search.js (like the detector's). */
@@ -264,7 +289,8 @@
     return here.map((r) => {
       const it = r.item, isPlate = it.kind === "plate";
       const label = (isPlate ? "plate " : "") + it.text;
-      return { t: it.t, cam: it.cam, score: r.score * (0.5 + 0.5 * it.conf), conf: it.conf, label, text: it.text + " " + pct(it.conf) + (it.cloud && it.cloud.text ? " · checked by " + ({ grok: "Grok", claude: "Claude", gemini: "Gemini" }[it.cloud.prov] || "cloud") : ""), cloud: it.cloud && it.cloud.text ? it.cloud.prov : undefined, det: true, plate: isPlate, streetText: !isPlate, box: { ...it.box }, chars: it.chars, raw: it.raw, detConf: it.det, weak: it.conf < minRead };
+      const all = parsed.kind === "plate" ? !!parsed.all : !parsed.phrase;
+      return { t: it.t, cam: it.cam, score: (all ? 1 : r.score) * it.conf, match: r.score, matchAll: all, reading: it.text, conf: it.conf, label, text: it.text + " " + pct(it.conf) + (it.cloud && it.cloud.text ? " · checked by " + ({ grok: "Grok", claude: "Claude", gemini: "Gemini" }[it.cloud.prov] || "cloud") : ""), cloud: it.cloud && it.cloud.text ? it.cloud.prov : undefined, det: true, plate: isPlate, streetText: !isPlate, box: { ...it.box }, chars: it.chars, raw: it.raw, detConf: it.det, weak: it.conf < minRead };
     });
   };
 
