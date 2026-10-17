@@ -7,7 +7,7 @@ A Tesla dashcam and Sentry viewer that runs entirely in your browser. Drop in yo
 - **6-camera grid.** Front, rear, both pillars and both repeaters play in sync in a labelled 3×2 grid, with multi-clip events joined into one timeline.
 - **Telemetry HUD.** A draggable graphic HUD with speed, gear, steering wheel, brake, accelerator, blinking turn signals, compass, g-force and GPS. It needs clips with Tesla's embedded telemetry, which arrived in firmware 2025.44.25+ on HW3 and newer.
 - **Route map.** A map with the route and a dot that moves with playback. Click the map to seek. **Beside video** parks it next to the picture so it doesn't cover a camera. Drag the corner to resize. Export still burns the map onto the video.
-- **One search box.** Tap **🔍 Search** (or press `/` or Ctrl/Cmd+K) to find a moment or hide text from one floating box. It stays an icon until you need it, so it doesn't cover the video. On phones it opens as a bottom sheet above the keyboard.
+- **One search box.** Tap **🔍 Search** (or press `/` or Ctrl/Cmd+K) to find a moment or hide text. It opens **below the video**, so it never covers a camera. Tap the float button to turn it into a window you can drag anywhere (also off the video), and the pin to lock it in place. On phones, full screen gets a strip of result thumbnails to jump between matches.
 - **Find in the video.** Describe what you see, for example "a person in a hoodie and a mask." Matches are marked on the timeline. Click one to jump there, or turn them into sections. Frames stay on this computer. The first search downloads a vision model once (about 150 MB). Hits are guesses, not proof.
 - **Redact in the window.** Type a name or other words, such as `Jane Doe` or `Taco Bell, Costco`. Only those words are covered. **All text** covers every word. Nothing to install.
 - **Self-Driving badge.** It shows Self-Driving, Autosteer or TACC status.
@@ -87,6 +87,14 @@ The gold box on the video carries a small label with what was searched for. A pi
 **Burn detection boxes into the export:** in the Export dialog, tick **Burn detection boxes** (off by default; the choice is remembered). The gold box and its label (e.g. "white car? (best match)", or "car 91%" from the object detector) are then drawn into the exported video on the right camera, for the same few seconds the viewer shows it. Text size follows the video size, with a dark background so it stays readable on a phone. Frames with no box are left untouched. See `screenshots/burn-boxes.png`.
 
 On phones and narrow windows the box is a bottom sheet pinned above the on-screen keyboard. The video grid isn't resized while you type.
+
+**Where the search box sits:** by default it's docked **below the video** in its own strip; the cameras shrink to fit above it and nothing is covered. In its header:
+- **Float** (window icon) detaches it into a movable window. Drag the header (mouse, pen or finger) anywhere on screen, including outside the camera grid; it always stays fully on screen. Drag the corner to resize. With the ⋮⋮ grip focused, the arrow keys move it (Shift for bigger steps). Double-click the header to dock or float.
+- **Pin** locks the floating window where you put it: no dragging or resizing until you unpin. If the window gets smaller it's kept on screen, and it goes back to your spot when there's room again.
+- **Dock** (same button while floating) puts it back below the video.
+The mode, position, size and pin are remembered on this device. Clicking the video no longer closes the box; use × or Esc. On a phone, while you type, the docked box lifts above the keyboard and the cameras stay put. See `screenshots/search-float-*.png`.
+
+**Phone thumbnail strip:** on a phone in full screen (or with one camera enlarged), a strip sits just above the controls. **Results** shows a small picture of each match with its time, camera and label; tap one to jump there with the gold box. **Cameras** shows a snapshot of each camera; tap to switch (**All** goes back to the grid). The ⌄ button folds it away. Thumbnails are made only when they scroll into view, at 96 px, and freed when the results are cleared. Upright, the video is fitted above the strip; sideways the strip overlays the bottom like the controls and fades with them.
 
 **Classic search bars:** Settings ▸ Search ▸ *Classic search bars* (or the checkbox at the bottom of the search box) brings back the original Find and Redact bars under the video. You can also open the app with `?search=classic`. If the new search ever fails to start, the classic bars appear on their own.
 
