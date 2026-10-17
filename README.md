@@ -123,6 +123,21 @@ The first plate search on an event reads it once (about one frame per second per
 
 ![Plate search: the gold box follows the plate](screenshots/phase6-plate-search.png)
 
+## Cloud boost (optional: Grok, Claude or Gemini)
+Off by default; the on-device plate reader and detector above always come first. In Settings ▸ **Cloud boost** you can pick **Grok (xAI)**, **Claude (Anthropic)** or **Gemini (Google)** and paste **your own API key**. Then:
+
+- **Re-check weak plates:** after a plate search, a **Re-check N weak plates with Grok/Claude/Gemini** button appears under the search status when some readings are below "trust readings above". It sends a small crop around each unsure plate (one per plate per ~4 s, up to "calls per run"). The answer is stored next to the local reading (the local one is kept), and results say `· checked by Claude`. Search again to use the corrected text.
+- **Ask anything:** start a search with `ask `, for example `ask a red umbrella` or `ask a white van with a ladder`. A few frames, spread over the event, are sent downscaled (longest side ≤ 1024 px). The model returns boxes as JSON; they show as gold boxes with its label, text and confidence. These boxes are per frame and aren't tracked.
+
+**Before anything is sent** a dialog shows which host gets the pictures (`api.x.ai`, `api.anthropic.com` or `generativelanguage.googleapis.com`), that frames leave your device, that each call is billed to your account, and roughly how many calls. Cancel sends nothing. "Don't ask again" is remembered per provider until **Forget API keys**.
+
+- **Key storage:** in this tab only (sessionStorage) unless you tick **Remember key on this device** (localStorage, not encrypted). The key goes only to the provider you chose (or to the local companion if you turn on its relay). It is never put in the repo, URLs, logs or the library index. **Forget API keys** clears all keys and consents.
+- **Cost control:** one call at a time, at least 1.5 s apart, at most "calls per run" per action (default 12). Default models are small and cheap; you can type another model name: `grok-4.3`, `claude-haiku-5-5`, `gemini-3.5-flash-lite` (as of Oct 2026; see each provider's model list).
+- **Browser access (CORS), checked Oct 16, 2026:** all three APIs accept direct calls from a web page (x.ai and Anthropic answer `Access-Control-Allow-Origin: *`; Anthropic needs the `anthropic-dangerous-direct-browser-access` header, which the app sends; Google echoes the page's origin for `x-goog-api-key`). If a provider changes that, the error says so. When the app runs inside the **companion** (`/app/…?companion=1`), tick **Use companion** to relay calls through `127.0.0.1`. The relay only forwards POSTs to those three API paths with their auth headers, needs the companion token, and stores nothing.
+- **Honest status:** request formats follow each provider's current docs and are tested against **mocked** providers (Chromium and WebKit). They have **not** been tried with real API keys here. Cloud answers can be wrong too; treat them as leads.
+
+![Consent before the first send](screenshots/phase6-cloud-consent.png)
+
 ## Keyboard shortcuts
 | Key | Action |
 |---|---|
@@ -140,12 +155,13 @@ The first plate search on an event reads it once (about one frame per second per
 With **Advanced** on: A adds a section, B splits the section at the playhead, I / O set its start / end, S plays only the sections, Delete removes the selected one. On the timeline, Ctrl+scroll or a pinch zooms in, scrolling sideways pans, and double-clicking (or the zoom button) zooms back out.
 
 ## Privacy
-- **Your footage never leaves your computer.** The video files are read and processed locally in your browser. Nothing is uploaded and there's no server or account.
+- **Your footage never leaves your computer** unless you turn on the optional Cloud boost (below). The video files are read and processed locally in your browser. Nothing is uploaded and there's no server or account.
 - **Video search** scores frames on this computer. The first search downloads a vision model from Hugging Face (`huggingface.co` and `cdn.jsdelivr.net`). After that the browser keeps the model. The video itself is not sent.
 - **Map tiles** come from OpenStreetMap (`tile.openstreetmap.org`), so OSM sees roughly where the map area is. You can turn map tiles off in the app. The route is then drawn on a plain grid.
 - **Encrypted clips:** only small key-request records (VIN, key id, wrapped key — never video) go to Tesla's own site, and only when you click *Sign in with Tesla*, run the key helper or use a token you pasted.
 - **Library index:** stores file names, sizes, times, camera counts and decrypted/reviewed status in your browser (IndexedDB). Never video, never keys.
 - **Plate & text index** (only if you turn on Plates & text): plate numbers and street text read from your footage, with time, camera, box and confidence, in this browser (IndexedDB `tdc-text-index`). Never pictures. **Forget plate & text index** clears it.
+- **Cloud boost** (off by default): only when you pick Grok, Claude or Gemini, paste your own key, and confirm the dialog, are downscaled frames or plate crops sent to that one provider's API (billed to you, under their data policy). Your API key stays in this tab unless you tick Remember key.
 - **Saved keys:** off by default. Only if you tick **Remember keys on this device** are the 16-byte clip keys stored in this browser (IndexedDB, not encrypted), so anyone using this browser profile could unlock those clips. **Forget saved keys** wipes them, the keys used in the current tab, and clipboard auto-apply, and re-locks open clips. Bearer tokens you paste are kept in memory only and never stored.
 
 ## Redact plates, faces, and text

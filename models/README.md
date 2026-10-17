@@ -27,3 +27,6 @@ found and read exactly by both detector sizes. Outside the repo, six public Wiki
 and their numbers are not stored here.
 
 Street names and sign text reuse the PP-OCRv4 text finder already bundled in `vendor/ocr/` (Apache-2.0, see the Redact section of the README).
+
+## Cloud boost (optional, not a model in this repo)
+Phase 6B can send plate crops or downscaled frames to the user's own Grok (xAI), Claude (Anthropic) or Gemini (Google) account. Nothing from those providers is downloaded or bundled; no training happens. Defaults (editable in Settings ▸ Cloud boost): `grok-4.3`, `claude-haiku-5-5`, `gemini-3.5-flash-lite`, names as listed in the providers' model docs on Oct 16, 2026. Off by default. Tested with mocked responses only.
