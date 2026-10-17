@@ -56,6 +56,9 @@ A Tesla dashcam and Sentry viewer that runs entirely in your browser. Drop in yo
 
 <sub>Sample footage is AI-generated mock-up imagery: a made-up street, no real dashcam video, people or plates.</sub>
 
+## All-in-one test branch (`feature/all-in-one`)
+This branch combines the work that isn't on `main` yet, so everything can be tried at once: Phase 4 search, the phone portrait grid, the camera bar dock, burn-in and live detection labels, Phase 5 object detection and tracking, connector 1.4.4 (home-network addresses), Phase 6 plates and street names with the optional cloud boost, the docked / floating / pinned search window with the phone thumbnail strip (plate results show their reading, e.g. "7ABC234 91%"), and the 360 view with its export. The beta features (object detection, plates, cloud boost, 360) stay **off** until you turn them on, and manual keys, decryption, playback and export work as before. Rollback: tag `pre-all-in-one` (= `feature/phase6-plates-ocr`), or check out any single feature branch.
+
 ## How to use
 1. Plug your Tesla USB drive into your computer, or copy its `TeslaCam` folder somewhere.
 2. Open the [app](https://shinrajp.github.io/dashcam-studio/). Then either drag the `TeslaCam` folder onto the window or click **Open folder**.
