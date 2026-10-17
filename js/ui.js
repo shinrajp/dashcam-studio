@@ -724,7 +724,7 @@
     const rs = U.ranges(), dur = rs.reduce((a, r) => a + (r[1] - r[0]), 0);
     const tel = T.telemetry.status;
     let hint = rs.length > 1 ? `${T.fmtTime(dur, true)} of video (${rs.length} sections joined in time order). ` : `${T.fmtTime(dur)} of video. `;
-    hint += preset === "compat" ? "Best for sharing." : "Large file; HEVC/AV1 keep it smaller. If the encoder can't do this size, it steps down and tells you.";
+    hint += preset === "equirect" ? "360 panorama (beta): camera angles are estimates (Advanced ▸ 360 ▸ Calibrate). Overlays aren't drawn. Add spherical metadata with Google's Spatial Media Metadata Injector before uploading to YouTube. " : preset === "compat" ? "Best for sharing." : "Large file; HEVC/AV1 keep it smaller. If the encoder can't do this size, it steps down and tells you.";
     if (tel === "none") hint += " No telemetry in these clips, so the HUD is left out.";
     if (!T.exporter.webcodecs() && T.exporter.capability().mode === "realtime") hint += " This browser lacks WebCodecs: the export records in real time (keep this tab open and the screen on).";
     if (T.isIOS && T.exporter.webcodecs()) hint += " On iPhone/iPad keep this tab in front until it finishes; very long exports can run out of memory.";
