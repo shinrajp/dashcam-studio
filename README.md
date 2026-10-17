@@ -104,6 +104,25 @@ Settings ▸ **Object detection** (off until you turn it on). When it's on, a se
 
 ![Real YOLO11 nano detections on the sample clips](screenshots/phase5-live.png)
 
+## Plates & street names (beta)
+Settings ▸ **Plates & text** (off until you turn it on). Then type a plate in the search box:
+
+- `plate 7ABC234` (exact), `7ABC 23` (part of a plate, spaces and dashes ignored), `7AB*` or `7A?C234` (wildcards), `plates` (every plate in the event).
+- Look-alike characters still match: searching `5SMP26O` finds 5SMP260 (O/0, I/1, B/8, S/5, Z/2, G/6), and one wrong character is allowed for 5+ characters.
+- `street Palm Ave` finds street-name signs and other sign text (tick **Also read street names and signs**; slower). "Ave"/"Avenue", "St"/"Street" etc. are treated as the same.
+
+The first plate search on an event reads it once (about one frame per second per camera; the status line counts the frames). The plates and street text are kept in this browser's library index, so later searches on that event, even after a reload, are instant. The index stores only the text, time, camera, box and confidence (never pictures or video). **Forget plate & text index** clears it. Results show as `0:04.2 · Front · 7TST123 98%`; the gold box reads `plate 7TST123 98%` and follows the plate across nearby frames, and **Burn detection boxes** puts the same label in the export.
+
+**Blur licence plates:** tick it in Settings ▸ Plates & text or in the Export dialog. Plates found by the reader are blurred on the live player and in the exported video. If the event hasn't been read yet, export reads every camera first (one time). The existing **Blur plates** chip in Redact now uses the real plate finder too when Plates & text is on (otherwise it keeps the old text-shape guess).
+
+- **Models** (all MIT, included in `models/plates/`, so it works offline and on plain-http home-network addresses): [open-image-models](https://github.com/ankandrew/open-image-models) YOLOv9-tiny plate finder, **Fast** 384 px (default on phones) or **Accurate** 640 px (default on computers), 7.8 MB each; [fast-plate-ocr](https://github.com/ankandrew/fast-plate-ocr) CCT-S reader, 5.3 MB. Street text uses the PP-OCR text finder already bundled for Redact. Details and checksums: [`models/README.md`](models/README.md).
+- **California format:** readings of 7 characters are fitted to the standard 1ABC234 pattern (digit, 3 letters, 3 digits): a character of the wrong kind is replaced by the reader's second choice, or by its look-alike, and its confidence is lowered. Vanity, commercial and other states' plates are kept as read.
+- **Settings:** plate finder size, "find plates above" (default 30%), "trust readings above" (default 40%; weaker readings show as *weak*), far plates (zoomed tiles for big HW4 frames on computers; Always / Off), street names, blur.
+- **Speed** (headless Chrome, box CPU, WASM, one thread): Fast 0.12 s + reading 0.08 s per frame, Accurate 0.3 s + 0.08 s. An 8 s, 2-camera event was read in 7.9 s. Phones are slower; Fast is the default there.
+- Readings can be wrong. Treat a plate as a lead and check the video. If a model can't load, plate search says why; playback, keys, decryption and export work as before.
+
+![Plate search: the gold box follows the plate](screenshots/phase6-plate-search.png)
+
 ## Keyboard shortcuts
 | Key | Action |
 |---|---|
@@ -126,6 +145,7 @@ With **Advanced** on: A adds a section, B splits the section at the playhead, I 
 - **Map tiles** come from OpenStreetMap (`tile.openstreetmap.org`), so OSM sees roughly where the map area is. You can turn map tiles off in the app. The route is then drawn on a plain grid.
 - **Encrypted clips:** only small key-request records (VIN, key id, wrapped key — never video) go to Tesla's own site, and only when you click *Sign in with Tesla*, run the key helper or use a token you pasted.
 - **Library index:** stores file names, sizes, times, camera counts and decrypted/reviewed status in your browser (IndexedDB). Never video, never keys.
+- **Plate & text index** (only if you turn on Plates & text): plate numbers and street text read from your footage, with time, camera, box and confidence, in this browser (IndexedDB `tdc-text-index`). Never pictures. **Forget plate & text index** clears it.
 - **Saved keys:** off by default. Only if you tick **Remember keys on this device** are the 16-byte clip keys stored in this browser (IndexedDB, not encrypted), so anyone using this browser profile could unlock those clips. **Forget saved keys** wipes them, the keys used in the current tab, and clipboard auto-apply, and re-locks open clips. Bearer tokens you paste are kept in memory only and never stored.
 
 ## Redact plates, faces, and text
