@@ -7,7 +7,7 @@ if (!m) { console.error("FAIL origin-check block not found"); process.exit(1); }
 const isPrivateOrigin = new Function(m[1] + "\nreturn isPrivateOrigin;")();
 const allow = (src.match(/const ALLOWED_PLAYER_ORIGINS = [^\n]*/) || [""])[0];
 let fails = 0; const ok = (n, c) => { console.log((c ? "PASS " : "FAIL ") + n); if (!c) fails++; };
-const yes = ["http://192.168.68.89:8771", "http://192.168.0.1", "https://192.168.255.254:8443", "http://10.0.0.5:8080", "http://10.255.255.255",
+const yes = ["http://192.168.1.50:8771", "http://192.168.0.1", "https://192.168.255.254:8443", "http://10.0.0.5:8080", "http://10.255.255.255",
   "http://172.16.0.1:3000", "http://172.31.255.1", "http://localhost:8770", "http://127.0.0.1:9999", "http://[::1]:8770", "http://my-nas.local:8080", "https://mac-mini.home.local"];
 const no = ["http://192.168.1.1.evil.com", "http://evil.com", "http://192.169.1.1", "http://172.15.0.1", "http://172.32.0.1", "http://11.0.0.1", "http://8.8.8.8",
   "http://256.168.1.1", "http://192.168.1", "http://0xc0.168.1.1", "http://3232235777", "http://192.168.1.1/", "http://192.168.1.1/x", "http://user@192.168.1.1",
