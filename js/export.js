@@ -259,7 +259,8 @@
         if (encErr) throw encErr;
         const { t, seg } = fm.at(k); // t = SOURCE time of this output frame
         const frames = await sources.frames(t);
-        T.compositor.drawFrame(ctx, geo, t, frames, show);
+        if (cand.equirect) T.pano.drawEquirect(ctx, W, H, frames);   // 360 (beta): 2:1 equirectangular
+        else T.compositor.drawFrame(ctx, geo, t, frames, show);
         const vf = new VideoFrame(canvas, { timestamp: Math.round(k * fd), duration: Math.round(fd) });
         const key = seg !== lastSeg || sinceKey >= gop; // key frame at every cut (clean seeking) and every 2 s
         lastSeg = seg; sinceKey = key ? 1 : sinceKey + 1;
@@ -386,6 +387,21 @@
       await T.telemetry.whenComplete();
       const ranges = X.normRanges(ev, opts.ranges || [opts.range || [0, ev.duration]]);
       const show = opts.show || { ...T.prefs.show };
+      const equi = opts.preset === "equirect";
+      if (equi) {   // 360 (beta): equirectangular 2:1 from the pano renderer; needs WebCodecs
+        if (!X.webcodecs()) throw new Error("360 export needs WebCodecs (Chrome, Edge, Safari 17+).");
+        await T.loadPano();
+        const sizes = [{ W: 2048, H: 1024 }, { W: 1920, H: 960 }, { W: 1440, H: 720 }], tried = [];
+        for (const sz of sizes) for (const k of ["h264", "vp9", "av1"]) {
+          const cfg = await encoderConfig(k, sz.W, sz.H, 30); if (!cfg) { tried.push(k + " " + sz.W + "×" + sz.H + ": not supported"); continue; }
+          status("Exporting 360 · " + X.CODECS[k].label + " · " + sz.W + "×" + sz.H);
+          try {
+            const r = await encodeOnce({ key: k, W: sz.W, H: sz.H, exact: true, cfg, equirect: true }, ev, ranges, 30, show, opts.onProgress || (() => {}));
+            return { ...r, name: fileName(ev, "360", sz, k), W: sz.W, H: sz.H, codec: cfg.codec, key: k, fps: 30, label: "360 equirect", note: "360 file has no spherical metadata yet: for YouTube/players to treat it as 360, run Google's Spatial Media Metadata Injector on it." };
+          } catch (e) { if (X.cancelled || String(e && e.message) === "cancelled") throw new Error("cancelled"); tried.push(k + ": " + (e.message || e)); }
+        }
+        throw new Error("No encoder worked for 360: " + tried.join("; "));
+      }
       const compat = opts.preset !== "original";
       const fps = compat ? 30 : ev.fps || 36;
       let target, key = compat ? "h264" : opts.codec || "h264";
