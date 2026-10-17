@@ -72,6 +72,7 @@ class Server {
     if (p === "/api/progress") { if (this.job) this.job.onProgress(body); return this.json(r, { ok: true }); }
     if (p === "/api/done") { if (this.job) this.job.onDone(body); return this.json(r, { ok: true }); }
     if (p === "/api/token") { if (this.signin && typeof body.token === "string" && body.token.length > 20) this.signin.onToken(body.token); return this.json(r, { ok: true }); }
+    if (p === "/api/cloud") return this.cloud(r, body);   // optional relay for the app's cloud boost (allowlisted hosts only)
     if (p === "/api/keys") { if (this.signin && Array.isArray(body.results)) this.signin.onKeys(body.results); return this.json(r, { ok: true }); }
     r.writeHead(404); r.end();
   }
@@ -95,9 +96,30 @@ class Server {
       fs.createReadStream(file, { flags: "r" }).pipe(r);
     });
   }
+  /** Relay one cloud-boost call for the app (only when the user turned on "Use companion"). Only the three provider
+   *  APIs, only POST, only their auth/content headers; the key arrives in the request and is never stored or logged. */
+  async cloud(r, body) {
+    let u; try { u = new URL(String(body.url || "")); } catch (_) { u = null; }
+    const ok = u && u.protocol === "https:" && CLOUD_HOSTS[u.hostname] && CLOUD_HOSTS[u.hostname].test(u.pathname) && !u.username && !u.password && !u.port;
+    if (!ok || !body.body || typeof body.body !== "object") { r.writeHead(400); return r.end("not an allowed cloud API"); }
+    const headers = { "content-type": "application/json" };
+    for (const [k, v] of Object.entries(body.headers || {})) if (CLOUD_HEADERS.has(String(k).toLowerCase()) && typeof v === "string") headers[k.toLowerCase()] = v;
+    try {
+      const res = await fetch(u.href, { method: "POST", headers, body: JSON.stringify(body.body), redirect: "error", signal: AbortSignal.timeout(90000) });
+      const text = await res.text();
+      r.writeHead(res.status, { "Content-Type": "application/json", "Cache-Control": "no-store" }); r.end(text);
+    } catch (e) { this.send(r, 502, JSON.stringify({ error: { message: "companion could not reach " + u.hostname + ": " + (e.message || e) } }), TYPES[".json"]); }
+  }
   send(r, code, body, type) { r.writeHead(code, { "Content-Type": type, "Cache-Control": "no-store" }); r.end(body); }
   json(r, o) { this.send(r, 200, JSON.stringify(o), TYPES[".json"]); }
 }
+
+const CLOUD_HOSTS = {
+  "api.x.ai": /^\/v1\/chat\/completions$/,
+  "api.anthropic.com": /^\/v1\/messages$/,
+  "generativelanguage.googleapis.com": /^\/v1(beta)?\/models\/[\w.\-]+:generateContent$/,
+};
+const CLOUD_HEADERS = new Set(["authorization", "x-api-key", "anthropic-version", "x-goog-api-key"]);
 
 function readJson(q) {
   return new Promise((res) => {
