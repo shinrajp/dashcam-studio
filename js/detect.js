@@ -57,19 +57,30 @@
     if (!m) return Promise.reject(new Error("unknown model " + name));
     if (typeof Worker === "undefined") return Promise.reject(new Error("This browser can't run background workers, so detection is off."));
     wModel = name;
+    let stage = "";
     const started = makeWorker(m).then((w) => { worker = w; });
-    const wire = () => { worker.onmessage = (e) => {
+    const wire = () => { const w = worker; worker.onmessage = (e) => {
       const d = e.data || {};
+      if (d.type === "stage") { stage = d.stage; return; }
       if (d.type === "fatal") { const err = new Error(d.error); for (const p of pending.values()) p.reject(err); pending.clear(); return; }
       if (d.type === "progress") { const mb = (x) => (x / 1048576).toFixed(1); setStatus(d.phase === "cache" ? "Model loaded from this device." : "Downloading model… " + mb(d.loaded) + (d.total ? " / " + mb(d.total) : "") + " MB"); return; }
       const p = pending.get(d.id); if (!p) return; pending.delete(d.id);
       d.type === "error" ? p.reject(new Error(d.error)) : p.resolve(d);
     };
-    worker.onerror = (e) => { e.preventDefault && e.preventDefault(); const err = new Error("Detection worker failed: " + (e.message ? e.message + (e.filename ? " (" + e.filename.split("/").pop() + ":" + e.lineno + ")" : "") : "the worker script could not start (" + workerHow + ")")); for (const p of pending.values()) p.reject(err); pending.clear(); }; };
+    worker.onerror = (e) => {
+      e.preventDefault && e.preventDefault();
+      const msg = e && e.message;
+      setTimeout(() => {   // let the worker's own "fatal" report arrive first
+        if (worker !== w) return;
+        const why = T.workerStart ? T.workerStart.describe(e, stage, workerHow) : msg || "the worker script could not start (" + workerHow + ")";
+        const err = new Error("Detection worker failed: " + why); for (const p of pending.values()) p.reject(err); pending.clear();
+        if (!msg && D.info) D.unload();   // killed by the browser: start afresh next time
+      }, msg ? 0 : 400);
+    }; };
     const urls = (D.prefs().urls && D.prefs().urls[name] ? [D.prefs().urls[name]] : []).concat(m.urls || []);
     const abs = urls.map((u) => new URL(u, location.href).href);
     setStatus("Loading " + m.label + "…");
-    loading = started.then(() => { wire(); return call({ type: "load", urls: abs, model: m.model, ortBases: D.config.ortBases.map((u) => new URL(u, location.href).href), tfUrl: D.config.tfUrl, size: D.config.size, useCache: D.cacheOk(), preferGpu: true }); })
+    loading = started.then(() => { wire(); return call({ type: "load", urls: abs, model: m.model, ortBases: D.config.ortBases.map((u) => new URL(u, location.href).href), tfUrl: D.config.tfUrl, size: D.config.size, useCache: D.cacheOk(), preferGpu: T.workerStart ? T.workerStart.gpuOk() : true }); })
       .then((info) => { D.backend = info.backend; D.info = info; setStatus("Ready · " + (info.backend === "webgpu" ? "WebGPU" : "WASM (CPU)") + (info.cached ? " · from this device" : info.saved ? " · saved on this device" : "")); return info; })
       .catch((e) => { setStatus("Detection unavailable: " + e.message); D.unload(); throw e; });
     return loading;
@@ -79,6 +90,7 @@
   // (e.g. Windows python http.server) can't stop it. Falls back to a plain new Worker(url).
   let workerHow = "";
   async function makeWorker(m) {
+    if (T.workerStart) { const st = await T.workerStart.start(m, "detection worker"); workerHow = st.how; return st.worker; }
     const opts = m.module ? { type: "module" } : undefined;
     try {
       const r = await fetch(m.worker, { cache: "no-cache" });
