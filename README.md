@@ -104,6 +104,19 @@ Settings ▸ **Object detection** (off until you turn it on). When it's on, a se
 
 ![Real YOLO11 nano detections on the sample clips](screenshots/phase5-live.png)
 
+## 360 view (beta prototype)
+Tap **360** in the camera bar. The six cameras are stitched on your device's GPU (WebGL2, or WebGL1 on older browsers) into one view around the car:
+- **Look around:** drag to turn, pinch or scroll to zoom, double-click to reset. **Gyro** uses the phone's motion sensor (iPhone asks for permission).
+- **Flat 360:** the whole equirectangular 2:1 picture.
+- Each camera is undistorted with a lens model (fisheye Kannala–Brandt or rectilinear) and placed by its estimated angle. Overlaps are feather-blended, and areas no camera sees (above the car, and the gaps around it) are dark.
+- **The camera angles and fields of view are estimates** from public information: Tesla lists the main forward camera at about 50°, wide 120°, B-pillar "forward-looking side" cameras at 90°, and fender repeaters aimed about 45° toward the rear. They will not line up perfectly on every car. **Advanced ▸ 360 ▸ Calibrate** adjusts yaw, pitch, roll, field of view and k1 per camera with a live preview, saves on this device, and exports/imports JSON. Automatic refinement (feature matching in the overlaps) is not built yet.
+- All cameras are projected as if things were far away, so close objects in the overlaps can show double or ghosted.
+- With 360 off nothing extra loads (`js/pano.js` is fetched on first use). Phones render at half resolution and at most 30 fps; nothing is drawn while the video is paused and unchanged, or while the tab is hidden.
+- **Export:** Advanced ▸ Export ▸ **360 equirectangular (beta)** writes a 2048×1024 MP4 (WebCodecs browsers). The file has **no spherical metadata**. Before uploading to YouTube or a 360 player, run Google's [Spatial Media Metadata Injector](https://github.com/google/spatial-media/releases) on it.
+
+![360 look-around view (sample clips)](screenshots/panorama-look.png)
+![360 flat equirectangular (sample clips)](screenshots/panorama-equirect.png)
+
 ## Keyboard shortcuts
 | Key | Action |
 |---|---|

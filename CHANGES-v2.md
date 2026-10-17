@@ -108,3 +108,18 @@ Rollback: `git checkout pre-phase5-fix` (= phase5-detection, 3180065).
 - **Small objects:** `D.SMALL` classes (umbrella, backpack, handbag, traffic light, stop sign, …) use 60% of the threshold (35% → 21%). If the full frame has none, the search looks at 2×2 overlapping 60% tiles (merged with NMS); tracking reuses tiles for tiled hits. Setting: Small objects Auto / Always zoom / Off.
 - Measured on `test/fixtures/small-umbrella-*.png` (a public-domain umbrella pasted into a sample frame, threshold 21%), full frame → tiles: nano 70 px 0→49%, 45 px 0→36%, 30 px 0→0 (missed); small 70 px 40→70%, 45 px 0→85%, 30 px 0→42%.
 - Tests: `node test/phase5-worker.js <localhost url> <LAN bad-MIME url>` runs Playwright Chromium and WebKit through three cases: localhost, LAN http with wrong MIME types (`node test/serve-badmime.js . 18792`), and a blocked CDN. It also checks error text, labels and umbrella recall. burn-boxes/live-labels tests and screenshots are updated for the new labels.
+
+## 360 view prototype (tag panorama-360-proto)
+Rollback: `git checkout pre-panorama-360` (= phase5-worker-fix, 780a481). With the 360 toggle off, the app behaves exactly as before.
+
+- `js/pano-toggle.js` (always loaded, tiny): the **360** button; lazy-loads `js/pano.js` on first use.
+- `js/pano.js`:
+  - A WebGL2 renderer, with a WebGL1 fallback, draws one full-screen triangle strip. It uses six video textures with per-camera rotation (yaw·pitch·roll), a lens model (Kannala–Brandt θ(1+k1θ²+…+k4θ⁸) or rectilinear), principal point, and mirror.
+  - Overlaps are feather-blended by edge distance × angular weight. Blind spots are dark.
+  - Two views: look-around (drag, pinch, wheel, optional DeviceOrientation gyro) and flat equirect. The mode is saved in `tdc.pano.view.v1`.
+  - Estimated defaults (yaw/pitch/FOV): front 0/−3/70 rect; back 180/−18/125 fisheye; pillars ±58/−6/90; repeaters ±132/−8/85. Mounting positions are stored but not used (no parallax correction).
+  - Calibration panel (Advanced): per-camera sliders, lens and mirror, saved in `tdc.pano.calib.v1` and sanitised, with JSON export/import and reset.
+  - Performance: phones render at ×0.5 resolution, width ≤1280, ≤30 fps. Nothing is drawn while paused and unchanged, or while the tab is hidden. The view turns off when another event opens.
+- Export: new Advanced preset "360 equirectangular (beta)" at 2048×1024, stepping down to 1920×960 and 1440×720. It uses H.264, then VP9, then AV1, through the same WebCodecs path (`encodeOnce` with `cand.equirect` → `T.pano.drawEquirect`). Overlays are not drawn. There is no spherical metadata (the README points to Google's Spatial Media Metadata Injector). The grid export is unchanged.
+- Test: `node test/panorama-360.js http://127.0.0.1:8770/index.html` (`SHOTS=dir` → panorama-look, panorama-equirect, panorama-equirect-view, panorama-calibrate, panorama-mobile). It checks lazy loading, WebGL2/WebGL1 compile, non-black renders, projection maths, the dark blind spot, calibration, toggle off restoring the grid, no rendering while off, 360 export at 2:1, regular export, and phone resolution.
+- Limitations: the sample clips are synthetic single photos per camera, so seams in the screenshots don't line up (real footage + calibration needed). Auto-refine is a TODO. Not tested on a real iPhone or GPU, only headless SwiftShader.
