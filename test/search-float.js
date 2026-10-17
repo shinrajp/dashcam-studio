@@ -26,11 +26,18 @@ async function open(p) {
 // WebKit headless sometimes never answers the first evaluate after loading files: retry once on a fresh page.
 async function openPage(ctx) {
   for (let a = 1; ; a++) {
-    const p = await ctx.newPage(); p.errs = []; p.on("pageerror", (e) => p.errs.push(e.message));
+    const c = a === 1 || !ctx._opts ? ctx : await ctx.browser().newContext(ctx._opts);
+    if (c !== ctx) for (const f of ctx._inits) await c.addInitScript(f);
+    const p = await c.newPage(); p.errs = []; p.on("pageerror", (e) => p.errs.push(e.message));
     try { await Promise.race([open(p), W(60000).then(() => { throw new Error("load timed out"); })]); return p; }
-    catch (e) { console.log("NOTE page load retry (" + e.message + ")"); await p.close().catch(() => {}); if (a >= 3) throw e; }
+    catch (e) { console.log("NOTE page load retry (" + e.message + ")"); await p.close().catch(() => {}); if (a >= 4) throw e; }
   }
 }
+const newCtx = async (b, o) => {
+  const c = await b.newContext(o); c._opts = o; c._inits = [];
+  const add = c.addInitScript.bind(c); c.addInitScript = (f) => { c._inits.push(f); return add(f); };
+  return c;
+};
 const geo = (p) => p.evaluate(() => {
   const r = (el) => { const b = el.getBoundingClientRect(); return { l: b.left, t: b.top, r: b.right, b: b.bottom, w: b.width, h: b.height }; };
   const pn = document.getElementById("usPanel"), P = r(pn);
@@ -54,7 +61,7 @@ async function drag(p, from, dx, dy, touch) {
 const grip = (p) => p.evaluate(() => { const b = document.getElementById("usGrip").getBoundingClientRect(); return { x: b.left + 40, y: b.top + b.height / 2 }; });
 
 async function desktop(b, tag) {
-  const ctx = await b.newContext({ viewport: { width: 1440, height: 900 } });
+  const ctx = await newCtx(b, { viewport: { width: 1440, height: 900 } });
   const p = await openPage(ctx);
   await p.evaluate((h) => { TDC.searchUI.show(false); eval(h); }, HITS); await W(500);
   let g = await geo(p);
@@ -119,7 +126,7 @@ async function desktop(b, tag) {
 }
 
 async function phone(b, tag, vp, shot) {
-  const ctx = await b.newContext({ viewport: vp, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
+  const ctx = await newCtx(b, { viewport: vp, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
   const p = await openPage(ctx);
   const portrait = vp.height > vp.width;
   if (portrait) {
@@ -184,7 +191,7 @@ async function phone(b, tag, vp, shot) {
     await phone(b, name + " 390x844", { width: 390, height: 844 }, name === "chromium" ? "search-float-mobile-fullscreen-strip.png" : "");
     await phone(b, name + " 844x390", { width: 844, height: 390 }, name === "chromium" ? "search-float-mobile-landscape-strip.png" : "");
     // fallback: strip init throws -> nothing breaks
-    const ctx = await b.newContext({ viewport: { width: 390, height: 844 }, isMobile: name !== "webkit" ? true : undefined, hasTouch: true });
+    const ctx = await newCtx(b, { viewport: { width: 390, height: 844 }, isMobile: name !== "webkit" ? true : undefined, hasTouch: true });
     await ctx.addInitScript(() => { window.__TDC_STRIP_FAIL = true; });
     const p = await openPage(ctx);
     ok(name + " strip forced failure: no strip, search still ok", await p.evaluate(() => !document.getElementById("usStrip") && TDC.searchUI.ok && !TDC.searchStrip.ok), await p.evaluate(() => TDC.searchStrip.error));

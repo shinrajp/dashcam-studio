@@ -3,7 +3,7 @@
 //  - real models on test/fixtures/plate-*.jpg (synthetic CA-style plates, made-up numbers): detection + reading accuracy, speed
 //  - street sign text with the bundled PP-OCR (redact.js)
 //  - search: "plate 7TST*", "7TST 12", "5SMP260" (around), "plates", no-match; index saved in IndexedDB and back after reload
-//  - gold box follows the plate; label "plate 7TST123 NN%" in viewer + burn-boxes
+//  - gold box follows the plate; label "7TST123 · match NN% · read NN% · Best match" in viewer + burn-boxes
 //  - blur: live preview layer + REAL export (Most Compatible MP4) decoded with ffmpeg: plate area blurred vs. not
 //  - graceful failure: missing model, IndexedDB unavailable; regressions: detection/CLIP routing unchanged, off by default
 // Usage: node test/phase6-plates.js [url]    SHOTS=dir saves screenshots
@@ -77,7 +77,7 @@ const find = async (p, q, cam) => { await p.evaluate((q, cam) => { document.getE
   const scanMs = Date.now() - t0;
   const scan = await p.evaluate(() => { const s = TDC.libIndex.text.get(TDC.player.ev.id); return s && { n: s.items.length, cams: s.cams, step: s.step, frames: Math.round(8 / s.step) * s.cams.length, ms: s.ms, mode: TDC.libIndex.text.mode, plates: [...new Set(s.items.map((i) => i.cam + ":" + i.text))] }; });
   console.log("SCAN", JSON.stringify(scan), "search ms", scanMs);
-  ok("'plate 7TST*' → front hits labelled 'plate 7TST123 NN%'", r.hits.length > 0 && r.hits.every((h) => h.cam === "front" && h.label === "plate 7TST123" && /^7TST123 \d+%$/.test(h.text)), r);
+  ok("'plate 7TST*' → one merged result '7TST123 · match NN% · read NN% · Best match'", r.hits.length === 1 && r.hits.every((h) => h.cam === "front" && h.label === "plate 7TST123" && /^7TST123 · match \d+% · read \d+%( · seen \d+×)? · Best match$/.test(h.text)), r);
   ok("index stored in IndexedDB with both plates (metadata only)", scan && scan.mode === "indexeddb" && scan.plates.includes("front:7TST123") && scan.plates.includes("back:5SMP260"), scan);
   ok("index records carry time, camera, box, confidence, per-char confidence — no image data", await p.evaluate(() => TDC.libIndex.text.get(TDC.player.ev.id).items.every((i) => typeof i.t === "number" && i.cam && i.box && typeof i.conf === "number" && Array.isArray(i.chars) && !Object.values(i).some((v) => typeof v === "string" && v.length > 64))));
   // the box is on the plate
@@ -87,7 +87,7 @@ const find = async (p, q, cam) => { await p.evaluate((q, cam) => { document.getE
   for (let i = 0; i < 160 && !(await p.evaluate(() => TDC.detect.tracks.length)); i++) await W(250);
   const tk = await p.evaluate(() => { const D = TDC.detect, tr = D.tracks[0]; if (!tr) return null; return { from: tr.from, to: tr.to, a: D.boxesAt("front", tr.from + 0.05), z: D.boxesAt("front", tr.to - 0.05), burn: TDC.burnBoxes.at("front", tr.from + 0.05) }; });
   ok("gold box follows the plate (tracked, moves/grows)", tk && tk.to - tk.from >= 1.5 && tk.a.length === 1 && tk.z.length === 1 && Math.abs(tk.z[0].w - tk.a[0].w) > 0.003, tk);
-  ok("label 'plate 7TST123 NN%' in viewer and burn-in", tk && /^plate 7TST123 \d+%$/.test(tk.a[0].text) && tk.burn[0].text === tk.a[0].text, tk && tk.a[0]);
+  ok("same label '7TST123 · match NN% · read NN% · Best match' in viewer and burn-in", tk && /^7TST123 · match \d+% · read \d+%( · seen \d+×)? · Best match$/.test(tk.a[0].text) && tk.burn[0].text === tk.a[0].text, tk && tk.a[0]);
   if (SHOTS) { await p.evaluate(async () => { TDC.player.pause(); await TDC.player.seek(2.2); }); await W(900); await p.screenshot({ path: SHOTS + "/phase6-plate-search.png" }); }
   r = await find(p, "7TST 12", "front");
   ok("partial '7TST 12' (no rescan, instant)", r.hits.length > 0 && r.hits[0].label === "plate 7TST123", r.status);
