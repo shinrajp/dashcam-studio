@@ -41,7 +41,21 @@
     new ResizeObserver(O.invalidate).observe(stage);
   };
 
-  const grid = () => ({ x: 0, y: 0, w: O.stage.clientWidth, h: O.stage.clientHeight });
+  /** Free area for the panels: the stage, minus the bottom bars that float over it in full screen
+   *  (transport, phone thumbnail strip), so the HUD is not hidden under them. */
+  const grid = () => {
+    const w = O.stage.clientWidth, h = O.stage.clientHeight;
+    if (!document.body.classList.contains("fs")) return { x: 0, y: 0, w, h };
+    const st = O.stage.getBoundingClientRect();
+    let bottom = st.bottom;
+    for (const id of ["transport", "usStrip"]) {
+      const el = T.$(id);
+      if (!el || el.hidden || !el.offsetHeight || getComputedStyle(el).position !== "fixed") continue;
+      const r = el.getBoundingClientRect();
+      if (r.top < bottom && r.bottom > st.top + h * 0.5) bottom = r.top;
+    }
+    return { x: 0, y: 0, w, h: Math.max(h * 0.5, Math.min(h, bottom - st.top)) };
+  };
   const dpr = () => Math.min(3, window.devicePixelRatio || 1);
 
   function size(p, wCss, hCss) {
