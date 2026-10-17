@@ -296,7 +296,9 @@
         if (token === S.trackToken && S.anchor === hit.t && T.detect) { T.detect.tracks = tracks; status(tracks.length ? "The gold box follows the plate. " + (hit.text ? "Read as " + hit.text + "." : "") : "Showing the plate at the match only."); }
       } catch (err) { console.warn("plate tracking skipped", err); status("Plate tracking unavailable (" + (err.message || err) + "). The gold box stays at the match."); }
       paintBoxes();
-    } else if (show && n && T.detect && T.detect.enabled()) {
+    } else if (show && n && group.some((g) => g.cloud && !g.plate)) {   // Phase 6 B: cloud answers are per frame; no local tracking
+      status("The gold box is where the cloud model said it saw it" + (hit.text ? " (" + hit.text + ")" : "") + ". It may be wrong.");
+} else if (show && n && T.detect && T.detect.enabled()) {
       const token = (S.trackToken = (S.trackToken || 0) + 1);
       try {
         group.forEach((g) => { g.phrase = g.det ? null : S.phrase; });
@@ -372,6 +374,22 @@
     S.hits = [];
     if (T.detect) T.detect.clear();
     renderHits();
+    // Phase 6 part B: "ask <anything>" → the user's own cloud provider (opt-in, consent first), on a few sampled frames
+    if (T.cloud && T.cloud.handlesQuery(q)) {
+      try {
+        S.phrase = T.cloud.queryOf(q); S.query = null; S.anchor = null;
+        const rows = await T.cloud.find(q, ev, cams, { status, stopped: () => S.stop });
+        S.hits = cluster(rows);
+        renderHits();
+        const who = T.cloud.PROVIDERS[T.cloud.provider()].label;
+        status(S.hits.length ? S.hits.length + " moment" + (S.hits.length === 1 ? "" : "s") + " where " + who + " saw “" + S.phrase + "”. Answers from a cloud model can be wrong; check the video." : who + " found no “" + S.phrase + "” in the sampled frames.");
+        if (S.hits.length) openHit(S.hits[0]);
+      } catch (err) {
+        console.warn("cloud search failed", err);
+        status(String(err.message) === "cancelled" ? "Nothing was sent." : "Cloud search failed: " + (err.message || err) + " Nothing else changed.");
+      } finally { S.running = false; S.stop = false; $("btnFind").disabled = false; $("btnFindStop").hidden = true; }
+      return;
+    }
     // Phase 6: plates ("plate 7AB*", "7ABC 23", "plates") and street names ("street Palm Ave"), read on this device
     if (T.plates && T.plates.handlesQuery(q)) {
       try {
@@ -385,6 +403,7 @@
         if (!S.hits.length) status("No " + (parsed.kind === "plate" ? "plate matching " + parsed.label : "street text matching “" + parsed.label + "”") + " in this event." + more + " Readings can be wrong; try a shorter pattern like 7AB*, or more cameras.");
         else status(S.hits.length + " moment" + (S.hits.length === 1 ? "" : "s") + " with " + (parsed.kind === "plate" ? "plate " + parsed.label : "“" + parsed.label + "”") + "." + more + " Read on this device; check the video, readings can be wrong.");
         if (S.hits.length) openHit(S.hits[0]);
+        if (T.cloud) T.cloud.syncButton();
       } catch (err) {
         console.warn("plate search failed", err);
         status(String(err.message) === "stopped" ? "Stopped." : "Plate reading unavailable (" + (err.message || err) + "). Nothing else changed.");

@@ -264,7 +264,7 @@
     return here.map((r) => {
       const it = r.item, isPlate = it.kind === "plate";
       const label = (isPlate ? "plate " : "") + it.text;
-      return { t: it.t, cam: it.cam, score: r.score * (0.5 + 0.5 * it.conf), conf: it.conf, label, text: it.text + " " + pct(it.conf), det: true, plate: isPlate, streetText: !isPlate, box: { ...it.box }, chars: it.chars, raw: it.raw, detConf: it.det, weak: it.conf < minRead };
+      return { t: it.t, cam: it.cam, score: r.score * (0.5 + 0.5 * it.conf), conf: it.conf, label, text: it.text + " " + pct(it.conf) + (it.cloud && it.cloud.text ? " · checked by " + ({ grok: "Grok", claude: "Claude", gemini: "Gemini" }[it.cloud.prov] || "cloud") : ""), cloud: it.cloud && it.cloud.text ? it.cloud.prov : undefined, det: true, plate: isPlate, streetText: !isPlate, box: { ...it.box }, chars: it.chars, raw: it.raw, detConf: it.det, weak: it.conf < minRead };
     });
   };
 
