@@ -97,6 +97,52 @@
     T.emit("libindex");
   };
 
+  // ── Phase 6: plate & street-text index (metadata only: text, time, camera, box, confidence — never video or images).
+  // Kept in its own IndexedDB database ("tdc-text-index") so the events database version stays 1 for older builds.
+  // If IndexedDB fails, scans live in memory for this session only.
+  const TX = (X.text = { mode: "memory", scans: new Map() });
+  let tdb = null;
+  const topen = () => new Promise((res, rej) => {
+    let req; try { req = indexedDB.open("tdc-text-index", 1); } catch (e) { return rej(e); }
+    req.onupgradeneeded = () => { if (!req.result.objectStoreNames.contains("scans")) req.result.createObjectStore("scans", { keyPath: "eventId" }); };
+    req.onsuccess = () => res(req.result); req.onerror = () => rej(req.error); req.onblocked = () => rej(new Error("IndexedDB blocked"));
+    setTimeout(() => rej(new Error("IndexedDB open timeout")), 4000);
+  });
+  const ttx = (mode, fn) => new Promise((res, rej) => { const t = tdb.transaction("scans", mode); const st = t.objectStore("scans"); let out; Promise.resolve(fn(st)).then((v) => { out = v; }); t.oncomplete = () => res(out); t.onerror = () => rej(t.error); t.onabort = () => rej(t.error || new Error("aborted")); });
+  const tdegrade = (e) => { if (TX.mode !== "memory") console.warn("Text index: IndexedDB unavailable, memory only", e); TX.mode = "memory"; tdb = null; };
+  TX.ready = (async () => {
+    try {
+      if (!("indexedDB" in window) || !window.indexedDB) throw new Error("no IndexedDB");
+      tdb = await topen();
+      const all = await ttx("readonly", (st) => new Promise((r, j) => { const q = st.getAll(); q.onsuccess = () => r(q.result); q.onerror = () => j(q.error); }));
+      for (const sc of all || []) TX.scans.set(sc.eventId, sc);
+      TX.mode = "indexeddb";
+    } catch (e) { tdegrade(e); }
+  })();
+  /** scan = { eventId, at, cams:[], step, model, items:[{kind:"plate"|"text", text, raw, conf, det, chars, cam, t, box}] } */
+  TX.put = async (scan) => {
+    TX.scans.set(scan.eventId, scan);
+    if (tdb) try { await ttx("readwrite", (st) => st.put(scan)); } catch (e) { tdegrade(e); }
+    T.emit && T.emit("textindex");
+  };
+  TX.get = (eventId) => TX.scans.get(eventId) || null;
+  TX.all = () => [...TX.scans.values()];
+  TX.count = () => TX.all().reduce((n, sc) => n + (sc.items ? sc.items.length : 0), 0);
+  TX.clear = async () => {
+    TX.scans.clear();
+    if (tdb) try { await ttx("readwrite", (st) => st.clear()); } catch (e) { tdegrade(e); }
+    T.emit && T.emit("textindex");
+  };
+  /** Search every indexed event. match(item) → score (0 = no). Returns [{eventId, item, score}] best first. */
+  TX.search = (match, onlyEvent) => {
+    const out = [];
+    for (const sc of TX.scans.values()) {
+      if (onlyEvent && sc.eventId !== onlyEvent) continue;
+      for (const it of sc.items || []) { const s = match(it); if (s > 0) out.push({ eventId: sc.eventId, item: it, score: s }); }
+    }
+    return out.sort((a, b) => b.score - a.score || b.item.conf - a.item.conf);
+  };
+
   X.matches = (rec, filter) => filter === "undecrypted" ? rec.status === "undecrypted" : filter === "decrypted" ? rec.status === "decrypted" : true;
   X.list = (filter) => [...X.events.values()].filter((r) => X.matches(r, filter || X.filter)).sort((a, b) => (b.time || 0) - (a.time || 0));
 })();
