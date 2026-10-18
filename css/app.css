@@ -487,6 +487,9 @@ body.usearch:not(.usearch-classic) .transport > #btnCloudRecheck { display: none
 .us-chip { height: 28px; padding: 0 10px; border-radius: 14px; border: 1px solid var(--line); background: #1e222a; color: var(--dim); font-size: 12px; cursor: pointer; }
 .us-chip:hover { color: var(--text); border-color: rgba(255,255,255,.2); }
 .us-status { font-size: 12px; color: var(--dim); line-height: 1.4; }
+.q-chips { display: flex; flex-wrap: wrap; gap: 4px; padding: 0 2px 6px; }   /* what the search understood: color, type, make, detector… */
+.q-chips[hidden] { display: none; }
+.q-chip { font: 600 11px/1 system-ui, sans-serif; padding: 4px 8px; border-radius: 999px; background: rgba(230,180,80,.14); color: #f0cf86; border: 1px solid rgba(230,180,80,.35); white-space: nowrap; }
 .us-results { overflow-y: auto; min-height: 0; flex: 1 1 auto; border-top: 1px solid var(--line); padding-top: 4px; -webkit-overflow-scrolling: touch; }
 .us-results[hidden] { display: none; }
 .us-group { display: flex; justify-content: space-between; font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--faint); padding: 8px 6px 4px; }

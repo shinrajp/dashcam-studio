@@ -108,6 +108,32 @@
     return text_embeds.data.slice(0, text_embeds.dims[text_embeds.dims.length - 1]);
   }
 
+  // Shared CLIP access for vehicle details (vehicle.js): same model and cache as the picture search, no extra download.
+  const unit = (v) => { let n = 0; for (let i = 0; i < v.length; i++) n += v[i] * v[i]; n = Math.sqrt(n) || 1; const o = new Float32Array(v.length); for (let i = 0; i < v.length; i++) o[i] = v[i] / n; return o; };
+  S.clip = {
+    load: (onProgress) => loadModel(onProgress || (() => {})),
+    /** prompts → unit text vectors (raw prompts, no "dashcam photo" prefix) */
+    texts: async (prompts) => {
+      const model = await loadModel(() => {});
+      const out = [];
+      for (let i = 0; i < prompts.length; i += 16) {
+        const inputs = model.tokenizer(prompts.slice(i, i + 16), { padding: true, truncation: true });
+        const { text_embeds } = await model.textModel(inputs);
+        const d = text_embeds.dims[text_embeds.dims.length - 1];
+        for (let k = 0; k < text_embeds.dims[0]; k++) out.push(unit(text_embeds.data.slice(k * d, (k + 1) * d)));
+      }
+      return out;
+    },
+    /** canvas (any size; it's resized to 224) → unit image vector */
+    image: async (canvas) => {
+      const model = await loadModel(() => {});
+      const inputs = await model.processor(model.mod.RawImage.fromCanvas(canvas));
+      const { image_embeds } = await model.visionModel(inputs);
+      return unit(image_embeds.data.slice(0, image_embeds.dims[image_embeds.dims.length - 1]));
+    },
+    ready: () => !!tf,
+  };
+
   function wait(el, ev, ms) {
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => { el.removeEventListener(ev, ok); reject(new Error("frame timed out")); }, ms);
@@ -298,7 +324,7 @@
       paintBoxes();
     } else if (show && n && group.some((g) => g.cloud && !g.plate)) {   // Phase 6 B: cloud answers are per frame; no local tracking
       status("The gold box is where the cloud model said it saw it" + (hit.text ? " (" + hit.text + ")" : "") + ". It may be wrong.");
-} else if (show && n && T.detect && T.detect.enabled()) {
+} else if (show && n && T.detect && (T.detect.enabled() || group.some((g) => g.vehicle))) {
       const token = (S.trackToken = (S.trackToken || 0) + 1);
       try {
         group.forEach((g) => { g.phrase = g.det ? null : S.phrase; });
@@ -361,6 +387,7 @@
     S.query = null;
     S.phrase = "";
     if (T.detect) T.detect.clear();
+    if (T.vehicle) T.vehicle.chips([]);
     renderHits();
     paintBoxes();
     status("");
@@ -393,6 +420,7 @@
     $("btnFindStop").hidden = false;
     S.hits = []; S.allHits = null;
     if (T.detect) T.detect.clear();
+    if (T.vehicle) T.vehicle.chips([]);
     renderHits();
     // Phase 6 part B: "ask <anything>" → the user's own cloud provider (opt-in, consent first), on a few sampled frames
     if (T.cloud && T.cloud.handlesQuery(q)) {
@@ -411,10 +439,41 @@
       return;
     }
     // Phase 6: plates ("plate 7AB*", "7ABC 23", "plates") and street names ("street Palm Ave"), read on this device
+    // natural plate phrases ("blur the license plate", "find plate 9DZM") never go to the picture search
+    const plateAsk = T.plates && T.plates.parse(q);
+    if (plateAsk && plateAsk.explicit && !T.plates.enabled()) {
+      S.running = false; $("btnFind").disabled = false; $("btnFindStop").hidden = true;
+      if (T.vehicle) T.vehicle.chips(plateAsk.kind === "plate" ? [plateAsk.blur ? "blur" : "find", "plate", plateAsk.all ? "any" : plateAsk.label] : ["street", plateAsk.label]);
+      status("That's a " + (plateAsk.kind === "plate" ? "plate" : "street text") + " search. Turn on Settings ▸ Plates & text (beta) to " + (plateAsk.blur ? "blur plates" : "find plates and street names") + "; it reads them on this device.");
+      return;
+    }
+    // Vehicle details (beta): "red tour bus", "white police car", "ambulance", "Tesla Model Y", "blue Toyota"
+    if (T.vehicle && T.vehicle.handlesQuery(q) && T.detect) {
+      try {
+        const vq = T.vehicle.parse(q);
+        S.phrase = q; S.query = null; S.anchor = null;
+        T.vehicle.chips(vq.chips.concat(vq.make && !T.vehicle.prefs().makes ? ["make & model: off (Settings)"] : []));
+        const rows = await T.vehicle.runSearch(q, list, { status, stopped: () => S.stop });
+        S.allHits = T.vehicle.cluster(rows);
+        applyBest();
+        renderHits();
+        const ls = T.vehicle.lastSearch || {};
+        const off = vq.make && !T.vehicle.prefs().makes ? " Make & model is off, so " + vq.make + " was not checked (Settings ▸ Vehicle details)." : "";
+        if (!S.hits.length) status((S.stop ? "Stopped. " : "") + "No " + vq.label + " found in " + (ls.frames || 0) + " frames." + off + " Colours and types are guesses; try fewer words (\"bus\", \"red bus\") or more cameras.");
+        else status((S.hits.length < S.allHits.length ? "Best match only: " + S.hits.length + " of " + S.allHits.length : String(S.hits.length)) + " result" + (S.allHits.length === 1 ? "" : "s") + " for " + vq.label + "." + off + " Colour, type and make are guesses from the picture; check the video." + (ls.reused ? " (" + ls.reused + " frames from the vehicle index)" : ""));
+        if (S.hits.length) openHit(S.hits.find((h) => h.best) || S.hits[0]);
+      } catch (err) {
+        console.warn("vehicle search failed", err);
+        status("Vehicle details unavailable (" + (err.message || err) + "). Nothing else changed; plain words still use the picture search.");
+      } finally { S.running = false; S.stop = false; $("btnFind").disabled = false; $("btnFindStop").hidden = true; }
+      return;
+    }
     if (T.plates && T.plates.handlesQuery(q)) {
       try {
         S.phrase = q; S.query = null; S.anchor = null;
         const parsed = T.plates.parse(q);
+        if (T.vehicle) T.vehicle.chips(parsed.kind === "plate" ? [parsed.blur ? "blur" : "find", "plate", parsed.all ? "any" : parsed.label] : ["street", parsed.label]);
+        if (parsed.blur && parsed.kind === "plate" && !T.plates.prefs().blur) { T.plates.setPref("blur", true); T.toast("Plate blur is on (preview and export). Turn it off in Settings ▸ Plates & text.", "ok", 5000); }
         const rows = await T.plates.runSearch(q, ev, cams, { status, stopped: () => S.stop });
         S.allHits = T.plates.cluster ? T.plates.cluster(rows) : cluster(rows);
         applyBest();
@@ -435,6 +494,7 @@
       let done = false;
       try {
         S.phrase = q; S.query = null; S.anchor = null;
+        if (T.vehicle) T.vehicle.chips(["detector: " + (T.detect.classFor(q) || q)]);
         const rows = await T.detect.runSearch(q, list, { status, stopped: () => S.stop });
         S.hits = cluster(rows);
         renderHits();
@@ -455,6 +515,7 @@
       if (S.stop) return;
       status("Reading the search phrase…");
       S.phrase = q;
+      if (T.vehicle) T.vehicle.chips(["picture search"]);
       S.query = await textVec(model, q);
       S.anchor = null;
       const query = S.query;
@@ -484,7 +545,7 @@
       renderHits();
       if (S.stop) status("Stopped. " + S.hits.length + " moment" + (S.hits.length === 1 ? "" : "s") + " marked so far.");
       else if (!S.hits.length) status("No moment stood out for “" + q + "”. Try a simpler phrase, or look at more cameras.");
-      else status((S.hits.some((h) => h.weak) ? "Closest moments" : "Possible matches") + " for “" + q + "”. These are guesses from the picture, not proof. Click one to jump there. The yellow marks are on the timeline.");
+      else status((S.hits.some((h) => h.weak) ? "Closest moments" : "Possible matches") + " for “" + q + "”. These are guesses from the picture, not proof. Click one to jump there. The yellow marks are on the timeline." + (T.vehicle && !T.vehicle.enabled() && (() => { const p = T.vehicle.parse(q); return p && (p.color || p.type || p.make); })() ? " Tip: turn on Settings ▸ Vehicle details (beta) to search by vehicle colour and type." : ""));
       if (S.hits.length) openHit(S.hits[0]);
     } catch (err) {
       console.error(err);

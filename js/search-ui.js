@@ -362,6 +362,7 @@
       '<button type="button" class="btn small" id="usRedact" title="Blur this text wherever it appears (Shift+Enter)">Blur text</button>' +
       '<button type="button" class="btn ghost small" id="usStop" hidden>Stop</button></div>' +
       '<div class="us-presets">' + presets + "</div>" +
+      '<div class="q-chips" id="usChips" hidden></div>' +
       '<div class="us-status" id="usStatus" hidden></div>' +
       '<label class="us-best" id="usBestWrap" hidden title="Show only the best-matching plate or text (best text match × read confidence)"><input type="checkbox" id="usBest"> Best match only <span id="usBestN"></span></label>' +
       '<div class="us-results" id="usResults" role="listbox" aria-label="Results" hidden></div>' +

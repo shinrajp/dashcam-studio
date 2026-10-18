@@ -191,7 +191,7 @@
         return out;
       }
       const lv = D.live[cam];
-      if (lv && Math.abs(lv.t - t) <= (lv.hold || 1.5)) return lv.dets.map((b) => ({ x: b.x, y: b.y, w: b.w, h: b.h, text: b.label + " " + pct(b.conf) }));
+      if (lv && Math.abs(lv.t - t) <= (lv.hold || 1.5)) return lv.dets.map((b) => ({ x: b.x, y: b.y, w: b.w, h: b.h, text: (b.attr ? b.attr + " " : "") + b.label + " " + pct(b.conf) }));
       return null;
     } catch (_) { return null; }
   };
@@ -276,7 +276,8 @@
       const tile = T.player.tiles[cam], v = tile && tile.vids[T.player.active];
       if (!v || !v.videoWidth) return;
       const t = T.player.time;
-      const dets = await D.detectImage(v, v.videoWidth, v.videoHeight);
+      let dets = await D.detectImage(v, v.videoWidth, v.videoHeight);
+      if (T.vehicle && T.vehicle.decorateLive) dets = T.vehicle.decorateLive(v, v.videoWidth, v.videoHeight, dets);   // "white car 91%"
       D.live = { [cam]: { t, dets, hold: every / 1000 + 0.6 } };
       T.emit("layout");
     } catch (e) { console.warn("live detect", e); D.setPref("live", false); setStatus("Live detection turned off: " + e.message); }

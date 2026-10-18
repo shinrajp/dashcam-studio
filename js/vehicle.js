@@ -1,0 +1,256 @@
+/* vehicle.js — Vehicle details (beta): colour, type/role and (optionally) make & model of the cars, buses and trucks
+ * the object detector finds, so searches like "red tour bus", "white police car", "ambulance", "blue Toyota" work.
+ * Two stages, all on this device:
+ *   1. the YOLO11 detector (detect.js) finds car / bus / truck / motorcycle boxes;
+ *   2. on each box: dominant colour from the pixels (vehicle-attrs.js, instant), type/role and make/model by CLIP
+ *      zero-shot on the crop — the same CLIP model the picture search already downloads, so nothing extra is fetched.
+ * Off until Settings ▸ Vehicle details (beta). Make & model is a separate, rough sub-option. Results are kept in the
+ * vehicle index (metadata only: time, camera, box, class, colour, type/make scores — no images) so repeat searches are fast.
+ * Any failure → the search says why; detection, plates, picture search, playback and export work as before. */
+(function () {
+  "use strict";
+  const T = (window.TDC = window.TDC || {});
+  const A = () => T.vehicleAttrs;
+  const KEY = "tdc.vehicle.v1";
+  const VEH = new Set(["car", "bus", "truck", "motorcycle"]);
+  const CAM_LABEL = { front: "Front", back: "Rear", left_repeater: "Left", right_repeater: "Right", left_pillar: "Left pillar", right_pillar: "Right pillar" };
+  const V = (T.vehicle = { status: "", timings: { det: [], color: [], clip: [] }, mem: new Map() });
+  const isMobile = () => (T.detect && T.detect.isMobile ? T.detect.isMobile() : /iPhone|iPad|Android/i.test(navigator.userAgent));
+  const pct = (c) => Math.round(Math.max(0, Math.min(1, c)) * 100) + "%";
+  const $ = (id) => document.getElementById(id);
+
+  V.defaults = () => ({ enabled: false, makes: false });
+  V.prefs = () => { const d = V.defaults(); try { const v = JSON.parse(localStorage.getItem(KEY) || "null"); if (v && typeof v === "object") return { ...d, ...v }; } catch (_) {} return d; };
+  V.setPref = (k, v) => { const p = V.prefs(); p[k] = v; try { localStorage.setItem(KEY, JSON.stringify(p)); } catch (_) {} V.renderSettings(); };
+  V.enabled = () => V.prefs().enabled === true;
+  V.parse = (q) => (A() ? A().parse(q) : null);
+  /** Queries this answers: an attribute was named (colour, role, make/model). Plain "car"/"bus" stay with the detector. */
+  V.handlesQuery = (q) => { if (!V.enabled()) return false; const p = V.parse(q); return !!(p && (p.color || p.type || p.make)); };
+
+  // ── query chips (what the search understood) ──
+  V.chips = (list) => {
+    const html = (list || []).filter(Boolean).map((c) => '<span class="q-chip">' + String(c).replace(/[&<>"]/g, (m) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[m])) + "</span>").join("");
+    for (const id of ["findChips", "usChips"]) { const n = $(id); if (n) { n.innerHTML = html; n.hidden = !html; } }
+  };
+
+  // ── vehicle index: metadata only, its own IndexedDB database; memory only if IndexedDB is unavailable ──
+  let db = null; V.mode = "memory";
+  const dbOpen = () => new Promise((res, rej) => {
+    let req; try { req = indexedDB.open("tdc-vehicle-index", 1); } catch (e) { return rej(e); }
+    req.onupgradeneeded = () => { if (!req.result.objectStoreNames.contains("events")) req.result.createObjectStore("events", { keyPath: "eventId" }); };
+    req.onsuccess = () => res(req.result); req.onerror = () => rej(req.error); req.onblocked = () => rej(new Error("IndexedDB blocked"));
+    setTimeout(() => rej(new Error("IndexedDB open timeout")), 4000);
+  });
+  V.ready = (async () => {
+    try {
+      if (!("indexedDB" in window) || !window.indexedDB) throw new Error("no IndexedDB");
+      db = await dbOpen();
+      const all = await new Promise((r, j) => { const q = db.transaction("events").objectStore("events").getAll(); q.onsuccess = () => r(q.result); q.onerror = () => j(q.error); });
+      for (const rec of all || []) V.mem.set(rec.eventId, rec);
+      V.mode = "indexeddb";
+    } catch (e) { db = null; V.mode = "memory"; }
+  })();
+  const save = async (rec) => {
+    rec.at = Date.now(); V.mem.set(rec.eventId, rec);
+    if (db) try { await new Promise((r, j) => { const tx = db.transaction("events", "readwrite"); tx.objectStore("events").put(rec); tx.oncomplete = r; tx.onerror = () => j(tx.error); }); } catch (e) { db = null; V.mode = "memory"; }
+  };
+  V.indexCount = () => [...V.mem.values()].reduce((n, r) => n + Object.values(r.frames || {}).reduce((m, f) => m + f.length, 0), 0);
+  V.clearIndex = async () => { V.mem.clear(); if (db) try { await new Promise((r) => { const tx = db.transaction("events", "readwrite"); tx.objectStore("events").clear(); tx.oncomplete = r; tx.onerror = r; }); } catch (_) {} V.renderSettings(); };
+
+  // ── CLIP zero-shot text side (computed once per session) ──
+  let typeVecs = null, makeVecs = null;
+  async function getTypeVecs() {
+    if (typeVecs) return typeVecs;
+    const out = [];
+    for (const t of A().TYPES) { const vs = await T.search.clip.texts(t.prompts); out.push({ id: t.id, cls: t.cls, vec: mean(vs) }); }
+    return (typeVecs = out);
+  }
+  async function getMakeVecs() {
+    if (makeVecs) return makeVecs;
+    const ps = A().makePrompts();
+    const vs = await T.search.clip.texts(ps.map((p) => p.prompt));
+    return (makeVecs = ps.map((p, i) => ({ make: p.make, model: p.model, vec: vs[i] })));
+  }
+  function mean(vs) { const o = new Float32Array(vs[0].length); for (const v of vs) for (let i = 0; i < o.length; i++) o[i] += v[i]; let n = 0; for (const x of o) n += x * x; n = Math.sqrt(n) || 1; for (let i = 0; i < o.length; i++) o[i] /= n; return o; }
+  const dot = (a, b) => { let d = 0; for (let i = 0; i < a.length; i++) d += a[i] * b[i]; return d; };
+  function softmax(xs, scale) { const m = Math.max(...xs); const e = xs.map((x) => Math.exp((x - m) * scale)); const s = e.reduce((a, b) => a + b, 0); return e.map((x) => x / s); }
+
+  // ── crops ──
+  let cc = null, cctx = null, kc = null, kctx = null;
+  function cropPixels(img, iw, ih, b) {   // small crop for colour (≤ 64 px wide), slightly inset to drop background
+    const x = Math.max(0, (b.x + b.w * 0.06) * iw), y = Math.max(0, (b.y + b.h * 0.06) * ih), w = Math.max(2, b.w * 0.88 * iw), h = Math.max(2, b.h * 0.88 * ih);
+    const W = Math.max(8, Math.min(64, Math.round(w))), H = Math.max(8, Math.min(64, Math.round((h / w) * W)));
+    if (!cc) { cc = document.createElement("canvas"); cctx = cc.getContext("2d", { willReadFrequently: true }); }
+    cc.width = W; cc.height = H; cctx.drawImage(img, x, y, w, h, 0, 0, W, H);
+    return { data: cctx.getImageData(0, 0, W, H).data, w: W, h: H };
+  }
+  function cropCanvas(img, iw, ih, b) {    // 224×224 letterboxed crop with a little context for CLIP
+    const pad = 0.06, x = Math.max(0, (b.x - b.w * pad) * iw), y = Math.max(0, (b.y - b.h * pad) * ih);
+    const w = Math.min(iw - x, b.w * (1 + 2 * pad) * iw), h = Math.min(ih - y, b.h * (1 + 2 * pad) * ih);
+    if (!kc) { kc = document.createElement("canvas"); kc.width = kc.height = 224; kctx = kc.getContext("2d", { willReadFrequently: true }); }
+    const s = 224 / Math.max(w, h), dw = w * s, dh = h * s;
+    kctx.fillStyle = "rgb(124,116,104)"; kctx.fillRect(0, 0, 224, 224); kctx.drawImage(img, x, y, w, h, (224 - dw) / 2, (224 - dh) / 2, dw, dh);
+    return kc;
+  }
+
+  /** Attributes for one detected vehicle. need = { type, make } decides whether CLIP runs. Fills d.color/colorConf/colors/lowLight, d.types, d.makes. */
+  V.describe = async (img, iw, ih, d, need) => {
+    if (!d.color) {
+      const t0 = performance.now();
+      const px = cropPixels(img, iw, ih, d);
+      const c = A().colorFromPixels(px.data, px.w, px.h);
+      d.color = c.name; d.colorConf = c.conf; d.lowLight = c.lowLight;
+      d.colors = Object.fromEntries(Object.entries(c.scores).filter(([, v]) => v >= 0.08).map(([k, v]) => [k, Math.round(v * 100) / 100]));
+      V.timings.color.push(performance.now() - t0);
+    }
+    if (need.make && !d.makes && d.label === "bus") d.makes = [];
+    if ((need.type && !d.types) || (need.make && !d.makes)) {
+      const t0 = performance.now();
+      const vec = await T.search.clip.image(cropCanvas(img, iw, ih, d));
+      if (need.type && !d.types) {
+        const tv = (await getTypeVecs()).filter((t) => t.cls.includes(d.label));
+        if (tv.length) { const p = softmax(tv.map((t) => dot(vec, t.vec)), 100); d.types = Object.fromEntries(tv.map((t, i) => [t.id, Math.round(p[i] * 1000) / 1000])); }
+        else d.types = {};
+      }
+      if (need.make && !d.makes && d.label === "bus") d.makes = [];   // buses: no make/model list
+      else if (need.make && !d.makes) {
+        const mv = await getMakeVecs();
+        const p = softmax(mv.map((m) => dot(vec, m.vec)), 100);
+        d.makes = mv.map((m, i) => [m.make, m.model, Math.round(p[i] * 1000) / 1000]).sort((a, b) => b[2] - a[2]).slice(0, 8);
+      }
+      V.timings.clip.push(performance.now() - t0); if (V.timings.clip.length > 60) V.timings.clip.shift();
+    }
+    return d;
+  };
+
+  /** Score one described vehicle against the parsed query. → { score, parts } or null (doesn't match). */
+  V.score = (q, d) => {
+    if (!q.cls.includes(d.label)) return null;
+    const parts = { det: d.conf };
+    let s = Math.sqrt(d.conf);
+    if (q.color) { const cm = A().colorMatch(q.color, { name: d.color, scores: d.colors }); if (cm < 0.3) return null; parts.color = cm; s *= cm * (d.lowLight ? 0.7 : 1); }
+    if (q.type) {
+      const ps = d.types || {}, p = ps[q.type] || 0, top = Object.entries(ps).sort((a, b) => b[1] - a[1])[0];
+      if (!(p >= 0.2 || (top && top[0] === q.type && p > 0.1))) return null;
+      parts.type = p; s *= Math.pow(p, 0.7);
+    }
+    if (q.make && d.makes) {
+      const mk = d.makes.filter((m) => m[0] === q.make && (!q.model || m[1] === q.model)).reduce((a, m) => a + m[2], 0);
+      const topMake = d.makes[0];
+      if (!(mk >= 0.15 || (topMake && topMake[0] === q.make && (!q.model || topMake[1] === q.model)))) return null;
+      parts.make = mk; s *= Math.pow(mk, 0.5);
+    }
+    return { score: s, parts };
+  };
+
+  /** "red tour bus · bus 88% · type 71% · color red" (+ make, "· Best match"). Same text in results, gold box, export, phone strip. */
+  V.labelText = (h) => {
+    const d = h.vdet, q = h.vq || {};
+    const name = [d.color && (q.color || d.colorConf >= 0.3) ? d.color : null, q.make && d.makes && d.makes[0] ? d.makes[0][0] + (q.model ? " " + d.makes[0][1] : "") : null, q.type || (q.make ? null : d.label)].filter(Boolean).join(" ") || d.label;
+    const parts = [name, d.label + " " + pct(d.conf)];
+    if (h.parts.type != null) parts.push("type " + pct(h.parts.type));
+    if (h.parts.make != null) parts.push((q.model ? "model " : "make ") + pct(h.parts.make));
+    parts.push("color " + d.color + (d.lowLight ? "? (low light)" : ""));
+    if (h.best) parts.push("Best match");
+    return parts.join(" · ");
+  };
+
+  /** Search the sampled frames. list = [{t, cam}] (search.js samples). Returns rows like the detector's, with .vehicle. */
+  V.runSearch = async (q, list, ui) => {
+    const ev = T.player.ev, P = V.prefs();
+    const parsed = V.parse(q);
+    if (!parsed) return [];
+    const needMake = !!parsed.make && P.makes;
+    const need = { type: !!parsed.type, make: needMake };
+    if (parsed.make && !P.makes) parsed.makeOff = true;
+    const useClip = need.type || need.make;
+    if (useClip) { ui.status("Loading the vision model for vehicle type" + (need.make ? " and make" : "") + "… (the same one picture search uses; first time about 150 MB). Your video stays on this computer."); await T.search.clip.load(ui.status); }
+    // fewer frames when every box goes through CLIP; the gold box tracking fills in between
+    const cap = useClip ? (isMobile() ? 30 : 60) : isMobile() ? 60 : 140;
+    const step = Math.max(1, Math.ceil(list.length / cap));
+    const frames = list.filter((_, i) => i % step === 0);
+    await V.ready;
+    const rec = V.mem.get(ev.id) || { eventId: ev.id, frames: {} };
+    const detConf = Math.max(0.2, Math.round(T.detect.prefs().conf * 0.75 * 100) / 100);
+    const perFrame = isMobile() ? 2 : 4;
+    const rows = []; let fresh = 0, reused = 0;
+    const t0 = performance.now();
+    for (let i = 0; i < frames.length; i++) {
+      if (ui.stopped()) break;
+      const s = frames[i], key = s.cam + "|" + s.t.toFixed(2);
+      ui.status("Looking for " + parsed.label + " · frame " + (i + 1) + " of " + frames.length + " · " + (CAM_LABEL[s.cam] || s.cam) + (useClip ? " · checking type" + (need.make ? " and make" : "") : "") + ". The video stays on this computer.");
+      let dets = rec.frames[key], v = null;
+      const getFrame = async () => (v = v || (await T.detect.frameAt(s.cam, s.t)));
+      if (!dets) {
+        if (!(await getFrame())) continue;
+        const td = performance.now();
+        let all;
+        try { all = await T.detect.detectImage(v, v.videoWidth, v.videoHeight, { conf: detConf }); }
+        catch (e) { if (!rows.length && i === 0) throw e; console.warn(e); continue; }
+        V.timings.det.push(performance.now() - td);
+        dets = all.filter((d) => VEH.has(d.label) && d.w * d.h >= 0.0015 && d.w >= 0.025).sort((a, b) => b.w * b.h - a.w * a.h).slice(0, 6)
+          .map((d) => ({ x: +d.x.toFixed(4), y: +d.y.toFixed(4), w: +d.w.toFixed(4), h: +d.h.toFixed(4), label: d.label, conf: +d.conf.toFixed(3) }));
+        rec.frames[key] = dets; fresh++;
+      } else reused++;
+      const cand = dets.filter((d) => parsed.cls.includes(d.label));
+      let n = 0;
+      for (const d of cand) {
+        const wantClip = (need.type && !d.types) || (need.make && !d.makes);
+        if (!d.color || (wantClip && n < perFrame)) {
+          if (!(await getFrame())) break;
+          if (!d.color) await V.describe(v, v.videoWidth, v.videoHeight, d, {});
+          // colour first: no CLIP for a box whose colour is clearly wrong
+          if (parsed.color && A().colorMatch(parsed.color, { name: d.color, scores: d.colors }) < 0.3) continue;
+          if (wantClip && n < perFrame) { n++; try { await V.describe(v, v.videoWidth, v.videoHeight, d, need); } catch (e) { if (!rows.length) throw e; console.warn("vehicle crop", e); } }
+        }
+        const m = V.score(parsed, d);
+        if (!m) continue;
+        rows.push({ t: s.t, cam: s.cam, score: m.score, conf: d.conf, label: d.label, det: true, vehicle: true, vdet: d, vq: parsed, parts: m.parts, box: { x: d.x, y: d.y, w: d.w, h: d.h } });
+      }
+      if ((i & 3) === 0) await new Promise((r) => setTimeout(r, 0));
+    }
+    V.lastSearch = { ms: performance.now() - t0, frames: frames.length, fresh, reused };
+    try { await save(rec); } catch (_) {}
+    return rows;
+  };
+
+  /** Group sightings (same camera within 2.5 s), keep the best of each, mark Best match, set the shared label. */
+  V.cluster = (rows) => {
+    const groups = [];
+    for (const r of rows.slice().sort((a, b) => b.score - a.score)) {
+      const g = groups.find((x) => x.cam === r.cam && Math.abs(x.t - r.t) < 2.5);
+      if (!g) groups.push({ ...r, seen: 1 }); else g.seen++;
+    }
+    const out = groups.slice(0, 20), top = out.length ? out[0].score : 0;
+    out.forEach((h) => { h.best = top > 0 && h.score >= top * 0.85; h.text = V.labelText(h); h.boxText = h.text; });
+    return out.sort((a, b) => a.t - b.t);
+  };
+
+  /** Live labels while playing: add the colour of vehicles (cheap, no CLIP). */
+  V.decorateLive = (img, iw, ih, dets) => {
+    if (!V.enabled() || !A()) return dets;
+    for (const d of dets) if (VEH.has(d.label)) { try { const px = cropPixels(img, iw, ih, d); const c = A().colorFromPixels(px.data, px.w, px.h); d.attr = c.name + (c.lowLight ? "?" : ""); } catch (_) {} }
+    return dets;
+  };
+
+  // ── Settings ▸ Vehicle details (beta) ──
+  V.renderSettings = () => {
+    const box = $("setVehicle"); if (!box) return;
+    const P = V.prefs();
+    box.innerHTML = "";
+    const row = (html) => { const d = document.createElement("div"); d.className = "row"; d.innerHTML = html; box.appendChild(d); return d; };
+    row('<label style="display:flex;gap:.5rem;align-items:center"><input type="checkbox" id="vehEnabled"' + (P.enabled ? " checked" : "") + "> Vehicle details: colour and type (tour bus, city bus, police car, ambulance, fire truck, taxi…)</label>");
+    row('<label style="display:flex;gap:.5rem;align-items:center"><input type="checkbox" id="vehMakes"' + (P.makes ? " checked" : "") + (P.enabled ? "" : " disabled") + "> Make &amp; model (rough guess: Tesla Model Y, Toyota Prius…)</label>");
+    const note = document.createElement("p"); note.className = "hint";
+    note.textContent = "Uses the object detector to find vehicles, then reads the colour from the pixels and asks the picture-search model (CLIP) what kind of vehicle it is. Try: red tour bus, white police car, ambulance, blue Toyota. " +
+      "Colours are unreliable at night and under orange street lights. Make & model is a guess from the picture and is often wrong for similar-looking cars. Nothing is uploaded. " +
+      "Index: " + V.indexCount() + " vehicles saved (" + (V.mode === "indexeddb" ? "on this device" : "this session only") + ").";
+    box.appendChild(note);
+    const clr = document.createElement("button"); clr.className = "btn ghost"; clr.id = "vehClear"; clr.textContent = "Forget vehicle index"; box.appendChild(clr);
+    clr.onclick = () => V.clearIndex();
+    box.querySelector("#vehEnabled").onchange = (e) => V.setPref("enabled", e.target.checked);
+    box.querySelector("#vehMakes").onchange = (e) => V.setPref("makes", e.target.checked);
+  };
+
+  V.init = () => { try { V.renderSettings(); V.ready.then(() => V.renderSettings()); } catch (e) { console.warn("vehicle init", e); } };
+})();

@@ -69,22 +69,29 @@
     return prev[b.length];
   }
 
-  /** Query → plate pattern, street/text phrase, or null (not ours). */
+  /** Query → plate pattern, street/text phrase, or null (not ours).
+   *  Natural phrases work too: "find plate 9DZM", "blur the license plate", "show all plates", "plate number 7ABC123".
+   *  explicit = the words named a plate/street (so it's ours even when plate search is off); blur = "blur/hide/redact…". */
   function parseQuery(q) {
-    const s = String(q || "").trim();
-    let m;
-    if ((m = s.match(/^(?:licen[cs]e\s+)?(?:plates?|tags?|number\s*plates?)\s*[:#]?\s*(.*)$/i))) {
-      const p = clean(m[1]);
-      return { kind: "plate", pattern: p, all: p.replace(/[*?]/g, "").length === 0, label: p || "any plate" };
+    let s = String(q || "").trim().replace(/[.!?]+$/, "").replace(/\s+/g, " ");
+    let m, blur = false;
+    s = s.replace(/^(?:please\s+|can you\s+|could you\s+)+/i, "");
+    if ((m = s.match(/^(?:blur|hide|redact|mask|censor|obscure|pixelate)\s+(?:out\s+)?(.*)$/i))) { blur = true; s = m[1]; }
+    else s = s.replace(/^(?:find|search(?:\s+for)?|look\s+for|show(?:\s+me)?|where\s+(?:is|are)|locate|get|any)\s+/i, "");
+    s = s.replace(/^(?:the|a|an|all|any|every|all\s+the)\s+/i, "").replace(/^(?:car'?s|cars'|vehicle'?s)\s+/i, "");
+    if ((m = s.match(/^(?:licen[cs]e\s+)?(?:plates?|tags?|number\s*plates?|registration(?:\s+plates?)?)\b(?:\s+(?:numbers?|no\.?|#))?\s*(?:[:#]|with|reading|that\s+reads|starting\s+with)?\s*(.*)$/i)) && !/^(?:street|road|sign)/i.test(s)) {
+      const rest = m[1].replace(/\b(?:in|on|from)\s+(?:the\s+)?(?:video|clip|footage|event)s?\b.*$/i, "").replace(/\b(?:everywhere|please)\b/gi, "").trim();
+      const p = clean(rest);
+      return { kind: "plate", pattern: p, all: p.replace(/[*?]/g, "").length === 0, label: p || "any plate", explicit: true, blur };
     }
-    if ((m = s.match(/^(?:street|road|sign|text)\s*(?:names?|signs?)?\s*[:#]?\s*(.*)$/i))) {
+    if ((m = s.match(/^(?:street|road|sign|text)\b\s*(?:names?|signs?)?\s*[:#]?\s*(.*)$/i))) {
       const t = m[1].trim();
-      return { kind: "text", phrase: t, all: !t, label: t || "any street text" };
+      return { kind: "text", phrase: t, all: !t, label: t || "any street text", explicit: true, blur };
     }
     // bare plate-like query: 3–8 letters/digits (spaces, dashes, * ? allowed) with at least one digit
-    if (/^[A-Za-z0-9*?][A-Za-z0-9*?\s-]{1,11}$/.test(s) && /\d/.test(s)) {
+    if (!blur && /^[A-Za-z0-9*?][A-Za-z0-9*?\s-]{1,11}$/.test(s) && /\d/.test(s)) {
       const p = clean(s);
-      if (p.replace(/[*?]/g, "").length >= 2 && p.length <= 9) return { kind: "plate", pattern: p, all: false, label: p };
+      if (p.replace(/[*?]/g, "").length >= 2 && p.length <= 9) return { kind: "plate", pattern: p, all: false, label: p, explicit: false, blur: false };
     }
     return null;
   }

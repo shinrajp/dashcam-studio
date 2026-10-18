@@ -112,6 +112,7 @@
       <button class="btn ghost" id="btnFindMarks" type="button" hidden title="Add a short section around each match">Make sections</button>
       <button class="btn ghost" id="btnFindClear" type="button" hidden>Clear</button>
     </div>
+    <div class="q-chips" id="findChips" hidden></div>
     <div class="find-status" id="findStatus" hidden></div>
     <div class="find-hits" id="findHits"></div>
     <div class="redact-bar">
@@ -201,6 +202,7 @@
       </section>
       <section><h3>Object detection (beta)</h3><div id="setDetect" class="toggles"></div></section>
       <section><h3>Plates &amp; text (beta)</h3><div id="setPlates" class="toggles"></div></section>
+      <section><h3>Vehicle details (beta)</h3><div id="setVehicle" class="toggles"></div></section>
       <section><h3>Cloud boost (optional)</h3><div id="setCloud" class="toggles"></div></section>
       <section><button class="btn ghost wide" id="btnResetLayout">Reset overlay positions</button><button class="btn ghost wide" id="btnResetAll">Reset all settings</button></section>
     </div>
@@ -325,6 +327,8 @@
   <script src="js/detect.js"></script>
   <script src="js/plate-text.js"></script>
   <script src="js/plates.js"></script>
+  <script src="js/vehicle-attrs.js"></script>
+  <script src="js/vehicle.js"></script>
   <script src="js/cloud-boost.js"></script>
   <script src="js/pano-toggle.js"></script>
   <script src="js/search-ui.js"></script>

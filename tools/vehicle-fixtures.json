@@ -1,0 +1,260 @@
+[
+[
+"school-bus-1",
+"File:Crusaders School Bus, Chalmette, Louisiana.jpg",
+{
+"cls": "bus",
+"type": "school bus",
+"color": "yellow"
+}
+],
+[
+"tour-bus-1",
+"File:Coach bus in Lefkada, Bova, Hermes Tours.JPG",
+{
+"cls": "bus",
+"type": "tour bus",
+"color": "white"
+}
+],
+[
+"tour-bus-2",
+"File:MAN Lion's Coach FDJ Caravane du Tour de France 2017 Nuits-Saint-Georges (38434716705).jpg",
+{
+"cls": "bus",
+"type": "tour bus",
+"color": "blue"
+}
+],
+[
+"tour-bus-3",
+"File:Moscow, red tour bus on Kamenny bridge July 2024 03.jpg",
+{
+"cls": "bus",
+"type": "tour bus",
+"color": "red"
+}
+],
+[
+"city-bus-1",
+"File:Park City Transit Bus 9770.jpg",
+{
+"cls": "bus",
+"type": "city bus"
+}
+],
+[
+"city-bus-2",
+"File:Torrance Transit 338 8 LAX City Bus Center 11-Mar-2019 (46441151295).jpg",
+{
+"cls": "bus",
+"type": "city bus"
+}
+],
+[
+"city-bus-3",
+"File:Torrance Transit 346 8 (Rear) LAX City Bus Center 11-Mar-2019 (33480023418).jpg",
+{
+"cls": "bus",
+"type": "city bus"
+}
+],
+[
+"shuttle-1",
+"File:Airport shuttle bus at Wattay International Airport.jpg",
+{
+"cls": "bus",
+"type": "shuttle bus"
+}
+],
+[
+"police-1",
+"File:Police Car Bulgaria Sofia IMG 0379.jpg",
+{
+"cls": "car",
+"type": "police car"
+}
+],
+[
+"police-2",
+"File:Cambridge MA Police Cruiser (2009) old2.jpg",
+{
+"cls": "car",
+"type": "police car",
+"color": "white"
+}
+],
+[
+"police-3",
+"File:Police car Vinnytsia 2016 G1.jpg",
+{
+"cls": "car",
+"type": "police car",
+"color": "white"
+}
+],
+[
+"ambulance-1",
+"File:Parked Ambulance.jpg",
+{
+"cls": "truck",
+"type": "ambulance",
+"color": "white"
+}
+],
+[
+"ambulance-2",
+"File:Ambulance in Saigon near district 4 hospital.jpg",
+{
+"cls": "truck",
+"type": "ambulance",
+"color": "white"
+}
+],
+[
+"fire-1",
+"File:Alameda County Fire Engine 10.jpg",
+{
+"cls": "truck",
+"type": "fire truck",
+"color": "red"
+}
+],
+[
+"fire-2",
+"File:Fire engine at 2024 Oakland Pride Parade 1.jpg",
+{
+"cls": "truck",
+"type": "fire truck",
+"color": "red"
+}
+],
+[
+"fire-3",
+"File:20240526 Fire engine Katowice Panewniki 03.jpg",
+{
+"cls": "truck",
+"type": "fire truck",
+"color": "red"
+}
+],
+[
+"taxi-1",
+"File:Blurry yellow taxi cab (Unsplash).jpg",
+{
+"cls": "car",
+"type": "taxi",
+"color": "yellow"
+}
+],
+[
+"pickup-1",
+"File:2023 Ford F-150 Lightning.jpg",
+{
+"cls": "truck",
+"type": "pickup truck",
+"make": "Ford",
+"model": "F-150",
+"color": "silver"
+}
+],
+[
+"van-1",
+"File:Iceland Mercedes-Benz Sprinter delivery van on Motor Lane, Gillingham.jpg",
+{
+"cls": "truck",
+"type": "delivery van",
+"make": "Mercedes-Benz",
+"model": "Sprinter",
+"color": "white"
+}
+],
+[
+"tesla-3",
+"File:2022.07.19 Fully electric car Tesla Model 3 Dual motor in Tomasz\u00f3w Mazowiecki, Poland (1).jpg",
+{
+"cls": "car",
+"make": "Tesla",
+"model": "Model 3",
+"color": "white"
+}
+],
+[
+"tesla-y",
+"File:Tesla Y electric car with license plates from Tomasz\u00f3w Mazowiecki. Tomasz\u00f3w Mazowiecki, Poland.jpg",
+{
+"cls": "car",
+"make": "Tesla",
+"model": "Model Y",
+"color": "gray"
+}
+],
+[
+"prius-1",
+"File:2015-2018 Toyota Prius S.jpg",
+{
+"cls": "car",
+"make": "Toyota",
+"model": "Prius",
+"color": "white"
+}
+],
+[
+"prius-2",
+"File:2015-2018 Toyota Prius S rear.jpg",
+{
+"cls": "car",
+"make": "Toyota",
+"model": "Prius",
+"color": "silver"
+}
+],
+[
+"camry-white",
+"File:2016 Toyota Camry Exclusive white front.jpg",
+{
+"cls": "car",
+"make": "Toyota",
+"model": "Camry",
+"color": "white"
+}
+],
+[
+"camry-brown",
+"File:2017 Toyota Camry Exclusive brown rear.jpg",
+{
+"cls": "car",
+"make": "Toyota",
+"model": "Camry",
+"color": "brown"
+}
+],
+[
+"camry-rear",
+"File:2011-2014 Toyota Camry Hybrid rear.jpg",
+{
+"cls": "car",
+"make": "Toyota",
+"model": "Camry",
+"color": "white"
+}
+],
+[
+"civic-1",
+"File:Honda civic 001.jpg",
+{
+"cls": "car",
+"make": "Honda",
+"model": "Civic",
+"color": "red"
+}
+],
+[
+"silver-1",
+"File:HK Central Chater Road silver car parking December 2025 N13P.jpg",
+{
+"cls": "car",
+"color": "silver"
+}
+]
+]
