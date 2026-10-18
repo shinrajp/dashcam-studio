@@ -226,6 +226,7 @@
   }
 
   S.seekSample = (v, it, local) => seekSample(v, it, local);
+  S.park = (v) => { try { park(v); } catch (_) {} };
   // WebKit can hand back black frames from a video that isn't in the page; park sample videos in a tiny invisible holder.
   function park(video) {
     if (video.isConnected || !document.body) return;

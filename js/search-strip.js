@@ -58,6 +58,7 @@
     if (!f || !f.blob) return null;                       // still encrypted / missing: keep the placeholder
     const url = f.url || (f.url = URL.createObjectURL(f.blob));   // shared with the player; never revoked here
     if (!vid) { vid = document.createElement("video"); vid.muted = true; vid.playsInline = true; vid.setAttribute("playsinline", ""); vid.preload = "auto"; }
+    if (T.search && T.search.park) T.search.park(vid);   // WebKit gives black frames from a video that isn't in the page
     if (vid._src !== url) { vid.src = url; vid._src = url; await waitEv(vid, "loadeddata", 6000); }
     const local = Math.min(Math.max(0, it.t - clip.start), Math.max(0, (vid.duration || 1) - 0.05));
     if (Math.abs(vid.currentTime - local) > 0.04 || vid.readyState < 2) { vid.currentTime = local; await waitEv(vid, "seeked", 6000); }

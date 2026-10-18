@@ -102,6 +102,9 @@ const find = async (p, q, cam) => {
     await p.evaluate(() => { TDC.searchStrip.phone = () => true; TDC.focus.focus("front"); TDC.focus.fullscreen(true); }); await W(900);
     const strip = await p.evaluate(() => [...document.querySelectorAll("#ssRow .ss-item .ss-l")].map((n) => n.textContent));
     ok(tag + " phone strip label 'red tour bus · …'", strip.some((s) => /red tour bus · bus \d+%/.test(s)), strip);
+    await W(1500);
+    const lum = await p.evaluate(async () => { const im = document.querySelector("#ssRow .ss-item img"); if (!im) return -1; await im.decode().catch(() => {}); const c = document.createElement("canvas"); c.width = 32; c.height = 18; const g = c.getContext("2d"); g.drawImage(im, 0, 0, 32, 18); const d = g.getImageData(0, 0, 32, 18).data; let s = 0; for (let i = 0; i < d.length; i += 4) s += d[i] + d[i + 1] + d[i + 2]; return s / (d.length / 4) / 3; });
+    ok(tag + " phone strip thumbnail shows the picture (not black)", lum > 20, lum);
     if (SHOTS) await p.screenshot({ path: SHOTS + "/vehicle-attrs-" + bn + "-phone-strip.png" });
     ok(tag + " phone: no page errors", p.errs.length === 0, p.errs.slice(0, 3));
     await ctx.close();
