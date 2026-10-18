@@ -36,6 +36,7 @@ const find = async (p, q, cam) => {
 (async () => {
   for (const bn of (process.env.BR || "chromium,webkit").split(",")) {
     const ctx = await pw[bn].launchPersistentContext("/tmp/tdc-veh-profile-" + bn, bn === "chromium" ? { executablePath: "/usr/bin/google-chrome", args: ["--no-sandbox", "--autoplay-policy=no-user-gesture-required"], viewport: { width: 1440, height: 900 } } : { viewport: { width: 1440, height: 900 } });
+    await ctx.route((u) => u.origin === new URL(URL_).origin, (r) => r.continue());   // routing turns off the HTTP cache: always test the current files
     await ctx.addInitScript(() => { try { if (!sessionStorage.getItem("veh-init")) { sessionStorage.setItem("veh-init", "1"); localStorage.removeItem("tdc.vehicle.v1"); localStorage.removeItem("tdc.plates.v1"); localStorage.removeItem("tdc.detect.v1"); indexedDB.deleteDatabase("tdc-vehicle-index"); } } catch (e) {} });
     let p = await open(ctx);
     const tag = bn;

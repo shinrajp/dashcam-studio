@@ -14,6 +14,7 @@ const OUT = {};
   for (const bn of (process.env.BR || "chromium,webkit").split(",")) {
     const dir = "/tmp/tdc-veh-profile-" + bn;
     const ctx = await pw[bn].launchPersistentContext(dir, bn === "chromium" ? { executablePath: "/usr/bin/google-chrome", args: ["--no-sandbox"], viewport: { width: 1280, height: 800 } } : { viewport: { width: 1280, height: 800 } });
+    await ctx.route((u) => u.origin === new URL(URL_).origin, (r) => r.continue());   // no stale cached scripts in the persistent profile
     const p = ctx.pages()[0] || (await ctx.newPage()); const errs = []; p.on("pageerror", (e) => errs.push(e.message));
     await p.route("**/__fx/**", (r) => r.fulfill({ path: path.join(FX, decodeURIComponent(r.request().url().split("/__fx/")[1])), contentType: "image/jpeg" }));
     await p.goto(URL_, { waitUntil: "load" });

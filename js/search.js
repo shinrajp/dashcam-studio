@@ -226,7 +226,16 @@
   }
 
   S.seekSample = (v, it, local) => seekSample(v, it, local);
+  // WebKit can hand back black frames from a video that isn't in the page; park sample videos in a tiny invisible holder.
+  function park(video) {
+    if (video.isConnected || !document.body) return;
+    let h = document.getElementById("sampleVideos");
+    if (!h) { h = document.createElement("div"); h.id = "sampleVideos"; h.setAttribute("aria-hidden", "true"); h.style.cssText = "position:fixed;left:0;top:0;width:2px;height:2px;opacity:0.01;pointer-events:none"; document.body.appendChild(h); }
+    video.style.cssText = "width:2px;height:2px"; video.muted = true; video.setAttribute("muted", ""); video.setAttribute("playsinline", "");
+    h.appendChild(video);
+  }
   async function seekSample(video, it, local) {
+    try { park(video); } catch (_) {}
     const url = it.url || (it.url = URL.createObjectURL(it.blob));
     if (video._src !== url) {
       video.src = url;
