@@ -286,6 +286,7 @@
   }
 
   async function openHit(hit) {
+    const vehSummary = hit.vehicle ? ($("findStatus").textContent || "") : "";
     S.anchor = hit.t;
     S.pickedCam = hit.cam;
     const group = groupAt(hit.t);
@@ -299,7 +300,7 @@
     renderHits();
     paintBoxes();
     const show = !$("findShow") || $("findShow").checked;
-    if (show) {
+    if (show && !hit.vehicle) {
       status("Outlining “" + (S.phrase || "the match") + "”…");
       for (const g of group) {
         if (g.det || (g.box && g.box.w <= 0.2)) continue;
@@ -309,7 +310,8 @@
     }
     const n = group.filter((g) => g.box).length;
     const isDet = group.some((g) => g.det);
-    if (follow || (show && n)) {
+    const isVeh = group.some((g) => g.vehicle), summary = vehSummary.replace(/ (Following the vehicle…|The gold box follows it\.)$/, "");   // vehicle details: keep the result summary
+    if ((follow || (show && n)) && !isVeh) {
       status((follow ? (cams.length <= 1 ? "Switched to " + (CAM_LABEL[cams[0] || hit.cam] || "that camera") + ". " : "Showing all " + cams.length + " cameras that see it. ") : "") + (show && n ? (isDet ? "The gold box is what the object detector found, with its confidence." : "The gold box is the part of the picture that best matches the words. It is a guess.") : ""));
     }
     paintBoxes();
@@ -328,10 +330,10 @@
       const token = (S.trackToken = (S.trackToken || 0) + 1);
       try {
         group.forEach((g) => { g.phrase = g.det ? null : S.phrase; });
-        status("Following the object across nearby frames…");
+        status(isVeh ? summary + " Following the vehicle…" : "Following the object across nearby frames…");
         const tracks = await T.detect.trackAround(group.filter((g) => g.box), { prompt: T.detect.prefs().model === "gdino" ? S.phrase : undefined });
-        if (token === S.trackToken && S.anchor === hit.t) { T.detect.tracks = tracks; status(tracks.length ? "The gold box now follows the object (" + tracks.length + " tracked)." : "Couldn't follow the object; showing the box at the match only."); }
-      } catch (err) { console.warn("tracking skipped", err); status("Object tracking unavailable (" + (err.message || err) + "). The gold box stays at the match."); }
+        if (token === S.trackToken && S.anchor === hit.t) { T.detect.tracks = tracks; status(isVeh ? summary + (tracks.length ? " The gold box follows it." : "") : tracks.length ? "The gold box now follows the object (" + tracks.length + " tracked)." : "Couldn't follow the object; showing the box at the match only."); }
+      } catch (err) { console.warn("tracking skipped", err); status((isVeh ? summary + " " : "") + "Object tracking unavailable (" + (err.message || err) + "). The gold box stays at the match."); }
       paintBoxes();
     }
     if (T.ui && T.ui.drawTimeline) T.ui.drawTimeline();

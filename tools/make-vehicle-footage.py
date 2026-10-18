@@ -58,7 +58,7 @@ def encode(gen, path):
     p.stdin.close(); p.wait()
     return truth
 
-FRONT = [("tour-bus-3", (0, 2.6), {"type": "tour bus", "color": "red"}), ("city-bus-2", (2.6, 5.3), {"type": "city bus"}), ("police-3", (5.3, 8.1), {"type": "police car", "color": "white"})]
+FRONT = [("tour-bus-3", (0, 2.6), {"type": "tour bus", "color": "red"}), ("city-bus-8", (2.6, 5.3), {"type": "city bus"}), ("police-3", (5.3, 8.1), {"type": "police car", "color": "white"})]
 BACK = [("ambulance-1", (0, 4), {"type": "ambulance", "color": "white"}), ("fire-1", (4, 8.1), {"type": "fire truck", "color": "red"})]
 
 def main():

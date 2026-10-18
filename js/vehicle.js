@@ -131,7 +131,8 @@
     if (q.color) { const cm = A().colorMatch(q.color, { name: d.color, scores: d.colors }); if (cm < 0.3) return null; parts.color = cm; s *= cm * (d.lowLight ? 0.7 : 1); }
     if (q.type) {
       const ps = d.types || {}, p = ps[q.type] || 0, top = Object.entries(ps).sort((a, b) => b[1] - a[1])[0];
-      if (!(p >= 0.2 || (top && top[0] === q.type && p > 0.1))) return null;
+      // the asked-for role must be the best guess, or close to it (a tour bus is not also a "city bus")
+      if (!(top && (top[0] === q.type ? p > 0.1 : p >= 0.35 && p >= 0.8 * top[1]))) return null;
       parts.type = p; s *= Math.pow(p, 0.7);
     }
     if (q.make && d.makes) {
