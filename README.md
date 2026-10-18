@@ -146,6 +146,22 @@ Tick **Best match only** in the search box (or **★ Best only** in the phone st
 
 ![Plate search: the gold box follows the plate](screenshots/phase6-plate-search.png)
 
+## Vehicle details (beta): colour, bus type, police / ambulance / fire, make & model
+Settings ▸ **Vehicle details (beta)** (off until you turn it on; **Also guess make & model** is a separate switch, also off). Then type what you are looking for in the search box:
+
+- `red tour bus`, `city bus`, `school bus`, `white police car`, `ambulance`, `red fire truck`, `yellow taxi`, `blue pickup truck`, `silver SUV`, `black Tesla Model Y`, `blue Toyota`. Longer phrases work too ("tour bus and regular local street buses"). Chips under the box show how it was read: `color: red` `type: tour bus` `detector: bus`.
+- Plate phrases go to the plate search: `blur the license plate`, `find plate 9DZM`, `licence plates`, `tag starting with 7AB`. "blur …" also turns on **Blur licence plates**. If Plates & text is off it says so instead of running the picture search.
+
+How it works (two stages, all on this device): the object detector (YOLO11) finds cars, buses and trucks; each box is then described. **Colour** comes from the box's pixels (centre-weighted, 12 named colours, a second colour is kept for two-tone vehicles). **Type / role** (tour bus vs city bus, school bus, minibus, police car, ambulance, fire truck, taxi, delivery van, pickup, semi, box truck, SUV, sedan, hatchback, sports car) and **make & model** (26 common US brands, about 90 models) come from the CLIP picture model the picture search already uses, asked "a photo of a … " about each crop. CLIP is only loaded when the query names a type or make; `red bus` uses colour alone.
+
+Results use the same label everywhere (list, gold box that follows the vehicle, live labels, *Burn detection boxes* in the export, phone strip): `red tour bus · bus 95% · type 61% · color red · Best match` (detector confidence, type/make confidence, colour). **Best match only** works as for plates. The detected boxes and their colour/type/make guesses (numbers only, no pictures) are kept in the library index, so a repeat search on the same event is instant (0.3 s instead of 10 s); **Forget vehicle index** clears it.
+
+- **Accuracy** on 37 public-domain / CC0 Wikimedia Commons photos (see `models/README.md`): detector class 37/37; colour exact ~61–70%, accepted by the colour query ~91%; type ~86% top-1 (tour vs city bus 13/15); make ~70% top-1, make + model only ~20–40%. Treat make/model as a hint.
+- **Speed** (headless, box CPU, WASM): detector ~0.8 s per frame, CLIP ~0.2 s per vehicle crop, colour ~1 ms. Search samples up to 60 frames (30 on phones) and checks up to 4 vehicles per frame (2 on phones).
+- **Limits:** colour is unreliable at night and under orange sodium street lights (the label then reads `color red? (low light)` and the colour counts for less); sky reflections push white/silver towards blue. Double-decker sightseeing buses can be read as city buses. Make & model is zero-shot and weak on look-alikes and recent facelifts. If the CLIP model can't load, it says "Vehicle details unavailable (…)" and plain words keep using the picture search; playback, keys, decryption and export are not affected.
+
+![Vehicle details: red tour bus](screenshots/vehicle-attrs-chromium-tour-bus.png)
+
 ## Cloud boost (optional: Grok, Claude or Gemini)
 Off by default; the on-device plate reader and detector above always come first. In Settings ▸ **Cloud boost** you can pick **Grok (xAI)**, **Claude (Anthropic)** or **Gemini (Google)** and paste **your own API key**. Then:
 
