@@ -190,8 +190,8 @@
         }
         return out;
       }
-      const lv = D.live[cam];
-      if (lv && Math.abs(lv.t - t) <= (lv.hold || 1.5)) return lv.dets.map((b) => ({ x: b.x, y: b.y, w: b.w, h: b.h, text: (b.attr ? b.attr + " " : "") + b.label + " " + pct(b.conf) }));
+      const lv = D.liveAt(cam, t);
+      if (lv) return lv.dets.map((b) => ({ x: b.x, y: b.y, w: b.w, h: b.h, text: (b.attr ? b.attr + " " : "") + b.label + " " + pct(b.conf) }));
       return null;
     } catch (_) { return null; }
   };
@@ -279,12 +279,51 @@
       let dets = await D.detectImage(v, v.videoWidth, v.videoHeight);
       if (T.vehicle && T.vehicle.decorateLive) dets = T.vehicle.decorateLive(v, v.videoWidth, v.videoHeight, dets);   // "white car 91%"
       D.live = { [cam]: { t, dets, hold: every / 1000 + 0.6 } };
+      addSample(cam, D.live[cam]);
       T.emit("layout");
     } catch (e) { console.warn("live detect", e); D.setPref("live", false); setStatus("Live detection turned off: " + e.message); }
     finally { liveBusy = false; }
   };
 
-  D.clear = () => { D.tracks = []; D.live = {}; };
+  D.clear = () => { D.tracks = []; D.live = {}; D.liveSamples = {}; };
+
+  // Every live detection is kept by time (per camera), so the viewer and the export look up the same detection for a
+  // given moment (the export no longer only sees the last one). Nearest sample within its hold time wins.
+  D.liveSamples = {};
+  const MAX_SAMPLES = 3000;
+  function addSample(cam, smp) {
+    const list = (D.liveSamples[cam] = D.liveSamples[cam] || []);
+    const i = list.findIndex((x) => Math.abs(x.t - smp.t) < 0.05);
+    if (i >= 0) list[i] = smp; else { list.push(smp); list.sort((a, b) => a.t - b.t); if (list.length > MAX_SAMPLES) list.splice(0, list.length - MAX_SAMPLES); }
+  }
+  D.addLiveSample = addSample;
+  D.liveAt = (cam, t) => {
+    let best = null, bd = Infinity;
+    const lv = D.live[cam];
+    for (const x of (D.liveSamples[cam] || []).concat(lv ? [lv] : [])) { const d = Math.abs(x.t - t); if (d <= (x.hold || 1.5) && d < bd) { bd = d; best = x; } }
+    return best;
+  };
+  D.liveEvery = () => (isMobile() ? 2000 : 900);
+  /** Export: when "Detect while playing" is on, run the same live detection over the export ranges (the focused camera, the same
+   *  spacing) so every exported frame has the box the viewer would show while playing there. Missing samples only. */
+  D.prepareLive = async (ranges, onProgress, cancelled) => {
+    const P = D.prefs();
+    if (!P.enabled || !P.live) return 0;
+    const cam = (T.focus && T.focus.cam) || "front", step = D.liveEvery() / 1000, hold = step + 0.6;
+    const times = [];
+    for (const r of ranges) { for (let t = r[0]; t < r[1] + 1e-6; t += step) times.push(t); }
+    const todo = times.filter((t) => !(D.liveSamples[cam] || []).some((x) => Math.abs(x.t - t) <= step / 2));
+    let n = 0;
+    for (const t of todo) {
+      if (cancelled && cancelled()) break;
+      const v = await frameAt(cam, t); if (!v) continue;
+      let dets = await D.detectImage(v, v.videoWidth, v.videoHeight);
+      if (T.vehicle && T.vehicle.decorateLive) dets = T.vehicle.decorateLive(v, v.videoWidth, v.videoHeight, dets);
+      addSample(cam, { t, dets, hold });
+      n++; if (onProgress) onProgress(n, todo.length);
+    }
+    return n;
+  };
 
   // ── Settings ▸ Object detection ──
   D.renderSettings = () => {

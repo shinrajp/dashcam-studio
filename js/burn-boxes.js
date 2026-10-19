@@ -24,13 +24,16 @@
     return name + " " + Math.round(Math.max(0, Math.min(1, c)) * 100) + "%";
   };
 
-  /** Boxes to burn for one camera at event time t: [{x,y,w,h,text}] (normalised). */
+  /** THE box set for one camera at event time t: [{x,y,w,h,text}] (normalised). The live viewer (search.js paintBoxes) and the
+   *  export (compositor → draw) both call this, so they show the same boxes: followed tracks / live detections first, else every
+   *  result (detector, picture, plate, vehicle; after the Best-match filter) within ±NEAR s of t on that camera. */
   B.at = (cam, t, hits, phrase) => {
     try {
       const S = T.search;
       hits = hits || (S && S.hits) || [];
       phrase = phrase != null ? phrase : (S && S.phrase) || "";
       if (!Array.isArray(hits) || !num(t)) return [];
+      if (S && S.goldShown && !S.goldShown()) return [];   // "Show the gold box" unticked: nothing in the viewer, nothing burned
       if (T.detect && T.detect.boxesAt) { const tr = T.detect.boxesAt(cam, t); if (tr) return tr; }   // Phase 5: tracked / detected boxes
       const out = [];
       const best = hits.reduce((m, h) => (h && num(h.score) && h.score > m ? h.score : m), 0);
@@ -40,6 +43,25 @@
       }
       return out;
     } catch (_) { return []; }
+  };
+
+  /** Before an export: wait for gold-box tracking that is still running, and fill live detections for the export ranges,
+   *  so frames are never encoded before their boxes exist. status(text) for the progress line. */
+  B.prepare = async (ranges, status, cancelled) => {
+    status = status || (() => {});
+    const S = T.search;
+    try {
+      if (S && S.pending) {
+        status("Finishing the gold-box tracking before export…");
+        await Promise.race([S.pending, new Promise((r) => setTimeout(r, 120000))]);
+      }
+    } catch (_) {}
+    let n = 0;
+    try {
+      if (T.detect && T.detect.prepareLive && !(S && S.goldShown && !S.goldShown()))
+        n = await T.detect.prepareLive(ranges, (i, k) => status("Detecting objects for the burned-in boxes · frame " + i + " of " + k + " (same as while playing)…"), cancelled);
+    } catch (e) { console.warn("burn boxes: live detection for export skipped", e); status("Couldn't run live detection for the export (" + (e.message || e) + "); burning the boxes that are ready."); }
+    return n;
   };
 
   /** One hit → drawable box with the same label text the export uses (live viewer overlay). */

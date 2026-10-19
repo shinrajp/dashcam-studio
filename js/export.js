@@ -387,6 +387,9 @@
       await T.telemetry.whenComplete();
       const ranges = X.normRanges(ev, opts.ranges || [opts.range || [0, ev.duration]]);
       const show = opts.show || { ...T.prefs.show };
+      // burned-in boxes: make sure every frame's boxes exist before encoding (tracking finished, live detections for these ranges)
+      if (T.burnBoxes && T.burnBoxes.prepare && (show.boxes !== undefined ? show.boxes : T.burnBoxes.enabled())) await T.burnBoxes.prepare(ranges, status, () => X.cancelled);
+      if (X.cancelled) throw new Error("cancelled");
       const equi = opts.preset === "equirect";
       if (equi) {   // 360 (beta): equirectangular 2:1 from the pano renderer; needs WebCodecs
         if (!X.webcodecs()) throw new Error("360 export needs WebCodecs (Chrome, Edge, Safari 17+).");

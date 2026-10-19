@@ -177,6 +177,8 @@
     return { x: r.x + (r.w - w) / 2, y: r.y + (r.h - h) / 2, w, h };
   }
 
+  S.goldShown = () => !$("findShow") || $("findShow").checked;
+  S.paintBoxes = () => paintBoxes();
   function paintBoxes() {
     if (!T.player.tiles) return;
     const show = !!($("findShow") && $("findShow").checked) && S.anchor != null;
@@ -203,10 +205,10 @@
       const ctx = cv.getContext("2d");
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, tw, th);
-      const goldOn = !$("findShow") || $("findShow").checked;
-      const det = goldOn && video && video.videoWidth && T.detect && T.burnBoxes ? T.detect.boxesAt(cam, T.player.time || 0) : null;
-      if (det) {   // Phase 5: boxes that follow the object (tracked) or live detections
-        if (det.length) { tile.tile.classList.add("find-on"); T.burnBoxes.draw(ctx, cam, T.player.time, { x: 0, y: 0, w: tw, h: th }, video.videoWidth, video.videoHeight, det, 12); }
+      if (T.burnBoxes && T.burnBoxes.at) {
+        // the SAME box set the export burns in at this moment (tracks / live detections, else results within ±2.5 s)
+        const boxes = video && video.videoWidth ? T.burnBoxes.at(cam, T.player.time || 0) : [];
+        if (boxes.length) { tile.tile.classList.add("find-on"); T.burnBoxes.draw(ctx, cam, T.player.time, { x: 0, y: 0, w: tw, h: th }, video.videoWidth, video.videoHeight, boxes, 12); }
         continue;
       }
       if (!near || !cams.has(cam) || !video || !video.videoWidth) continue;
@@ -295,7 +297,14 @@
     return bestWindow(model, video, ctx, canvas, S.query, vw, vh, mid, 0.16, 0.16);
   }
 
-  async function openHit(hit) {
+  // S.pending: the latest openHit (incl. gold-box tracking); export waits for it so it never burns half-built tracks
+  function openHit(hit) {
+    const p = openHitImpl(hit), pend = p.catch(() => {});
+    S.pending = pend;
+    pend.then(() => { if (S.pending === pend) S.pending = null; });
+    return p;
+  }
+  async function openHitImpl(hit) {
     const vehSummary = hit.vehicle ? ($("findStatus").textContent || "") : "";
     S.anchor = hit.t;
     S.pickedCam = hit.cam;
