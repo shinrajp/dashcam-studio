@@ -275,7 +275,10 @@
       const cam = (T.focus && T.focus.cam) || "front";
       const tile = T.player.tiles[cam], v = tile && tile.vids[T.player.active];
       if (!v || !v.videoWidth) return;
-      const t = T.player.time;
+      // time of the frame actually on screen (the video element), not the player's clock, which can run ahead of the decoded
+      // frame in Safari; event time = clip start + video time
+      let t = T.player.time;
+      try { const ci = T.player.clipIndexAt(t), c = T.player.ev && T.player.ev.clips[ci]; if (c && isFinite(v.currentTime)) { const vt = c.start + v.currentTime; if (Math.abs(vt - t) < 1) t = vt; } } catch (_) {}
       let dets = await D.detectImage(v, v.videoWidth, v.videoHeight);
       if (T.vehicle && T.vehicle.decorateLive) dets = T.vehicle.decorateLive(v, v.videoWidth, v.videoHeight, dets);   // "white car 91%"
       D.live = { [cam]: { t, dets, hold: every / 1000 + 0.6 } };
@@ -297,10 +300,34 @@
     if (i >= 0) list[i] = smp; else { list.push(smp); list.sort((a, b) => a.t - b.t); if (list.length > MAX_SAMPLES) list.splice(0, list.length - MAX_SAMPLES); }
   }
   D.addLiveSample = addSample;
+  // Between two samples the same object (same class, overlapping or close) is moved linearly, so the box follows it smoothly
+  // instead of jumping once a second; an object seen in only one of them keeps the nearer sample's box.
+  const near2 = (a, b) => { if (iou(a, b) >= 0.1) return true; const dx = a.x + a.w / 2 - (b.x + b.w / 2), dy = a.y + a.h / 2 - (b.y + b.h / 2); return Math.hypot(dx, dy) < 0.75 * Math.max(a.w, a.h, b.w, b.h); };
+  const MAX_GAP = 2.6;   // seconds between two samples that may be joined
   D.liveAt = (cam, t) => {
-    let best = null, bd = Infinity;
     const lv = D.live[cam];
-    for (const x of (D.liveSamples[cam] || []).concat(lv ? [lv] : [])) { const d = Math.abs(x.t - t); if (d <= (x.hold || 1.5) && d < bd) { bd = d; best = x; } }
+    const list = (D.liveSamples[cam] || []).slice();
+    if (lv && !list.some((x) => Math.abs(x.t - lv.t) < 0.05)) { list.push(lv); list.sort((a, b) => a.t - b.t); }
+    let a = null, b = null;
+    for (const x of list) { if (x.t <= t + 1e-6) a = x; else { b = x; break; } }
+    if (a && b && b.t - a.t <= MAX_GAP && t > a.t + 1e-6) {
+      const u = (t - a.t) / (b.t - a.t), nearA = u < 0.5, out = [];
+      const pairs = [];
+      a.dets.forEach((d, i) => b.dets.forEach((e, j) => { if (d.label === e.label && near2(d, e)) pairs.push([iou(d, e) + 1 / (1 + Math.hypot(d.x - e.x, d.y - e.y)), i, j]); }));
+      pairs.sort((p, q) => q[0] - p[0]);
+      const ua = new Set(), ub = new Set();
+      for (const [, i, j] of pairs) {
+        if (ua.has(i) || ub.has(j)) continue; ua.add(i); ub.add(j);
+        const d = a.dets[i], e = b.dets[j], L = (k) => d[k] + (e[k] - d[k]) * u, src = nearA ? d : e;
+        out.push({ ...src, x: L("x"), y: L("y"), w: L("w"), h: L("h") });
+      }
+      const rest = nearA ? a.dets.filter((_, i) => !ua.has(i)) : b.dets.filter((_, j) => !ub.has(j));
+      const restOk = nearA ? t - a.t <= (a.hold || 1.5) : b.t - t <= (b.hold || 1.5);
+      if (restOk) out.push(...rest);
+      return { t, dets: out, hold: a.hold };
+    }
+    let best = null, bd = Infinity;
+    for (const x of list) { const d = Math.abs(x.t - t); if (d <= (x.hold || 1.5) && d < bd) { bd = d; best = x; } }
     return best;
   };
   D.liveEvery = () => (isMobile() ? 2000 : 900);

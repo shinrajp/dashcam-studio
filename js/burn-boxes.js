@@ -4,7 +4,8 @@
 (function () {
   const T = (window.TDC = window.TDC || {});
   const KEY = "tdc.export.burnBoxes";
-  const NEAR = 2.5;   // seconds; same window the viewer uses to keep the gold box on screen
+  const NEAR = 1.0;   // seconds around a result (not followed by tracking / live detection) that its box stays on screen; was 2.5,
+                     // which made a box sit 2.5 s early at the spot the object only reaches later
   const B = (T.burnBoxes = {});
   B.enabled = () => { try { return localStorage.getItem(KEY) === "1"; } catch (_) { return false; } };
   B.setEnabled = (v) => { try { v ? localStorage.setItem(KEY, "1") : localStorage.removeItem(KEY); } catch (_) {} };
