@@ -212,6 +212,7 @@ Tap **360** in the camera bar. The six cameras are stitched on your device's GPU
 | + / − | zoom the focused camera (pinch or Ctrl+scroll also work; drag to pan; double-click resets) |
 | F | full screen |
 | C | camera bar on / off |
+| X | detection boxes on / off (same as the **Boxes** button in the camera bar and the *Gold box* checkbox; off = no boxes in the viewer or the export, and Detect while playing pauses) |
 | H · M · D · L | toggle HUD · map · Self-Driving badge · camera labels |
 
 With **Advanced** on: A adds a section, B splits the section at the playhead, I / O set its start / end, S plays only the sections, Delete removes the selected one. On the timeline, Ctrl+scroll or a pinch zooms in, scrolling sideways pans, and double-clicking (or the zoom button) zooms back out.

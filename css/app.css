@@ -278,6 +278,12 @@ body.idle .stage-bar { opacity: 0; pointer-events: none; }
 .stage-bar .focus-only { display: none; }
 .stage.focus .stage-bar .focus-only { display: flex; }
 .stage.focus .stage-bar .grid-only { display: none; }
+/* Boxes on/off (search.js S.setBoxes): strike-through + dimmed when off */
+.boxes-btn .strike { display: none; stroke: #ff6b6b; stroke-width: 2.4; }
+.boxes-btn[aria-pressed="false"] .strike { display: inline; }
+.boxes-btn[aria-pressed="false"] { opacity: .75; }
+.boxes-btn[aria-pressed="false"] span { text-decoration: line-through; }
+.boxes-btn[aria-pressed="true"] { color: #f0cf86; }
 .cams-wrap { position: relative; padding-left: 4px; border-left: 1px solid rgba(255,255,255,0.12); }
 #btnCams.on { background: rgba(62,106,225,0.25); }
 .cam-menu { position: absolute; right: 0; top: 36px; min-width: 180px; padding: 8px; border-radius: 10px; background: var(--panel); border: 1px solid var(--line); box-shadow: 0 12px 30px rgba(0,0,0,0.5); }
@@ -304,6 +310,7 @@ body.fs .toast { bottom: calc(var(--tp-h, 62px) + 16px); }
   .cam-chip.grid-chip { padding: 0 8px; }
   .cam-chip kbd { font-size: 11px; color: var(--text); background: none; }
   #btnCams span { display: none; }
+  #btnBoxes span { display: none; }
   .topbar { gap: 8px; padding: 0 10px; }
   .brand { min-width: 0; }
   .brand > div, .top-actions .btn span { display: none; }

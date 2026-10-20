@@ -399,7 +399,8 @@
   function onFrame(now, meta) {
     if (!loopOn) return;
     const P = D.prefs();
-    if (!P.enabled || !P.live || !T.player || !T.player.playing) { loopOn = false; loopVid = null; return; }
+    const boxesOff = T.search && T.search.goldShown && !T.search.goldShown();   // Boxes off: nothing would be drawn, save the power
+    if (!P.enabled || !P.live || !T.player || !T.player.playing || boxesOff) { loopOn = false; loopVid = null; return; }
     D.liveStats.frames++;
     const cams = D.liveCams();
     if (liveBusy || !cams.length || performance.now() - liveLast < D.liveGap()) { if (liveBusy) D.liveStats.skipped++; return arm(); }
@@ -423,6 +424,7 @@
   D.liveTick = () => {
     const P = D.prefs();
     if (!P.enabled || !P.live || !T.player || !T.player.playing || !T.player.tiles || loopOn) return;
+    if (T.search && T.search.goldShown && !T.search.goldShown()) return;   // Boxes off: live detection paused
     loopOn = true; arm();
   };
 

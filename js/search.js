@@ -198,7 +198,25 @@
     return { x: r.x + (r.w - w) / 2, y: r.y + (r.h - h) / 2, w, h };
   }
 
-  S.goldShown = () => !$("findShow") || $("findShow").checked;
+  // Boxes on/off (player bar button, X key, the "Gold box" checkbox): one saved state for live detections and search boxes,
+  // in the viewer and the export burn-in. Off also pauses Detect while playing (detect.js checks S.goldShown()).
+  const BOX_KEY = "tdc.boxes.v1";
+  S.boxesOn = () => { try { return localStorage.getItem(BOX_KEY) !== "0"; } catch (_) { return true; } };
+  S.goldShown = () => (!$("findShow") || $("findShow").checked) && S.boxesOn();
+  function syncBoxes() {
+    const on = S.boxesOn(), b = $("btnBoxes");
+    if ($("findShow")) $("findShow").checked = on;
+    if (b) { b.setAttribute("aria-pressed", String(on)); b.title = (on ? "Detection boxes are on" : "Detection boxes are off (none drawn or burned in; live detection paused)") + " · X"; }
+  }
+  S.setBoxes = (on) => {
+    try { on ? localStorage.removeItem(BOX_KEY) : localStorage.setItem(BOX_KEY, "0"); } catch (_) {}
+    syncBoxes();
+    if (on && S.anchor != null && groupAt(S.anchor).some((g) => !g.box)) openHit(groupAt(S.anchor)[0]);
+    S.paintBoxes();
+    if (T.detect && T.detect.liveTick) T.detect.liveTick();   // resume Detect while playing
+    T.emit && T.emit("boxes", on);
+  };
+  S.toggleBoxes = () => S.setBoxes(!S.boxesOn());
   S.paintBoxes = () => { S.forcePaint = true; try { paintBoxes(); } finally { S.forcePaint = false; } };   // explicit call: always redraw
   function paintBoxes() {
     if (!T.player.tiles) return;
@@ -665,8 +683,11 @@
     $("btnFindStop").addEventListener("click", () => { S.stop = true; status("Stopping…"); });
     $("btnFindClear").addEventListener("click", () => S.clear());
     $("btnFindMarks").addEventListener("click", () => S.markSections());
+    syncBoxes();
+    if ($("btnBoxes")) $("btnBoxes").addEventListener("click", (e) => { e.stopPropagation(); S.toggleBoxes(); });
     if ($("findShow")) $("findShow").addEventListener("change", () => {
       const on = $("findShow").checked;
+      if (on !== S.boxesOn()) { S.setBoxes(on); return; }
       const group = S.anchor == null ? [] : groupAt(S.anchor);
       if (on && group.some((g) => !g.box)) openHit(group[0]);
       else paintBoxes();

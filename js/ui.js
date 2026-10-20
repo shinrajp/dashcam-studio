@@ -931,6 +931,7 @@
       else if ((k === "+" || k === "=") && T.focus.cam) T.focus.zoomBy(1.5);
       else if ((k === "-" || k === "_") && T.focus.cam) T.focus.zoomBy(1 / 1.5);
       else if (k === "l" || k === "L") toggleShow("labels");
+      else if ((k === "x" || k === "X") && T.search && T.search.toggleBoxes) T.search.toggleBoxes();   // detection boxes on / off (B is Advanced: split section)
       else if ((k === "i" || k === "I") && T.prefs.advanced) $("btnIn").click();
       else if ((k === "o" || k === "O") && T.prefs.advanced) $("btnOut").click();
       else if ((k === "a" || k === "A") && T.prefs.advanced && P().ev) U.addSeg();
