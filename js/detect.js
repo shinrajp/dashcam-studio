@@ -393,7 +393,8 @@
     D.live[cam] = { t, dets, hold, src: "live" };
     addSample(cam, D.live[cam]);
     track(cam, t, dets);
-    T.emit("layout");
+    // while playing the boxes are repainted on every frame ("time"); a "layout" here would also re-place the dock/bar
+    if (!T.player || !T.player.playing) T.emit("layout");
   }
   function onFrame(now, meta) {
     if (!loopOn) return;

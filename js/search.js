@@ -196,7 +196,7 @@
   }
 
   S.goldShown = () => !$("findShow") || $("findShow").checked;
-  S.paintBoxes = () => paintBoxes();
+  S.paintBoxes = () => { S.forcePaint = true; try { paintBoxes(); } finally { S.forcePaint = false; } };   // explicit call: always redraw
   function paintBoxes() {
     if (!T.player.tiles) return;
     const show = !!($("findShow") && $("findShow").checked) && S.anchor != null;
@@ -221,14 +221,23 @@
       const w = Math.max(1, Math.round(tw * dpr)), h = Math.max(1, Math.round(th * dpr));
       if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; }
       const ctx = cv.getContext("2d");
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      ctx.clearRect(0, 0, tw, th);
       if (T.burnBoxes && T.burnBoxes.at) {
         // the SAME box set the export burns in at this moment (tracks / live detections, else results within ±2.5 s)
         const boxes = video && video.videoWidth ? T.burnBoxes.at(cam, T.player.time || 0) : [];
-        if (boxes.length) { tile.tile.classList.add("find-on"); T.burnBoxes.draw(ctx, cam, T.player.time, { x: 0, y: 0, w: tw, h: th }, video.videoWidth, video.videoHeight, boxes, 12); }
+        if (boxes.length) tile.tile.classList.add("find-on");
+        // painted every frame while playing: skip the redraw when nothing moved by a pixel (saves compositing on phones)
+        const q = (v, m) => Math.round(v * m);
+        const sig = w + "x" + h + "|" + boxes.map((b) => q(b.x, tw) + "," + q(b.y, th) + "," + q(b.w, tw) + "," + q(b.h, th) + "," + b.text).join(";");
+        if (cv._sig === sig && !S.forcePaint) continue;
+        cv._sig = sig;
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        ctx.clearRect(0, 0, tw, th);
+        if (boxes.length) T.burnBoxes.draw(ctx, cam, T.player.time, { x: 0, y: 0, w: tw, h: th }, video.videoWidth, video.videoHeight, boxes, 12);
         continue;
       }
+      cv._sig = null;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.clearRect(0, 0, tw, th);
       if (!near || !cams.has(cam) || !video || !video.videoWidth) continue;
       const hit = group.find((g) => g.cam === cam && g.box && !g.tracked);
       if (!hit) continue;
