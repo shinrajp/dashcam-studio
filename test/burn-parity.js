@@ -82,13 +82,17 @@ async function goldInFile(p, tau, box) {
 const tauOf = (t) => { let acc = 0; for (const r of RANGES) { if (t >= r[0] && t <= r[1]) return acc + (t - r[0]); acc += r[1] - r[0]; } return null; };
 function compare(tag, view, exp, opt) {
   opt = opt || {};
-  let pairs = 0, bad = [], truthOk = 0, truthN = 0, matched = 0;
+  let pairs = 0, bad = [], truthOk = 0, truthN = 0, matched = 0, skipped = 0;
   for (const v of view) {
     const cands = exp.filter((e) => Math.abs(e.t - v.t) <= 0.02);
     if (!cands.length) { bad.push({ t: v.t, why: "no export frame at this source time" }); continue; }
     matched++;
     for (const cam of ["front", "back"]) {
-      const vb = v.cams[cam] || [], e = cands.find((x) => x.cam === cam), eb = e ? e.boxes : [];
+      const vb = v.cams[cam] || [], e = cands.filter((x) => x.cam === cam).sort((a, b) => Math.abs(a.t - v.t) - Math.abs(b.t - v.t))[0], eb = e ? e.boxes : [];
+      // the viewer can only seek to within ~1 frame of the export frame; if a live-sample switch point (midway between two
+      // detections) lies between the two times, each side may legitimately show the nearer detection's box set
+      const sw = e && (opt.samples || {})[cam] && opt.samples[cam].some((x, i, l) => i > 0 && (() => { const m = (l[i - 1] + x) / 2; return (m - v.t) * (m - e.t) <= 0; })());
+      if (sw) { skipped++; continue; }
       if (vb.length !== eb.length) { bad.push({ t: +v.t.toFixed(2), cam, view: vb.length, exp: eb.length }); continue; }
       for (const b of vb) { pairs++; const best = Math.max(0, ...eb.map((x) => (x.text === b.text ? iou(x, b) : 0))); if (best <= 0.8) bad.push({ t: +v.t.toFixed(2), cam, text: b.text, iou: +best.toFixed(2) }); }
     }
@@ -98,7 +102,7 @@ function compare(tag, view, exp, opt) {
     }
   }
   ok(tag + ": every sampled viewer moment has an export frame at the same source time (trimmed sections)", matched === view.length && matched > 0, { matched, of: view.length });
-  ok(tag + ": viewer and export draw the same boxes per camera (count + label, IoU > 0.8)", bad.length === 0 && pairs > 0, { pairs, bad: bad.slice(0, 6) });
+  ok(tag + ": viewer and export draw the same boxes per camera (count + label, IoU > 0.8)", bad.length === 0 && pairs > 0 && skipped <= view.length * 0.25, { pairs, skippedAtSwitch: skipped, bad: bad.slice(0, 6) });
   if (opt.truth) ok(tag + ": the burned bus box follows the moving bus (IoU > 0.5 with the real position, ≥ 80% of frames)", truthOk >= 0.8 * truthN, { truthOk, truthN });
 }
 (async () => {
@@ -120,7 +124,8 @@ function compare(tag, view, exp, opt) {
       const r = await exportRun(p, RANGES);
       ok(tag + " A: export ran (fills the live detections the viewer didn't get to)", r.ok && r.n > 0, r);
       const view = await viewerAt(p, ts);
-      compare(tag + " A live", view, await p.evaluate(() => window.__exp), { truth: true });
+      compare(tag + " A live", view, await p.evaluate(() => window.__exp), { truth: true, samples: await p.evaluate(() => Object.fromEntries(Object.entries(TDC.detect.liveSamples).map(([c, l]) => [c, l.map((s) => s.t)]))) });
+      if (process.env.DEBUG) console.log("samples", await p.evaluate(() => JSON.stringify(Object.fromEntries(Object.entries(TDC.detect.liveSamples).map(([c, l]) => [c, l.map((s) => s.t.toFixed(2) + ":" + s.dets.length + (s.src ? s.src[0] : "")).join(" ")])))));
       const mid = view.find((v) => v.t > 5.5) || view[view.length - 1], fb = (mid.cams.front || []).find((b) => /bus/.test(b.text));
       if (fb) { const n = await goldInFile(p, tauOf(mid.t), fb); ok(tag + " A: the exported file has the gold box on the bus at " + mid.t.toFixed(2) + " s", n > 8, { goldPixels: n }); }
       else ok(tag + " A: a bus box to check in the file", false, mid);
