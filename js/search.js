@@ -33,6 +33,24 @@
     return out;
   }
 
+  // Detector / vehicle searches: EVERY camera, at most 2 s apart (a passing bus is on screen for a few seconds), up to a frame
+  // budget; longer events get the 2 s spacing anyway (slower, with progress and Stop). The old shared 140-frame budget meant one
+  // frame every ~4 s on the front camera of a 10-minute event and every ~26 s with six cameras, so a bus the live view showed was missed.
+  function detSamples(ev) {
+    const cams = camsFor("around", ev);
+    const mob = T.detect && T.detect.isMobile && T.detect.isMobile();
+    const budget = mob ? 180 : 600, minStep = 1.0, maxStep = 2.0;
+    const step = Math.min(maxStep, Math.max(minStep, (ev.duration * Math.max(1, cams.length)) / budget));
+    const out = [];
+    for (let t = 0.4; t < ev.duration - 0.15; t += step) {
+      const clip = ev.clips[T.player.clipIndexAt(t)];
+      for (const cam of cams) { const it = clip.files[cam]; if (it && it.blob) out.push({ t, cam, it, local: Math.max(0, t - clip.start) }); }
+    }
+    out.step = step; out.cams = cams;
+    return out;
+  }
+  S.detSamples = (ev) => detSamples(ev || T.player.ev);
+
   function cluster(rows) {
     const sorted = rows.slice().sort((a, b) => a.t - b.t);
     const groups = [];
@@ -407,7 +425,7 @@
     S.anchor = null;
     S.query = null;
     S.phrase = "";
-    if (T.detect) T.detect.clear();
+    if (T.detect) (T.detect.clearTracks || T.detect.clear)();
     if (T.vehicle) T.vehicle.chips([]);
     renderHits();
     paintBoxes();
@@ -440,7 +458,7 @@
     $("btnFind").disabled = true;
     $("btnFindStop").hidden = false;
     S.hits = []; S.allHits = null;
-    if (T.detect) T.detect.clear();
+    if (T.detect) (T.detect.clearTracks || T.detect.clear)();   // keep the live detections: they become search results too
     if (T.vehicle) T.vehicle.chips([]);
     renderHits();
     // Phase 6 part B: "ask <anything>" → the user's own cloud provider (opt-in, consent first), on a few sampled frames
@@ -474,13 +492,15 @@
         const vq = T.vehicle.parse(q);
         S.phrase = q; S.query = null; S.anchor = null;
         T.vehicle.chips(vq.chips.concat(vq.make && !T.vehicle.prefs().makes ? ["make & model: off (Settings)"] : []));
-        const rows = await T.vehicle.runSearch(q, list, { status, stopped: () => S.stop });
+        const rows = await T.vehicle.runSearch(q, detSamples(ev), { status, stopped: () => S.stop });
         S.allHits = T.vehicle.cluster(rows);
         applyBest();
         renderHits();
         const ls = T.vehicle.lastSearch || {};
         const off = vq.make && !T.vehicle.prefs().makes ? " Make & model is off, so " + vq.make + " was not checked (Settings ▸ Vehicle details)." : "";
-        if (!S.hits.length) status((S.stop ? "Stopped. " : "") + "No " + vq.label + " found in " + (ls.frames || 0) + " frames." + off + " Colours and types are guesses; try fewer words (\"bus\", \"red bus\") or more cameras.");
+        const unconf = S.hits.length && S.hits.every((h) => h.unconfirmed);
+        if (unconf) status((S.stop ? "Stopped. " : "") + "No " + vq.label + " confirmed, but the detector found " + S.hits.length + " " + (vq.cls || []).join(" / ") + " moment" + (S.hits.length === 1 ? "" : "s") + ": shown so you can check them (the colour / type didn't match well enough)." + off);
+        else if (!S.hits.length) status((S.stop ? "Stopped. " : "") + "No " + vq.label + " found in " + (ls.frames || 0) + " frames." + off + " Colours and types are guesses; try fewer words (\"bus\", \"red bus\") or more cameras.");
         else status((S.hits.length < S.allHits.length ? "Best match only: " + S.hits.length + " of " + S.allHits.length : String(S.hits.length)) + " result" + (S.allHits.length === 1 ? "" : "s") + " for " + vq.label + "." + off + " Colour, type and make are guesses from the picture; check the video." + (ls.reused ? " (" + ls.reused + " frames from the vehicle index)" : ""));
         if (S.hits.length) openHit(S.hits.find((h) => h.best) || S.hits[0]);
       } catch (err) {
@@ -516,11 +536,13 @@
       try {
         S.phrase = q; S.query = null; S.anchor = null;
         if (T.vehicle) T.vehicle.chips(["detector: " + (T.detect.classFor(q) || q)]);
-        const rows = await T.detect.runSearch(q, list, { status, stopped: () => S.stop });
+        const dl = detSamples(ev);
+        const rows = (await T.detect.runSearch(q, dl, { status, stopped: () => S.stop, cams: dl.cams })).concat(T.detect.liveRows ? T.detect.liveRows(q) : []);
         S.hits = cluster(rows);
         renderHits();
-        if (!S.hits.length) status("The detector found no " + (T.detect.classFor(q) || "“" + q + "”") + " above " + Math.round(T.detect.prefs().conf * 100) + "% confidence. Lower the confidence in Settings, or try other cameras.");
-        else status(S.hits.length + " moment" + (S.hits.length === 1 ? "" : "s") + " with " + (T.detect.classFor(q) || "“" + q + "”") + ". Click one to jump there.");
+        const nLive = rows.filter((r) => r.live).length, camN = dl.cams.length;
+        if (!S.hits.length) status((S.stop ? "Stopped. " : "") + "The detector found no " + (T.detect.classFor(q) || "“" + q + "”") + " above " + Math.round(T.detect.prefs().conf * 100) + "% confidence on " + camN + " camera" + (camN === 1 ? "" : "s") + " (a frame every " + dl.step.toFixed(1) + " s). Lower the confidence in Settings.");
+        else status((S.stop ? "Stopped. " : "") + S.hits.length + " moment" + (S.hits.length === 1 ? "" : "s") + " with " + (T.detect.classFor(q) || "“" + q + "”") + " on " + camN + " camera" + (camN === 1 ? "" : "s") + (nLive ? " (including what live detection saw)" : "") + ". Click one to jump there.");
         if (S.hits.length) openHit(S.hits[0]);
         done = true;
         return;

@@ -148,6 +148,7 @@
   V.labelText = (h) => {
     const d = h.vdet, q = h.vq || {};
     const name = [d.color && (q.color || d.colorConf >= 0.3) ? d.color : null, q.make && d.makes && d.makes[0] ? d.makes[0][0] + (q.model ? " " + d.makes[0][1] : "") : null, q.type || (q.make ? null : d.label)].filter(Boolean).join(" ") || d.label;
+    if (h.unconfirmed) return [d.label + " " + pct(d.conf), (q.label || "") + "? not confirmed", "color " + d.color].concat(h.best ? ["Best match"] : []).join(" · ");
     const parts = [name, d.label + " " + pct(d.conf)];
     if (h.parts.type != null) parts.push("type " + pct(h.parts.type));
     if (h.parts.make != null) parts.push((q.model ? "model " : "make ") + pct(h.parts.make));
@@ -167,14 +168,16 @@
     const useClip = need.type || need.make;
     if (useClip) { ui.status("Loading the vision model for vehicle type" + (need.make ? " and make" : "") + "… (the same one picture search uses; first time about 150 MB). Your video stays on this computer."); await T.search.clip.load(ui.status); }
     // fewer frames when every box goes through CLIP; the gold box tracking fills in between
-    const cap = useClip ? (isMobile() ? 30 : 60) : isMobile() ? 60 : 140;
+    // every sampled frame is detected (same spacing as the detector search, every camera); CLIP has its own crop budget
+    const cap = isMobile() ? 180 : 600;
+    let clipLeft = isMobile() ? 60 : 240;
     const step = Math.max(1, Math.ceil(list.length / cap));
     const frames = list.filter((_, i) => i % step === 0);
     await V.ready;
     const rec = V.mem.get(ev.id) || { eventId: ev.id, frames: {} };
     const detConf = Math.max(0.2, Math.round(T.detect.prefs().conf * 0.75 * 100) / 100);
     const perFrame = isMobile() ? 2 : 4;
-    const rows = []; let fresh = 0, reused = 0;
+    const rows = [], plain = []; let fresh = 0, reused = 0;
     const t0 = performance.now();
     for (let i = 0; i < frames.length; i++) {
       if (ui.stopped()) break;
@@ -202,17 +205,18 @@
           if (!d.color) await V.describe(v, v.videoWidth, v.videoHeight, d, {});
           // colour first: no CLIP for a box whose colour is clearly wrong
           if (parsed.color && A().colorMatch(parsed.color, { name: d.color, scores: d.colors }) < 0.3) continue;
-          if (wantClip && n < perFrame) { n++; try { await V.describe(v, v.videoWidth, v.videoHeight, d, need); } catch (e) { if (!rows.length) throw e; console.warn("vehicle crop", e); } }
+          if (wantClip && n < perFrame && clipLeft > 0) { n++; clipLeft--; try { await V.describe(v, v.videoWidth, v.videoHeight, d, need); } catch (e) { if (!rows.length) throw e; console.warn("vehicle crop", e); } }
         }
         const m = V.score(parsed, d);
-        if (!m) continue;
+        if (!m) { plain.push({ t: s.t, cam: s.cam, score: d.conf * 0.5, conf: d.conf, label: d.label, det: true, vehicle: true, unconfirmed: true, vdet: d, vq: parsed, parts: {}, box: { x: d.x, y: d.y, w: d.w, h: d.h } }); continue; }
         rows.push({ t: s.t, cam: s.cam, score: m.score, conf: d.conf, label: d.label, det: true, vehicle: true, vdet: d, vq: parsed, parts: m.parts, box: { x: d.x, y: d.y, w: d.w, h: d.h } });
       }
       if ((i & 3) === 0) await new Promise((r) => setTimeout(r, 0));
     }
-    V.lastSearch = { ms: performance.now() - t0, frames: frames.length, fresh, reused };
+    V.lastSearch = { ms: performance.now() - t0, frames: frames.length, fresh, reused, unconfirmed: !rows.length && plain.length > 0 };
     try { await save(rec); } catch (_) {}
-    return rows;
+    // refinement, never a gate: when nothing passes the colour / type / make check, return what the detector saw (marked)
+    return rows.length ? rows : plain;
   };
 
   /** Group sightings (same camera within 2.5 s), keep the best of each, mark Best match, set the shared label. */
