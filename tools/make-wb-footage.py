@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
 """make-wb-footage.py — synthetic night event for the white-balance test (test/white-balance.js).
 Four cameras (front, back, left + right mirror/repeater) under a warm ~3000 K streetlight cast: the mock stills are
-darkened and tinted in linear light. Each mirror camera sees "white car paint" along its INNER edge (left repeater:
-right side of the image, right repeater: left side), lower part: a smooth paint gradient, a glossy highlight band and a
-small clipped specular spot. A bright red lamp reflection (brighter than the paint, so it IS among the candidates) flashes on the left-mirror paint at 4.0–4.5 s.
-NOPAINT=1 → the same night scene without any paint (the 'Looking for your white paint' case).
+darkened and tinted in linear light, and the scene MOVES (it scrolls past, with a small bob), like driving.
+Each mirror camera sees the white car body as a dim sliver along its OUTER edge, like the real cameras: the left
+repeater along the far LEFT of its image, the right repeater along the far RIGHT, from ~18 % down, ~1 % wide at the
+top widening to ~6.5 % at the bottom, ending at a dark fender line. The body does not move (static noise texture only).
+Dim paint (sRGB ≈ 100, 70, 40: no bright highlight), a small clipped specular spot, and a red lamp reflection on the
+left-mirror body at 4.0–4.5 s (strongly red: the hue gate must drop it).
+NOPAINT=1 → the same moving night scene without any body at the edge (the 'Looking for your white paint' case).
 Usage: [NOPAINT=1] [CCT=3000] python3 tools/make-wb-footage.py /tmp/wb-samples      — needs ffmpeg + Pillow + numpy."""
 import json, os, sys, subprocess
 import numpy as np
@@ -16,8 +19,10 @@ CCT = float(os.environ.get("CCT", "3000"))
 STAMP = "2026-10-20_21-00-00" if not NOPAINT else "2026-10-20_21-10-00"
 W, H, FPS, SEC = 960, 720, 24, 8
 FLASH = (4.0, 4.5)
-PAINT = 0.42                    # night: the paint highlight is not very bright (sRGB R ≈ 160) …
-RED = (0.75, 0.13, 0.025)       # … so a red lamp reflection (sRGB ≈ 226, 101, 44) is the brightest thing in the strip
+PAINT = 0.12                    # night: dim paint, linear level → sRGB ≈ (97, 68, 38) under the cast
+RED = (0.32, 0.035, 0.008)      # red lamp reflection on the body (sRGB ≈ 153, 52, 12): R/G ≈ 3
+BODY = (0.18, 0.012, 0.065)     # body sliver: starts at 18 % of the height, 1.2 % wide there, 6.5 % wide at the bottom
+SCROLL = 5                      # scene scroll, px per frame (the world moves, the body doesn't)
 
 def planck_xy(T):   # Kim et al. cubic fit of the Planckian locus
     if T <= 4000: x = -0.2661239e9 / T**3 - 0.2343589e6 / T**2 + 0.8776956e3 / T + 0.179910
@@ -38,23 +43,25 @@ def base(still):
     im = Image.open(os.path.join(HERE, "mock-stills", still)).convert("RGB").resize((W, H))
     return to_lin(np.asarray(im, dtype=np.float64)) * 0.10 * CAST   # night: dim, everything lit by the streetlight
 
+def body_width(y):
+    f = (y / H - BODY[0]) / (1 - BODY[0])
+    return 0 if f < 0 else int(round(W * (BODY[1] + (BODY[2] - BODY[1]) * f)))
+
+RNG = np.random.default_rng(7)
+TEX = RNG.normal(0, 0.006, (H, W))                                  # static paint texture (the same every frame)
+
 def paint(lin_img, cam, t):
-    x0, x1 = (int(W * 0.84), W) if cam == "left_repeater" else (0, int(W * 0.16))
-    y0 = int(H * 0.55)
-    h, w = H - y0, x1 - x0
-    yy, xx = np.mgrid[0:h, 0:w]
-    inner = (xx / max(w - 1, 1)) if cam == "left_repeater" else (1 - xx / max(w - 1, 1))   # 1 at the image edge (closest to the car)
-    level = 0.25 + 0.20 * inner + 0.04 * np.sin(yy / 9.0)             # paint body: smooth gradient
-    band = np.exp(-((yy - h * 0.35) / (h * 0.06)) ** 2) * 0.38         # glossy highlight band along the body line
-    level = level + band
-    reg = (PAINT * level)[..., None] * CAST[None, None, :]
-    # small clipped specular spot (neutral, saturated to 255): must be ignored
-    cy, cx = int(h * 0.35), w // 2
-    reg[cy - 4:cy + 4, cx - 4:cx + 4, :] = 1.2
-    if cam == "left_repeater" and FLASH[0] <= t < FLASH[1]:          # red lamp reflection on the highlight
-        m = band[..., None] > 0.2
-        reg = np.where(m, np.array(RED)[None, None, :], reg)
-    lin_img[y0:H, x0:x1, :] = reg
+    for y in range(H):
+        bw = body_width(y)
+        if bw <= 0: continue
+        yy = y / H
+        level = PAINT * (0.85 + 0.35 * (yy - BODY[0])) + TEX[y, :bw]   # dim, a little brighter lower down
+        row = np.clip(level, 0, 1)[:, None] * CAST[None, :]
+        if cam == "left_repeater" and FLASH[0] <= t < FLASH[1] and 0.55 < yy < 0.75: row[:] = np.array(RED)[None, :]
+        if 0.62 < yy < 0.635 and bw > 8: row[2:6] = 1.2                    # small clipped specular spot
+        seam = 0.004 * CAST
+        if cam == "left_repeater": lin_img[y, :bw] = row; lin_img[y, bw:bw + 4] = seam
+        else: lin_img[y, W - bw:] = row[::-1]; lin_img[y, W - bw - 4:W - bw] = seam
     return lin_img
 
 def encode(cam, path):
@@ -64,7 +71,7 @@ def encode(cam, path):
                           "-c:v", "libx264", "-preset", "veryfast", "-crf", "18", "-pix_fmt", "yuv420p", "-movflags", "+faststart", path], stdin=subprocess.PIPE)
     for i in range(FPS * SEC):
         t = i / FPS
-        img = b.copy()
+        img = np.roll(np.roll(b, -SCROLL * i, axis=1), int(round(3 * np.sin(i / 5.0))), axis=0)   # the world moves past
         if cam.endswith("repeater") and not NOPAINT: img = paint(img, cam, t)
         p.stdin.write(to_srgb(img).round().astype(np.uint8).tobytes())
     p.stdin.close(); p.wait()

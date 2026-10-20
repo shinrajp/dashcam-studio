@@ -284,8 +284,8 @@
   WB.zones = zones;
   const sides = (cam) => { const c = WB.cfg().side[cam]; return c === "left" || c === "right" ? [c] : [WB.C.SIDE[cam], WB.C.SIDE[cam] === "left" ? "right" : "left"]; };
   function loadMasks() { try { return JSON.parse(localStorage.getItem(MASK_KEY) || "{}") || {}; } catch (_) { return {}; } }
-  let saveAt = 0;
-  function saveMask(cam, side, runs, zw) { const now = performance.now(); if (now - saveAt < 4000) return; saveAt = now; const m = loadMasks(); m[cam] = { side, zw, runs: Array.from(runs), at: Date.now() }; try { localStorage.setItem(MASK_KEY, JSON.stringify(m)); } catch (_) {} }
+  const saveAt = {};
+  function saveMask(cam, side, runs, zw) { const now = performance.now(); if (now - (saveAt[cam] || -1e9) < 4000) return; saveAt[cam] = now; const m = loadMasks(); m[cam] = { side, zw, runs: Array.from(runs), at: Date.now() }; try { localStorage.setItem(MASK_KEY, JSON.stringify(m)); } catch (_) {} }
   WB.forgetMasks = () => { try { localStorage.removeItem(MASK_KEY); } catch (_) {} resetZones(true); drawMasks(); };
   function resetZones() { for (const k of Object.keys(zones)) delete zones[k]; }
   /** The strip along one edge of a camera's frame, oriented so column 0 = the image edge. */
@@ -314,10 +314,11 @@
   WB.sampleNow = (fresh) => {
     const seen = [], whites = [];
     WB.last = {};
-    let blank = 0;
+    let blank = 0, noBody = 0, present = 0;
     const ev = T.player && T.player.ev;
     for (const cam of REP) {
       if (ev && ev.cams && !ev.cams.includes(cam)) continue;
+      present++;
       let gotAny = false, allBlank = true;
       for (const side of sides(cam)) {
         const img = strip(cam, side); if (!img) continue;
@@ -332,7 +333,7 @@
       if (!gotAny || allBlank) { blank++; continue; }   // not decoded yet (seeking) or a hidden video's blank frame
       const mk = WB.maskFor(cam), Z = mk.Z;
       if (!Z || !Z.img) { blank++; continue; }
-      if (mk.source !== "learned" && Z.noBody && sides(cam).every((sd) => { const z = zones[cam + ":" + sd]; return z && z.noBody; })) { WB.last[cam] = { found: false, why: "no body at the edge", side: mk.side, source: mk.source }; continue; }
+      if (mk.source !== "learned" && Z.noBody && sides(cam).every((sd) => { const z = zones[cam + ":" + sd]; return z && z.noBody; })) { WB.last[cam] = { found: false, why: "no body at the edge", side: mk.side, source: mk.source }; noBody++; continue; }
       const a = WB.analyse(Z.img, mk.runs, Z.n >= WB.C.MASK_MIN_FRAMES ? Z.sceneY : null);
       Object.assign(a, { cam, side: mk.side, source: mk.source, cells: mk.runs.reduce((s, v) => s + v, 0) });
       WB.last[cam] = a;
@@ -349,6 +350,7 @@
     }
     if (!whites.length && blank) return "blank";
     if (!whites.length && Object.values(WB.last).some((a) => a.rejected)) return "jump";   // only a rejected lamp flash: hold
+    if (!whites.length && present && noBody === present) { st.est = null; st.cams = []; st.camJumps = {}; drawMasks(); return "no-body"; }   // the world moves past both edges and no car body is there: nothing to measure
     let rgb = null;
     if (whites.length) { const l = whites.map((w) => [Math.log(w[0] / w[1]), Math.log(w[2] / w[1])]); const m = [0, 1].map((k) => l.reduce((s, v) => s + v[k], 0) / l.length); rgb = [Math.exp(m[0]), 1, Math.exp(m[1])]; }
     const r = WB.update(rgb);

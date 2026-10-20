@@ -76,24 +76,38 @@ async function runBrowser(bn) {
     if (curBrowser) { const old = curBrowser; curBrowser = null; old.close().catch(() => {}); }
     const b = curBrowser = await pw[bn].launch(bn === "chromium" ? { executablePath: "/usr/bin/google-chrome", args: ["--no-sandbox", "--autoplay-policy=no-user-gesture-required", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] } : {});
     const ctx = await b.newContext({ viewport: { width: 1440, height: 900 } });
-    await ctx.addInitScript(() => { if (!sessionStorage.getItem("wbt")) { sessionStorage.setItem("wbt", "1"); localStorage.removeItem("tdc.wb.v1"); localStorage.removeItem("tdc.wb.mode"); localStorage.setItem("tdc.detect.v1", JSON.stringify({ enabled: false, live: false })); } });
+    await ctx.addInitScript(() => { if (!sessionStorage.getItem("wbt")) { sessionStorage.setItem("wbt", "1"); localStorage.removeItem("tdc.wb.v1"); localStorage.removeItem("tdc.wb.mode"); localStorage.removeItem("tdc.wb.cfg.v1"); localStorage.removeItem("tdc.wb.mask.v1"); localStorage.setItem("tdc.detect.v1", JSON.stringify({ enabled: false, live: false })); } });
     const p = await ctx.newPage(); const errs = []; p.on("pageerror", (e) => errs.push(e.message)); p.on("crash", () => { console.log("INFO page crashed (" + bn + ")"); b.close().catch(() => {}); });
     const tag = bn;
     await load(p, [FIX, FIX0]);
 
     // ── unit: estimator ──
     const u = await p.evaluate(() => {
-      const WB = TDC.wb, C = WB.C, mk = (fill) => { const w = 40, h = 90, d = new Uint8ClampedArray(w * h * 4); for (let i = 0; i < w * h; i++) { const c = fill(i % w, (i / w) | 0); d.set([c[0], c[1], c[2], 255], i * 4); } return { data: d, width: w, height: h }; };
-      const paint = [150, 106, 60], dark = [20, 14, 9];
+      const WB = TDC.wb, C = WB.C, GW = C.GW, GH = C.GH;
+      // an oriented strip (column 0 = the image edge): a dim body sliver of width runs[y], then the scene
+      const runs = WB.wedge(0.14), body = [100, 70, 40], road = (x, y) => [180 + (x * 7 + y * 13) % 60, 180 + (x * 7 + y * 13) % 60, 170];
+      const mk = (fill) => { const d = new Uint8ClampedArray(GW * GH * 4); for (let y = 0; y < GH; y++) for (let x = 0; x < GW; x++) { const c = fill(x, y); d.set([c[0], c[1], c[2], 255], (y * GW + x) * 4); } return { data: d, width: GW, height: GH }; };
+      const strip = (bodyFill) => mk((x, y) => (x < runs[y] ? bodyFill(x, y) || body : road(x, y)));
       const out = {};
-      const scene = (extra) => mk((x, y) => (y > 40 && y < 50 ? paint : extra(x, y) || dark));
-      out.base = WB.analyse(scene(() => null));
-      out.clipped = WB.analyse(scene((x, y) => (y >= 50 && y < 60 ? [255, 255, 255] : null)));   // big neutral clipped specular
-      out.red = WB.analyse(scene((x, y) => (y >= 50 && y < 60 ? [235, 95, 40] : null)));         // brighter red lamp
-      out.green = WB.analyse(scene((x, y) => (y >= 50 && y < 60 ? [60, 240, 150] : null)));      // green traffic light
-      out.speck = WB.analyse(scene((x, y) => (y === 45 && x < 3 ? [200, 200, 200] : null)));      // a few neutral specks among the paint top pixels
-      out.absent = WB.analyse(mk(() => dark));
-      out.blank = WB.analyse(mk(() => [0, 0, 0]));
+      out.base = WB.analyse(strip(() => null), runs);                                                     // the scene is brighter than the paint
+      out.clipped = WB.analyse(strip((x, y) => (y % 4 === 0 ? [255, 255, 255] : null)), runs);        // clipped specular cells
+      out.red = WB.analyse(strip((x, y) => (y % 3 === 0 ? [210, 60, 20] : null)), runs);              // red lamp reflection, brighter than the paint
+      out.green = WB.analyse(strip((x, y) => (y % 3 === 0 ? [40, 200, 90] : null)), runs);            // green traffic light
+      out.speck = WB.analyse(strip((x, y) => (y === 40 && x === 1 ? [170, 170, 170] : null)), runs);  // a neutral speck
+      out.dimNight = WB.analyse(mk((x, y) => (x < runs[y] ? [40, 28, 16] : [24, 22, 20])), runs);     // very dim paint, dim scene: adaptive threshold
+      out.absent = WB.analyse(mk((x, y) => (x < runs[y] ? [5, 4, 3] : [30, 28, 26])), runs);          // nothing paint-like at the edge
+      out.blank = WB.analyse(mk(() => [0, 0, 0]), runs);
+      out.wedge = { top: runs[0], mid: runs[GH >> 1], bottom: runs[GH - 1] };
+      // body mask from frames: static body + static dark fender line, the scene changes every frame
+      const truth = Int16Array.from({ length: GH }, (_, y) => (y < 8 ? 0 : 2 + Math.round((y - 8) * 10 / (GH - 8))));
+      const frame = (k, withBody) => mk((x, y) => { if (withBody && x < truth[y]) return [92 + (x * 5 + y * 3) % 9, 66, 38]; if (withBody && truth[y] && x === truth[y]) return [6, 5, 4]; const v = 40 + ((x * 37 + y * 11 + k * 53) % 90); return [v, v * 0.8, v * 0.6]; });
+      const Z = WB.newZone(); for (let k = 0; k < 14; k++) { WB.feedZone(Z, frame(k, true)); WB.maskZone(Z); }
+      let err = 0, cmp = 0; for (let y = 0; y < GH; y++) if (truth[y]) { cmp++; err = Math.max(err, Math.abs(Z.runs ? Z.runs[y] - truth[y] : 99)); }
+      out.mask = { conf: Z.conf, moving: Z.moving, maxErr: err, rows: cmp };
+      const Z0 = WB.newZone(); for (let k = 0; k < 20; k++) { WB.feedZone(Z0, frame(k, false)); WB.maskZone(Z0); }
+      out.noBody = { conf: Z0.conf, noBody: Z0.noBody };
+      const Zs = WB.newZone(); for (let k = 0; k < 14; k++) { WB.feedZone(Zs, frame(0, true)); WB.maskZone(Zs); }
+      out.parked = { conf: Zs.conf, moving: Zs.moving };
       // running estimate
       WB.reset(); const base = [150, 106, 60], t0 = 1e9;
       WB.update(base, t0); const e0 = WB.state.est.slice();
@@ -114,21 +128,26 @@ async function runBrowser(bn) {
       return out;
     });
     const near = (a, b, tol) => a && Math.abs(a[0] / a[1] - b[0] / b[1]) < tol && Math.abs(a[2] / a[1] - b[2] / b[1]) < tol;
-    ok(tag + " unit: paint found, a large clipped (≥250) neutral highlight ignored", u.base.found && near(u.clipped.rgb, [150, 106, 60], 0.02), { base: u.base.rgb, clipped: u.clipped });
-    ok(tag + " unit: hue gate skips a brighter red lamp and a green light (paint still measured)", near(u.red.rgb, [150, 106, 60], 0.02) && u.red.rejectedHue > 0 && near(u.green.rgb, [150, 106, 60], 0.02) && u.green.rejectedHue > 0, { red: u.red, green: u.green });
-    ok(tag + " unit: neutral specks among the top pixels are trimmed (median outlier rule)", near(u.speck.rgb, [150, 106, 60], 0.02), u.speck);
-    ok(tag + " unit: no paint → not found; black frame → blank (hidden video)", !u.absent.found && !u.absent.blank && u.blank.blank, { absent: u.absent, blank: u.blank });
+    const P0 = [100, 70, 40];
+    ok(tag + " unit: dim body paint measured although the scene is brighter (60–95th percentile, no highlight needed)", u.base.found && near(u.base.rgb, P0, 0.03), u.base);
+    ok(tag + " unit: clipped cells ignored", u.clipped.found && near(u.clipped.rgb, P0, 0.03), u.clipped);
+    ok(tag + " unit: hue gate drops a brighter red lamp and a green light (paint still measured)", near(u.red.rgb, P0, 0.03) && u.red.rejectedHue > 0 && near(u.green.rgb, P0, 0.03) && u.green.rejectedHue > 0, { red: u.red, green: u.green });
+    ok(tag + " unit: a neutral speck is trimmed", near(u.speck.rgb, P0, 0.03), u.speck);
+    ok(tag + " unit: adaptive 'paint seen' threshold: very dim night paint counts, black edge doesn't; black frame = blank", u.dimNight.found && !u.absent.found && u.blank.blank, { dim: u.dimNight, absent: u.absent, blank: u.blank });
+    ok(tag + " unit: default wedge sliver: none at the top, widening to the bottom", u.wedge.top === 0 && u.wedge.mid > 0 && u.wedge.bottom > u.wedge.mid, u.wedge);
+    ok(tag + " unit: body mask from frames: static body up to a static dark edge while the scene moves (±1 cell)", u.mask.conf && u.mask.moving && u.mask.maxErr <= 1, u.mask);
+    ok(tag + " unit: no body at the edge (everything moves) → noBody; a parked, motionless scene → not learned (default sliver)", !u.noBody.conf && u.noBody.noBody && !u.parked.conf && !u.parked.moving, { noBody: u.noBody, parked: u.parked });
     ok(tag + " unit: a 3-sample red jump is rejected (estimate unchanged); a lasting change is accepted after JUMP_ACCEPT samples", u.spike.spike.every((s) => s === "jump") && u.spike.afterSpike < 1e-9 && u.persist.r === "accept-jump" && u.persist.n === u.persist.need, { ...u.spike, persist: u.persist });
     ok(tag + " unit: smoothing over several frames (1 sample < 35 %, 12 samples > 90 % of a step)", u.smooth.after1 < 0.35 && u.smooth.after4 > 0.5 && u.smooth.after12 > 0.9, u.smooth);
     ok(tag + " unit: CCT (McCamy) and words: white ≈ 6500 K Daylight, 3000 K white ≈ 3000 K, orange = Sodium, bluish = Cool/Daylight", Math.abs(u.cct.d65 - 6500) < 150 && Math.abs(u.cct.k3000 - 3000) < 150 && u.cct.sodium === "Sodium streetlight" && u.cct.d65w === "Daylight" && /Cool|Daylight/.test(u.cct.cool), u.cct);
-    ok(tag + " unit: gains = lerp(1, ref/white, 0.7), red down / blue up, clamped", u.gains[0] < 1 && u.gains[2] > 1 && u.gains.every((g) => g >= 0.5 && g <= 2.2), u.gains);
+    ok(tag + " unit: gains = lerp(1, ref/white, 0.7), red down / blue up, clamped", u.gains[0] < 1 && u.gains[2] > 1 && u.gains.every((g) => g >= 0.65 && g <= 1.7), u.gains);
 
     // ── off by default; turning it on ──
     let s = await ui(p);
     ok(tag + ": off by default: chip next to HUD/Map, aria-pressed=false, no readout, nothing applied", s.chipVisible && s.pressed === "false" && !s.readoutVisible && !s.applied && (await p.evaluate(() => { const c = document.getElementById("chipWb"); return c.parentElement.id === "chips" && !!c.parentElement.querySelector('[data-show="map"]'); })), s);
     await seek(p, 1.0);
     const rawShot = await p.screenshot();
-    const off = { paint: await shotMean(p, "right_repeater", 0.02, 0.78, 0.12, 0.95), front: await shotMean(p, "front", 0.1, 0.1, 0.9, 0.9) };
+    const off = { paint: await shotMean(p, "right_repeater", 0.963, 0.76, 0.993, 0.95), front: await shotMean(p, "front", 0.1, 0.1, 0.9, 0.9) };
     const det0 = await p.evaluate(() => { const v = TDC.player.tiles.front.vids[TDC.player.active], c = document.createElement("canvas"); c.width = 64; c.height = 48; const x = c.getContext("2d"); x.drawImage(v, 0, 0, 64, 48); return Array.from(x.getImageData(0, 0, 64, 48).data).join(","); });
     await p.click("#chipWb"); await W(1500);
     s = await ui(p);
@@ -144,7 +163,7 @@ async function runBrowser(bn) {
     // ── corrected pixels, both render paths ──
     for (const mode of ["svg", "blend"]) {
       await p.evaluate((m) => { localStorage.setItem("tdc.wb.mode", m); TDC.wb.apply(); }, mode); await W(400);
-      const on = { paint: await shotMean(p, "right_repeater", 0.02, 0.78, 0.12, 0.95), front: await shotMean(p, "front", 0.1, 0.1, 0.9, 0.9) };
+      const on = { paint: await shotMean(p, "right_repeater", 0.963, 0.76, 0.993, 0.95), front: await shotMean(p, "front", 0.1, 0.1, 0.9, 0.9) };
       const g = (await p.evaluate(() => TDC.wb.applied)).gains;
       const red = 1 - chroma(on.paint) / chroma(off.paint);
       // what per-channel gains predict for the paint (sRGB values × gains, clipped)
@@ -208,6 +227,22 @@ async function runBrowser(bn) {
     ok(tag + ": red lamp flash (4.0–4.5 s) is rejected: CCT stays within ±150 K, readout keeps a white point", ks.length > 10 && Math.max(...ks) - Math.min(...ks) <= 150 && inFlash.length > 0 && inFlash.every((x) => / K · /.test(x.txt)), { range: [Math.min(...ks), Math.max(...ks)], hueRejected: fl.hue, jumpRejected: fl.rej, inFlash: inFlash.slice(0, 5) });
     ok(tag + ": the flash pixels were candidates that the hue gate removed", fl.hue > 0, { hue: fl.hue });
 
+    // ── the car-body mask learned from the moving scene ──
+    const mi = await p.evaluate(() => TDC.wb.maskInfo());
+    const wOk = (m) => m.source === "learned" && Math.abs(m.widthBottomPct - 6.5) <= 2.5 && m.rowsWithBody >= 0.5 * 64;
+    ok(tag + ": body mask learned on both mirrors, on their OUTER edges (left repeater: left, right repeater: right), ~6.5 % wide at the bottom", mi.left_repeater.side === "left" && mi.right_repeater.side === "right" && wOk(mi.left_repeater) && wOk(mi.right_repeater), mi);
+    await p.evaluate(() => TDC.wb.setCfg({ showMask: true })); await W(700);
+    const ml = await p.evaluate(() => ["left_repeater", "right_repeater"].map((c) => { const e = TDC.player.tiles[c].tile.querySelector(".wb-mask-layer"); return !!(e && !e.hidden && e.width > 0); }));
+    await p.screenshot({ path: path.join(SHOTS, "white-balance-mask-" + bn + ".png") });
+    ok(tag + ": Show sample area draws the sampled body on both mirror tiles", ml.every(Boolean), ml);
+    await p.evaluate(() => TDC.wb.setCfg({ showMask: false }));
+    const ov = await p.evaluate(async () => { TDC.wb.setCfg({ side: { right_repeater: "left" } }); const a = TDC.wb.maskInfo().right_repeater.side; const ui = document.getElementById("wbSideRight"); TDC.wb.setCfg({ side: { right_repeater: "auto" } }); return { forced: a, ui: !!ui, back: TDC.wb.maskInfo().right_repeater.side, saved: JSON.parse(localStorage.getItem("tdc.wb.cfg.v1")).side }; });
+    ok(tag + ": calibration override per camera (Settings: auto / left edge / right edge) is used and saved", ov.forced === "left" && ov.ui && ov.back === "right" && ov.saved.right_repeater === "auto", ov);
+    await seek(p, 1.0);
+    const strengthAt = async (k) => { await p.evaluate((k) => TDC.wb.setCfg({ strength: k }), k); await W(400); const on = await shotMean(p, "right_repeater", 0.963, 0.76, 0.993, 0.95); return +(1 - chroma(on) / chroma(off.paint)).toFixed(3); };
+    const s100 = await strengthAt(1), s30 = await strengthAt(0.3); await p.evaluate(() => TDC.wb.setCfg({ strength: 0.7 }));
+    ok(tag + ": Strength slider: 100 % → more than 70 % (> 75 %, gains are clamped so it never over-corrects), 30 % → ~30 % (15–45 %), default back to 70 %", s100 > 0.75 && s30 > 0.15 && s30 < 0.45 && (await p.evaluate(() => TDC.wb.cfg().strength)) === 0.7, { s100, s30 });
+
     // ── tab hidden → paused ──
     const hid = await p.evaluate(async () => { TDC.player.play(); await new Promise((r) => setTimeout(r, 400)); Object.defineProperty(document, "hidden", { configurable: true, get: () => true }); document.dispatchEvent(new Event("visibilitychange")); await new Promise((r) => setTimeout(r, 400)); const n0 = TDC.wb.state.samples; await new Promise((r) => setTimeout(r, 1200)); const n1 = TDC.wb.state.samples; delete document.hidden; document.dispatchEvent(new Event("visibilitychange")); await new Promise((r) => setTimeout(r, 900)); const n2 = TDC.wb.state.samples; TDC.player.pause(); return { hidden: n1 - n0, visible: n2 - n1 }; });
     ok(tag + ": sampling pauses while the tab is hidden and resumes after", hid.hidden === 0 && hid.visible > 0, hid);
@@ -215,6 +250,8 @@ async function runBrowser(bn) {
     // ── saved across reloads; off removes it ──
     await load(p, [FIX, FIX0]); await seek(p, 2.0); await W(800);
     s = await ui(p);
+    const rem = await p.evaluate(() => { const m = TDC.wb.maskInfo(); return [m.left_repeater.source, m.right_repeater.source]; });
+    ok(tag + ": after a reload the learned body shape is remembered (used before any new frames)", rem.every((x) => x === "remembered" || x === "learned"), rem);
     ok(tag + ": on is kept after a reload (and applied again)", s.pressed === "true" && !!s.applied && /both mirrors/.test(s.readout || ""), s);
     await p.click("#chipWb"); await W(500);
     s = await ui(p);
@@ -223,12 +260,12 @@ async function runBrowser(bn) {
     await p.click("#chipWb"); await W(1200);
 
     // ── focused + zoomed (full screen single camera) ──
-    await p.evaluate(async () => { TDC.focus.focus("right_repeater"); try { await TDC.focus.fullscreen(true); } catch (_) {} await new Promise((r) => setTimeout(r, 500)); const t = TDC.player.tiles.right_repeater.tile; TDC.focus.zoomTo(2, -t.clientWidth * 0.45, t.clientHeight * 0.3); }); await seek(p, 2.0); await W(800);
+    await p.evaluate(async () => { TDC.focus.focus("right_repeater"); try { await TDC.focus.fullscreen(true); } catch (_) {} await new Promise((r) => setTimeout(r, 500)); const t = TDC.player.tiles.right_repeater.tile; TDC.focus.zoomTo(2, t.clientWidth * 0.5, t.clientHeight * 0.3); }); await seek(p, 2.0); await W(800);
     const fz = await p.evaluate(() => ({ fs: document.body.classList.contains("fs"), z: TDC.focus.z, text: TDC.wb.text() }));
     const rtFs = await onTop(p);
     ok(tag + ": full screen: the readout is visible and not covered", rtFs.shown && rtFs.onTop && rtFs.inView, rtFs);
-    const zOn = await shotMean(p, "right_repeater", 0.02, 0.80, 0.10, 0.92);
-    await setWb(p, false); const zOff = await shotMean(p, "right_repeater", 0.02, 0.80, 0.10, 0.92); await setWb(p, true);
+    const zOn = await shotMean(p, "right_repeater", 0.963, 0.80, 0.99, 0.92);
+    await setWb(p, false); const zOff = await shotMean(p, "right_repeater", 0.963, 0.80, 0.99, 0.92); await setWb(p, true);
     const zr = 1 - chroma(zOn) / chroma(zOff);
     ok(tag + ": full screen + 2× zoom on the right mirror: corrected (~70 %), readout still from both mirrors", zr > 0.5 && zr < 0.9 && /both mirrors/.test(fz.text), { ...fz, off: zOff.map(Math.round), on: zOn.map(Math.round), reduction: +zr.toFixed(3) });
     // focused on the FRONT camera: the mirror videos are hidden behind it; the estimate must still come from them (or be held)
@@ -259,7 +296,7 @@ async function runBrowser(bn) {
     }
 
     // ── no paint: looking ──
-    await openEv(p, false); await p.evaluate(async () => { await TDC.player.seek(0.5); TDC.player.play(); await new Promise((r) => setTimeout(r, 2500)); TDC.player.pause(); });
+    await openEv(p, false); await p.evaluate(async () => { await TDC.player.seek(0.3); TDC.player.play(); await new Promise((r) => setTimeout(r, 6000)); TDC.player.pause(); await new Promise((r) => setTimeout(r, 500)); });
     s = await ui(p);
     ok(tag + ": no paint in the mirrors → 'Looking for your white paint in the mirror cameras', no correction", s.readout === "Looking for your white paint in the mirror cameras" && !s.applied, s);
     await p.screenshot({ path: path.join(SHOTS, "white-balance-looking-" + bn + ".png") });
