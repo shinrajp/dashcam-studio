@@ -688,6 +688,9 @@ body.fs.ss-on .toast { bottom: calc(var(--tp-h, 62px) + var(--ss-h, 0px) + 12px)
 .tile { isolation: isolate; }                       /* the multiply tint blends with this tile's video only */
 .wb-tint { position: absolute; inset: 0; mix-blend-mode: multiply; pointer-events: none; }
 .wb-tint[hidden] { display: none; }
-.wb-readout { position: absolute; z-index: 5; right: 8px; top: 36px; max-width: calc(100% - 16px); padding: 3px 9px; border-radius: 6px; background: rgba(0,0,0,0.6); color: #e8ecf3; font: 650 11px system-ui, sans-serif; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none; }
+.wb-readout { position: absolute; z-index: 6; right: 8px; bottom: 8px; max-width: calc(100% - 16px); padding: 3px 9px; border-radius: 6px; background: rgba(0,0,0,0.6); color: #e8ecf3; font: 650 11px system-ui, sans-serif; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none; }
 .wb-readout[hidden] { display: none; }
-body.portrait .wb-readout { top: 30px; font-size: 10px; }
+body.portrait .wb-readout { font-size: 10px; }
+body.fs .wb-readout { bottom: calc(var(--tp-h, 62px) + 8px); transition: bottom .25s; }   /* above the floating transport bar */
+body.fs.idle .wb-readout { bottom: 8px; }
+body.fs.ss-on .wb-readout { bottom: calc(var(--tp-h, 62px) + var(--ss-h, 0px) + 8px); }
