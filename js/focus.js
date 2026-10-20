@@ -317,8 +317,11 @@
     if (!menu) return;
     menu.hidden = !open;
     if (open) {
+      if (menu.parentElement !== document.body) document.body.appendChild(menu);   // never inside the (filtered) bar
       placeCamMenu(true);
-      const follow = () => { if (menu.hidden) return stopFollow(); placeCamMenu(false); popRaf = requestAnimationFrame(follow); };
+      // place again once it has been laid out (Safari can measure a just-shown element late), then follow the button
+      let first = true;
+      const follow = () => { if (menu.hidden) return stopFollow(); placeCamMenu(first); first = false; popRaf = requestAnimationFrame(follow); };
       cancelAnimationFrame(popRaf); popRaf = requestAnimationFrame(follow);
       if (kb) { const cb = menu.querySelector("input"); if (cb) cb.focus({ preventScroll: true }); }
     } else stopFollow();
@@ -339,7 +342,7 @@
     if (!force && key === popKey) return;
     popKey = key;
     // natural size
-    menu.style.maxHeight = ""; menu.style.left = "0px"; menu.style.top = "0px";
+    menu.style.maxHeight = ""; menu.style.left = "0px"; menu.style.top = "0px"; menu.style.bottom = "auto";
     const w = Math.min(menu.offsetWidth, vw - 2 * POP_M), h = menu.scrollHeight + 2;
     // where is the bar? (bottom half of the video, or docked below it → open upward)
     const st = stage(), sr = st ? st.getBoundingClientRect() : { top: 0, height: vh };
@@ -372,8 +375,17 @@
     top = Math.min(Math.max(top, oy + POP_M), oy + vh - POP_M - hh);
     menu.style.maxHeight = Math.floor(maxH) + "px";
     menu.style.left = Math.round(left) + "px";
-    menu.style.top = Math.round(top) + "px";
+    if (dir === "up") {   // anchored by its BOTTOM just above the button: right whatever its final height (Safari measures late)
+      menu.style.top = "auto";
+      menu.style.bottom = Math.round(window.innerHeight - (r.top - POP_GAP)) + "px";
+    } else { menu.style.bottom = "auto"; menu.style.top = Math.round(top) + "px"; }
     menu.dataset.dir = dir;
+    // a transformed / filtered ancestor would make position:fixed relative to it: measure and correct the offset
+    const got = menu.getBoundingClientRect();
+    const dx = got.left - Math.round(left);
+    if (Math.abs(dx) > 1) menu.style.left = Math.round(left - dx) + "px";
+    if (dir === "up") { const dy = got.bottom - Math.round(r.top - POP_GAP); if (Math.abs(dy) > 1) menu.style.bottom = Math.round(window.innerHeight - (r.top - POP_GAP) + dy) + "px"; }
+    else { const dy = got.top - Math.round(top); if (Math.abs(dy) > 1) menu.style.top = Math.round(top - dy) + "px"; }
   }
   F.placeCamMenu = () => placeCamMenu(true);
 

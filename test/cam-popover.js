@@ -11,10 +11,13 @@ const SHOTS = process.env.SHOTS || "";
 const W = (ms) => new Promise((r) => setTimeout(r, ms));
 if (!fs.existsSync(FIX + "/truth.json")) execFileSync("python3", [path.join(__dirname, "../tools/make-moving-footage.py"), FIX], { stdio: "inherit" });
 const files = []; (function w(d) { for (const f of fs.readdirSync(d)) { const q = path.join(d, f); if (fs.statSync(q).isDirectory()) w(q); else files.push(q); } })(FIX + "/TeslaCam");
+const SAFARI_UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15";
+const SIX_DIR = process.env.SIX_CAMS || "/workspace/photo-samples/TeslaCam/SavedClips";   // any 6-camera event (tiles only)
+const SIX = fs.existsSync(SIX_DIR) ? (() => { const o = []; (function w(d) { for (const f of fs.readdirSync(d)) { const q = path.join(d, f); if (fs.statSync(q).isDirectory()) w(q); else o.push(q); } })(SIX_DIR); return o; })() : files;
 let fails = 0; const ok = (n, c, x) => { console.log((c ? "PASS " : "FAIL ") + n + (x !== undefined ? "  " + JSON.stringify(x).slice(0, 600) : "")); if (!c) fails++; };
-async function load(p) {
+async function load(p, list) {
   await p.goto(URL_, { waitUntil: "load" }); await p.addStyleTag({ content: ".toast{display:none!important}" });
-  await p.setInputFiles("#fileInput", files);
+  await p.setInputFiles("#fileInput", list || files);
   for (let i = 0; i < 80 && !(await p.evaluate(() => TDC.library.events.length)); i++) await W(250);
   await p.evaluate(() => { [...document.querySelectorAll("button")].filter((x) => /Got it/.test(x.textContent)).forEach((x) => x.click()); return TDC.ui.activate(TDC.library.events[0]); });
   await W(1200);
@@ -140,6 +143,26 @@ async function shot(p, name, bn) { if (SHOTS) await p.screenshot({ path: path.jo
     await shot(p, "landscape", bn);
     await setBar(p, "top");
     ok(tag + ": no page errors", errs.length === 0, errs.slice(0, 3));
+
+    // ── the user's Safari layout (tag cam-popover-fix): bar docked at the bottom under a 6-camera grid, small window
+    //    (820×445), Safari desktop UA, white balance ON (filter / tint on the videos) ──
+    const sctx = await b.newContext({ viewport: { width: 820, height: 445 }, userAgent: bn === "webkit" ? SAFARI_UA : undefined });
+    await sctx.addInitScript(() => { if (!sessionStorage.getItem("cps")) { sessionStorage.setItem("cps", "1"); localStorage.removeItem("tdc.prefs.v1"); localStorage.setItem("tdc.wb.v1", "1"); } });
+    const sp = await sctx.newPage(); const serrs = []; sp.on("pageerror", (e) => serrs.push(e.message));
+    await load(sp, SIX);
+    await sp.evaluate(() => { if (TDC.focus.dismissHint) TDC.focus.dismissHint(); TDC.focus.setBarDock("beside", "bottom"); }); await W(700);
+    const sm = await openMeasure(sp);
+    const extra = await sp.evaluate(() => {
+      const m = document.getElementById("camMenu").getBoundingClientRect(), b = document.getElementById("btnCams").getBoundingClientRect(), tp = document.getElementById("transport").getBoundingClientRect();
+      const cx = (m.left + m.right) / 2;
+      return { centreInBtn: cx >= b.left && cx <= b.right, rightAligned: Math.abs(m.right - b.right) <= 2, bottomAboveBtn: m.bottom <= b.top + 0.5, overTimeline: m.bottom > tp.top + 0.5 && m.top < tp.bottom, wbOn: TDC.wb.isOn(), mode: TDC.wb.mode(), tiles: document.querySelectorAll("#grid .tile").length, inBody: document.getElementById("camMenu").parentElement === document.body, staticInBody: !!document.querySelector("body > #camMenu") };
+    });
+    ok(tag + ": Safari layout (820×445, bar docked below a 6-camera grid, white balance on): menu on <body>, anchored to the Cameras button (centre inside it or right-aligned), bottom above the button, opens upward",
+      extra.inBody && extra.staticInBody && (extra.centreInBtn || extra.rightAligned) && extra.bottomAboveBtn && sm.dir === "up" && extra.wbOn && extra.tiles === 6, { extra, rect: sm.rect, btn: sm.btn });
+    ok(tag + ": Safari layout: fully inside the window, all 6 options hittable (elementFromPoint = the option), not over the timeline", good(sm) && !extra.overTimeline, { covered: sm.covered, rect: sm.rect, vh: sm.vh });
+    if (SHOTS) await sp.screenshot({ path: path.join(SHOTS, `cam-popover-safari-layout-${bn}.png`) });
+    ok(tag + ": Safari layout: no page errors", serrs.length === 0, serrs.slice(0, 3));
+    await sctx.close();
     await b.close();
   }
   console.log(fails ? "\n" + fails + " FAILED" : "\nALL PASS");

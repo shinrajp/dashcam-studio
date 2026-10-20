@@ -11,7 +11,7 @@
   <title>Dashcam Studio — Tesla Sentry &amp; Dashcam viewer</title>
   <meta name="color-scheme" content="dark">
   <link rel="icon" href="data:,">
-  <link rel="stylesheet" href="css/app.css">
+  <link rel="stylesheet" href="css/app.css?v=cam-popover-fix">
 </head>
 <body class="simple">
   <header class="topbar">
@@ -62,7 +62,6 @@
           <button class="btn small ghost boxes-btn" id="btnBoxes" type="button" aria-pressed="true" title="Detection boxes on / off (X): live detections and search results, in the viewer and the export" aria-label="Detection boxes"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8V4h4M16 4h4v4M20 16v4h-4M8 20H4v-4"/><rect x="8" y="8" width="8" height="8" rx="1"/><path class="strike" d="M3 21L21 3"/></svg><span>Boxes</span></button>
           <div class="cams-wrap grid-only">
             <button class="btn small ghost" id="btnCams" title="Show or hide cameras in the grid"><svg viewBox="0 0 24 24"><rect x="3" y="6" width="13" height="12" rx="2"/><path d="M16 10l5-3v10l-5-3"/></svg><span>Cameras</span></button>
-            <div class="cam-menu" id="camMenu" hidden></div>
           </div>
           <button class="btn small ghost pano-btn grid-only" id="btn360" type="button" title="360 view (beta): stitch the cameras into one look-around view" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><ellipse cx="12" cy="12" rx="9" ry="4"/><path d="M12 3v18"/></svg><span>360</span></button>
           <button class="btn icon sm fs-btn" id="btnFsStage" title="Full screen (F)" aria-label="Full screen"><svg viewBox="0 0 24 24" class="i-fs"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg><svg viewBox="0 0 24 24" class="i-fsx"><path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"/></svg></button>
@@ -303,50 +302,53 @@
   <input type="file" id="folderInput" webkitdirectory directory multiple hidden>
 
   <!-- vendor (MIT) -->
-  <script src="vendor/mp4-muxer.js"></script>
-  <script src="vendor/webm-muxer.js"></script>
-  <script src="vendor/ort.wasm.min.js"></script>
-  <script src="vendor/ocr-pack.js"></script>
+  <!-- Cameras picker: a top-level layer on <body> (never inside the camera bar, whose backdrop-filter would make
+       position:fixed relative to the bar); js/focus.js places it next to the Cameras button. -->
+  <div class="cam-menu" id="camMenu" hidden></div>
+  <script src="vendor/mp4-muxer.js?v=cam-popover-fix"></script>
+  <script src="vendor/webm-muxer.js?v=cam-popover-fix"></script>
+  <script src="vendor/ort.wasm.min.js?v=cam-popover-fix"></script>
+  <script src="vendor/ocr-pack.js?v=cam-popover-fix"></script>
   <!-- app (classic scripts: they work when opened from file://) -->
-  <script src="js/core.js"></script>
-  <script src="js/mp4.js"></script>
-  <script src="js/sei.js"></script>
-  <script src="js/crypto.js"></script>
-  <script src="js/teslacam.js"></script>
-  <script src="js/telemetry.js"></script>
-  <script src="js/batching.js"></script>
-  <script src="js/library.js"></script>
-  <script src="js/player.js"></script>
-  <script src="js/draw.js"></script>
-  <script src="js/hud.js"></script>
-  <script src="js/map.js"></script>
-  <script src="js/compositor.js"></script>
-  <script src="js/overlays.js"></script>
-  <script src="js/focus.js"></script>
-  <script src="js/export.js"></script>
-  <script src="js/search.js"></script>
-  <script src="js/redact.js"></script>
-  <script src="js/burn-boxes.js"></script>
-  <script src="js/worker-start.js"></script>
-  <script src="js/detect.js"></script>
-  <script src="js/plate-text.js"></script>
-  <script src="js/plates.js"></script>
-  <script src="js/vehicle-attrs.js"></script>
-  <script src="js/vehicle.js"></script>
-  <script src="js/cloud-boost.js"></script>
-  <script src="js/pano-toggle.js"></script>
-  <script src="js/multi-search.js"></script>
-  <script src="js/wb.js"></script>
-  <script src="js/search-ui.js"></script>
-  <script src="js/search-strip.js"></script>
-  <script src="js/connector-src.js"></script>
-  <script src="js/tesla-auth.js"></script>
-  <script src="js/key-import.js"></script>
-  <script src="js/key-store.js"></script>
-  <script src="js/ui.js"></script>
-  <script src="js/lib-index.js"></script>
-  <script src="js/lib-index-ui.js"></script>
-  <script src="js/auto.js"></script>
-  <script src="js/app.js"></script>
+  <script src="js/core.js?v=cam-popover-fix"></script>
+  <script src="js/mp4.js?v=cam-popover-fix"></script>
+  <script src="js/sei.js?v=cam-popover-fix"></script>
+  <script src="js/crypto.js?v=cam-popover-fix"></script>
+  <script src="js/teslacam.js?v=cam-popover-fix"></script>
+  <script src="js/telemetry.js?v=cam-popover-fix"></script>
+  <script src="js/batching.js?v=cam-popover-fix"></script>
+  <script src="js/library.js?v=cam-popover-fix"></script>
+  <script src="js/player.js?v=cam-popover-fix"></script>
+  <script src="js/draw.js?v=cam-popover-fix"></script>
+  <script src="js/hud.js?v=cam-popover-fix"></script>
+  <script src="js/map.js?v=cam-popover-fix"></script>
+  <script src="js/compositor.js?v=cam-popover-fix"></script>
+  <script src="js/overlays.js?v=cam-popover-fix"></script>
+  <script src="js/focus.js?v=cam-popover-fix"></script>
+  <script src="js/export.js?v=cam-popover-fix"></script>
+  <script src="js/search.js?v=cam-popover-fix"></script>
+  <script src="js/redact.js?v=cam-popover-fix"></script>
+  <script src="js/burn-boxes.js?v=cam-popover-fix"></script>
+  <script src="js/worker-start.js?v=cam-popover-fix"></script>
+  <script src="js/detect.js?v=cam-popover-fix"></script>
+  <script src="js/plate-text.js?v=cam-popover-fix"></script>
+  <script src="js/plates.js?v=cam-popover-fix"></script>
+  <script src="js/vehicle-attrs.js?v=cam-popover-fix"></script>
+  <script src="js/vehicle.js?v=cam-popover-fix"></script>
+  <script src="js/cloud-boost.js?v=cam-popover-fix"></script>
+  <script src="js/pano-toggle.js?v=cam-popover-fix"></script>
+  <script src="js/multi-search.js?v=cam-popover-fix"></script>
+  <script src="js/wb.js?v=cam-popover-fix"></script>
+  <script src="js/search-ui.js?v=cam-popover-fix"></script>
+  <script src="js/search-strip.js?v=cam-popover-fix"></script>
+  <script src="js/connector-src.js?v=cam-popover-fix"></script>
+  <script src="js/tesla-auth.js?v=cam-popover-fix"></script>
+  <script src="js/key-import.js?v=cam-popover-fix"></script>
+  <script src="js/key-store.js?v=cam-popover-fix"></script>
+  <script src="js/ui.js?v=cam-popover-fix"></script>
+  <script src="js/lib-index.js?v=cam-popover-fix"></script>
+  <script src="js/lib-index-ui.js?v=cam-popover-fix"></script>
+  <script src="js/auto.js?v=cam-popover-fix"></script>
+  <script src="js/app.js?v=cam-popover-fix"></script>
 </body>
 </html>
