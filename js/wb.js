@@ -84,10 +84,15 @@
     if (max < C.BLACK) return { blank: true };
     if (px.length < C.MIN_CAND) return { found: false, why: "clipped" };
     px.sort((a, b) => b[0] - a[0]);
-    let cand = px.slice(0, Math.max(C.MIN_CAND, Math.round(px.length * C.TOP)));
-    const gated = cand.filter(([, r, g, b]) => { const rg = r / Math.max(g, 1), bg = b / Math.max(g, 1); return !(rg > C.RED_RG) && !(rg < C.GREEN_RG && bg < C.GREEN_BG); });
-    const rejectedHue = cand.length - gated.length;
-    cand = gated.filter((p) => p[0] >= C.MIN_Y);
+    // walk down from the brightest: strongly red / green pixels (lamp reflections) are skipped, not counted
+    const want = Math.max(C.MIN_CAND, Math.round(px.length * C.TOP)), gated = [];
+    let rejectedHue = 0;
+    for (let i = 0; i < px.length && gated.length < want; i++) {
+      const [, r, g, b] = px[i], rg = r / Math.max(g, 1), bg = b / Math.max(g, 1);
+      if (rg > C.RED_RG || (rg < C.GREEN_RG && bg < C.GREEN_BG)) { rejectedHue++; continue; }
+      gated.push(px[i]);
+    }
+    let cand = gated.filter((p) => p[0] >= C.MIN_Y);
     if (cand.length < C.MIN_CAND) return { found: false, why: rejectedHue > cand.length ? "hue" : "dark", rejectedHue };
     // log-chroma, median-trimmed: drops near-neutral specks and odd coloured reflections alike
     const lc = cand.map(([, r, g, b]) => [Math.log(Math.max(r, 1) / Math.max(g, 1)), Math.log(Math.max(b, 1) / Math.max(g, 1))]);
@@ -102,8 +107,8 @@
   };
 
   // ── running estimate (log-chroma EMA with jump rejection) ──
-  const st = (WB.state = { est: null, lum: 0, jumps: 0, lastSeen: 0, cams: [], samples: 0, accepted: 0, rejected: 0, raw: null });
-  WB.reset = () => { st.est = null; st.lum = 0; st.jumps = 0; st.lastSeen = 0; st.cams = []; st.samples = st.accepted = st.rejected = 0; st.raw = null; apply(); render(); };
+  const st = (WB.state = { est: null, lum: 0, jumps: 0, lastSeen: 0, cams: [], samples: 0, accepted: 0, rejected: 0, raw: null, camJumps: {} });
+  WB.reset = () => { st.est = null; st.lum = 0; st.jumps = 0; st.lastSeen = 0; st.cams = []; st.samples = st.accepted = st.rejected = 0; st.raw = null; st.camJumps = {}; apply(); render(); };
   /** Feed one measurement (sRGB white, or null when not seen). Returns "init" | "ok" | "jump" | "accept-jump" | "none". */
   WB.update = (rgb, now) => {
     now = now == null ? performance.now() : now;
@@ -122,7 +127,7 @@
     return "ok";
   };
   /** Current smoothed white point as sRGB (green = 200), or null. */
-  WB.white = () => (st.est ? [200 * Math.exp(st.est[0]), 200, 200 * Math.exp(st.est[1])].map((v) => Math.min(255, v)) : null);
+  WB.white = () => { if (!st.est) return null; const w = [Math.exp(st.est[0]), 1, Math.exp(st.est[1])], k = 230 / Math.max(w[0], w[1], w[2]); return w.map((v) => v * k); };   // brightest channel = 230
   WB.current = () => { const w = WB.white(); if (!w) return null; const k = WB.cct(w); return { white: w, cct: k, label: WB.describe(k, w), gains: WB.gains(w), cams: st.cams.slice() }; };
 
   // ── rendering the correction ──
@@ -205,17 +210,29 @@
   }
   WB.sampleNow = () => {
     const seen = [], whites = [];
+    WB.last = {};
     let blank = 0;
+    const ev = T.player && T.player.ev;
     for (const cam of ["left_repeater", "right_repeater"]) {
-      const img = strip(cam); if (!img) continue;
-      const a = WB.analyse(img); a.cam = cam;
+      if (ev && ev.cams && !ev.cams.includes(cam)) continue;
+      const img = strip(cam); if (!img) { blank++; continue; }   // not decoded yet (seeking): try again next tick
+      const a = WB.analyse(img); a.cam = cam; WB.last[cam] = a;
       if (a.blank) { blank++; continue; }
-      if (a.found) { seen.push(cam); whites.push(a.rgb); }
+      if (!a.found) continue;
+      // per-camera chroma-jump rejection against the running estimate (a lamp reflection on ONE mirror)
+      if (st.est) {
+        const d = Math.hypot(Math.log(a.rgb[0] / a.rgb[1]) - st.est[0], Math.log(a.rgb[2] / a.rgb[1]) - st.est[1]);
+        a.jump = d;
+        if (d > WB.C.JUMP && (st.camJumps[cam] = (st.camJumps[cam] || 0) + 1) < WB.C.JUMP_ACCEPT) { a.rejected = "jump"; st.rejected++; continue; }
+      }
+      st.camJumps[cam] = 0;
+      seen.push(cam); whites.push(a.rgb);
     }
-    if (!whites.length && blank) return "blank";      // nothing decoded to look at: keep the estimate as it is
+    if (!whites.length && blank) return "blank";
+    if (!whites.length && Object.values(WB.last).some((a) => a.rejected)) return "jump";   // only a rejected lamp flash: hold      // nothing decoded to look at: keep the estimate as it is
     // both mirrors: average in log-chroma (each normalised to its green)
     let rgb = null;
-    if (whites.length) { const l = whites.map((w) => [Math.log(w[0] / w[1]), Math.log(w[2] / w[1])]); const m = [0, 1].map((k) => l.reduce((s, v) => s + v[k], 0) / l.length); rgb = [200 * Math.exp(m[0]), 200, 200 * Math.exp(m[1])]; }
+    if (whites.length) { const l = whites.map((w) => [Math.log(w[0] / w[1]), Math.log(w[2] / w[1])]); const m = [0, 1].map((k) => l.reduce((s, v) => s + v[k], 0) / l.length); rgb = [Math.exp(m[0]), 1, Math.exp(m[1])]; }
     const r = WB.update(rgb);
     st.cams = r === "jump" ? st.cams : seen;
     return r;
@@ -225,7 +242,7 @@
     const P = T.player;
     if (!WB.isOn() || document.hidden || !P || !P.ev) { render(); return; }
     const key = P.active + ":" + (P.time || 0).toFixed(3) + ":" + (P.ev.id || P.ev.name || "");
-    if (force || P.playing || key !== lastKey) { lastKey = key; WB.sampleNow(); }
+    if (force || P.playing || key !== lastKey) { lastKey = key; if (WB.sampleNow() === "blank") lastKey = ""; }
     apply();   // also picks up a 360 canvas or tiles created since the last tick
     render(); schedule();
   }

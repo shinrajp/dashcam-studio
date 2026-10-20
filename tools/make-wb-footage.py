@@ -3,7 +3,7 @@
 Four cameras (front, back, left + right mirror/repeater) under a warm ~3000 K streetlight cast: the mock stills are
 darkened and tinted in linear light. Each mirror camera sees "white car paint" along its INNER edge (left repeater:
 right side of the image, right repeater: left side), lower part: a smooth paint gradient, a glossy highlight band and a
-small clipped specular spot. A red lamp reflection flashes on the left-mirror paint at 4.0–4.5 s.
+small clipped specular spot. A bright red lamp reflection (brighter than the paint, so it IS among the candidates) flashes on the left-mirror paint at 4.0–4.5 s.
 NOPAINT=1 → the same night scene without any paint (the 'Looking for your white paint' case).
 Usage: [NOPAINT=1] [CCT=3000] python3 tools/make-wb-footage.py /tmp/wb-samples      — needs ffmpeg + Pillow + numpy."""
 import json, os, sys, subprocess
@@ -16,6 +16,8 @@ CCT = float(os.environ.get("CCT", "3000"))
 STAMP = "2026-10-20_21-00-00" if not NOPAINT else "2026-10-20_21-10-00"
 W, H, FPS, SEC = 960, 720, 24, 8
 FLASH = (4.0, 4.5)
+PAINT = 0.42                    # night: the paint highlight is not very bright (sRGB R ≈ 160) …
+RED = (0.75, 0.13, 0.025)       # … so a red lamp reflection (sRGB ≈ 226, 101, 44) is the brightest thing in the strip
 
 def planck_xy(T):   # Kim et al. cubic fit of the Planckian locus
     if T <= 4000: x = -0.2661239e9 / T**3 - 0.2343589e6 / T**2 + 0.8776956e3 / T + 0.179910
@@ -45,19 +47,20 @@ def paint(lin_img, cam, t):
     level = 0.25 + 0.20 * inner + 0.04 * np.sin(yy / 9.0)             # paint body: smooth gradient
     band = np.exp(-((yy - h * 0.35) / (h * 0.06)) ** 2) * 0.38         # glossy highlight band along the body line
     level = level + band
-    reg = level[..., None] * CAST[None, None, :]
+    reg = (PAINT * level)[..., None] * CAST[None, None, :]
     # small clipped specular spot (neutral, saturated to 255): must be ignored
     cy, cx = int(h * 0.35), w // 2
     reg[cy - 4:cy + 4, cx - 4:cx + 4, :] = 1.2
     if cam == "left_repeater" and FLASH[0] <= t < FLASH[1]:          # red lamp reflection on the highlight
         m = band[..., None] > 0.2
-        reg = np.where(m, np.array([0.95, 0.06, 0.04])[None, None, :] * (0.6 + band[..., None]), reg)
+        reg = np.where(m, np.array(RED)[None, None, :], reg)
     lin_img[y0:H, x0:x1, :] = reg
     return lin_img
 
 def encode(cam, path):
     b = base(cam + ".jpg")
     p = subprocess.Popen(["ffmpeg", "-y", "-loglevel", "error", "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", "%dx%d" % (W, H), "-r", str(FPS), "-i", "-",
+                          "-vf", "scale=out_color_matrix=bt709:out_range=tv", "-colorspace", "bt709", "-color_primaries", "bt709", "-color_trc", "bt709",
                           "-c:v", "libx264", "-preset", "veryfast", "-crf", "18", "-pix_fmt", "yuv420p", "-movflags", "+faststart", path], stdin=subprocess.PIPE)
     for i in range(FPS * SEC):
         t = i / FPS
