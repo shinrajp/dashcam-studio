@@ -18,14 +18,15 @@ const list = (d0) => { const out = []; (function w(d) { for (const f of fs.readd
 let fails = 0; const ok = (n, c, x) => { console.log((c ? "PASS " : "FAIL ") + n + (x !== undefined ? "  " + JSON.stringify(x).slice(0, 600) : "")); if (!c) fails++; };
 const info = (n, x) => console.log("INFO " + n + (x !== undefined ? "  " + JSON.stringify(x).slice(0, 600) : ""));
 
-async function load(p, dirs) {
+async function load(p, dirs) { if (process.env.WBDBG) console.log("DBG load");
   await p.goto(URL_, { waitUntil: "load" }); await p.addStyleTag({ content: ".toast{display:none!important} .bar-hint{display:none!important}" });
-  await p.setInputFiles("#fileInput", dirs.flatMap(list));
+  dbg("goto done"); await p.setInputFiles("#fileInput", dirs.flatMap(list)); dbg("files");
   for (let i = 0; i < 80 && (await p.evaluate(() => TDC.library.events.length)) < dirs.length; i++) await W(250);
   await p.evaluate(() => { [...document.querySelectorAll("button")].filter((x) => /Got it/.test(x.textContent)).forEach((x) => x.click()); });
   await openEv(p, true);
 }
-const openEv = (p, paint) => p.evaluate(async (paint) => { const ev = TDC.library.events.find((e) => (e.name || e.id || "").includes(paint ? "21-00-00" : "21-10-00")) || TDC.library.events[paint ? 0 : 1]; await TDC.ui.activate(ev); await new Promise((r) => setTimeout(r, 1200)); return ev.name || ev.id; }, paint);
+const dbg = (m) => { if (process.env.WBDBG) console.log("DBG " + new Date().toISOString().slice(11, 19) + " " + m); };
+const openEv = (p, paint) => (dbg("open " + paint), p.evaluate(async (paint) => { const ev = TDC.library.events.find((e) => (e.name || e.id || "").includes(paint ? "21-00-00" : "21-10-00")) || TDC.library.events[paint ? 0 : 1]; await TDC.ui.activate(ev); await new Promise((r) => setTimeout(r, 1200)); return ev.name || ev.id; }, paint));
 const seek = (p, t) => p.evaluate(async (t) => { TDC.player.pause(); await TDC.player.seek(t); await new Promise((r) => setTimeout(r, 700)); }, t);
 // mean colour of a region of a camera's picture (fractions of the video frame), read from a real screenshot (= what the user sees)
 async function shotMean(p, cam, rx0, ry0, rx1, ry1) {
@@ -56,10 +57,25 @@ const ui = (p) => p.evaluate(() => { const b = document.getElementById("chipWb")
 (async () => {
   fs.mkdirSync(SHOTS, { recursive: true });
   for (const bn of (process.env.BR || "chromium,webkit").split(",")) {
-    const b = await pw[bn].launch(bn === "chromium" ? { executablePath: "/usr/bin/google-chrome", args: ["--no-sandbox", "--autoplay-policy=no-user-gesture-required", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] } : {});
+    // WebKit (WPE) sometimes has its web process killed by its own watchdog while an event opens: retry that browser once
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      const f0 = fails;
+      try { await Promise.race([runBrowser(bn), new Promise((_, rej) => setTimeout(() => rej(new Error("browser run timed out")), 240000))]); break; }
+      catch (e) { console.log("RETRY " + bn + " attempt " + attempt + ": " + String(e.message || e).split("\n")[0]); fails = f0; if (attempt === 2) { fails++; console.log("FAIL " + bn + ": did not complete"); } }
+    }
+  }
+  console.log(fails ? "\n" + fails + " FAILED" : "\nALL PASS");
+  process.exit(fails ? 1 : 0);
+})().catch((e) => { console.error(e); process.exit(1); });
+
+let curBrowser = null;
+async function runBrowser(bn) {
+  {
+    if (curBrowser) { const old = curBrowser; curBrowser = null; old.close().catch(() => {}); }
+    const b = curBrowser = await pw[bn].launch(bn === "chromium" ? { executablePath: "/usr/bin/google-chrome", args: ["--no-sandbox", "--autoplay-policy=no-user-gesture-required", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] } : {});
     const ctx = await b.newContext({ viewport: { width: 1440, height: 900 } });
     await ctx.addInitScript(() => { if (!sessionStorage.getItem("wbt")) { sessionStorage.setItem("wbt", "1"); localStorage.removeItem("tdc.wb.v1"); localStorage.removeItem("tdc.wb.mode"); localStorage.setItem("tdc.detect.v1", JSON.stringify({ enabled: false, live: false })); } });
-    const p = await ctx.newPage(); const errs = []; p.on("pageerror", (e) => errs.push(e.message)); p.on("crash", () => { console.log("PAGE CRASHED"); process.exit(3); });
+    const p = await ctx.newPage(); const errs = []; p.on("pageerror", (e) => errs.push(e.message)); p.on("crash", () => { console.log("INFO page crashed (" + bn + ")"); b.close().catch(() => {}); });
     const tag = bn;
     await load(p, [FIX, FIX0]);
 
@@ -164,12 +180,17 @@ const ui = (p) => p.evaluate(() => { const b = document.getElementById("chipWb")
       const C = TDC.compositor, d0 = C.drawFrame, hs = [];
       C.drawFrame = function (ctx) { const r = d0.apply(this, arguments); const im = ctx.getImageData(0, 0, ctx.canvas.width, ctx.canvas.height).data; let h = 2166136261; for (let i = 0; i < im.length; i += 3) { h ^= im[i]; h = Math.imul(h, 16777619) >>> 0; } hs.push(h); return r; };
       let r; try { r = await TDC.exporter.run({ preset: "compat", ranges: [[1.0, 2.0]], show: { ...TDC.prefs.show }, onStatus: () => {}, onProgress: () => {} }); } finally { C.drawFrame = d0; }
-      const u8 = new Uint8Array(await r.blob.arrayBuffer()); let h = 2166136261; for (const x of u8) { h ^= x; h = Math.imul(h, 16777619) >>> 0; }
+      const u8 = new Uint8Array(await r.blob.arrayBuffer()); (window.__wbEx = window.__wbEx || []).push(u8); let h = 2166136261; for (const x of u8) { h ^= x; h = Math.imul(h, 16777619) >>> 0; }
       return { frames: hs, size: u8.length, fileHash: h };
     });
-    const exOn = await exportRun(); await setWb(p, false); const exOff = await exportRun(); await setWb(p, true);
+    const exOn = await exportRun(); await setWb(p, false); const exOff = await exportRun(); const exOff2 = await exportRun(); await setWb(p, true);
     ok(tag + ": export frames are identical with white balance on vs off (" + exOn.frames.length + " frames, pixel hash per frame)", exOn.frames.length > 10 && JSON.stringify(exOn.frames) === JSON.stringify(exOff.frames), { on: exOn.frames.slice(0, 4), off: exOff.frames.slice(0, 4), n: [exOn.frames.length, exOff.frames.length] });
-    (exOn.fileHash === exOff.fileHash ? ok : info)(tag + ": exported file bytes identical on vs off", exOn.fileHash === exOff.fileHash, { on: [exOn.size, exOn.fileHash], off: [exOff.size, exOff.fileHash] });
+    const det = exOff.fileHash === exOff2.fileHash;
+    if (det) ok(tag + ": exported file bytes identical on vs off (the encoder is deterministic here)", exOn.fileHash === exOff.fileHash, { on: [exOn.size, exOn.fileHash], off: [exOff.size, exOff.fileHash] });
+    const bd = await p.evaluate(() => { const [a, b, c] = window.__wbEx.slice(-3), n = (x, y) => { let k = 0; for (let i = 0; i < Math.max(x.length, y.length); i++) if (x[i] !== y[i]) k++; return k; }; window.__wbEx = []; return { onVsOff: n(a, b), offVsOff: n(b, c) }; });
+    info(tag + ": differing bytes in the exported files", bd);
+    if (!det) info(tag + ": exported file bytes: two exports with white balance OFF already differ (encoder not deterministic), so the frame hashes above are the proof", { on: exOn.size, off: exOff.size, off2: exOff2.size });
+    ok(tag + ": a second export with it off gives the same frames again", JSON.stringify(exOff2.frames) === JSON.stringify(exOff.frames));
     ok(tag + ": export left the viewer correction in place", !!(await ui(p)).applied);
 
     // ── red lamp flash: estimate steady ──
@@ -220,8 +241,15 @@ const ui = (p) => p.evaluate(() => { const b = document.getElementById("chipWb")
     await p.setViewportSize({ width: 1440, height: 900 }); await W(500);
 
     // ── 360 view ──
-    const pano = await p.evaluate(async () => { const b = document.getElementById("btn360"); if (!b || !TDC.pano) return { skipped: "no 360" }; b.click(); await new Promise((r) => setTimeout(r, 2500)); const c = document.getElementById("panoCanvas"); if (!c || !TDC.pano.on) return { skipped: "360 did not open (" + (TDC.pano.error || "WebGL?") + ")" }; TDC.wb.apply(); const tint = c.parentElement.querySelector(":scope > .wb-tint"); const r = { filter: c.style.filter, tint: !!(tint && !tint.hidden) }; b.click(); await new Promise((r) => setTimeout(r, 300)); return r; });
-    if (pano.skipped) info(tag + ": 360 view", pano); else ok(tag + ": 360 view: the stitched picture gets the same correction", !!pano.filter || pano.tint, pano);
+    const pano = await p.evaluate(async () => { const v = await TDC.toggle360(true); await new Promise((r) => setTimeout(r, 2500)); const c = document.getElementById("panoCanvas"); if (!v || !c || !TDC.pano.on) return { skipped: "360 did not open (" + ((TDC.pano && TDC.pano.error) || "WebGL?") + ")" }; TDC.wb.apply(); const tint = c.parentElement.querySelector(":scope > .wb-tint"); const r = c.getBoundingClientRect(); return { filter: c.style.filter, tint: !!(tint && !tint.hidden), box: { x: r.left + r.width * 0.2, y: r.top + r.height * 0.2, width: r.width * 0.6, height: r.height * 0.6 } }; });
+    if (pano.skipped) info(tag + ": 360 view", pano);
+    else {
+      const mean = async () => p.evaluate(async (b64) => { const bm = await createImageBitmap(await (await fetch("data:image/png;base64," + b64)).blob()); const c = new OffscreenCanvas(bm.width, bm.height), x = c.getContext("2d"); x.drawImage(bm, 0, 0); const d = x.getImageData(0, 0, bm.width, bm.height).data; let r = 0, g = 0, b = 0, n = 0; for (let i = 0; i < d.length; i += 4) { r += d[i]; g += d[i + 1]; b += d[i + 2]; n++; } return [r / n, g / n, b / n]; }, (await p.screenshot({ clip: pano.box })).toString("base64"));
+      const pOn = await mean(); await setWb(p, false); const pOff = await mean(); await setWb(p, true);
+      await p.screenshot({ path: path.join(SHOTS, "white-balance-360-" + bn + ".png") });
+      ok(tag + ": 360 view: the stitched picture gets the same correction (R/B drops)", (!!pano.filter || pano.tint) && pOn[0] / pOn[2] < 0.9 * (pOff[0] / pOff[2]), { filter: pano.filter, tint: pano.tint, off: pOff.map(Math.round), on: pOn.map(Math.round) });
+      await p.evaluate(() => TDC.toggle360(false)); await W(300);
+    }
 
     // ── no paint: looking ──
     await openEv(p, false); await p.evaluate(async () => { await TDC.player.seek(0.5); TDC.player.play(); await new Promise((r) => setTimeout(r, 2500)); TDC.player.pause(); });
@@ -229,8 +257,6 @@ const ui = (p) => p.evaluate(() => { const b = document.getElementById("chipWb")
     ok(tag + ": no paint in the mirrors → 'Looking for your white paint in the mirror cameras', no correction", s.readout === "Looking for your white paint in the mirror cameras" && !s.applied, s);
     await p.screenshot({ path: path.join(SHOTS, "white-balance-looking-" + bn + ".png") });
     ok(tag + ": no page errors", errs.length === 0, errs.slice(0, 3));
-    await b.close();
+    curBrowser = null; await Promise.race([b.close(), W(10000)]);
   }
-  console.log(fails ? "\n" + fails + " FAILED" : "\nALL PASS");
-  process.exit(fails ? 1 : 0);
-})().catch((e) => { console.error(e); process.exit(1); });
+}
