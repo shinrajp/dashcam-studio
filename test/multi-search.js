@@ -29,6 +29,7 @@ const CASES = [
   ["a person in a hoodie and a mask", ["a person in a hoodie and a mask"]],
   ["plate 7AB* and bus", ["plate 7AB*", "bus"]],
   ["bus, a man walking a dog at night", ["bus", "man walking a dog at night"]],
+  ["tour bus and regular local street buses", ["tour bus and regular local street buses"]],
   ["bus", ["bus"]],
   ["bus, bus", ["bus"]],
 ];

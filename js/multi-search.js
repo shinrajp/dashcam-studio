@@ -23,7 +23,8 @@
       if (T.detect && T.detect.classFor && T.detect.classFor(s)) return "det";
       if (T.plates && T.plates.parse && T.plates.parse(s)) return "plate";
       const v = T.vehicle && T.vehicle.parse && T.vehicle.parse(s);
-      if (v && (v.color || v.type || v.make || (v.cls && v.cls.length))) return "vehicle";
+      // only a clean vehicle phrase: "regular local street buses" (extra words) is part of a sentence, not a term
+      if (v && (v.color || v.type || v.make || (v.cls && v.cls.length)) && !(v.extra && v.extra.length)) return "vehicle";
     } catch (_) {}
     return null;
   };
