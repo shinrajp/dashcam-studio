@@ -50,11 +50,18 @@
     VALLEY: 0.75,           // valley: mean < VALLEY × the brighter neighbours on both sides
     ROWS_MIN: 0.3,          // confident when an edge is found in ≥ 30 % of the rows…
     ROW_JUMP: 4,            // …and neighbouring rows' widths differ by ≤ this many cells (a smooth curve)
+    // colour classification (vehicle colour in searches and live labels; tag wb-color)
+    CLASSIFY_STRENGTH: 1.0, // FULL correction for recognition (the viewer uses ~70 % for looks): see WB.classifyGains
+    CLASSIFY_GAIN: [0.4, 2.8],   // wider clamp than the viewer: a 3000 K white needs ~2.2× blue to read as white
+    WINDOW: 4,              // s: one white-point estimate per window of the event during a search scan
+    HIST_NEAR: 2,           // s: a live (smoothed) estimate this close in time is used instead
+    PROBE: [-1, -0.6, -0.2, 0, 0.2, 0.6, 1],   // s: frames around t read from each mirror for that estimate
+    BODY_SD: [1.2, 0.4],    // …and the body cells' temporal std must be ≤ max(1.2, 0.4 × the moving scene's): static
   };
   const KEY = "tdc.wb.v1", MODE_KEY = "tdc.wb.mode", CFG_KEY = "tdc.wb.cfg.v1", MASK_KEY = "tdc.wb.mask.v1";
   const REP = ["left_repeater", "right_repeater"];
   // user settings: strength, strip width, edge side per camera ("auto" | "left" | "right"), show the sample area
-  WB.cfg = () => { let c = {}; try { c = JSON.parse(localStorage.getItem(CFG_KEY) || "{}") || {}; } catch (_) {} return { strength: c.strength > 0 ? Math.min(1, c.strength) : WB.C.STRENGTH, width: c.width > 0 ? c.width : WB.C.ZONE_W, side: Object.assign({ left_repeater: "auto", right_repeater: "auto" }, c.side || {}), showMask: !!c.showMask }; };
+  WB.cfg = () => { let c = {}; try { c = JSON.parse(localStorage.getItem(CFG_KEY) || "{}") || {}; } catch (_) {} return { strength: c.strength > 0 ? Math.min(1, c.strength) : WB.C.STRENGTH, width: c.width > 0 ? c.width : WB.C.ZONE_W, side: Object.assign({ left_repeater: "auto", right_repeater: "auto" }, c.side || {}), showMask: !!c.showMask, colour: c.colour === "on" || c.colour === "off" ? c.colour : "auto" }; };
   WB.setCfg = (patch) => { const c = Object.assign(WB.cfg(), patch); if (patch.side) c.side = Object.assign(WB.cfg().side, patch.side); try { localStorage.setItem(CFG_KEY, JSON.stringify(c)); } catch (_) {} if (patch.width || patch.side) resetZones(false); apply(); render(); drawMasks(); return c; };
   const NAME = { left_repeater: "left mirror", right_repeater: "right mirror" };
 
@@ -293,6 +300,9 @@
     const P = T.player, t = P && P.tiles && P.tiles[cam];
     const v = t && t.vids[P.active];
     if (!v || !v._url || v.readyState < 2 || !v.videoWidth) return null;
+    return stripOf(v, side);
+  }
+  function stripOf(v, side) {
     const C = WB.C, zw = WB.cfg().width, vw = v.videoWidth, vh = v.videoHeight;
     if (!cv) { cv = document.createElement("canvas"); cv.width = C.GW; cv.height = C.GH; cx = cv.getContext("2d", { willReadFrequently: true }); }
     try {
@@ -355,9 +365,111 @@
     if (whites.length) { const l = whites.map((w) => [Math.log(w[0] / w[1]), Math.log(w[2] / w[1])]); const m = [0, 1].map((k) => l.reduce((s, v) => s + v[k], 0) / l.length); rgb = [Math.exp(m[0]), 1, Math.exp(m[1])]; }
     const r = WB.update(rgb);
     st.cams = r === "jump" ? st.cams : seen;
+    if (st.est && rgb && ev) remember(ev, T.player.time, st.est, st.cams);
     drawMasks();
     return r;
   };
+
+  // ── white point for colour classification (tag wb-color) ──
+  // Vehicle colour (vehicle-attrs.js) is read from raw frames; under a warm streetlight a white bus reads brown / beige.
+  // When a white point is known for that moment, the crop is corrected first. Where it comes from:
+  //   1. the live, smoothed viewer estimate within ±HIST_NEAR s of that time (recorded while white balance samples), else
+  //   2. one estimate per WINDOW s of the event, measured on demand from both mirror cameras' frames at that time
+  //      (own hidden video, so it never disturbs the frame being classified), with the learned / remembered body shape
+  //      or the default sliver. No jump rejection there (a single frame), but the hue gate still drops lamp pixels.
+  // Setting "Colour search uses white balance": auto (default: whenever a white point is found, even with the viewer
+  // toggle off) / on (also falls back to the viewer's last estimate) / off (raw pixels, as before).
+  const hist = new Map();    // event id → [{t, est, cams}] (live estimates, time-sorted on use)
+  function remember(ev, t, est, cams) {
+    if (!(t >= 0)) return;
+    const id = ev.id || ev.name || ""; let a = hist.get(id); if (!a) hist.set(id, (a = []));
+    const last = a[a.length - 1];
+    if (last && Math.abs(last.t - t) < 0.2) { last.est = est.slice(); last.cams = cams.slice(); return; }
+    a.push({ t, est: est.slice(), cams: cams.slice() }); if (a.length > 4000) a.splice(0, a.length - 4000);
+  }
+  function nearestHist(ev, t) {
+    const a = hist.get(ev.id || ev.name || ""); if (!a || !a.length) return null;
+    let best = null; for (const h of a) if (!best || Math.abs(h.t - t) < Math.abs(best.t - t)) best = h;
+    return best && Math.abs(best.t - t) <= WB.C.HIST_NEAR ? best : null;
+  }
+  WB.colourMode = () => WB.cfg().colour;
+  /** Gains used for COLOUR CLASSIFICATION: the viewer's formula at CLASSIFY_STRENGTH (100 %), but scaled so the white
+   *  maps to its own brightest channel (not to its luminance): colour names depend on brightness (white / silver / gray),
+   *  and keeping the luminance of a warm white would push it down to "silver". Clamped to CLASSIFY_GAIN. */
+  WB.classifyGains = (w) => {
+    const k = WB.C.CLASSIFY_STRENGTH, mx = Math.max(w[0], w[1], w[2]), [lo, hi] = WB.C.CLASSIFY_GAIN;
+    return w.map((c) => Math.min(hi, Math.max(lo, 1 + (mx / Math.max(c, 1) - 1) * k)));
+  };
+  function pack(est, source, cams, t) {
+    const w = [Math.exp(est[0]), 1, Math.exp(est[1])], k0 = 230 / Math.max(w[0], w[1], w[2]), white = w.map((v) => v * k0), cct = WB.cct(white);
+    return { white, cct, label: WB.describe(cct, white), gains: WB.classifyGains(white), source, cams: (cams || []).slice(), t };
+  }
+  const wcache = new Map(), wdone = new Map();   // "event|window" → promise / resolved estimate
+  let wv = null, wq = Promise.resolve();
+  async function estimateAt(ev, t) {
+    const P = T.player, ci = P.clipIndexAt ? P.clipIndexAt(t) : 0, clip = ev.clips && ev.clips[ci];
+    if (!clip || !T.search || !T.search.seekSample) return null;
+    if (!wv) wv = Object.assign(document.createElement("video"), { muted: true, playsInline: true, preload: "auto" });
+    const C = WB.C, whites = [], cams = [];
+    WB.lastColourProbe = {};
+    for (const cam of REP) {
+      const it = clip.files && clip.files[cam]; if (!it || !it.blob) continue;
+      const mk0 = WB.maskFor(cam), local = Math.max(0, t - clip.start);
+      // a few frames around t: the body must be STATIC while the scene moves (else the "body" is just the street),
+      // and if no body shape is known yet, learn one from these frames
+      const Z = WB.newZone(); let img0 = null;
+      for (const dt of C.PROBE) {
+        try { await T.search.seekSample(wv, it, Math.max(0, local + dt)); } catch (_) { continue; }
+        if (!wv.videoWidth) continue;
+        const im = stripOf(wv, mk0.side); if (!im) continue;
+        WB.feedZone(Z, im); if (dt === 0) img0 = im;
+      }
+      if (!img0 || Z.n < 3) continue;
+      const n = Z.n; Z.n = Math.max(Z.n, C.MASK_MIN_FRAMES); WB.maskZone(Z); Z.n = n;
+      let runs = mk0.runs, source = mk0.source;
+      if (source === "default sliver" && Z.conf && Z.runs) { runs = Z.runs; source = "learned here"; }
+      let staticOk = true, bodySd = 0;
+      if (Z.moving) {
+        const sds = []; for (let y = 0; y < C.GH; y++) for (let x = 0; x < Math.min(runs[y] | 0, C.GW); x++) sds.push(Math.sqrt(Z.vr[y * C.GW + x]));
+        bodySd = med(sds); staticOk = sds.length >= C.MIN_CELLS && bodySd <= Math.max(C.BODY_SD[0], C.BODY_SD[1] * Z.sceneStd);
+      }
+      const a = staticOk ? WB.analyse(img0, runs, null) : { found: false, why: "not static (no car body)" };
+      WB.lastColourProbe[cam] = { found: !!a.found, why: a.why, source, moving: Z.moving, sceneStd: +Z.sceneStd.toFixed(1), bodySd: +bodySd.toFixed(1), frames: n };
+      if (a.found) { whites.push(a.rgb); cams.push(cam); }
+    }
+    if (!whites.length) return null;
+    const l = whites.map((w) => [Math.log(w[0] / w[1]), Math.log(w[2] / w[1])]);
+    return pack([0, 1].map((k) => l.reduce((s, v) => s + v[k], 0) / l.length), "mirrors at " + t.toFixed(1) + " s", cams, t);
+  }
+  const wkey = (ev, t) => (ev.id || ev.name || "") + "|" + Math.floor(Math.max(0, t) / WB.C.WINDOW);
+  /** The white point at time t of the open event (live estimate nearby, else measured from the mirrors), or null. */
+  WB.whiteAt = (t) => {
+    const ev = T.player && T.player.ev; if (!ev) return Promise.resolve(null);
+    const h = nearestHist(ev, t); if (h) return Promise.resolve(pack(h.est, "live", h.cams, h.t));
+    const key = wkey(ev, t);
+    if (!wcache.has(key)) {
+      const p = (wq = wq.then(() => estimateAt(ev, t)).catch(() => null)).then((r) => { wdone.set(key, r); return r; });
+      wcache.set(key, p);
+    }
+    return wcache.get(key);
+  };
+  /** For colour classification at time t: { gains, cct, label, source } or null (raw pixels), per the setting. */
+  WB.colourFix = async (t) => {
+    const mode = WB.colourMode(); if (mode === "off") return null;
+    let r = null; try { r = await WB.whiteAt(t); } catch (_) {}
+    if (!r && mode === "on" && st.est) r = pack(st.est, "viewer", st.cams);
+    return r;
+  };
+  /** Same, without waiting (live labels): what is known now; starts a measurement for this window when none is. */
+  WB.colourFixNow = (t) => {
+    const mode = WB.colourMode(), ev = T.player && T.player.ev; if (mode === "off" || !ev) return null;
+    const h = nearestHist(ev, t); if (h) return pack(h.est, "live", h.cams, h.t);
+    const key = wkey(ev, t);
+    if (wdone.has(key)) { const r = wdone.get(key); if (r) return r; }
+    else if (!wcache.has(key)) WB.whiteAt(t);
+    return mode === "on" && st.est ? pack(st.est, "viewer", st.cams) : null;
+  };
+  WB.forgetColourCache = () => { wcache.clear(); wdone.clear(); };
   /** Summary for the debug overlay / tests. */
   WB.maskInfo = () => { const out = {}; for (const cam of REP) { const m = WB.maskFor(cam), Z = m.Z; const rows = Array.from(m.runs); const used = rows.filter((v) => v > 0); out[cam] = { side: m.side, source: m.source, rowsWithBody: used.length, maxWidthPct: +((Math.max(0, ...rows) / WB.C.GW) * WB.cfg().width * 100).toFixed(1), widthTopPct: used.length ? +((used[0] / WB.C.GW) * WB.cfg().width * 100).toFixed(1) : 0, widthBottomPct: +((rows[rows.length - 1] / WB.C.GW) * WB.cfg().width * 100).toFixed(1), frames: Z ? Z.n : 0, moving: Z ? Z.moving : false, sceneStd: Z ? +Z.sceneStd.toFixed(1) : 0, rowsFound: Z ? +(Z.rowsFound || 0).toFixed(2) : 0 }; } return out; };
 
@@ -408,6 +520,11 @@
     }
     const cb = document.createElement("input"); cb.type = "checkbox"; cb.id = "wbShowMask"; cb.checked = c.showMask; cb.addEventListener("change", () => WB.setCfg({ showMask: cb.checked }));
     row("Show sample area", cb);
+    const cs = document.createElement("select"); cs.id = "wbColour";
+    cs.innerHTML = '<option value="auto">Auto (when a white point is found)</option><option value="on">On</option><option value="off">Off (raw colours)</option>';
+    cs.value = c.colour; cs.addEventListener("change", () => { WB.setCfg({ colour: cs.value }); if (T.vehicle && T.vehicle.colourModeChanged) T.vehicle.colourModeChanged(); });
+    cs.title = "Vehicle colour (searches like 'white bus' and live labels) is judged on pixels corrected with the white point from the mirror cameras: a white bus under an orange streetlight then reads white, not brown. Auto: whenever a white point is found, even with the White balance toggle off.";
+    row("Colour search uses white balance", cs);
     const btn = document.createElement("button"); btn.className = "btn ghost wide"; btn.type = "button"; btn.id = "wbForget"; btn.textContent = "Forget the learned car-body shape"; btn.addEventListener("click", () => WB.forgetMasks());
     host.appendChild(btn);
     const p = document.createElement("p"); p.className = "hint"; p.textContent = "White balance uses the white car body seen at the outer edge of the mirror cameras. Show sample area outlines the strip it searches and fills the part it samples (pink: found on this clip, violet: remembered, yellow: default sliver). Viewer only: exports are never changed.";
@@ -434,7 +551,7 @@
     if (b) b.addEventListener("click", () => WB.toggle());
     document.addEventListener("visibilitychange", () => { if (!document.hidden) schedule(); });
     if (T.on) {
-      T.on("player-open", () => { WB.reset(); resetZones(); lastKey = ""; schedule(); });
+      T.on("player-open", () => { WB.reset(); resetZones(); lastKey = ""; wcache.clear(); wdone.clear(); schedule(); });
       T.on("time", () => { if (WB.isOn() && !timer) schedule(); });
       T.on("layout", () => { if (WB.applied) apply(); drawMasks(); });   // new tiles / 360 canvas get the correction too
     }

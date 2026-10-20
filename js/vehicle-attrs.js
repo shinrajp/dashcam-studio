@@ -100,8 +100,31 @@
     return out;
   }
 
-  /** rgba = Uint8ClampedArray of a w×h crop of ONE vehicle (box from the detector). → { name, conf, scores, lowLight } */
-  function colorFromPixels(rgba, w, h) {
+  // CIELAB (D65) of an sRGB pixel (0..1): neutral test by chroma relative to lightness (tag wb-color)
+  const LIN = new Float32Array(256); for (let i = 0; i < 256; i++) { const c = i / 255; LIN[i] = c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); }
+  const lin1 = (c) => { const x = Math.max(0, Math.min(255, c * 255)), i = x | 0, f = x - i; return i >= 255 ? LIN[255] : LIN[i] + (LIN[i + 1] - LIN[i]) * f; };
+  const fL = (t) => (t > 0.008856 ? Math.cbrt(t) : 7.787 * t + 16 / 116);
+  function lab(r, g, b) {
+    const R = lin1(r), G = lin1(g), B = lin1(b);
+    const X = (0.4124 * R + 0.3576 * G + 0.1805 * B) / 0.95047, Y = 0.2126 * R + 0.7152 * G + 0.0722 * B, Z = (0.0193 * R + 0.1192 * G + 0.9505 * B) / 1.08883;
+    const fx = fL(X), fy = fL(Y), fz = fL(Z);
+    return [116 * fy - 16, 500 * (fx - fy), 200 * (fy - fz)];
+  }
+  /** A pixel reads as neutral (white / silver / gray / black) when its CIELAB chroma is small FOR ITS LIGHTNESS:
+   *  C* < NEUTRAL_C0 + NEUTRAL_CK × L*, ×NEUTRAL_WARM for dim warm-hued pixels (night, streetlight: a slightly yellow
+   *  grey is grey, not beige / brown). Real brown (C* ≈ 25 at L* ≈ 35) and beige (C* ≈ 15 at L* ≈ 80) stay colours. */
+  const NEUTRAL_C0 = 4, NEUTRAL_CK = 0.1, NEUTRAL_WARM = 1.5;
+  /** Brightness (HSV value) thresholds for white / silver / gray (below: black). At night under a streetlight (a white
+   *  point below ~4500 K was found and applied: opts.night) a white vehicle is lit far less than by daylight, so the
+   *  steps are lower: a white bus under a streetlight sits around 0.65–0.7, silver paint around 0.45. */
+  const GRAY_DAY = [0.72, 0.5, 0.28], GRAY_NIGHT = [0.6, 0.4, 0.22];
+
+  /** rgba = Uint8ClampedArray of a w×h crop of ONE vehicle (box from the detector). opts.gains = [r,g,b] white-balance
+   *  gains applied to every pixel first (WB.classifyGains, from the mirror cameras' white point).
+   *  → { name, conf, scores, lowLight, corrected } */
+  function colorFromPixels(rgba, w, h, opts) {
+    const gn = opts && opts.gains, g0 = gn ? gn[0] : 1, g1 = gn ? gn[1] : 1, g2 = gn ? gn[2] : 1;
+    const GT = opts && opts.night ? GRAY_NIGHT : GRAY_DAY;
     const sc = {}; COLORS.forEach((c) => (sc[c] = 0));
     let total = 0, vSum = 0, n = 0, warm = 0;
     for (let y = 0; y < h; y++) {
@@ -109,16 +132,16 @@
       for (let x = 0; x < w; x++) {
         const dx = (x + 0.5) / w - 0.5;
         const wt = Math.exp(-(dx * dx) / (2 * 0.3 * 0.3) - (dy * dy) / (2 * 0.32 * 0.32));   // centre of the body counts most
-        const i = (y * w + x) * 4, r = rgba[i] / 255, g = rgba[i + 1] / 255, b = rgba[i + 2] / 255;
+        const i = (y * w + x) * 4, r = Math.min(1, (rgba[i] / 255) * g0), g = Math.min(1, (rgba[i + 1] / 255) * g1), b = Math.min(1, (rgba[i + 2] / 255) * g2);
         const mx = Math.max(r, g, b), mn = Math.min(r, g, b), v = mx, c = mx - mn, s = mx ? c / mx : 0;
         let hue = 0;
         if (c > 1e-6) { if (mx === r) hue = ((g - b) / c) % 6; else if (mx === g) hue = (b - r) / c + 2; else hue = (r - g) / c + 4; hue *= 60; if (hue < 0) hue += 360; }
         vSum += v; n++;
         if (hue >= 20 && hue <= 45 && s > 0.35) warm++;
         let name, k = 1;
-        const gray = () => (v > 0.72 ? "white" : v > 0.5 ? "silver" : v > 0.28 ? "gray" : "black");
+        const gray = () => (v > GT[0] ? "white" : v > GT[1] ? "silver" : v > GT[2] ? "gray" : "black");
         if (v < 0.2) { name = "black"; k = 0.55; }   // also glass, tyres and deep shadow
-        else if (s < 0.16 || c < 0.07) { name = gray(); k = name === "black" ? 0.55 : 0.85; }
+        else if (s < 0.16 || c < 0.07 || neutral(r, g, b, v, hue)) { name = gray(); k = name === "black" ? 0.55 : 0.85; }
         else {
           k = 0.6 + s;   // saturated paint is the strongest clue
           if (hue < 12 || hue >= 335) name = v < 0.35 && s < 0.5 ? "brown" : "red";
@@ -149,7 +172,12 @@
     const meanV = n ? vSum / n : 0;
     const lowLight = meanV < 0.18 || (n && warm / n > 0.6 && name !== "orange" && name !== "yellow");   // night, or orange sodium light
     if (lowLight) conf *= 0.5;
-    return { name, conf: Math.round(conf * 100) / 100, scores: share, lowLight: !!lowLight };
+    return { name, conf: Math.round(conf * 100) / 100, scores: share, lowLight: !!lowLight, corrected: !!gn };
+  }
+  function neutral(r, g, b, v, hue) {
+    const [L, A, B] = lab(r, g, b), C = Math.hypot(A, B);
+    const warm = hue >= 15 && hue <= 70 && v < 0.5;
+    return C < (NEUTRAL_C0 + NEUTRAL_CK * L) * (warm ? NEUTRAL_WARM : 1);
   }
 
   const NEAR = { silver: { gray: 0.7, white: 0.5, beige: 0.3 }, gray: { silver: 0.7, black: 0.35, white: 0.25 }, white: { silver: 0.5, beige: 0.3, gray: 0.25 }, black: { gray: 0.4 },
@@ -172,7 +200,7 @@
     return out;
   }
 
-  const api = { COLORS, TYPES, MAKES, parse, colorFromPixels, colorMatch, makePrompts };
+  const api = { COLORS, TYPES, MAKES, parse, colorFromPixels, colorMatch, makePrompts, lab };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   if (root && typeof window !== "undefined") { root.TDC = root.TDC || {}; root.TDC.vehicleAttrs = api; }
 })(typeof window !== "undefined" ? window : globalThis);

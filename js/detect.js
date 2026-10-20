@@ -388,7 +388,7 @@
     const fast = D.speed() === "fast" && D.prefs().model !== "gdino";
     let dets = await D.detectImage(v, v.videoWidth, v.videoHeight, { slot: fast ? "fast" : "main" });
     D.liveStats.ms.push(performance.now() - t0); if (D.liveStats.ms.length > 50) D.liveStats.ms.shift();
-    if (T.vehicle && T.vehicle.decorateLive) dets = T.vehicle.decorateLive(v, v.videoWidth, v.videoHeight, dets);   // "white car 91%"
+    if (T.vehicle && T.vehicle.decorateLive) dets = T.vehicle.decorateLive(v, v.videoWidth, v.videoHeight, dets, t);   // "white car 91%" (colour after white balance when known)
     const n = Math.max(1, D.liveCams().length), hold = Math.max(0.6, 0.6 + (n * D.liveEvery()) / 1000);
     D.live[cam] = { t, dets, hold, src: "live" };
     addSample(cam, D.live[cam]);
@@ -503,7 +503,7 @@
       if (cancelled && cancelled()) break;
       const v = await frameAt(cam, t); if (!v) { n++; continue; }
       let dets = await D.detectImage(v, v.videoWidth, v.videoHeight);
-      if (T.vehicle && T.vehicle.decorateLive) dets = T.vehicle.decorateLive(v, v.videoWidth, v.videoHeight, dets);
+      if (T.vehicle && T.vehicle.decorateLive) dets = T.vehicle.decorateLive(v, v.videoWidth, v.videoHeight, dets, t, T.wb && T.wb.colourFix ? await T.wb.colourFix(t) : null);   // same colour words as the viewer (pixels untouched)
       addSample(cam, { t, dets, hold, src: "export" });
       n++; if (onProgress) onProgress(n, jobs.length, cam);
     }

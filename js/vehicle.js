@@ -94,11 +94,13 @@
   }
 
   /** Attributes for one detected vehicle. need = { type, make } decides whether CLIP runs. Fills d.color/colorConf/colors/lowLight, d.types, d.makes. */
-  V.describe = async (img, iw, ih, d, need) => {
+  /** fix = T.wb.colourFix(t) result ({gains, cct}) or null: the crop's colour is judged after that white balance. */
+  V.describe = async (img, iw, ih, d, need, fix) => {
     if (!d.color) {
       const t0 = performance.now();
       const px = cropPixels(img, iw, ih, d);
-      const c = A().colorFromPixels(px.data, px.w, px.h);
+      const c = A().colorFromPixels(px.data, px.w, px.h, fix ? { gains: fix.gains, night: fix.cct < 4500 } : null);
+      if (fix) { d.wbK = Math.round(fix.cct / 100) * 100; d.rawColor = A().colorFromPixels(px.data, px.w, px.h).name; } else { delete d.wbK; delete d.rawColor; }
       d.color = c.name; d.colorConf = c.conf; d.lowLight = c.lowLight;
       d.colors = Object.fromEntries(Object.entries(c.scores).filter(([, v]) => v >= 0.08).map(([k, v]) => [k, Math.round(v * 100) / 100]));
       V.timings.color.push(performance.now() - t0);
@@ -148,11 +150,11 @@
   V.labelText = (h) => {
     const d = h.vdet, q = h.vq || {};
     const name = [d.color && (q.color || d.colorConf >= 0.3) ? d.color : null, q.make && d.makes && d.makes[0] ? d.makes[0][0] + (q.model ? " " + d.makes[0][1] : "") : null, q.type || (q.make ? null : d.label)].filter(Boolean).join(" ") || d.label;
-    if (h.unconfirmed) return [d.label + " " + pct(d.conf), (q.label || "") + "? not confirmed", "color " + d.color].concat(h.best ? ["Best match"] : []).join(" · ");
+    if (h.unconfirmed) return [d.label + " " + pct(d.conf), (q.label || "") + "? not confirmed", "color " + d.color + (d.wbK ? " (corrected for " + d.wbK + " K light)" : "")].concat(h.best ? ["Best match"] : []).join(" · ");
     const parts = [name, d.label + " " + pct(d.conf)];
     if (h.parts.type != null) parts.push("type " + pct(h.parts.type));
     if (h.parts.make != null) parts.push((q.model ? "model " : "make ") + pct(h.parts.make));
-    parts.push("color " + d.color + (d.lowLight ? "? (low light)" : ""));
+    parts.push("color " + d.color + (d.wbK ? " (corrected for " + d.wbK + " K light)" : "") + (d.lowLight ? "? (low light)" : ""));
     if (h.best) parts.push("Best match");
     return parts.join(" · ");
   };
@@ -167,8 +169,17 @@
     if (useClip) { ui.status("Loading the vision model for vehicle type" + (need.make ? " and make" : "") + "… (the same one picture search uses; first time about 150 MB). Your video stays on this computer."); await T.search.clip.load(ui.status); }
     await V.ready;
     const ev = T.player.ev;
-    return { q, parsed, need, useClip, rec: V.mem.get(ev.id) || { eventId: ev.id, frames: {} }, clipLeft: isMobile() ? 60 : 240, perFrame: isMobile() ? 2 : 4, rows: [], plain: [], fresh: 0, reused: 0 };
+    const rec = V.mem.get(ev.id) || { eventId: ev.id, frames: {} };
+    const wbMode = T.wb && T.wb.colourMode ? T.wb.colourMode() : "off";
+    // colours stored by older versions were read from raw pixels (and the setting may have changed): judge them again
+    if (rec.cver !== COLOR_VER || rec.cwb !== wbMode) { for (const k of Object.keys(rec.frames || {})) for (const d of rec.frames[k]) for (const f of COLOR_FIELDS) delete d[f]; rec.cver = COLOR_VER; rec.cwb = wbMode; }
+    const wbFix = (t) => (T.wb && T.wb.colourFix ? T.wb.colourFix(t) : Promise.resolve(null));
+    return { q, parsed, need, useClip, rec, wbFix, clipLeft: isMobile() ? 60 : 240, perFrame: isMobile() ? 2 : 4, rows: [], plain: [], fresh: 0, reused: 0 };
   };
+  const COLOR_VER = 2;   // 2: colour judged after white balance (tag wb-color); 1 (none): raw pixels
+  const COLOR_FIELDS = ["color", "colorConf", "colors", "lowLight", "wbK", "rawColor"];
+  V.COLOR_VER = COLOR_VER;
+  V.colourModeChanged = () => { for (const rec of V.mem.values()) rec.cwb = "?"; };   // re-judged on the next search
   V.detConf = () => Math.max(0.2, Math.round(T.detect.prefs().conf * 0.75 * 100) / 100);
   /** The vehicle boxes of one frame, from the frame's detector output (all classes, conf ≥ V.detConf()). */
   V.vehicleDets = (all) => all.filter((d) => VEH.has(d.label) && d.conf >= V.detConf() && d.w * d.h >= 0.0015 && d.w >= 0.025).sort((a, b) => b.w * b.h - a.w * a.h).slice(0, 6)
@@ -188,7 +199,7 @@
       const wantClip = (need.type && !d.types) || (need.make && !d.makes);
       if (!d.color || (wantClip && n < st.perFrame)) {
         if (!(v = v || (await getFrame()))) break;
-        if (!d.color) await V.describe(v, v.videoWidth, v.videoHeight, d, {});
+        if (!d.color) { const fix = await st.wbFix(s.t); await V.describe(v, v.videoWidth, v.videoHeight, d, {}, fix); }
         // colour first: no CLIP for a box whose colour is clearly wrong
         if (parsed.color && A().colorMatch(parsed.color, { name: d.color, scores: d.colors }) < 0.3) continue;
         if (wantClip && n < st.perFrame && st.clipLeft > 0) { n++; st.clipLeft--; try { await V.describe(v, v.videoWidth, v.videoHeight, d, need); } catch (e) { if (!st.rows.length) throw e; console.warn("vehicle crop", e); } }
@@ -247,9 +258,12 @@
   };
 
   /** Live labels while playing: add the colour of vehicles (cheap, no CLIP). */
-  V.decorateLive = (img, iw, ih, dets) => {
+  /** t: the frame's time (white balance for colour at that moment); fix: a known colourFix (export prepare), else the
+   *  white point known now (T.wb.colourFixNow). */
+  V.decorateLive = (img, iw, ih, dets, t, fix) => {
     if (!V.enabled() || !A()) return dets;
-    for (const d of dets) if (VEH.has(d.label)) { try { const px = cropPixels(img, iw, ih, d); const c = A().colorFromPixels(px.data, px.w, px.h); d.attr = c.name + (c.lowLight ? "?" : ""); } catch (_) {} }
+    if (fix === undefined) fix = T.wb && T.wb.colourFixNow && t != null ? T.wb.colourFixNow(t) : null;
+    for (const d of dets) if (VEH.has(d.label)) { try { const px = cropPixels(img, iw, ih, d); const c = A().colorFromPixels(px.data, px.w, px.h, fix ? { gains: fix.gains, night: fix.cct < 4500 } : null); d.attr = c.name + (c.lowLight ? "?" : ""); if (fix) d.attrWbK = Math.round(fix.cct / 100) * 100; } catch (_) {} }
     return dets;
   };
 
