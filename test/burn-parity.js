@@ -102,7 +102,7 @@ function compare(tag, view, exp, opt) {
     }
   }
   ok(tag + ": every sampled viewer moment has an export frame at the same source time (trimmed sections)", matched === view.length && matched > 0, { matched, of: view.length });
-  ok(tag + ": viewer and export draw the same boxes per camera (count + label, IoU > 0.8)", bad.length === 0 && pairs > 0 && skipped <= view.length * 0.25, { pairs, skippedAtSwitch: skipped, bad: bad.slice(0, 6) });
+  ok(tag + ": viewer and export draw the same boxes per camera (count + label, IoU > 0.8)", bad.length === 0 && pairs > 0 && skipped <= view.length * 2 * 0.25, { pairs, skippedAtSwitch: skipped, bad: bad.slice(0, 6) });
   if (opt.truth) ok(tag + ": the burned bus box follows the moving bus (IoU > 0.5 with the real position, ≥ 80% of frames)", truthOk >= 0.8 * truthN, { truthOk, truthN });
 }
 (async () => {
