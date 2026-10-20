@@ -35,7 +35,7 @@ const CASES = [
 const KINDS = [["bus", "det"], ["traffic light", "det"], ["police car", "vehicle"], ["red tour bus", "vehicle"], ["plate 7AB*", "plate"], ["man walking a dog at night", "clip"], ["cyclist", "det"]];
 
 async function open(ctx, files, qs) {
-  const p = await ctx.newPage(); p.errs = []; p.on("pageerror", (e) => p.errs.push(e.message));
+  const p = ctx.pages().find((x) => !x.__used) || (await ctx.newPage()); p.__used = true; p.errs = []; p.on("pageerror", (e) => p.errs.push(e.message));
   await p.addInitScript(() => {
     window.__exp = []; window.__view = {}; let inFrame = false;
     const iv = setInterval(() => {
@@ -70,7 +70,6 @@ async function search(p, q) {
     const ctx = await pw[bn].launchPersistentContext("/tmp/tdc-veh-profile-" + bn, bn === "chromium" ? { executablePath: "/usr/bin/google-chrome", args: ["--no-sandbox", "--autoplay-policy=no-user-gesture-required"], viewport: { width: 1440, height: 900 } } : { viewport: { width: 1440, height: 900 } });
     await ctx.route((u) => u.origin === new URL(URL_).origin, (r) => r.continue());
     await ctx.addInitScript(() => { try { localStorage.setItem("tdc.detect.v1", JSON.stringify({ enabled: true, live: false, model: "nano", conf: 0.35 })); localStorage.setItem("tdc.export.burnBoxes", "1"); localStorage.setItem("tdc.vehicle.v1", JSON.stringify({ enabled: true, makes: false })); localStorage.removeItem("tdc.plates.v1"); localStorage.removeItem("tdc.search.bestOnly"); } catch (e) {} });
-    for (const pg of ctx.pages()) await pg.close().catch(() => {});
     const tag = bn, rep = (report[bn] = {});
     const p = await open(ctx, filesOf(MOV), "?strip=1");
     if (PH.includes("P")) {
@@ -136,12 +135,11 @@ async function search(p, q) {
       ok(tag + " V: 'city bus, person': vehicle details label the bus term, the person term stays a plain detection", vb.length > 0 && vb.every((h) => /bus/.test(h.text)) && per.length > 0 && per.every((h) => !/color/.test(h.text)), { terms: r.terms, hits: r.hits.slice(0, 5).map((h) => [h.term, h.text]) });
     }
     ok(tag + " no page errors", p.errs.length === 0, p.errs.slice(0, 3));
-    await p.close();
     if (PH.includes("X")) {
       const q = await open(ctx, filesOf(LONGF));
       const run = async (qq) => { await q.evaluate(() => { TDC.search.clear(); TDC.detect.frameCache.clear(); TDC.detect.liveSamples = {}; }); return search(q, qq); };
+      const sep = []; for (const t of ["bus", "person", "car"]) sep.push(await run(t));   // separate first, then the one pass
       const one = await run("bus, person, car");
-      const sep = []; for (const t of ["bus", "person", "car"]) sep.push(await run(t));
       const sepMs = sep.reduce((a, r) => a + r.ms, 0);
       rep.speed = { onePassMs: one.ms, separateMs: sep.map((r) => r.ms), sumMs: sepMs, frames: one.last && one.last.frames, hits: one.hits.length, sepHits: sep.map((r) => r.hits.length) };
       console.log(tag, "speed", JSON.stringify(rep.speed));

@@ -101,6 +101,13 @@ The mode, position, size and pin are remembered on this device. Clicking the vid
 
 **Classic search bars:** Settings ▸ Search ▸ *Classic search bars* (or the checkbox at the bottom of the search box) brings back the original Find and Redact bars under the video. You can also open the app with `?search=classic`. If the new search ever fails to start, the classic bars appear on their own.
 
+### Several things in one search
+Type them together, separated by commas, `and`, `or`, `+`, `/` or `;`, for example **`bus, person, police car`**, **`red car and cyclist`**, **`traffic light / stop sign`**, **`white police car + person`** or **`bus, plate 7AB*`**. One scan goes over every camera, and each frame is detected once for all the terms, so it is much faster than searching for each one in turn. Each term gets a coloured chip with its number of results (in the search panel, the floating search and the phone strip). Tap a chip to show only that term and tap **All** to show everything again. In the viewer and in the burned-in export each term's boxes have its colour; the result you opened stays gold.
+- Names with several words stay together (`traffic light`, `stop sign`, `fire hydrant`, `tour bus`, `white police car`), and a colour on its own joins what follows (`black and white police car`).
+- `and` / `or` only split when every part is something the searches know (an object, a vehicle, a plate); a sentence like `a person in a hoodie and a mask` goes to the picture search whole. Commas always split, so `bus, a man walking a dog` searches the bus with the detector and the rest with the picture search.
+- Objects need Settings ▸ Object detection on; vehicle words (colour, type, make) need Vehicle details; plates need Plates & text. Without them a term falls back to the picture search, like a single search.
+- **Best match only** applies to plate terms; the other terms always show all their results. Up to 6 terms.
+
 ## Object detection (beta)
 Settings ▸ **Object detection** (off until you turn it on). When it's on, a search for an object name (**car**, **person**, **truck**, **bicycle**, **dog**, **traffic light**… any of the 80 COCO classes, plurals and a few synonyms such as "people" or "bike") uses a YOLO11 object detector instead of the picture search. Results show the real class and confidence ("car 91%") on the gold box, and the box **follows the object**: frames ±2.5 s around the match are detected and linked with a simple IoU tracker. Export burns the same boxes in when **Burn detection boxes** is ticked. Any other phrase still uses the existing picture search. With **Grounding DINO** picked, any phrase goes to the detector.
 
