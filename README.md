@@ -70,6 +70,8 @@ This branch combines the work that isn't on `main` yet, so everything can be tri
 
 **Camera bar beside the video:** press **Beside video** on the camera bar (or Settings ▸ Camera bar) to move it off the cameras into a strip above the video. Drag its ⋮⋮ grip down to put it below instead. **On video** puts it back. The choice is remembered. On phones the strip sits above or below the grid and the tiles keep their size. Export never includes the camera bar.
 
+**Cameras menu (show or hide cameras in the grid):** tap **Cameras** in the camera bar. The menu always opens on top of everything (videos, map, floating search) and fully on screen: below the button when the bar is at the top, upward when the bar is in the lower half of the video or docked below it, and to the side when there is no room above or below (it scrolls if the window is very short). It follows the bar while you drag it. Keyboard: Enter opens it on the first camera, ↑/↓ move, Space ticks, Esc closes. See `screenshots/cam-popover-floating-bottom-chromium.png` and `screenshots/cam-popover-phone-chromium.png`.
+
 ![Camera bar docked above the video, covering no camera](screenshots/camera-bar-beside-desktop.png)
 *Camera bar beside the video: it no longer covers the top row.*
 
