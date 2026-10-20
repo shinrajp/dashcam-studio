@@ -24,7 +24,9 @@
       if (T.plates && T.plates.parse && T.plates.parse(s)) return "plate";
       const v = T.vehicle && T.vehicle.parse && T.vehicle.parse(s);
       // only a clean vehicle phrase: "regular local street buses" (extra words) is part of a sentence, not a term
-      if (v && (v.color || v.type || v.make || (v.cls && v.cls.length)) && !(v.extra && v.extra.length)) return "vehicle";
+      // a vehicle phrase must name a colour / type / make ("red car", "tour bus"); a bare class is the detector's (classFor above),
+      // so "regular local street buses" (filler words around "buses") is part of a sentence, not a term
+      if (v && (v.color || v.type || v.make) && !(v.extra && v.extra.length)) return "vehicle";
     } catch (_) {}
     return null;
   };
