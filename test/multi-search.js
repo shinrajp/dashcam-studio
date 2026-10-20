@@ -70,6 +70,8 @@ async function search(p, q) {
   for (const bn of (process.env.BR || "chromium,webkit").split(",")) {
     const ctx = await pw[bn].launchPersistentContext("/tmp/tdc-veh-profile-" + bn, bn === "chromium" ? { executablePath: "/usr/bin/google-chrome", args: ["--no-sandbox", "--autoplay-policy=no-user-gesture-required"], viewport: { width: 1440, height: 900 } } : { viewport: { width: 1440, height: 900 } });
     await ctx.route((u) => u.origin === new URL(URL_).origin, (r) => r.continue());
+    // the vehicle index is kept per event id, and the long and moving fixtures share one id: start each run with an empty index
+    await ctx.addInitScript((run) => { try { if (localStorage.getItem("ms-run") !== run) { localStorage.setItem("ms-run", run); indexedDB.deleteDatabase("tdc-vehicle-index"); } } catch (e) {} }, String(Date.now()) + bn);
     await ctx.addInitScript(() => { try { localStorage.setItem("tdc.detect.v1", JSON.stringify({ enabled: true, live: false, model: "nano", conf: 0.35 })); localStorage.setItem("tdc.export.burnBoxes", "1"); localStorage.setItem("tdc.vehicle.v1", JSON.stringify({ enabled: true, makes: false })); localStorage.removeItem("tdc.plates.v1"); localStorage.removeItem("tdc.search.bestOnly"); } catch (e) {} });
     const tag = bn, rep = (report[bn] = {});
     const p = await open(ctx, filesOf(MOV), "?strip=1");
