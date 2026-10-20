@@ -4,6 +4,7 @@
 |---|---|---|---|---|
 | `yolo11n.onnx` | Ultralytics YOLO11 nano, COCO 80 classes, 640×640, opset 17 | 10.7 MB | **AGPL-3.0** | exported from the official `yolo11n.pt` (github.com/ultralytics/assets releases v8.3.0) with `yolo export format=onnx imgsz=640 opset=17 simplify=True` |
 | `yolo11s.onnx` | Ultralytics YOLO11 small, same | 38.1 MB | **AGPL-3.0** | from the official `yolo11s.pt`, same command |
+| `yolo11n-320.onnx` | YOLO11 nano at 320×320 (Detection speed: *Fast*), opset 17 | 10.6 MB | **AGPL-3.0** | from the official `yolo11n.pt` with ultralytics 8.4.177: `yolo export model=yolo11n.pt format=onnx imgsz=320 opset=17 simplify=True`; sha256 `7648a68d4b9746f768c22ef7f9b083dfdb9e358fe38dcbead63d43daebbf5266` |
 
 Grounding DINO tiny (experimental) is not stored here. It is loaded from Hugging Face (`onnx-community/grounding-dino-tiny-ONNX`, Apache-2.0) by transformers.js.
 
