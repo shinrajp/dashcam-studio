@@ -190,8 +190,9 @@ Off by default; the on-device plate reader and detector above always come first.
 ## Live white balance (viewer only)
 Night clips under streetlights often look orange. Tap **White balance** in the bar under the video (next to **HUD** and **Map**) to correct the colours live, in the viewer only.
 
-- **How it finds the light:** your car is white, and the two mirror cameras (left and right repeaters) always see a strip of that white paint along their inner edge. The app reads the brightest, unclipped pixels of that paint (the glossy highlight) a few times a second, follows them over several frames, and takes their colour as the colour of the light.
-- **What it does:** it moves all the camera videos about **70 %** of the way toward neutral, keeping their brightness. HUD, map, labels, detection boxes, the gold box, search chips, the Self-Driving badge and the time keep their own colours.
+- **How it finds the light:** your car is white, and each mirror camera (left and right repeater) sees a thin sliver of the car body along its **outer** edge: the far left of the left repeater's image and the far right of the right repeater's, wider toward the bottom. At night that paint is a dim grey/beige sliver lit by the streetlight; its colour is the colour of the light. The app finds the body by itself: while you drive the world moves past but the body and its edge stay still, so after a few seconds it learns the body's shape (and remembers it per camera). Until then it uses a default wedge-shaped sliver. Inside the body it takes the 60–95th percentile of brightness (no bright highlight needed; clipped and very dark pixels are skipped, and "paint seen" adapts to how bright the scene is) a few times a second and smooths it over several samples.
+- **Settings > White balance:** *Strength* (default 70 %), *Strip width* (how far in from the edge to look for the body), *Car body edge* per mirror camera (auto / left edge / right edge, for unusual mounts or mirrored footage) and *Show sample area*, which outlines the strip and paints the body pixels being sampled in magenta on the video, with "Body found · left edge" or "Default sliver" on the tile.
+- **What it does:** it moves all the camera videos about **70 %** of the way toward neutral (gains are limited, since the paint isn't perfectly neutral, so it never over-corrects), keeping their brightness. HUD, map, labels, detection boxes, the gold box, search chips, the Self-Driving badge and the time keep their own colours.
 - **Readout** (bottom right of the video), e.g. `3200 K · Warm streetlight · both mirrors` (or *left mirror* / *right mirror*). The light is described as *Sodium streetlight* (below about 2300 K or strongly orange), *Warm streetlight*, *Neutral light*, *Cool light* or *Daylight*. When it can't see the paint: *Looking for your white paint in the mirror cameras* (no correction is applied then).
 - **Lamps:** a sudden red or green reflection (brake light, traffic light) is ignored: strongly red or green pixels are skipped, and a sudden colour jump on one mirror is rejected unless it lasts about 3 seconds (a real change of light).
 - **Export is not changed.** Exports, detection, search and the 360 export always use the original frames. The setting is remembered. It works in the grid, the full-screen single camera (with zoom) and the 360 view.
@@ -199,6 +200,7 @@ Night clips under streetlights often look orange. Tap **White balance** in the b
 
 ![White balance off (top) and on (bottom): synthetic night footage under a ~3000 K streetlight](screenshots/white-balance-before-chromium.png)
 ![](screenshots/white-balance-after-chromium.png)
+![Show sample area: the learned body sliver on each mirror camera](screenshots/white-balance-mask-chromium.png)
 
 ## 360 view (beta prototype)
 Tap **360** in the camera bar. The six cameras are stitched on your device's GPU (WebGL2, or WebGL1 on older browsers) into one view around the car:
