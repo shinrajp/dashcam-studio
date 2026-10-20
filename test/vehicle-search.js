@@ -64,7 +64,7 @@ const find = async (p, q, cam) => {
     r = await find(p, "tour bus and regular local street buses");
     ok(tag + " long natural phrase still parses (tour bus)", r.chips.includes("type: tour bus"), r.chips);
     r = await find(p, "white police car");
-    ok(tag + " 'white police car' → police moment (5.3–8 s), not the white car in the background", inRange(r.hits, 5.3, 8) && r.hits.some((h) => /police car/.test(h.text)), r.hits.slice(0, 4));
+    ok(tag + " 'white police car' → police moment (5.3–8 s), not the white car in the background", inRange(r.hits.filter((h) => h.cam === "front"), 5.3, 8) && r.hits.some((h) => h.cam === "front" && /police car/.test(h.text)), r.hits.slice(0, 4));   // vehicle searches check every camera since bus-detect-fix: the white ambulance on the rear may also come up
     if (SHOTS) await p.screenshot({ path: SHOTS + "/vehicle-attrs-" + bn + "-police.png" });
     r = await find(p, "ambulance", "around");
     ok(tag + " 'ambulance' (all cameras) → rear camera 0–4 s", r.hits.some((h) => h.best && h.cam === "back" && h.t < 4.6), r.hits.slice(0, 4));
