@@ -56,7 +56,7 @@
     WINDOW: 4,              // s: one white-point estimate per window of the event during a search scan
     HIST_NEAR: 2,           // s: a live (smoothed) estimate this close in time is used instead
     PROBE: [-1, -0.6, -0.2, 0, 0.2, 0.6, 1],   // s: frames around t read from each mirror for that estimate
-    BODY_SD: [1.2, 0.4],    // …and the body cells' temporal std must be ≤ max(1.2, 0.4 × the moving scene's): static
+    BODY_REL: 0.17,         // …and the body must be static: median std of each cell's brightness relative to the body's
   };
   const KEY = "tdc.wb.v1", MODE_KEY = "tdc.wb.mode", CFG_KEY = "tdc.wb.cfg.v1", MASK_KEY = "tdc.wb.mask.v1";
   const REP = ["left_repeater", "right_repeater"];
@@ -417,30 +417,41 @@
       const mk0 = WB.maskFor(cam), local = Math.max(0, t - clip.start);
       // a few frames around t: the body must be STATIC while the scene moves (else the "body" is just the street),
       // and if no body shape is known yet, learn one from these frames
-      const Z = WB.newZone(); let img0 = null;
+      const Z = WB.newZone(); let img0 = null; const ims = [];
       for (const dt of C.PROBE) {
         try { await T.search.seekSample(wv, it, Math.max(0, local + dt)); } catch (_) { continue; }
         if (!wv.videoWidth) continue;
         const im = stripOf(wv, mk0.side); if (!im) continue;
-        WB.feedZone(Z, im); if (dt === 0) img0 = im;
+        WB.feedZone(Z, im); ims.push(im); if (dt === 0) img0 = im;
       }
       if (!img0 || Z.n < 3) continue;
       const n = Z.n; Z.n = Math.max(Z.n, C.MASK_MIN_FRAMES); WB.maskZone(Z); Z.n = n;
       let runs = mk0.runs, source = mk0.source;
       if (source === "default sliver" && Z.conf && Z.runs) { runs = Z.runs; source = "learned here"; }
+      // static body: each body cell keeps its brightness RELATIVE to the whole body from frame to frame (passing lamps
+      // brighten the whole body at once, but street texture slides through the sliver); median over cells of the std of
+      // (cell / body median) across the frames
       let staticOk = true, bodySd = 0;
       if (Z.moving) {
-        const sds = []; for (let y = 0; y < C.GH; y++) for (let x = 0; x < Math.min(runs[y] | 0, C.GW); x++) sds.push(Math.sqrt(Z.vr[y * C.GW + x]));
-        bodySd = med(sds); staticOk = sds.length >= C.MIN_CELLS && bodySd <= Math.max(C.BODY_SD[0], C.BODY_SD[1] * Z.sceneStd);
+        const idx = []; for (let y = 0; y < C.GH; y++) for (let x = 0; x < Math.min(runs[y] | 0, C.GW); x++) idx.push(y * C.GW + x);
+        const rel = idx.map(() => []);
+        for (const im of ims) {
+          const L = idx.map((i) => luma(im.data[i * 4], im.data[i * 4 + 1], im.data[i * 4 + 2])), m = Math.max(1, med(L));
+          L.forEach((l, k) => rel[k].push(l / m));
+        }
+        const sd = (a) => { const mu = a.reduce((s, v) => s + v, 0) / a.length; return Math.sqrt(a.reduce((s, v) => s + (v - mu) * (v - mu), 0) / a.length); };
+        bodySd = idx.length ? med(rel.map(sd)) : 1;
+        staticOk = idx.length >= C.MIN_CELLS && bodySd <= C.BODY_REL;
       }
       const a = staticOk ? WB.analyse(img0, runs, null) : { found: false, why: "not static (no car body)" };
-      WB.lastColourProbe[cam] = { found: !!a.found, why: a.why, source, moving: Z.moving, sceneStd: +Z.sceneStd.toFixed(1), bodySd: +bodySd.toFixed(1), frames: n };
+      WB.lastColourProbe[cam] = { found: !!a.found, why: a.why, source, moving: Z.moving, sceneStd: +Z.sceneStd.toFixed(1), bodySd: +bodySd.toFixed(3), frames: n };
       if (a.found) { whites.push(a.rgb); cams.push(cam); }
     }
     if (!whites.length) return null;
     const l = whites.map((w) => [Math.log(w[0] / w[1]), Math.log(w[2] / w[1])]);
     return pack([0, 1].map((k) => l.reduce((s, v) => s + v[k], 0) / l.length), "mirrors at " + t.toFixed(1) + " s", cams, t);
   }
+  WB.estimateAt = (t) => (T.player && T.player.ev ? estimateAt(T.player.ev, t) : Promise.resolve(null));   // on-demand, no cache (tests)
   const wkey = (ev, t) => (ev.id || ev.name || "") + "|" + Math.floor(Math.max(0, t) / WB.C.WINDOW);
   /** The white point at time t of the open event (live estimate nearby, else measured from the mirrors), or null. */
   WB.whiteAt = (t) => {
