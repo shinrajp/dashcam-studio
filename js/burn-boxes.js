@@ -11,6 +11,7 @@
   B.setEnabled = (v) => { try { v ? localStorage.setItem(KEY, "1") : localStorage.removeItem(KEY); } catch (_) {} };
 
   const num = (v) => typeof v === "number" && isFinite(v);
+  const iou = (a, b) => { const x1 = Math.max(a.x, b.x), y1 = Math.max(a.y, b.y), x2 = Math.min(a.x + a.w, b.x + b.w), y2 = Math.min(a.y + a.h, b.y + b.h); const i = Math.max(0, x2 - x1) * Math.max(0, y2 - y1); return i / (a.w * a.h + b.w * b.h - i || 1); };
   const validBox = (b) => b && num(b.x) && num(b.y) && num(b.w) && num(b.h) && b.w > 0 && b.h > 0;
 
   /** Label text: class name + confidence. Future detector hits carry {label|cls, conf}; Phase 4 text-search hits use the phrase + match score. */
@@ -35,12 +36,25 @@
       phrase = phrase != null ? phrase : (S && S.phrase) || "";
       if (!Array.isArray(hits) || !num(t)) return [];
       if (S && S.goldShown && !S.goldShown()) return [];   // "Show the gold box" unticked: nothing in the viewer, nothing burned
-      if (T.detect && T.detect.boxesAt) { const tr = T.detect.boxesAt(cam, t); if (tr) return tr; }   // Phase 5: tracked / detected boxes
-      const out = [];
+      // several things in one search (multi-search.js): every term's results get the term's colour, gold stays for the opened
+      // result (and what follows it); followed / live boxes and the other terms' results are shown together
+      const multi = !!(S && S.terms && S.terms.length);
+      let out = [];
+      if (T.detect && T.detect.boxesAt) {   // Phase 5: tracked / detected boxes
+        const tr = T.detect.boxesAt(cam, t);
+        if (tr && !multi) return tr;
+        if (tr) out = tr.map((b) => { const o = { x: b.x, y: b.y, w: b.w, h: b.h, text: b.text }; if (b.hit && b.hit !== S.openedHit && b.hit.termColor) o.color = b.hit.termColor; return o; });
+      }
       const best = hits.reduce((m, h) => (h && num(h.score) && h.score > m ? h.score : m), 0);
+      const pre = out.length;
       for (const h of hits) {
         if (!h || h.tracked || h.cam !== cam || !num(h.t) || Math.abs(h.t - t) > NEAR || !validBox(h.box)) continue;
-        out.push({ x: h.box.x, y: h.box.y, w: h.box.w, h: h.box.h, text: B.labelFor(h, phrase, best) });
+        const o = { x: h.box.x, y: h.box.y, w: h.box.w, h: h.box.h, text: B.labelFor(h, phrase, best) };
+        if (multi) {
+          if (out.slice(0, pre).some((b) => iou(b, o) > 0.5)) continue;   // already drawn as a followed / live box
+          if (h !== S.openedHit && h.termColor) o.color = h.termColor;
+        }
+        out.push(o);
       }
       return out;
     } catch (_) { return []; }
@@ -95,13 +109,14 @@
         const x = fx + b.x * fw, y = fy + b.y * fh, w = b.w * fw, h = b.h * fh;
         ctx.lineJoin = "round";
         ctx.strokeStyle = "rgba(0,0,0,0.75)"; ctx.lineWidth = lw + 2; ctx.strokeRect(x, y, w, h);
-        ctx.strokeStyle = "#e6b450"; ctx.lineWidth = lw; ctx.strokeRect(x, y, w, h);
+        ctx.strokeStyle = b.color || "#e6b450"; ctx.lineWidth = lw; ctx.strokeRect(x, y, w, h);
         if (!b.text) continue;
         const pad = Math.round(fs * 0.35), th = fs + pad * 2;
         const tw = Math.min(fw, ctx.measureText(b.text).width + pad * 2);
         let ly = y - th; if (ly < fy) ly = y + h <= fy + fh - th ? y + h : fy;   // above the box, else below, else top edge
         const lx = Math.max(fx, Math.min(x, fx + fw - tw));
         ctx.fillStyle = "rgba(0,0,0,0.78)"; ctx.fillRect(lx, ly, tw, th);
+        if (b.color) { ctx.fillStyle = b.color; ctx.fillRect(lx, ly + th - Math.max(2, lw), tw, Math.max(2, lw)); }   // the term's colour under its label
         ctx.strokeStyle = "#000"; ctx.lineWidth = Math.max(2, fs / 6); ctx.strokeText(b.text, lx + pad, ly + th / 2, tw - pad * 2);
         ctx.fillStyle = "#ffe3a3"; ctx.fillText(b.text, lx + pad, ly + th / 2, tw - pad * 2);
       }

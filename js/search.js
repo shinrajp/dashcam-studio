@@ -50,6 +50,7 @@
     return out;
   }
   S.detSamples = (ev) => detSamples(ev || T.player.ev);
+  S.camsFor = (mode, ev) => camsFor(mode, ev || T.player.ev);
 
   function cluster(rows) {
     const sorted = rows.slice().sort((a, b) => a.t - b.t);
@@ -63,6 +64,8 @@
     return groups.slice(0, 12).sort((a, b) => a.t - b.t);
   }
 
+  S.cluster = (rows) => cluster(rows);
+  S.cos = (a, b) => cos(a, b);
   function cos(a, b) {
     let d = 0, na = 0, nb = 0;
     for (let i = 0; i < a.length; i++) { d += a[i] * b[i]; na += a[i] * a[i]; nb += b[i] * b[i]; }
@@ -227,7 +230,7 @@
         if (boxes.length) tile.tile.classList.add("find-on");
         // painted every frame while playing: skip the redraw when nothing moved by a pixel (saves compositing on phones)
         const q = (v, m) => Math.round(v * m);
-        const sig = w + "x" + h + "|" + boxes.map((b) => q(b.x, tw) + "," + q(b.y, th) + "," + q(b.w, tw) + "," + q(b.h, th) + "," + b.text).join(";");
+        const sig = w + "x" + h + "|" + boxes.map((b) => q(b.x, tw) + "," + q(b.y, th) + "," + q(b.w, tw) + "," + q(b.h, th) + "," + b.text + "," + (b.color || "")).join(";");
         if (cv._sig === sig && !S.forcePaint) continue;
         cv._sig = sig;
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -306,7 +309,8 @@
 
   async function locate(hit) {
     const ev = T.player.ev;
-    if (!ev || !S.query) return null;
+    const qv = hit.termVec || S.query;
+    if (!ev || !qv) return null;
     const clip = ev.clips[T.player.clipIndexAt(hit.t)];
     const it = clip && clip.files[hit.cam];
     if (!it || !it.blob) return null;
@@ -319,9 +323,9 @@
     const canvas = S.canvas || (S.canvas = document.createElement("canvas"));
     canvas.width = 224; canvas.height = 224;
     const ctx = canvas.getContext("2d", { willReadFrequently: true });
-    const coarse = await bestWindow(model, video, ctx, canvas, S.query, vw, vh, { x: 0, y: 0, w: 1, h: 1 }, 0.5, 0.5);
-    const mid = await bestWindow(model, video, ctx, canvas, S.query, vw, vh, coarse, 0.28, 0.28);
-    return bestWindow(model, video, ctx, canvas, S.query, vw, vh, mid, 0.16, 0.16);
+    const coarse = await bestWindow(model, video, ctx, canvas, qv, vw, vh, { x: 0, y: 0, w: 1, h: 1 }, 0.5, 0.5);
+    const mid = await bestWindow(model, video, ctx, canvas, qv, vw, vh, coarse, 0.28, 0.28);
+    return bestWindow(model, video, ctx, canvas, qv, vw, vh, mid, 0.16, 0.16);
   }
 
   // S.pending: the latest openHit (incl. gold-box tracking); export waits for it so it never burns half-built tracks
@@ -335,6 +339,7 @@
     const vehSummary = hit.vehicle ? ($("findStatus").textContent || "") : "";
     S.anchor = hit.t;
     S.pickedCam = hit.cam;
+    S.openedHit = hit;   // gold box; with several terms the other results keep their term colour
     const group = groupAt(hit.t);
     const cams = [...new Set(group.map((g) => g.cam))];
     const follow = !$("findFollow") || $("findFollow").checked;
@@ -375,7 +380,7 @@
 } else if (show && n && T.detect && (T.detect.enabled() || group.some((g) => g.vehicle))) {
       const token = (S.trackToken = (S.trackToken || 0) + 1);
       try {
-        group.forEach((g) => { g.phrase = g.det ? null : S.phrase; });
+        group.forEach((g) => { g.phrase = g.det ? null : g.term || S.phrase; });
         status(isVeh ? summary + " Following the vehicle…" : "Following the object across nearby frames…");
         const tracks = await T.detect.trackAround(group.filter((g) => g.box), { prompt: T.detect.prefs().model === "gdino" ? S.phrase : undefined });
         if (token === S.trackToken && S.anchor === hit.t) { T.detect.tracks = tracks; status(isVeh ? summary + (tracks.length ? " The gold box follows it." : "") : tracks.length ? "The gold box now follows the object (" + tracks.length + " tracked)." : "Couldn't follow the object; showing the box at the match only."); }
@@ -395,7 +400,9 @@
       b.type = "button";
       const picked = group.indexOf(h) >= 0;
       b.className = "find-hit" + (h.weak ? " weak" : " on") + (picked ? " picked" : "");
-      b.textContent = T.fmtTime(h.t, true) + " · " + (CAM_LABEL[h.cam] || h.cam) + (h.text ? " · " + h.text : "") + (h.weak ? " · weak" : "");
+      const txt = h.text || (h.term && h.det && h.label && h.conf != null ? h.label + " " + Math.round(h.conf * 100) + "%" : "");
+      b.textContent = T.fmtTime(h.t, true) + " · " + (CAM_LABEL[h.cam] || h.cam) + (h.term ? " · " + h.term : "") + (txt && txt !== h.term ? " · " + txt : "") + (h.weak ? " · weak" : "");
+      if (h.termColor) { const dot = document.createElement("i"); dot.className = "term-dot"; dot.style.background = h.termColor; b.prepend(dot); b.style.setProperty("--term", h.termColor); b.classList.add("termed"); }
       b.title = "Jump to this moment and outline it";
       b.addEventListener("click", () => openHit(h));
       box.appendChild(b);
@@ -406,6 +413,7 @@
     const show = $("findShow"), follow = $("findFollow");
     if (show) show.parentElement.hidden = !has;
     if (follow) follow.parentElement.hidden = !has;
+    if (S.terms && T.multi) T.multi.renderChips();
     if (T.ui && T.ui.drawTimeline) T.ui.drawTimeline();
   }
 
@@ -413,10 +421,14 @@
   // boxed, tracked, burned into the export and listed in the strip. Saved in localStorage. ──
   const BEST_KEY = "tdc.search.bestOnly";
   S.bestOnly = () => { try { return localStorage.getItem(BEST_KEY) === "1"; } catch (e) { return false; } };
-  S.hasBest = () => !!(S.allHits && S.allHits.some((h) => h.best));
+  // several terms: Best match only applies to the plate terms; the other terms are always shown
+  const bestApplies = (h) => !S.terms || !!(S.terms[h.ti] && S.terms[h.ti].kind === "plate");
+  S.hasBest = () => !!(S.allHits && S.allHits.some((h) => h.best && bestApplies(h)));
+  S.bestFiltered = () => (S.allHits ? (S.bestOnly() && S.hasBest() ? S.allHits.filter((h) => h.best || !bestApplies(h)) : S.allHits.slice()) : []);
   function applyBest() {
     if (!S.allHits) return;
-    const keep = S.bestOnly() && S.hasBest() ? S.allHits.filter((h) => h.best) : S.allHits.slice();
+    let keep = S.bestFiltered();
+    if (S.terms && S.termFilter != null) keep = keep.filter((h) => h.ti === S.termFilter);   // chip filter: one term
     S.hits = keep;
     if (T.detect && T.detect.tracks) T.detect.tracks = T.detect.tracks.filter((g) => !g.hit || keep.includes(g.hit));
   }
@@ -427,10 +439,19 @@
     renderHits(); paintBoxes();
     T.emit && T.emit("search-filter", !!on);
   };
+  /** Multi-search chip: show one term's results (i) or all (null). */
+  S.setTermFilter = (i) => {
+    if (!S.terms) return;
+    S.termFilter = i == null || !S.terms[i] ? null : i;
+    applyBest();
+    if (S.anchor != null && !S.hits.some((h) => Math.abs(h.t - S.anchor) < 0.05)) { S.anchor = null; S.openedHit = null; if (S.hits[0]) openHit(S.hits[0]); }
+    renderHits(); paintBoxes();
+    T.emit && T.emit("search-filter", S.termFilter);
+  };
   S.openHit = (hit) => openHit(hit);       // used by the phone thumbnail strip / search panel when no classic button exists
   S.renderHits = () => renderHits();
   S.clear = () => {
-    S.hits = []; S.allHits = null;
+    S.hits = []; S.allHits = null; S.terms = null; S.termFilter = null; S.openedHit = null;
     S.anchor = null;
     S.query = null;
     S.phrase = "";
@@ -466,7 +487,7 @@
     S.running = true; S.stop = false;
     $("btnFind").disabled = true;
     $("btnFindStop").hidden = false;
-    S.hits = []; S.allHits = null;
+    S.hits = []; S.allHits = null; S.terms = null; S.termFilter = null; S.openedHit = null;
     if (T.detect) (T.detect.clearTracks || T.detect.clear)();   // keep the live detections: they become search results too
     if (T.vehicle) T.vehicle.chips([]);
     renderHits();
@@ -484,6 +505,14 @@
         console.warn("cloud search failed", err);
         status(String(err.message) === "cancelled" ? "Nothing was sent." : "Cloud search failed: " + (err.message || err) + " Nothing else changed.");
       } finally { S.running = false; S.stop = false; $("btnFind").disabled = false; $("btnFindStop").hidden = true; }
+      return;
+    }
+    // Several things at once ("bus, person, police car", "red car and cyclist"): one pass over every camera (multi-search.js)
+    const parts = T.multi ? T.multi.split(q) : [];
+    if (parts.length > 1) {
+      try { await runMulti(q, parts, ev); }
+      catch (err) { console.warn("multi search failed", err); status(String(err && err.message) === "stopped" ? "Stopped." : "Search failed: " + (err.message || err) + ". Try one thing at a time."); }
+      finally { S.running = false; S.stop = false; $("btnFind").disabled = false; $("btnFindStop").hidden = true; }
       return;
     }
     // Phase 6: plates ("plate 7AB*", "7ABC 23", "plates") and street names ("street Palm Ave"), read on this device
@@ -609,6 +638,26 @@
       $("btnFindStop").hidden = true;
     }
   };
+
+  async function runMulti(q, parts, ev) {
+    const M = T.multi;
+    S.phrase = q; S.query = null; S.anchor = null; S.openedHit = null;
+    const terms = parts.map((p, i) => M.classify(p, i));
+    S.terms = terms; S.termFilter = null;
+    if (T.vehicle) T.vehicle.chips([]);
+    M.renderChips();
+    if (terms.some((c) => c.kind === "plate") && terms.find((c) => c.kind === "plate").plate.blur && !T.plates.prefs().blur) T.plates.setPref("blur", true);
+    const dl = detSamples(ev);
+    const r = await M.scan(terms, dl, { status, stopped: () => S.stop });
+    S.allHits = M.group(terms, r.rows);
+    applyBest();
+    renderHits();
+    const per = terms.map((c) => c.term + " " + S.allHits.filter((h) => h.ti === c.i).length).join(", ");
+    const off = terms.filter((c) => c.kind === "plate-off").map((c) => "“" + c.term + "” is a plate search: turn on Settings ▸ Plates & text.");
+    const camN = dl.cams.length;
+    status((S.stop ? "Stopped. " : "") + (S.allHits.length ? S.allHits.length + " result" + (S.allHits.length === 1 ? "" : "s") + " in one pass (" + per + ")" : "Nothing found for " + terms.map((c) => c.term).join(", ")) + " · " + r.frames + " frames on " + camN + " camera" + (camN === 1 ? "" : "s") + ". Tap a chip to show one." + (off.length ? " " + off.join(" ") : ""));
+    if (S.hits.length) openHit(S.hits.find((h) => h.best && bestApplies(h)) || S.hits.slice().sort((a, b) => (b.score || 0) - (a.score || 0))[0]);
+  }
 
   S.init = () => {
     $("btnFind").addEventListener("click", () => S.run());

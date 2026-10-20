@@ -665,3 +665,14 @@ body.fs.ss-on .toast { bottom: calc(var(--tp-h, 62px) + var(--ss-h, 0px) + 12px)
 .ss-item .ss-l { white-space: normal; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; line-height: 1.25; }
 .ss-item.best .ss-t::after { content: " ★"; color: #e6b422; }
 @media (max-height: 500px) and (orientation: landscape) { .ss-item .ss-l { display: none; } }
+/* multi-object search (multi-search.js): one chip per term (colour · name · count), tap to show only that term */
+.q-chip.term-chip { cursor: pointer; display: inline-flex; align-items: center; gap: 5px; background: rgba(255,255,255,.06); color: #e8e8e8; border-color: var(--term, rgba(230,180,80,.5)); }
+.q-chip.term-chip i { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+.q-chip.term-chip.on { background: rgba(255,255,255,.16); color: #fff; box-shadow: inset 0 0 0 1px var(--term, #e6b450); }
+.q-chip.term-chip.none { opacity: .55; }
+.find-hit.termed { border-left: 3px solid var(--term); }
+.find-hit .term-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 5px; vertical-align: middle; }
+.us-item .term-dot, .ss-item .term-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 4px; vertical-align: middle; }
+.ss-chips { display: flex; gap: 4px; padding: 2px 6px 4px; overflow-x: auto; flex-wrap: nowrap; }
+.ss-chips[hidden] { display: none; }
+.ss-item.termed { box-shadow: inset 0 -3px 0 var(--term); }

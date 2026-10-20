@@ -35,7 +35,7 @@
     const out = [];
     const hits = (T.search && T.search.hits) || [];
     const best = hits.reduce((m, h) => Math.max(m, h.score || 0), 0);
-    hits.forEach((h, i) => out.push({ kind: "find", i, t: h.t, cam: h.cam, box: h.box, text: label(h, best), best: !!h.best, picked: T.search.anchor != null && Math.abs(T.search.anchor - h.t) < 0.05 && T.search.pickedCam === h.cam }));
+    hits.forEach((h, i) => out.push({ kind: "find", i, t: h.t, cam: h.cam, box: h.box, text: (h.term && !(h.text || "").startsWith(h.term) ? h.term + " · " : "") + label(h, best), color: h.termColor, best: !!h.best, picked: T.search.anchor != null && Math.abs(T.search.anchor - h.t) < 0.05 && T.search.pickedCam === h.cam }));
     const runs = (T.searchUI && T.searchUI.redactRuns && T.searchUI.redactRuns()) || [];
     runs.forEach((r, i) => out.push({ kind: "redact", i, t: r.t, cam: r.cam, box: r.boxes && r.boxes[0], text: (T.redact.action === "remove" ? "removed" : "blurred") + " · " + r.spots }));
     return out;
@@ -119,6 +119,7 @@
   function render() {
     const row = $("ssRow");
     const list = items();
+    if (T.multi && T.search && T.search.terms && $("ssChips") && !$("ssChips").childElementCount) T.multi.renderChips();
     $("ssCount").textContent = list.length ? String(list.length) : "";
     $("ssTabRes").setAttribute("aria-pressed", String(SS.tab === "results"));
     $("ssTabCam").setAttribute("aria-pressed", String(SS.tab === "cams"));
@@ -134,7 +135,7 @@
     if (SS.tab === "results") {
       if (!list.length) h = '<div class="ss-empty">No search results yet. Search, then tap a thumbnail to jump there.</div>';
       for (const it of list) {
-        h += '<button type="button" class="ss-item' + (it.picked ? " picked" : "") + (it.best ? " best" : "") + '" role="option" data-kind="' + it.kind + '" data-i="' + it.i + '" data-k="' + esc(keyOf(it)) + '" aria-label="' + esc(fmt(it.t) + ", " + (CAM[it.cam] || it.cam) + ", " + it.text) + '">' +
+        h += '<button type="button" class="ss-item' + (it.picked ? " picked" : "") + (it.best ? " best" : "") + (it.color ? " termed" : "") + '"' + (it.color ? ' style="--term:' + esc(it.color) + '"' : "") + ' role="option" data-kind="' + it.kind + '" data-i="' + it.i + '" data-k="' + esc(keyOf(it)) + '" aria-label="' + esc(fmt(it.t) + ", " + (CAM[it.cam] || it.cam) + ", " + it.text) + '">' +
           '<span class="ss-img"></span><span class="ss-meta"><span class="ss-t">' + esc(fmt(it.t)) + '</span><span class="ss-c">' + esc(CAM[it.cam] || it.cam) + '</span></span><span class="ss-l">' + esc(it.text) + "</span></button>";
       }
     } else {
@@ -187,6 +188,7 @@
       '<button type="button" class="ss-tab" id="ssTabCam" aria-pressed="false">Cameras</button>' +
       '<button type="button" class="ss-tab ss-best" id="ssBest" aria-pressed="false" hidden title="Show only the best match">★ Best only</button>' +
       '<button type="button" class="ss-tog" id="ssToggle" aria-expanded="true" aria-controls="ssRow"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></button></div>' +
+      '<div class="ss-chips" id="ssChips" hidden></div>' +   // multi-object search: one chip per term (tap to show one)
       '<div class="ss-row" id="ssRow" role="listbox" aria-label="Search results"></div>';
     const tp = $("transport");
     tp.parentNode.insertBefore(strip, tp);

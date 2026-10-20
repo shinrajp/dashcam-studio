@@ -225,8 +225,8 @@
           // Detector hit, or a picture-search phrase that names the same class → real "car 91%".
           // Otherwise (picture-search box that the tracker followed) keep "umbrella? (match)": the % would be for another class.
           const same = !g.text || D.classFor(g.text) === g.track.label;
-          if (g.hit && g.hit.boxText) { out.push({ x: b.x, y: b.y, w: b.w, h: b.h, text: String(g.hit.boxText).slice(0, 80) }); continue; }   // plates: shared label
-          out.push({ x: b.x, y: b.y, w: b.w, h: b.h, text: same ? g.track.label + " " + pct(b.conf) : String(g.text).slice(0, 40) + "? (match)" });
+          if (g.hit && g.hit.boxText) { out.push({ x: b.x, y: b.y, w: b.w, h: b.h, text: String(g.hit.boxText).slice(0, 80), hit: g.hit }); continue; }   // plates: shared label
+          out.push({ x: b.x, y: b.y, w: b.w, h: b.h, text: same ? g.track.label + " " + pct(b.conf) : String(g.text).slice(0, 40) + "? (match)", hit: g.hit });
         }
         return out;
       }

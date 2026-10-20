@@ -261,7 +261,7 @@
     if (hits.length) {
       h += '<div class="us-group">Find matches <span>' + hits.length + "</span></div>";
       hits.forEach((x, i) => {
-        h += '<button type="button" class="us-item' + (x.best ? " best" : "") + '" role="option" data-kind="find" data-i="' + i + '"><span class="us-t">' + esc(fmt(x.t)) + "</span><span>" + esc(CAM[x.cam] || x.cam) + (x.text ? " · " + esc(x.text) : "") + (x.weak ? ' <em>weak</em>' : "") + "</span></button>";
+        h += '<button type="button" class="us-item' + (x.best ? " best" : "") + '" role="option" data-kind="find" data-i="' + i + '"><span class="us-t">' + esc(fmt(x.t)) + "</span><span>" + (x.termColor ? '<i class="term-dot" style="background:' + esc(x.termColor) + '"></i>' : "") + esc(CAM[x.cam] || x.cam) + (x.term ? " · " + esc(x.term) : "") + (x.text ? " · " + esc(x.text) : "") + (x.weak ? ' <em>weak</em>' : "") + "</span></button>";
       });
     }
     if (runs.length) {
