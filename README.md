@@ -187,6 +187,19 @@ Off by default; the on-device plate reader and detector above always come first.
 
 ![Consent before the first send](screenshots/phase6-cloud-consent.png)
 
+## Live white balance (viewer only)
+Night clips under streetlights often look orange. Tap **White balance** in the bar under the video (next to **HUD** and **Map**) to correct the colours live, in the viewer only.
+
+- **How it finds the light:** your car is white, and the two mirror cameras (left and right repeaters) always see a strip of that white paint along their inner edge. The app reads the brightest, unclipped pixels of that paint (the glossy highlight) a few times a second, follows them over several frames, and takes their colour as the colour of the light.
+- **What it does:** it moves all the camera videos about **70 %** of the way toward neutral, keeping their brightness. HUD, map, labels, detection boxes, the gold box, search chips, the Self-Driving badge and the time keep their own colours.
+- **Readout** (bottom right of the video), e.g. `3200 K · Warm streetlight · both mirrors` (or *left mirror* / *right mirror*). The light is described as *Sodium streetlight* (below about 2300 K or strongly orange), *Warm streetlight*, *Neutral light*, *Cool light* or *Daylight*. When it can't see the paint: *Looking for your white paint in the mirror cameras* (no correction is applied then).
+- **Lamps:** a sudden red or green reflection (brake light, traffic light) is ignored: strongly red or green pixels are skipped, and a sudden colour jump on one mirror is rejected unless it lasts about 3 seconds (a real change of light).
+- **Export is not changed.** Exports, detection, search and the 360 export always use the original frames. The setting is remembered. It works in the grid, the full-screen single camera (with zoom) and the 360 view.
+- Off by default; turning it off removes the correction at once and stops the sampling. Sampling also pauses while the tab is hidden.
+
+![White balance off (top) and on (bottom): synthetic night footage under a ~3000 K streetlight](screenshots/white-balance-before-chromium.png)
+![](screenshots/white-balance-after-chromium.png)
+
 ## 360 view (beta prototype)
 Tap **360** in the camera bar. The six cameras are stitched on your device's GPU (WebGL2, or WebGL1 on older browsers) into one view around the car:
 - **Look around:** drag to turn, pinch or scroll to zoom, double-click to reset. **Gyro** uses the phone's motion sensor (iPhone asks for permission).
