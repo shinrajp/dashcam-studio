@@ -86,28 +86,43 @@ async function fetchModel(urls, useCache, progress) {
   throw lastErr || new Error("No model URL");
 }
 
+// Sessions by slot: "main" (the model chosen in Settings, used by search / tracking / plates) and "fast" (YOLO11 nano 320 px,
+// Detection speed: Fast, live view only). One worker, one runtime; each slot keeps its own session.
+const slots = {};
 async function load(msg) {
   await loadOrt(msg);
-  if (session && modelUrl === msg.urls[0]) return { backend, url: modelUrl, cached: true };
-  if (session) { try { await session.release(); } catch (_) {} session = null; }
+  const key = msg.slot || "main", cur = slots[key];
+  if (cur && cur.url === msg.urls[0]) return { backend: cur.backend, url: cur.url, cached: true, size: cur.size, offscreen: typeof OffscreenCanvas !== "undefined", slot: key };
+  if (cur) { try { await cur.session.release(); } catch (_) {} delete slots[key]; }
   const t0 = Date.now();
   const got = await fetchModel(msg.urls, msg.useCache !== false, (p) => postMessage({ type: "progress", ...p }));
   const tDl = Date.now() - t0;
   const wantGpu = rtGpu;
   const order = wantGpu ? ["webgpu", "wasm"] : ["wasm"];
-  let err = null;
+  let err = null, sess = null, be = null;
   for (const ep of order) {
     stage("starting the model on " + (ep === "webgpu" ? "WebGPU" : "WASM"));
-    try { session = await RT.InferenceSession.create(new Uint8Array(got.buf), { executionProviders: [ep], graphOptimizationLevel: "all" }); backend = ep; break; }
-    catch (e) { err = e; session = null; }
+    try { sess = await RT.InferenceSession.create(new Uint8Array(got.buf), { executionProviders: [ep], graphOptimizationLevel: "all" }); be = ep; break; }
+    catch (e) { err = e; sess = null; }
   }
-  if (!session) throw new Error("Could not start the model: " + ((err && err.message) || err));
+  if (!sess) throw new Error("Could not start the model: " + ((err && err.message) || err));
   stage("ready");
-  inputName = session.inputNames[0]; outputName = session.outputNames[0];
-  const meta = session.inputMetadata && session.inputMetadata[0];
-  if (meta && meta.shape && +meta.shape[2] > 0) size = +meta.shape[2];
-  modelUrl = msg.urls[0];
-  return { backend, url: got.url, cached: got.cached, saved: got.saved, bytes: got.buf.byteLength, downloadMs: tDl, loadMs: Date.now() - t0 - tDl, size };
+  const meta = sess.inputMetadata && sess.inputMetadata[0];
+  const sz = meta && meta.shape && +meta.shape[2] > 0 ? +meta.shape[2] : msg.size || 640;
+  slots[key] = { session: sess, backend: be, url: msg.urls[0], inputName: sess.inputNames[0], outputName: sess.outputNames[0], size: sz };
+  if (key === "main") { session = sess; backend = be; modelUrl = msg.urls[0]; inputName = sess.inputNames[0]; outputName = sess.outputNames[0]; size = sz; }
+  return { backend: be, url: got.url, cached: got.cached, saved: got.saved, bytes: got.buf.byteLength, downloadMs: tDl, loadMs: Date.now() - t0 - tDl, size: sz, offscreen: typeof OffscreenCanvas !== "undefined", slot: key };
+}
+
+// A transferred ImageBitmap (whole video frame, read on the GPU side, no main-thread getImageData) → letterboxed RGBA here.
+let ofc = null, ofx = null;
+function bitmapPixels(msg, S) {
+  if (!ofc || ofc.width !== S) { ofc = new OffscreenCanvas(S, S); ofx = ofc.getContext("2d", { willReadFrequently: true }); }
+  const L = msg.lb;
+  ofx.fillStyle = "rgb(114,114,114)"; ofx.fillRect(0, 0, S, S);
+  ofx.drawImage(msg.bitmap, L.sx, L.sy, L.sw, L.sh, L.padX, L.padY, L.w, L.h);
+  try { msg.bitmap.close(); } catch (_) {}
+  return ofx.getImageData(0, 0, S, S).data;
 }
 
 function iou(a, b) {
@@ -117,13 +132,16 @@ function iou(a, b) {
 }
 
 async function detect(msg) {
-  if (!session) throw new Error("model not loaded");
-  const S = size, px = new Uint8ClampedArray(msg.rgba), n = S * S, f = new Float32Array(3 * n);
+  const sl = slots[msg.slot || "main"];
+  if (!sl) throw new Error("model not loaded");
+  const S = sl.size, n = S * S, f = new Float32Array(3 * n);
+  const px = msg.bitmap ? bitmapPixels(msg, S) : new Uint8ClampedArray(msg.rgba);
   for (let i = 0; i < n; i++) { f[i] = px[i * 4] / 255; f[n + i] = px[i * 4 + 1] / 255; f[2 * n + i] = px[i * 4 + 2] / 255; }
   const t0 = Date.now();
-  const out = await session.run({ [inputName]: new RT.Tensor("float32", f, [1, 3, S, S]) });
+  const out = await sl.session.run({ [sl.inputName]: new RT.Tensor("float32", f, [1, 3, S, S]) });
   const ms = Date.now() - t0;
-  const o = out[outputName], d = o.data, C = o.dims[1] - 4, N = o.dims[2];   // [1, 4+80, 8400]: cx, cy, w, h, class scores
+  const backend = sl.backend;
+  const o = out[sl.outputName], d = o.data, C = o.dims[1] - 4, N = o.dims[2];   // [1, 4+80, 8400]: cx, cy, w, h, class scores
   const conf = msg.conf || 0.35, cand = [];
   if (o.dims.length === 2 && o.dims[1] === 7) {   // end2end export (NMS already done): [N, 7] = batch, x1, y1, x2, y2, cls, score
     for (let j = 0; j < o.dims[0]; j++) { const r = j * 7; if (d[r + 6] >= conf) cand.push({ b: [d[r + 1], d[r + 2], d[r + 3], d[r + 4]], conf: d[r + 6], cls: d[r + 5] | 0 }); }

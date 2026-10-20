@@ -60,7 +60,7 @@
     let n = 0;
     try {
       if (T.detect && T.detect.prepareLive && !(S && S.goldShown && !S.goldShown()))
-        n = await T.detect.prepareLive(ranges, (i, k) => status("Detecting objects for the burned-in boxes · frame " + i + " of " + k + " (same as while playing)…"), cancelled);
+        n = await T.detect.prepareLive(ranges, (i, k, cam) => { status("Detecting objects for the burned-in boxes · " + i + " of " + k + (cam ? " · " + ((T.CAM_LABEL && T.CAM_LABEL[cam]) || cam) : "") + " (same as while playing)…"); if (B.onPrepare) B.onPrepare(i, k, cam); }, cancelled);
     } catch (e) { console.warn("burn boxes: live detection for export skipped", e); status("Couldn't run live detection for the export (" + (e.message || e) + "); burning the boxes that are ready."); }
     return n;
   };

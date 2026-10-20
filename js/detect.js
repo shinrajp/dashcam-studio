@@ -41,7 +41,7 @@
   // ── worker ──
   let worker = null, wModel = null, seq = 0, loading = null;
   const pending = new Map();
-  D.unload = () => { try { worker && worker.terminate(); } catch (_) {} worker = null; wModel = null; loading = null; D.backend = null; D.info = null; for (const p of pending.values()) p.reject(new Error("detector stopped")); pending.clear(); };
+  D.unload = () => { fastInfo = null; fastLoading = null; try { worker && worker.terminate(); } catch (_) {} worker = null; wModel = null; loading = null; D.backend = null; D.info = null; for (const p of pending.values()) p.reject(new Error("detector stopped")); pending.clear(); };
   function call(msg, transfer) { return new Promise((resolve, reject) => { const id = ++seq; pending.set(id, { resolve, reject }); worker.postMessage({ ...msg, id }, transfer || []); }); }
   function setStatus(s) { D.status = s; const n = document.getElementById("detStatus"); if (n) n.textContent = s; T.emit && T.emit("detect-status", s); }
   D.setStatus = setStatus;
@@ -109,9 +109,27 @@
 
   // letterbox a frame into size×size
   let cv = null, cx = null;
-  function letterbox(img, iw, ih, crop) {
-    const S = D.config.size;
-    if (!cv) { cv = document.createElement("canvas"); cv.width = cv.height = S; cx = cv.getContext("2d", { willReadFrequently: true }); }
+  // the model's own input size (640, or 320 for the Fast live model), from the worker's load answer
+  const slotSize = (slot) => (slot === "fast" ? (fastInfo && fastInfo.size) || 320 : (D.info && D.info.size) || D.config.size);
+  function fitFor(S, iw, ih, crop) {
+    const c = crop || { x: 0, y: 0, w: 1, h: 1 }, sw = iw * c.w, sh = ih * c.h;
+    const scale = Math.min(S / sw, S / sh), w = Math.round(sw * scale), h = Math.round(sh * scale), padX = Math.floor((S - w) / 2), padY = Math.floor((S - h) / 2);
+    return { lb: { sx: iw * c.x, sy: ih * c.y, sw, sh, padX, padY, w, h }, fit: { scale, padX, padY, w: sw, h: sh } };
+  }
+  let fastInfo = null, fastLoading = null;
+  /** Fast live model (YOLO11 nano, 320 px) in the same worker, second session. Falls back to the main model if it can't load. */
+  D.loadFast = async () => {
+    await D.load();
+    if (D._mock) return null;
+    if (fastLoading) return fastLoading;
+    fastLoading = call({ type: "load", slot: "fast", urls: [new URL("models/yolo11n-320.onnx", location.href).href, BASE + "yolo11n-320.onnx"], ortBases: D.config.ortBases.map((u) => new URL(u, location.href).href), size: 320, useCache: D.cacheOk(), preferGpu: T.workerStart ? T.workerStart.gpuOk() : true })
+      .then((info) => (fastInfo = info)).catch((e) => { console.warn("fast live model unavailable, using the main model", e); fastInfo = null; return null; });
+    return fastLoading;
+  };
+  let bitmapFails = 0, noBitmap = false;
+  function letterbox(img, iw, ih, crop, S) {
+    S = S || D.config.size;
+    if (!cv || cv.width !== S) { cv = document.createElement("canvas"); cv.width = cv.height = S; cx = cv.getContext("2d", { willReadFrequently: true }); }
     const c = crop || { x: 0, y: 0, w: 1, h: 1 }, sw = iw * c.w, sh = ih * c.h;
     const scale = Math.min(S / sw, S / sh), w = Math.round(sw * scale), h = Math.round(sh * scale), padX = Math.floor((S - w) / 2), padY = Math.floor((S - h) / 2);
     cx.fillStyle = "rgb(114,114,114)"; cx.fillRect(0, 0, S, S); cx.drawImage(img, iw * c.x, ih * c.y, sw, sh, padX, padY, w, h);
@@ -119,14 +137,36 @@
     return { rgba: cx.getImageData(0, 0, S, S).data.buffer, fit: { scale, padX, padY, w: iw, h: ih } };
   }
   /** Detect objects in a video/canvas/image. Returns [{x,y,w,h,cls,conf,label}] (0..1), or [] on any problem. */
+  D.pathInfo = () => ({ last: D.lastPath || null, bitmap: !noBitmap, fails: bitmapFails });
   D.detectImage = async (img, iw, ih, opts) => {
     opts = opts || {};
     const conf = opts.conf || D.prefs().conf;
     if (D._mock) { const r = await D._mock(img, iw, ih, opts); return (r || []).map(named).filter((b) => b.conf >= conf); }
     await D.load();
+    let slot = "main";
+    if (opts.slot === "fast" && D.prefs().model !== "gdino") { const fi = await D.loadFast(); if (fi) slot = "fast"; }
+    const S = slotSize(slot);
     const one = async (crop) => {
-      const lb = letterbox(img, iw, ih, crop);
-      const r = await call({ type: "detect", rgba: lb.rgba, fit: lb.fit, conf, size: D.config.size, prompt: opts.prompt }, [lb.rgba]);
+      let r = null;
+      // transferable ImageBitmap → the worker letterboxes it (no getImageData on the main thread); plain RGBA otherwise
+      if (!noBitmap && typeof createImageBitmap === "function" && D.info && D.info.offscreen && !opts.prompt) {
+        try {
+          const bmp = await createImageBitmap(img), f = fitFor(S, iw, ih, crop);
+          r = await call({ type: "detect", bitmap: bmp, lb: f.lb, fit: f.fit, conf, slot }, [bmp]);
+          D.lastPath = "bitmap";
+          bitmapFails = 0;
+        } catch (e) {
+          if (/not loaded|stopped/.test(String(e && e.message))) throw e;
+          // a frame that isn't decodable yet (seeking) fails once; only a path that keeps failing is turned off
+          if (++bitmapFails >= 3) { console.warn("ImageBitmap path failed, using RGBA", e); noBitmap = true; }
+          r = null;
+        }
+      }
+      if (!r) {
+        const lb = letterbox(img, iw, ih, crop, S);
+        r = await call({ type: "detect", rgba: lb.rgba, fit: lb.fit, conf, size: S, prompt: opts.prompt, slot }, [lb.rgba]);
+        D.lastPath = "rgba";
+      }
       D.timings.push(r.ms); if (D.timings.length > 50) D.timings.shift();
       return crop ? r.dets.map((b) => ({ ...b, x: crop.x + b.x * crop.w, y: crop.y + b.y * crop.h, w: b.w * crop.w, h: b.h * crop.h, tiled: true })) : r.dets;
     };
@@ -190,6 +230,8 @@
         }
         return out;
       }
+      const tl = T.player && T.player.playing && D.prefs().live ? D.trackedLive(cam, t) : null;
+      if (tl) return tl.map((b) => ({ x: b.x, y: b.y, w: b.w, h: b.h, text: (b.attr ? b.attr + " " : "") + b.label + " " + pct(b.conf) }));
       const lv = D.liveAt(cam, t);
       if (lv) return lv.dets.map((b) => ({ x: b.x, y: b.y, w: b.w, h: b.h, text: (b.attr ? b.attr + " " : "") + b.label + " " + pct(b.conf) }));
       return null;
@@ -244,14 +286,16 @@
       if (ui.stopped()) break;
       const s = list[i];
       ui.status("Detecting " + (cls || "“" + q + "”") + " · frame " + (i + 1) + " of " + list.length + (D.backend ? " · " + (D.backend === "webgpu" ? "WebGPU" : "WASM") : "") + ". The video stays on this computer.");
-      const v = await frameAt(s.cam, s.t); if (!v) continue;
       let dets, mine;
-      const conf = gd ? P.conf : D.classConf(cls);
+      const conf = gd ? P.conf : D.classConf(cls), key = s.cam + "|" + s.t.toFixed(2), cached = !gd && D.frameCache.get(key);
+      const v = cached && cached.conf <= conf ? null : await frameAt(s.cam, s.t);
+      if (!v && !(cached && cached.conf <= conf)) continue;
       try {
-        dets = await D.detectImage(v, v.videoWidth, v.videoHeight, { prompt: gd ? q : undefined, conf });
+        if (cached && cached.conf <= conf) dets = cached.dets.filter((d) => d.conf >= conf);
+        else { dets = await D.detectImage(v, v.videoWidth, v.videoHeight, { prompt: gd ? q : undefined, conf }); if (!gd) D.frameCache.set(key, { conf, dets }); }
         mine = gd ? dets : dets.filter((d) => d.label === cls);
         // small things: if the whole frame found none, look again at 2×2 zoomed tiles
-        if (!mine.length && !gd && D.useTiles(cls)) { dets = await D.detectImage(v, v.videoWidth, v.videoHeight, { conf, tiles: true, tilesOnly: true }); mine = dets.filter((d) => d.label === cls); }
+        if (!mine.length && !gd && D.useTiles(cls) && v) { dets = await D.detectImage(v, v.videoWidth, v.videoHeight, { conf, tiles: true, tilesOnly: true }); mine = dets.filter((d) => d.label === cls); }
       }
       catch (e) { if (!rows.length && i === 0) throw e; console.warn(e); continue; }
       if (!mine.length) continue;
@@ -263,32 +307,138 @@
     return rows;
   };
 
-  // ── live detection while playing (optional, throttled) ──
-  let liveBusy = false, liveLast = 0;
-  D.liveTick = async () => {
-    const P = D.prefs();
-    if (!P.enabled || !P.live || liveBusy || !T.player || !T.player.playing || !T.player.tiles) return;
-    const now = performance.now(), every = isMobile() ? 2000 : 900;
-    if (now - liveLast < every) return;
-    liveLast = now; liveBusy = true;
+  // ── live detection while playing: adaptive rate ──
+  // The next detection starts as soon as the previous one is back (frames that arrive while the worker is busy are skipped),
+  // limited by Settings ▸ Detection speed: Fast (no limit, YOLO11 nano at 320 px), Balanced (≤ 5 per second, default),
+  // Battery saver (≤ 1 per second). Driven by requestVideoFrameCallback on the playing video (requestAnimationFrame where
+  // that is missing). With "All cameras" each visible camera takes its turn (round robin). Inference stays in the worker; the
+  // frame goes there as a transferable ImageBitmap. Between detections the viewer moves each box with a small tracker
+  // (IoU matching, constant velocity, smoothed position and size); a box not matched again for ~0.5 s disappears.
+  const SPEEDS = { fast: { gap: 0, label: "Fast" }, balanced: { gap: 200, label: "Balanced" }, battery: { gap: 1000, label: "Battery saver" } };
+  D.SPEEDS = SPEEDS;
+  let lowPower = null;   // iOS Low Power Mode / low battery guess (null = unknown)
+  D.lowPower = () => lowPower;
+  (function guessLowPower() {
     try {
-      const cam = (T.focus && T.focus.cam) || "front";
-      const tile = T.player.tiles[cam], v = tile && tile.vids[T.player.active];
-      if (!v || !v.videoWidth) return;
-      // time of the frame actually on screen (the video element), not the player's clock, which can run ahead of the decoded
-      // frame in Safari; event time = clip start + video time
-      let t = T.player.time;
-      try { const ci = T.player.clipIndexAt(t), c = T.player.ev && T.player.ev.clips[ci]; if (c && isFinite(v.currentTime)) { const vt = c.start + v.currentTime; if (Math.abs(vt - t) < 1) t = vt; } } catch (_) {}
-      let dets = await D.detectImage(v, v.videoWidth, v.videoHeight);
-      if (T.vehicle && T.vehicle.decorateLive) dets = T.vehicle.decorateLive(v, v.videoWidth, v.videoHeight, dets);   // "white car 91%"
-      D.live = { [cam]: { t, dets, hold: every / 1000 + 0.6 } };
-      addSample(cam, D.live[cam]);
-      T.emit("layout");
-    } catch (e) { console.warn("live detect", e); D.setPref("live", false); setStatus("Live detection turned off: " + e.message); }
-    finally { liveBusy = false; }
+      if (navigator.getBattery) navigator.getBattery().then((b) => { if (b.level <= 0.2 && !b.charging) lowPower = true; else if (lowPower == null) lowPower = false; }).catch(() => {});
+      // iOS doesn't expose the battery; Low Power Mode caps requestAnimationFrame at 30 Hz, so a 30 Hz phone is a hint
+      if (/iPhone|iPad|iPod/.test(navigator.userAgent) && typeof requestAnimationFrame === "function") {
+        let n = 0, t0 = 0; const f = (ts) => { if (!t0) t0 = ts; if (++n < 31) return requestAnimationFrame(f); const per = (ts - t0) / 30; if (per > 27 && per < 40) lowPower = true; else if (lowPower == null) lowPower = false; };
+        setTimeout(() => requestAnimationFrame(f), 1500);
+      }
+    } catch (_) {}
+  })();
+  D.speed = () => { const v = D.prefs().speed; return SPEEDS[v] ? v : lowPower && isMobile() ? "battery" : "balanced"; };
+  D.liveCamsMode = () => { const v = D.prefs().liveCams; return v === "all" || v === "focused" ? v : isMobile() ? "focused" : "all"; };
+  D.liveGap = () => SPEEDS[D.speed()].gap;
+  D.liveEvery = () => Math.max(D.liveGap(), D.avgMs ? D.avgMs() : 300);   // ms between two detections (one camera)
+  D.avgMs = () => { const a = D.liveStats.ms.slice(-10); return a.length ? a.reduce((x, y) => x + y, 0) / a.length : 0; };
+  D.liveStats = { starts: [], ms: [], skipped: 0, frames: 0 };
+  D.liveRate = (sec) => { const now = performance.now(), w = (sec || 5) * 1000; return D.liveStats.starts.filter((x) => now - x <= w).length / (sec || 5); };
+
+  const visible = (cam) => { const tl = T.player.tiles && T.player.tiles[cam]; if (!tl) return null; const v = tl.vids[T.player.active]; if (!v || !v.videoWidth || !v._url && !v.src) return null; const el = tl.tile; if (!el || el.hidden || el.classList.contains("off") || el.offsetParent === null || el.clientWidth < 4) return null; return v; };   // .off = hidden behind a focused camera (WebKit hands back blank frames for it)
+  D.liveCams = () => {
+    const f = (T.focus && T.focus.cam) || "front";
+    if (D.liveCamsMode() === "focused") return visible(f) ? [f] : [];
+    return T.GRID.filter((c) => visible(c));
+  };
+  const frameTime = (v, meta) => {   // event time of the frame on screen: clip start + the video's own time
+    let t = T.player.time;
+    try { const ci = T.player.clipIndexAt(t), c = T.player.ev && T.player.ev.clips[ci]; const mt = meta && isFinite(meta.mediaTime) ? meta.mediaTime : v.currentTime; if (c && isFinite(mt)) { const vt = c.start + mt; if (Math.abs(vt - t) < 1) t = vt; } } catch (_) {}
+    return t;
   };
 
-  D.clear = () => { D.tracks = []; D.live = {}; D.liveSamples = {}; };
+  // per-camera viewer tracker
+  D.liveTracks = {};
+  const EMA_POS = 0.6, EMA_SIZE = 0.4;
+  const expiry = (cam) => { const n = Math.max(1, D.liveCams().length); return Math.max(0.5, 1.5 * n * D.liveEvery() / 1000); };
+  function track(cam, t, dets) {
+    const list = (D.liveTracks[cam] = (D.liveTracks[cam] || []).filter((tr) => t - tr.seen <= expiry(cam) && tr.t <= t + 0.05));
+    const pred = list.map((tr) => { const dt = Math.min(0.5, Math.max(0, t - tr.t)); return { x: tr.x + tr.vx * dt, y: tr.y + tr.vy * dt, w: tr.w, h: tr.h }; });
+    const pairs = [];
+    dets.forEach((d, i) => list.forEach((tr, j) => { if (tr.label === d.label && near2(pred[j], d)) pairs.push([iou(pred[j], d), i, j]); }));
+    pairs.sort((a, b) => b[0] - a[0]);
+    const ud = new Set(), ut = new Set();
+    for (const [, i, j] of pairs) {
+      if (ud.has(i) || ut.has(j)) continue; ud.add(i); ut.add(j);
+      const d = dets[i], tr = list[j], p = pred[j], dt = Math.max(1e-3, t - tr.t);
+      const nx = p.x + EMA_POS * (d.x - p.x), ny = p.y + EMA_POS * (d.y - p.y);
+      tr.vx = 0.5 * tr.vx + 0.5 * ((nx - tr.x) / dt); tr.vy = 0.5 * tr.vy + 0.5 * ((ny - tr.y) / dt);
+      tr.x = nx; tr.y = ny; tr.w += EMA_SIZE * (d.w - tr.w); tr.h += EMA_SIZE * (d.h - tr.h);
+      tr.t = t; tr.seen = t; tr.conf = d.conf; tr.attr = d.attr;
+    }
+    dets.forEach((d, i) => { if (!ud.has(i)) list.push({ label: d.label, x: d.x, y: d.y, w: d.w, h: d.h, vx: 0, vy: 0, t, seen: t, conf: d.conf, attr: d.attr }); });
+  }
+  /** Viewer boxes from the tracker at time t (while playing), or null when it has nothing current for this camera. */
+  D.trackedLive = (cam, t) => {
+    const list = D.liveTracks[cam]; if (!list || !list.length) return null;
+    const ex = expiry(cam), out = [];
+    for (const tr of list) {
+      if (t - tr.seen > ex || t < tr.t - 0.3) continue;
+      const dt = Math.min(0.5, Math.max(-0.3, t - tr.t));
+      out.push({ x: tr.x + tr.vx * dt, y: tr.y + tr.vy * dt, w: tr.w, h: tr.h, label: tr.label, conf: tr.conf, attr: tr.attr });
+    }
+    return out.length ? out : null;
+  };
+
+  let liveBusy = false, liveLast = 0, rr = 0, loopOn = false, loopVid = null;
+  async function detectLive(cam, v, meta) {
+    const t = frameTime(v, meta), t0 = performance.now();
+    D.liveStats.starts.push(t0); if (D.liveStats.starts.length > 200) D.liveStats.starts.shift();
+    const fast = D.speed() === "fast" && D.prefs().model !== "gdino";
+    let dets = await D.detectImage(v, v.videoWidth, v.videoHeight, { slot: fast ? "fast" : "main" });
+    D.liveStats.ms.push(performance.now() - t0); if (D.liveStats.ms.length > 50) D.liveStats.ms.shift();
+    if (T.vehicle && T.vehicle.decorateLive) dets = T.vehicle.decorateLive(v, v.videoWidth, v.videoHeight, dets);   // "white car 91%"
+    const n = Math.max(1, D.liveCams().length), hold = Math.max(0.6, 0.6 + (n * D.liveEvery()) / 1000);
+    D.live[cam] = { t, dets, hold, src: "live" };
+    addSample(cam, D.live[cam]);
+    track(cam, t, dets);
+    T.emit("layout");
+  }
+  function onFrame(now, meta) {
+    if (!loopOn) return;
+    const P = D.prefs();
+    if (!P.enabled || !P.live || !T.player || !T.player.playing) { loopOn = false; loopVid = null; return; }
+    D.liveStats.frames++;
+    const cams = D.liveCams();
+    if (liveBusy || !cams.length || performance.now() - liveLast < D.liveGap()) { if (liveBusy) D.liveStats.skipped++; return arm(); }
+    const cam = cams[rr++ % cams.length], v = visible(cam);
+    if (!v) return arm();
+    liveBusy = true; liveLast = performance.now();
+    detectLive(cam, v, v === loopVid ? meta : null)
+      .catch((e) => { console.warn("live detect", e); D.setPref("live", false); setStatus("Live detection turned off: " + e.message); })
+      .finally(() => { liveBusy = false; });
+    arm();
+  }
+  function arm() {
+    if (!loopOn) return;
+    const cams = D.liveCams(), v = cams.length ? visible(cams[0]) : null;
+    loopVid = v;
+    if (v && typeof v.requestVideoFrameCallback === "function") v.requestVideoFrameCallback(onFrame);
+    else requestAnimationFrame((ts) => onFrame(ts, null));
+  }
+  D.liveRVFC = () => { const cams = D.liveCams(), v = cams.length ? visible(cams[0]) : null; return !!(v && typeof v.requestVideoFrameCallback === "function"); };
+  /** Called on every player time update: starts the frame loop when playing with live detection on. */
+  D.liveTick = () => {
+    const P = D.prefs();
+    if (!P.enabled || !P.live || !T.player || !T.player.playing || !T.player.tiles || loopOn) return;
+    loopOn = true; arm();
+  };
+
+  D.clear = () => { D.tracks = []; D.live = {}; D.liveSamples = {}; D.liveTracks = {}; D.frameCache.clear(); };
+  D.clearTracks = () => { D.tracks = []; };
+  D.frameCache = new Map();   // "cam|t" → { conf, dets }: frames the search already ran (all classes), reused by the next search
+  /** Live detections seen so far, as search rows for a class (same threshold as the search). */
+  D.liveRows = (q) => {
+    const cls = D.classFor(q); if (!cls) return [];
+    const conf = D.classConf(cls), out = [];
+    for (const [cam, list] of Object.entries(D.liveSamples || {})) for (const smp of list) {
+      const mine = (smp.dets || []).filter((d) => d.label === cls && d.conf >= conf); if (!mine.length) continue;
+      const top = mine.reduce((a, b) => (b.conf > a.conf ? b : a));
+      out.push({ t: smp.t, cam, score: top.conf, conf: top.conf, cls: top.cls, label: top.label, det: true, live: true, count: mine.length, box: { x: top.x, y: top.y, w: top.w, h: top.h } });
+    }
+    return out;
+  };
 
   // Every live detection is kept by time (per camera), so the viewer and the export look up the same detection for a
   // given moment (the export no longer only sees the last one). Nearest sample within its hold time wins.
@@ -330,25 +480,31 @@
     for (const x of list) { const d = Math.abs(x.t - t); if (d <= (x.hold || 1.5) && d < bd) { bd = d; best = x; } }
     return best;
   };
-  D.liveEvery = () => (isMobile() ? 2000 : 900);
-  /** Export: when "Detect while playing" is on, run the same live detection over the export ranges (the focused camera, the same
-   *  spacing) so every exported frame has the box the viewer would show while playing there. Missing samples only. */
+  /** Export: when "Detect while playing" is on, detect along export time at the chosen speed (one camera, or every camera
+   *  with "All cameras") and let the viewer/export lookup interpolate between detections. Only missing samples are run; the
+   *  total is capped so a long export doesn't take forever (the spacing widens instead). */
   D.prepareLive = async (ranges, onProgress, cancelled) => {
     const P = D.prefs();
     if (!P.enabled || !P.live) return 0;
-    const cam = (T.focus && T.focus.cam) || "front", step = D.liveEvery() / 1000, hold = step + 0.6;
-    const times = [];
-    for (const r of ranges) { for (let t = r[0]; t < r[1] + 1e-6; t += step) times.push(t); }
-    const todo = times.filter((t) => !(D.liveSamples[cam] || []).some((x) => Math.abs(x.t - t) <= step / 2));
-    let n = 0;
-    for (const t of todo) {
+    const ev = T.player.ev;
+    const cams = D.liveCamsMode() === "all" ? T.GRID.filter((c) => ev && ev.clips.some((cl) => cl.files[c] && cl.files[c].blob)) : [(T.focus && T.focus.cam) || "front"];
+    const rate = { fast: 10, balanced: 5, battery: 1 }[D.speed()];
+    const total = ranges.reduce((a, r) => a + (r[1] - r[0]), 0), cap = isMobile() ? 200 : 900;
+    let step = 1 / rate; if ((total / step) * cams.length > cap) step = (total * cams.length) / cap;
+    const hold = Math.max(0.6, step + 0.6);
+    const jobs = [];
+    for (const cam of cams) for (const r of ranges) for (let t = r[0]; t < r[1] + 1e-6; t += step) if (!(D.liveSamples[cam] || []).some((x) => Math.abs(x.t - t) <= step / 2)) jobs.push([cam, t]);
+    D.lastPrepare = { cams, step, jobs: jobs.length, ms: 0 };
+    const t0 = performance.now(); let n = 0;
+    for (const [cam, t] of jobs) {   // camera by camera: the hidden video keeps its file
       if (cancelled && cancelled()) break;
-      const v = await frameAt(cam, t); if (!v) continue;
+      const v = await frameAt(cam, t); if (!v) { n++; continue; }
       let dets = await D.detectImage(v, v.videoWidth, v.videoHeight);
       if (T.vehicle && T.vehicle.decorateLive) dets = T.vehicle.decorateLive(v, v.videoWidth, v.videoHeight, dets);
-      addSample(cam, { t, dets, hold });
-      n++; if (onProgress) onProgress(n, todo.length);
+      addSample(cam, { t, dets, hold, src: "export" });
+      n++; if (onProgress) onProgress(n, jobs.length, cam);
     }
+    D.lastPrepare.ms = performance.now() - t0;
     return n;
   };
 
@@ -363,7 +519,10 @@
     row('<span>Model</span><select class="select" id="detModel">' + Object.entries(MODELS).map(([k, m]) => '<option value="' + k + '"' + (k === P.model ? " selected" : "") + ">" + m.label + "</option>").join("") + "</select>");
     row('<span>Confidence</span><input type="range" id="detConf" min="0.1" max="0.9" step="0.05" value="' + P.conf + '"><b id="detConfV">' + Math.round(P.conf * 100) + "%</b>");
     row('<span>Small objects</span><select class="select" id="detSmall"><option value="auto"' + (P.small === "auto" ? " selected" : "") + '>Auto (umbrella, bag, sign…: zoomed second look)</option><option value="on"' + (P.small === "on" ? " selected" : "") + '>Always zoom (5× slower)</option><option value="off"' + (P.small === "off" ? " selected" : "") + ">Off</option></select>");
-    row('<label style="display:flex;gap:.5rem;align-items:center"><input type="checkbox" id="detLive"' + (P.live ? " checked" : "") + "> Detect while playing (focused camera, " + (isMobile() ? "every 2 s" : "about once a second") + ")</label>");
+    row('<label style="display:flex;gap:.5rem;align-items:center"><input type="checkbox" id="detLive"' + (P.live ? " checked" : "") + "> Detect while playing (boxes follow objects every frame)</label>");
+    const lc = D.liveCamsMode(), sp = D.speed();
+    row('<span>Cameras</span><select class="select" id="detLiveCams"><option value="focused"' + (lc === "focused" ? " selected" : "") + '>Focused camera' + (isMobile() ? " (default on phones)" : "") + '</option><option value="all"' + (lc === "all" ? " selected" : "") + '>All cameras, in turn' + (isMobile() ? "" : " (default on computers)") + "</option></select>");
+    row('<span>Detection speed</span><select class="select" id="detSpeed">' + Object.entries(SPEEDS).map(([k, v]) => '<option value="' + k + '"' + (k === sp ? " selected" : "") + ">" + v.label + (k === "fast" ? " (as fast as it can, small 320 px model)" : k === "balanced" ? " (up to 5 a second, default)" : " (about 1 a second" + (lowPower ? ", default now: low power" : "") + ")") + "</option>").join("") + "</select>");
     const st = row('<span class="hint" id="detStatus"></span>'); st.querySelector("#detStatus").textContent = D.status || (P.enabled ? "Model loads on first search." : "Off.");
     const note = document.createElement("p"); note.className = "hint";
     note.textContent = (P.model === "gdino" ? "Grounding DINO is experimental: a large download, slow without WebGPU, not recommended on phones. " : "") +
@@ -378,6 +537,8 @@
     box.querySelector("#detConf").onchange = (e) => D.setPref("conf", +e.target.value);
     box.querySelector("#detSmall").onchange = (e) => D.setPref("small", e.target.value);
     box.querySelector("#detLive").onchange = (e) => D.setPref("live", e.target.checked);
+    box.querySelector("#detLiveCams").onchange = (e) => { D.setPref("liveCams", e.target.value); D.liveTracks = {}; };
+    box.querySelector("#detSpeed").onchange = (e) => { D.setPref("speed", e.target.value); if (e.target.value === "fast" && D.enabled()) D.loadFast().catch(() => {}); };
   };
 
   D.init = () => {
