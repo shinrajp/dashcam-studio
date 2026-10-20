@@ -1,13 +1,18 @@
-/* wb.js — live white balance for the viewer (tag white-balance).
- * The car is white and the two mirror (repeater) cameras always see a piece of that white paint along their inner
- * edge. Its glossy highlight, followed over several frames, gives the colour of the light that falls on the car
- * (the streetlight "white point"). A partial correction (~70 %) is applied to the camera VIDEOS in the viewer only:
+/* wb.js — live white balance for the viewer (tags white-balance, wb-real).
+ * The car is white and each mirror (repeater) camera sees a sliver of the car body along its OUTER edge: the left
+ * repeater along the far LEFT of its image, the right repeater along the far RIGHT, widening toward the bottom. At night
+ * that paint is a dim grey/beige sliver lit by the streetlight. Its colour, followed over several frames, gives the
+ * colour of the light (the "white point"). A partial correction (~70 %) is applied to the camera VIDEOS in the viewer:
  *   - an SVG feColorMatrix filter (per-channel gains) on the <video> elements, or
- *   - on Safari / iOS a cheap equivalent: brightness() on the video + a multiply-blend tint layer just above it.
- * Overlays (HUD, map, labels, boxes, gold box, chips, self-driving badge, time) are separate elements and keep their
- * own colours. Export, detection, search and the 360 export read the decoded frames with drawImage, which ignores
- * CSS filters and the tint layer, so they always get the raw pixels.
- * Sampling: ~4–5 Hz, from small downscaled strips, only while it's on and the tab is visible. */
+ *   - on Safari / iOS: brightness() on the video + a multiply-blend tint layer just above it.
+ * Overlays keep their own colours; export, detection and search read raw frames (drawImage ignores CSS filters).
+ * Finding the body: the body sits still in the image while the world moves past, and it ends at a dark, sharp
+ * edge (the fender line) that also stays put. Over the sampled frames each grid cell near the outer edge keeps a
+ * running mean and variance; per row the body runs from the image edge to the first cell that is a STATIC edge
+ * (low temporal variance + a dark valley / strong gradient in the mean image). Rows are median-smoothed into one
+ * connected region touching the edge. Until that is confident, a default wedge-shaped sliver is used; a learned
+ * body shape is remembered per camera. Settings > White balance: strength, strip width, edge side per camera,
+ * "Show sample area". */
 (function () {
   "use strict";
   const T = window.TDC;
@@ -16,27 +21,41 @@
 
   // ── tunable constants ──
   WB.C = {
-    STRENGTH: 0.7,          // share of the full correction that is applied
+    STRENGTH: 0.7,          // default share of the full correction (Settings > Strength)
     HZ: 4.5,                // samples per second
-    // inner edge of each mirror camera: left repeater → right side of its image, right repeater → left side
-    STRIP: { left_repeater: { x0: 0.82, x1: 1.0 }, right_repeater: { x0: 0.0, x1: 0.18 }, y0: 0.5, y1: 1.0 },
-    SW: 40, SH: 90,         // the strip is downscaled to SW × SH pixels before it is read
-    TOP: 0.05,              // brightest share of the (unclipped) strip pixels that are candidates
-    MIN_CAND: 8,            // fewer candidates than this = paint not seen
-    CLIP: 250,              // a pixel with any channel ≥ CLIP is clipped and ignored
-    MIN_Y: 80,              // candidates darker than this (sRGB luminance 0–255) are not paint
-    BLACK: 3,               // a strip whose brightest pixel is below this is a blank frame (hidden video in WebKit)
-    OUTLIER: 0.16,          // drop candidates whose log-chroma is farther than this from the candidates' median
-    MAX_SPREAD: 0.14,       // candidates more scattered than this (median distance) are not one painted surface
-    RED_RG: 2.1,            // hue gate: log-free ratios; R/G above this = red lamp / brake light
-    GREEN_RG: 0.8, GREEN_BG: 1.0, // R/G below and B/G below = green traffic light
-    JUMP: 0.22,             // per-frame chroma jump (log units) vs. the running estimate that is rejected
-    JUMP_ACCEPT: 14,        // …unless it persists this many samples (~3 s): then the light really changed
+    SIDE: { left_repeater: "left", right_repeater: "right" },   // the body's edge of each camera's image (outer edge)
+    ZONE_W: 0.14,           // default search strip width (fraction of the image width, Settings > Strip width)
+    ZONE_Y0: 0.12,          // the strip starts this far down (the very top is sky / the label)
+    GW: 32, GH: 64,         // the strip is downscaled to GW × GH cells
+    WEDGE: { y0: 0.18, w0: 0.012, w1: 0.07 },   // default sliver: from y0 down, width w0 → w1 of the image width
+    PCT: [0.60, 0.95],      // white point = mean of the 60–95th luminance percentile of the body pixels
+    MIN_CELLS: 12,          // fewer usable body cells = paint not seen
+    CLIP: 250,              // any channel ≥ CLIP is clipped: ignored
+    DARK_ABS: 6, DARK_REL: 0.2,     // body cells darker than max(DARK_ABS, DARK_REL × scene median) are ignored
+    PAINT_ABS: 10, PAINT_REL: 0.3,  // "paint seen" needs its 60–95 % luminance ≥ max(PAINT_ABS, PAINT_REL × scene median)
+    BLACK: 3,               // a strip whose brightest cell is below this is a blank frame (hidden video)
+    OUTLIER: 0.18, MAX_SPREAD: 0.16,  // log-chroma trimming / "not one painted surface"
+    MAX_CHROMA: 1.0,        // a "white" farther than this from neutral (log units) is not believable paint
+    RED_RG: 2.1, GREEN_RG: 0.8, GREEN_BG: 1.0,   // hue gate for lamp reflections
+    JUMP: 0.22, JUMP_ACCEPT: 14,   // per-camera chroma-jump rejection (unless it lasts ~3 s)
     EMA: 0.25,              // smoothing weight of a new sample
     LOST_MS: 8000,          // paint unseen this long → correction fades back to none
-    GAIN_MIN: 0.5, GAIN_MAX: 2.2,
+    GAIN_MIN: 0.65, GAIN_MAX: 1.7,   // clamp: the paint isn't perfectly neutral, never over-correct
+    // body mask
+    MASK_ALPHA: 0.12,       // running mean / variance weight per new frame
+    MASK_MIN_FRAMES: 8,     // distinct frames before a mask can be trusted
+    MOVE_STD: 2.5,          // the scene must move (median temporal std of the inner cells, 0–255) to learn
+    EDGE_STATIC: 0.6,       // an edge cell's std must be ≤ this × the scene's std (it doesn't move)
+    EDGE_MIN: 10,           // …and be a dark valley or step of at least this many levels in the mean image
+    VALLEY: 0.75,           // valley: mean < VALLEY × the brighter neighbours on both sides
+    ROWS_MIN: 0.3,          // confident when an edge is found in ≥ 30 % of the rows…
+    ROW_JUMP: 4,            // …and neighbouring rows' widths differ by ≤ this many cells (a smooth curve)
   };
-  const KEY = "tdc.wb.v1", MODE_KEY = "tdc.wb.mode";
+  const KEY = "tdc.wb.v1", MODE_KEY = "tdc.wb.mode", CFG_KEY = "tdc.wb.cfg.v1", MASK_KEY = "tdc.wb.mask.v1";
+  const REP = ["left_repeater", "right_repeater"];
+  // user settings: strength, strip width, edge side per camera ("auto" | "left" | "right"), show the sample area
+  WB.cfg = () => { let c = {}; try { c = JSON.parse(localStorage.getItem(CFG_KEY) || "{}") || {}; } catch (_) {} return { strength: c.strength > 0 ? Math.min(1, c.strength) : WB.C.STRENGTH, width: c.width > 0 ? c.width : WB.C.ZONE_W, side: Object.assign({ left_repeater: "auto", right_repeater: "auto" }, c.side || {}), showMask: !!c.showMask }; };
+  WB.setCfg = (patch) => { const c = Object.assign(WB.cfg(), patch); if (patch.side) c.side = Object.assign(WB.cfg().side, patch.side); try { localStorage.setItem(CFG_KEY, JSON.stringify(c)); } catch (_) {} if (patch.width || patch.side) resetZones(false); apply(); render(); drawMasks(); return c; };
   const NAME = { left_repeater: "left mirror", right_repeater: "right mirror" };
 
   WB.isOn = () => { try { return localStorage.getItem(KEY) === "1"; } catch (_) { return false; } };
@@ -65,45 +84,109 @@
   const luma = (r, g, b) => 0.2126 * r + 0.7152 * g + 0.0722 * b;
   /** Per-channel gains for an sRGB white point: lerp(1, ref/white, strength), brightness kept, clamped. */
   WB.gains = (w, strength) => {
-    const k = strength == null ? WB.C.STRENGTH : strength, ref = luma(w[0], w[1], w[2]);
+    const k = strength == null ? WB.cfg().strength : strength, ref = luma(w[0], w[1], w[2]);
     let g = w.map((c) => 1 + (ref / Math.max(c, 1) - 1) * k);
     const norm = ref / luma(w[0] * g[0], w[1] * g[1], w[2] * g[2]);
     return g.map((x) => Math.min(WB.C.GAIN_MAX, Math.max(WB.C.GAIN_MIN, x * norm)));
   };
 
-  /** Analyse one strip (ImageData-like {data,width,height}). → {blank} | {found:false} | {found:true, rgb, n} */
-  WB.analyse = (img) => {
-    const C = WB.C, d = img.data, px = [];
-    let max = 0;
-    for (let i = 0; i < d.length; i += 4) {
-      const r = d[i], g = d[i + 1], b = d[i + 2], y = luma(r, g, b);
-      if (y > max) max = y;
-      if (r >= C.CLIP || g >= C.CLIP || b >= C.CLIP) continue;           // clipped: colour unknown
-      px.push([y, r, g, b]);
-    }
+  const med = (a) => { if (!a.length) return 0; const s = Float64Array.from(a).sort(); return s[s.length >> 1]; };
+  /** White point of the body cells. img: {data (RGBA), width, height} oriented so column 0 = the image edge;
+   *  runs[y] = body width (cells) in row y (null = every cell); sceneY = scene median luminance (adaptive thresholds).
+   *  → {blank} | {found:false, why} | {found:true, rgb, n, rejectedHue, y} */
+  WB.analyse = (img, runs, sceneY) => {
+    const C = WB.C, d = img.data, W = img.width, H = img.height, px = [];
+    let max = 0, all = [];
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) { const i = (y * W + x) * 4, l = luma(d[i], d[i + 1], d[i + 2]); if (l > max) max = l; all.push(l); }
     if (max < C.BLACK) return { blank: true };
-    if (px.length < C.MIN_CAND) return { found: false, why: "clipped" };
-    px.sort((a, b) => b[0] - a[0]);
-    // walk down from the brightest: strongly red / green pixels (lamp reflections) are skipped, not counted
-    const want = Math.max(C.MIN_CAND, Math.round(px.length * C.TOP)), gated = [];
-    let rejectedHue = 0;
-    for (let i = 0; i < px.length && gated.length < want; i++) {
-      const [, r, g, b] = px[i], rg = r / Math.max(g, 1), bg = b / Math.max(g, 1);
-      if (rg > C.RED_RG || (rg < C.GREEN_RG && bg < C.GREEN_BG)) { rejectedHue++; continue; }
-      gated.push(px[i]);
+    const sY = sceneY != null ? sceneY : med(all);
+    const dark = Math.max(C.DARK_ABS, C.DARK_REL * sY);
+    let rejectedHue = 0, clipped = 0;
+    for (let y = 0; y < H; y++) {
+      const n = runs ? runs[y] | 0 : W;
+      for (let x = 0; x < Math.min(n, W); x++) {
+        const i = (y * W + x) * 4, r = d[i], g = d[i + 1], b = d[i + 2];
+        if (r >= C.CLIP || g >= C.CLIP || b >= C.CLIP) { clipped++; continue; }
+        const l = luma(r, g, b); if (l < dark) continue;
+        const rg = r / Math.max(g, 1), bg = b / Math.max(g, 1);
+        if (rg > C.RED_RG || (rg < C.GREEN_RG && bg < C.GREEN_BG)) { rejectedHue++; continue; }   // lamp reflection
+        px.push([l, r, g, b]);
+      }
     }
-    let cand = gated.filter((p) => p[0] >= C.MIN_Y);
-    if (cand.length < C.MIN_CAND) return { found: false, why: rejectedHue > cand.length ? "hue" : "dark", rejectedHue };
-    // log-chroma, median-trimmed: drops near-neutral specks and odd coloured reflections alike
+    if (px.length < C.MIN_CELLS) return { found: false, why: px.length + rejectedHue + clipped < C.MIN_CELLS ? "dark" : rejectedHue > clipped ? "hue" : "clipped", rejectedHue, n: px.length };
+    px.sort((a, b) => a[0] - b[0]);
+    const cand = px.slice(Math.floor(px.length * C.PCT[0]), Math.max(Math.floor(px.length * C.PCT[0]) + 1, Math.ceil(px.length * C.PCT[1])));
+    const yP = cand.reduce((s, p) => s + p[0], 0) / cand.length;
+    if (yP < Math.max(C.PAINT_ABS, C.PAINT_REL * sY)) return { found: false, why: "dark", rejectedHue, y: yP };
     const lc = cand.map(([, r, g, b]) => [Math.log(Math.max(r, 1) / Math.max(g, 1)), Math.log(Math.max(b, 1) / Math.max(g, 1))]);
-    const med = (a) => { const s = a.slice().sort((x, y) => x - y); return s[s.length >> 1]; };
     const m = [med(lc.map((v) => v[0])), med(lc.map((v) => v[1]))];
     const dist = lc.map((v) => Math.hypot(v[0] - m[0], v[1] - m[1]));
-    if (med(dist) > C.MAX_SPREAD) return { found: false, why: "scattered" };
+    if (med(dist) > C.MAX_SPREAD) return { found: false, why: "scattered", rejectedHue };
     let R = 0, G = 0, B = 0, n = 0;
     cand.forEach((p, i) => { if (dist[i] <= C.OUTLIER) { R += p[1]; G += p[2]; B += p[3]; n++; } });
-    if (n < C.MIN_CAND / 2) return { found: false, why: "scattered" };
-    return { found: true, rgb: [R / n, G / n, B / n], n, rejectedHue };
+    if (n < Math.max(4, cand.length / 3)) return { found: false, why: "scattered", rejectedHue };
+    const rgb = [R / n, G / n, B / n];
+    if (Math.hypot(Math.log(rgb[0] / rgb[1]), Math.log(rgb[2] / rgb[1])) > C.MAX_CHROMA) return { found: false, why: "too coloured", rejectedHue, rgb };
+    return { found: true, rgb, n, rejectedHue, y: yP };
+  };
+
+  // ── body mask from temporal statistics ──
+  /** Default wedge-shaped sliver: body width (cells) per row of a strip of width zw (fraction of the image). */
+  WB.wedge = (zw) => {
+    const C = WB.C, W = C.WEDGE, out = new Int16Array(C.GH);
+    for (let y = 0; y < C.GH; y++) { const iy = C.ZONE_Y0 + (1 - C.ZONE_Y0) * (y + 0.5) / C.GH; if (iy < W.y0) continue; const f = W.w0 + (W.w1 - W.w0) * (iy - W.y0) / (1 - W.y0); out[y] = Math.max(1, Math.min(C.GW, Math.round((f / zw) * C.GW))); }
+    return out;
+  };
+  WB.newZone = () => { const n = WB.C.GW * WB.C.GH; return { n: 0, mean: new Float32Array(n), vr: new Float32Array(n), runs: null, conf: false, moving: false, sceneStd: 0, sceneY: 0, rowsFound: 0, noBody: false, img: null }; };
+  /** Feed one oriented strip image into a zone's running mean / variance. */
+  WB.feedZone = (Z, img) => {
+    const C = WB.C, d = img.data, n = C.GW * C.GH, a = Math.max(C.MASK_ALPHA, 1 / (Z.n + 1));
+    for (let i = 0; i < n; i++) {
+      const l = luma(d[i * 4], d[i * 4 + 1], d[i * 4 + 2]);
+      if (!Z.n) { Z.mean[i] = l; Z.vr[i] = 0; continue; }
+      const dl = l - Z.mean[i]; Z.mean[i] += a * dl; Z.vr[i] = (1 - a) * (Z.vr[i] + a * dl * dl);
+    }
+    Z.n++; Z.img = img;
+  };
+  /** Find the body: per row, from the image edge to the first static edge cell. */
+  WB.maskZone = (Z) => {
+    const C = WB.C, GW = C.GW, GH = C.GH, M = Z.mean, sd = (i) => Math.sqrt(Z.vr[i]);
+    const inner = []; for (let y = 0; y < GH; y++) for (let x = GW >> 1; x < GW; x++) inner.push(sd(y * GW + x));
+    Z.sceneStd = med(inner); Z.sceneY = med(Array.from(M)); Z.moving = Z.sceneStd > C.MOVE_STD;
+    if (Z.n < C.MASK_MIN_FRAMES || !Z.moving) { Z.conf = false; return Z; }
+    const raw = new Int16Array(GH).fill(-1), thr = Math.max(1.0, C.EDGE_STATIC * Z.sceneStd);
+    for (let y = 0; y < GH; y++) {
+      const r = y * GW;
+      for (let x = 1; x < GW - 2; x++) {
+        const i = r + x; if (sd(i) > thr) continue;
+        const L = Math.max(M[i - 1], x > 1 ? M[i - 2] : M[i - 1]), R = Math.max(M[i + 1], M[i + 2]);
+        const valley = M[i] < C.VALLEY * Math.min(L, R) && Math.min(L, R) - M[i] >= C.EDGE_MIN;
+        const step = Math.abs(M[i + 1] - M[i - 1]) >= 2 * C.EDGE_MIN && sd(i - 1) <= thr;   // static step: body side static too
+        if (valley || step) { raw[y] = x; break; }
+      }
+    }
+    // smooth: median of 5 rows over the found rows, fill gaps by interpolation, keep one connected run per row
+    const found = []; for (let y = 0; y < GH; y++) if (raw[y] > 0) found.push(y);
+    Z.rowsFound = found.length / GH;
+    const runs = new Int16Array(GH);
+    if (found.length) {
+      const sm = (y) => { const v = []; for (let k = -2; k <= 2; k++) if (raw[y + k] > 0) v.push(raw[y + k]); return v.length ? med(v) : -1; };
+      const pts = found.map((y) => [y, sm(y)]);
+      // drop rows that jump away from the smoothed curve (a moving edge that was briefly static)
+      const good = pts.filter(([y, v]) => Math.abs(raw[y] - v) <= C.ROW_JUMP);
+      for (let y = 0; y < GH; y++) {
+        let a = null, b = null; for (const p of good) { if (p[0] <= y) a = p; if (p[0] >= y && !b) b = p; }
+        if (a && b) runs[y] = Math.round(a[0] === b[0] ? a[1] : a[1] + (b[1] - a[1]) * (y - a[0]) / (b[0] - a[0]));
+        else if (b && !a) runs[y] = 0;                  // above the first edge: no body (sky / top of the fender)
+        else if (a && !b) runs[y] = a[1];               // below the last edge: keep the width (bottom of the image)
+      }
+      Z.rowsGood = good.length / GH;
+    } else Z.rowsGood = 0;
+    let jumps = 0; for (let y = 1; y < GH; y++) if (Math.abs(runs[y] - runs[y - 1]) > C.ROW_JUMP) jumps++;
+    Z.conf = Z.rowsGood >= C.ROWS_MIN && jumps <= 2 && runs.some((v) => v > 0);
+    Z.noBody = Z.n >= 2 * C.MASK_MIN_FRAMES && Z.rowsFound < 0.08;   // the world moves and nothing static at the edge
+    if (Z.conf) Z.runs = runs;
+    return Z;
   };
 
   // ── running estimate (log-chroma EMA with jump rejection) ──
@@ -190,33 +273,69 @@
   WB.render = render;
   WB.set = (on) => {
     try { localStorage.setItem(KEY, on ? "1" : "0"); } catch (_) {}
-    if (!on) apply(); else tick(true);
+    if (!on) { apply(); drawMasks(); } else tick(true);
     render(); schedule();
   };
   WB.toggle = () => WB.set(!WB.isOn());
 
   // ── sampling loop ──
   let cv = null, cx = null, timer = 0, lastKey = "";
-  function strip(cam) {
+  const zones = {};          // "cam:side" → zone stats
+  WB.zones = zones;
+  const sides = (cam) => { const c = WB.cfg().side[cam]; return c === "left" || c === "right" ? [c] : [WB.C.SIDE[cam], WB.C.SIDE[cam] === "left" ? "right" : "left"]; };
+  function loadMasks() { try { return JSON.parse(localStorage.getItem(MASK_KEY) || "{}") || {}; } catch (_) { return {}; } }
+  let saveAt = 0;
+  function saveMask(cam, side, runs, zw) { const now = performance.now(); if (now - saveAt < 4000) return; saveAt = now; const m = loadMasks(); m[cam] = { side, zw, runs: Array.from(runs), at: Date.now() }; try { localStorage.setItem(MASK_KEY, JSON.stringify(m)); } catch (_) {} }
+  WB.forgetMasks = () => { try { localStorage.removeItem(MASK_KEY); } catch (_) {} resetZones(true); drawMasks(); };
+  function resetZones() { for (const k of Object.keys(zones)) delete zones[k]; }
+  /** The strip along one edge of a camera's frame, oriented so column 0 = the image edge. */
+  function strip(cam, side) {
     const P = T.player, t = P && P.tiles && P.tiles[cam];
     const v = t && t.vids[P.active];
     if (!v || !v._url || v.readyState < 2 || !v.videoWidth) return null;
-    const C = WB.C, s = C.STRIP[cam], vw = v.videoWidth, vh = v.videoHeight;
-    if (!cv) { cv = document.createElement("canvas"); cv.width = C.SW; cv.height = C.SH; cx = cv.getContext("2d", { willReadFrequently: true }); }
+    const C = WB.C, zw = WB.cfg().width, vw = v.videoWidth, vh = v.videoHeight;
+    if (!cv) { cv = document.createElement("canvas"); cv.width = C.GW; cv.height = C.GH; cx = cv.getContext("2d", { willReadFrequently: true }); }
     try {
-      cx.drawImage(v, s.x0 * vw, C.STRIP.y0 * vh, (s.x1 - s.x0) * vw, (C.STRIP.y1 - C.STRIP.y0) * vh, 0, 0, C.SW, C.SH);
-      return cx.getImageData(0, 0, C.SW, C.SH);
+      cx.drawImage(v, side === "left" ? 0 : (1 - zw) * vw, C.ZONE_Y0 * vh, zw * vw, (1 - C.ZONE_Y0) * vh, 0, 0, C.GW, C.GH);
+      const im = cx.getImageData(0, 0, C.GW, C.GH);
+      if (side === "right") { const d = im.data, W = C.GW; for (let y = 0; y < C.GH; y++) for (let x = 0; x < W >> 1; x++) { const a = (y * W + x) * 4, b = (y * W + W - 1 - x) * 4; for (let k = 0; k < 4; k++) { const tmp = d[a + k]; d[a + k] = d[b + k]; d[b + k] = tmp; } } }
+      return im;
     } catch (_) { return null; }
   }
-  WB.sampleNow = () => {
+  /** Which body shape to use for a camera now: learned (this clip) > remembered (stored) > default sliver. */
+  WB.maskFor = (cam) => {
+    const C = WB.C, zw = WB.cfg().width, list = sides(cam);
+    for (const side of list) { const Z = zones[cam + ":" + side]; if (Z && Z.conf && Z.runs) return { side, runs: Z.runs, source: "learned", Z }; }
+    const m = loadMasks()[cam];
+    if (m && list.includes(m.side) && Math.abs(m.zw - zw) < 1e-6 && m.runs && m.runs.length === C.GH) return { side: m.side, runs: Int16Array.from(m.runs), source: "remembered", Z: zones[cam + ":" + m.side] };
+    const side = list[0];
+    return { side, runs: WB.wedge(zw), source: "default sliver", Z: zones[cam + ":" + side] };
+  };
+  WB.sampleNow = (fresh) => {
     const seen = [], whites = [];
     WB.last = {};
     let blank = 0;
     const ev = T.player && T.player.ev;
-    for (const cam of ["left_repeater", "right_repeater"]) {
+    for (const cam of REP) {
       if (ev && ev.cams && !ev.cams.includes(cam)) continue;
-      const img = strip(cam); if (!img) { blank++; continue; }   // not decoded yet (seeking): try again next tick
-      const a = WB.analyse(img); a.cam = cam; WB.last[cam] = a;
+      let gotAny = false, allBlank = true;
+      for (const side of sides(cam)) {
+        const img = strip(cam, side); if (!img) continue;
+        gotAny = true;
+        let mx = 0; for (let i = 0; i < img.data.length; i += 4) mx = Math.max(mx, img.data[i], img.data[i + 1], img.data[i + 2]);
+        if (mx < WB.C.BLACK) continue;
+        allBlank = false;
+        const key = cam + ":" + side, Z = zones[key] || (zones[key] = WB.newZone());
+        if (fresh !== false) { WB.feedZone(Z, img); WB.maskZone(Z); } else Z.img = img;
+        if (Z.conf && Z.runs) saveMask(cam, side, Z.runs, WB.cfg().width);
+      }
+      if (!gotAny || allBlank) { blank++; continue; }   // not decoded yet (seeking) or a hidden video's blank frame
+      const mk = WB.maskFor(cam), Z = mk.Z;
+      if (!Z || !Z.img) { blank++; continue; }
+      if (mk.source !== "learned" && Z.noBody && sides(cam).every((sd) => { const z = zones[cam + ":" + sd]; return z && z.noBody; })) { WB.last[cam] = { found: false, why: "no body at the edge", side: mk.side, source: mk.source }; continue; }
+      const a = WB.analyse(Z.img, mk.runs, Z.n >= WB.C.MASK_MIN_FRAMES ? Z.sceneY : null);
+      Object.assign(a, { cam, side: mk.side, source: mk.source, cells: mk.runs.reduce((s, v) => s + v, 0) });
+      WB.last[cam] = a;
       if (a.blank) { blank++; continue; }
       if (!a.found) continue;
       // per-camera chroma-jump rejection against the running estimate (a lamp reflection on ONE mirror)
@@ -229,20 +348,77 @@
       seen.push(cam); whites.push(a.rgb);
     }
     if (!whites.length && blank) return "blank";
-    if (!whites.length && Object.values(WB.last).some((a) => a.rejected)) return "jump";   // only a rejected lamp flash: hold      // nothing decoded to look at: keep the estimate as it is
-    // both mirrors: average in log-chroma (each normalised to its green)
+    if (!whites.length && Object.values(WB.last).some((a) => a.rejected)) return "jump";   // only a rejected lamp flash: hold
     let rgb = null;
     if (whites.length) { const l = whites.map((w) => [Math.log(w[0] / w[1]), Math.log(w[2] / w[1])]); const m = [0, 1].map((k) => l.reduce((s, v) => s + v[k], 0) / l.length); rgb = [Math.exp(m[0]), 1, Math.exp(m[1])]; }
     const r = WB.update(rgb);
     st.cams = r === "jump" ? st.cams : seen;
+    drawMasks();
     return r;
   };
+  /** Summary for the debug overlay / tests. */
+  WB.maskInfo = () => { const out = {}; for (const cam of REP) { const m = WB.maskFor(cam), Z = m.Z; const rows = Array.from(m.runs); const used = rows.filter((v) => v > 0); out[cam] = { side: m.side, source: m.source, rowsWithBody: used.length, maxWidthPct: +((Math.max(0, ...rows) / WB.C.GW) * WB.cfg().width * 100).toFixed(1), widthTopPct: used.length ? +((used[0] / WB.C.GW) * WB.cfg().width * 100).toFixed(1) : 0, widthBottomPct: +((rows[rows.length - 1] / WB.C.GW) * WB.cfg().width * 100).toFixed(1), frames: Z ? Z.n : 0, moving: Z ? Z.moving : false, sceneStd: Z ? +Z.sceneStd.toFixed(1) : 0, rowsFound: Z ? +(Z.rowsFound || 0).toFixed(2) : 0 }; } return out; };
+
+  // ── debug overlay: Settings > White balance > Show sample area ──
+  function drawMasks() {
+    const show = WB.cfg().showMask && WB.isOn(), P = T.player;
+    for (const cam of REP) {
+      const t = P && P.tiles && P.tiles[cam]; if (!t) continue;
+      let c = t.tile.querySelector(":scope > .wb-mask-layer");
+      if (!show) { if (c) c.hidden = true; continue; }
+      const v = t.vids[P.active]; if (!v || !v.videoWidth) continue;
+      if (!c) { c = document.createElement("canvas"); c.className = "wb-mask-layer"; c.setAttribute("aria-hidden", "true"); t.tile.appendChild(c); }
+      c.hidden = false;
+      const tw = t.tile.clientWidth, th = t.tile.clientHeight, dpr = Math.min(2, devicePixelRatio || 1);
+      if (c.width !== Math.round(tw * dpr) || c.height !== Math.round(th * dpr)) { c.width = Math.round(tw * dpr); c.height = Math.round(th * dpr); }
+      c.style.transform = v.style.transform || ""; c.style.transformOrigin = "50% 50%";
+      const x = c.getContext("2d"); x.setTransform(dpr, 0, 0, dpr, 0, 0); x.clearRect(0, 0, tw, th);
+      const s = Math.min(tw / v.videoWidth, th / v.videoHeight), w = v.videoWidth * s, h = v.videoHeight * s, ox = (tw - w) / 2, oy = (th - h) / 2;
+      const C = WB.C, zw = WB.cfg().width, m = WB.maskFor(cam), cw = (zw * w) / C.GW, ch = ((1 - C.ZONE_Y0) * h) / C.GH, y0 = oy + C.ZONE_Y0 * h;
+      const X = (col) => (m.side === "left" ? ox + col * cw : ox + w - (col + 1) * cw);
+      // the search strip
+      x.setLineDash([5, 4]); x.strokeStyle = "rgba(255,255,255,0.7)"; x.lineWidth = 1;
+      x.strokeRect(m.side === "left" ? ox + 0.5 : ox + w - zw * w + 0.5, y0 + 0.5, zw * w - 1, (1 - C.ZONE_Y0) * h - 1); x.setLineDash([]);
+      // the body cells that are sampled
+      x.fillStyle = m.source === "learned" ? "rgba(255,0,200,0.45)" : m.source === "remembered" ? "rgba(140,90,255,0.45)" : "rgba(255,200,0,0.4)";
+      for (let r = 0; r < C.GH; r++) for (let col = 0; col < m.runs[r]; col++) x.fillRect(X(col), y0 + r * ch, cw + 0.5, ch + 0.5);
+      const a = WB.last && WB.last[cam];
+      const label = (m.source === "learned" ? "Body found" : m.source === "remembered" ? "Remembered body" : "Default sliver") + " · " + m.side + " edge" + (a && a.found ? "" : a ? " · " + (a.why || "no paint") : "");
+      x.font = "600 11px system-ui, sans-serif"; const tw2 = x.measureText(label).width + 10, lx = m.side === "left" ? ox + 4 : ox + w - tw2 - 4, ly = oy + h - 24;
+      x.fillStyle = "rgba(0,0,0,0.65)"; x.fillRect(lx, ly, tw2, 18); x.fillStyle = "#fff"; x.fillText(label, lx + 5, ly + 13);
+    }
+  }
+  WB.drawMasks = drawMasks;
+
+  // ── Settings > White balance ──
+  function buildSettings() {
+    const host = $("setWb"); if (!host) return;
+    const c = WB.cfg(); host.innerHTML = "";
+    const row = (label, el) => { const r = T.el ? T.el("label", "row") : document.createElement("label"); r.className = "row"; const sp = document.createElement("span"); sp.textContent = label; r.append(sp, el); host.appendChild(r); return r; };
+    const range = (id, min, max, step, val, fmt, on) => { const w = document.createElement("span"); w.className = "wb-range"; const i = document.createElement("input"); i.type = "range"; i.id = id; i.min = min; i.max = max; i.step = step; i.value = val; const o = document.createElement("output"); o.textContent = fmt(val); i.addEventListener("input", () => { o.textContent = fmt(+i.value); on(+i.value); }); w.append(i, o); return w; };
+    row("Strength", range("wbStrength", 0.3, 1, 0.05, c.strength, (v) => Math.round(v * 100) + "%", (v) => WB.setCfg({ strength: v })));
+    row("Strip width", range("wbWidth", 0.06, 0.24, 0.01, c.width, (v) => Math.round(v * 100) + "%", (v) => WB.setCfg({ width: v })));
+    for (const cam of REP) {
+      const sel = document.createElement("select"); sel.id = cam === "left_repeater" ? "wbSideLeft" : "wbSideRight";
+      sel.innerHTML = '<option value="auto">Auto (' + WB.C.SIDE[cam] + ' edge)</option><option value="left">Left edge</option><option value="right">Right edge</option>';
+      sel.value = c.side[cam]; sel.addEventListener("change", () => WB.setCfg({ side: { [cam]: sel.value } }));
+      row((cam === "left_repeater" ? "Left" : "Right") + " mirror: car body at", sel);
+    }
+    const cb = document.createElement("input"); cb.type = "checkbox"; cb.id = "wbShowMask"; cb.checked = c.showMask; cb.addEventListener("change", () => WB.setCfg({ showMask: cb.checked }));
+    row("Show sample area", cb);
+    const btn = document.createElement("button"); btn.className = "btn ghost wide"; btn.type = "button"; btn.id = "wbForget"; btn.textContent = "Forget the learned car-body shape"; btn.addEventListener("click", () => WB.forgetMasks());
+    host.appendChild(btn);
+    const p = document.createElement("p"); p.className = "hint"; p.textContent = "White balance uses the white car body seen at the outer edge of the mirror cameras. Show sample area outlines the strip it searches and fills the part it samples (pink: found on this clip, violet: remembered, yellow: default sliver). Viewer only: exports are never changed.";
+    host.appendChild(p);
+  }
+  WB.buildSettings = buildSettings;
   function tick(force) {
     timer = 0;
     const P = T.player;
     if (!WB.isOn() || document.hidden || !P || !P.ev) { render(); return; }
     const key = P.active + ":" + (P.time || 0).toFixed(3) + ":" + (P.ev.id || P.ev.name || "");
-    if (force || P.playing || key !== lastKey) { lastKey = key; if (WB.sampleNow() === "blank") lastKey = ""; }
+    const fresh = key !== lastKey;   // only a NEW frame feeds the body-mask statistics
+    if (force || P.playing || fresh) { lastKey = key; if (WB.sampleNow(fresh) === "blank") lastKey = ""; }
     apply();   // also picks up a 360 canvas or tiles created since the last tick
     render(); schedule();
   }
@@ -256,10 +432,11 @@
     if (b) b.addEventListener("click", () => WB.toggle());
     document.addEventListener("visibilitychange", () => { if (!document.hidden) schedule(); });
     if (T.on) {
-      T.on("player-open", () => { WB.reset(); lastKey = ""; schedule(); });
+      T.on("player-open", () => { WB.reset(); resetZones(); lastKey = ""; schedule(); });
       T.on("time", () => { if (WB.isOn() && !timer) schedule(); });
-      T.on("layout", () => { if (WB.applied) apply(); });   // new tiles / 360 canvas get the correction too
+      T.on("layout", () => { if (WB.applied) apply(); drawMasks(); });   // new tiles / 360 canvas get the correction too
     }
+    buildSettings();
     render(); apply(); schedule();
   };
 })();

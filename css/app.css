@@ -694,3 +694,7 @@ body.portrait .wb-readout { font-size: 10px; }
 body.fs .wb-readout { bottom: calc(var(--tp-h, 62px) + 8px); transition: bottom .25s; }   /* above the floating transport bar */
 body.fs.idle .wb-readout { bottom: 8px; }
 body.fs.ss-on .wb-readout { bottom: calc(var(--tp-h, 62px) + var(--ss-h, 0px) + 8px); }
+.wb-mask-layer { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 2; }
+.wb-mask-layer[hidden] { display: none; }
+.wb-range { display: inline-flex; align-items: center; gap: 8px; }
+.wb-range output { min-width: 38px; text-align: right; font: 650 12px ui-monospace, Menlo, Consolas, monospace; color: var(--dim); }
