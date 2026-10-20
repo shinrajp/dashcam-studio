@@ -157,66 +157,81 @@
     return parts.join(" · ");
   };
 
-  /** Search the sampled frames. list = [{t, cam}] (search.js samples). Returns rows like the detector's, with .vehicle. */
-  V.runSearch = async (q, list, ui) => {
-    const ev = T.player.ev, P = V.prefs();
-    const parsed = V.parse(q);
-    if (!parsed) return [];
-    const needMake = !!parsed.make && P.makes;
-    const need = { type: !!parsed.type, make: needMake };
+  /** Set up one vehicle query for a scan: parsed query, what CLIP has to check, budgets. Loads CLIP when the query needs it. */
+  V.begin = async (q, ui) => {
+    const P = V.prefs(), parsed = V.parse(q);
+    if (!parsed) return null;
+    const need = { type: !!parsed.type, make: !!parsed.make && P.makes };
     if (parsed.make && !P.makes) parsed.makeOff = true;
     const useClip = need.type || need.make;
     if (useClip) { ui.status("Loading the vision model for vehicle type" + (need.make ? " and make" : "") + "… (the same one picture search uses; first time about 150 MB). Your video stays on this computer."); await T.search.clip.load(ui.status); }
-    // fewer frames when every box goes through CLIP; the gold box tracking fills in between
+    await V.ready;
+    const ev = T.player.ev;
+    return { q, parsed, need, useClip, rec: V.mem.get(ev.id) || { eventId: ev.id, frames: {} }, clipLeft: isMobile() ? 60 : 240, perFrame: isMobile() ? 2 : 4, rows: [], plain: [], fresh: 0, reused: 0 };
+  };
+  V.detConf = () => Math.max(0.2, Math.round(T.detect.prefs().conf * 0.75 * 100) / 100);
+  /** The vehicle boxes of one frame, from the frame's detector output (all classes, conf ≥ V.detConf()). */
+  V.vehicleDets = (all) => all.filter((d) => VEH.has(d.label) && d.conf >= V.detConf() && d.w * d.h >= 0.0015 && d.w >= 0.025).sort((a, b) => b.w * b.h - a.w * a.h).slice(0, 6)
+    .map((d) => ({ x: +d.x.toFixed(4), y: +d.y.toFixed(4), w: +d.w.toFixed(4), h: +d.h.toFixed(4), label: d.label, conf: +d.conf.toFixed(3) }));
+  /** One sampled frame for one vehicle query. st = V.begin(...); getAll() → the frame's detector output (all classes) or null;
+   *  getFrame() → the decoded frame (for colour / CLIP crops). Rows go to st.rows (confirmed) / st.plain (detector only). */
+  V.frame = async (st, s, getAll, getFrame) => {
+    const key = s.cam + "|" + s.t.toFixed(2), parsed = st.parsed, need = st.need;
+    let dets = st.rec.frames[key];
+    if (!dets) {
+      const all = await getAll(); if (!all) return;
+      dets = V.vehicleDets(all); st.rec.frames[key] = dets; st.fresh++;
+    } else st.reused++;
+    const cand = dets.filter((d) => parsed.cls.includes(d.label));
+    let n = 0, v = null;
+    for (const d of cand) {
+      const wantClip = (need.type && !d.types) || (need.make && !d.makes);
+      if (!d.color || (wantClip && n < st.perFrame)) {
+        if (!(v = v || (await getFrame()))) break;
+        if (!d.color) await V.describe(v, v.videoWidth, v.videoHeight, d, {});
+        // colour first: no CLIP for a box whose colour is clearly wrong
+        if (parsed.color && A().colorMatch(parsed.color, { name: d.color, scores: d.colors }) < 0.3) continue;
+        if (wantClip && n < st.perFrame && st.clipLeft > 0) { n++; st.clipLeft--; try { await V.describe(v, v.videoWidth, v.videoHeight, d, need); } catch (e) { if (!st.rows.length) throw e; console.warn("vehicle crop", e); } }
+      }
+      const m = V.score(parsed, d);
+      if (!m) { st.plain.push({ t: s.t, cam: s.cam, score: d.conf * 0.5, conf: d.conf, label: d.label, det: true, vehicle: true, unconfirmed: true, vdet: d, vq: parsed, parts: {}, box: { x: d.x, y: d.y, w: d.w, h: d.h } }); continue; }
+      st.rows.push({ t: s.t, cam: s.cam, score: m.score, conf: d.conf, label: d.label, det: true, vehicle: true, vdet: d, vq: parsed, parts: m.parts, box: { x: d.x, y: d.y, w: d.w, h: d.h } });
+    }
+  };
+  /** Finish: save the vehicle index; refinement, never a gate: when nothing passes the colour / type / make check, return what
+   *  the detector saw (marked "not confirmed"). */
+  V.end = async (st, ms, frames) => {
+    V.lastSearch = { ms, frames, fresh: st.fresh, reused: st.reused, unconfirmed: !st.rows.length && st.plain.length > 0 };
+    try { await save(st.rec); } catch (_) {}
+    return st.rows.length ? st.rows : st.plain;
+  };
+
+  /** Search the sampled frames. list = [{t, cam}] (search.js samples). Returns rows like the detector's, with .vehicle. */
+  V.runSearch = async (q, list, ui) => {
+    const st = await V.begin(q, ui);
+    if (!st) return [];
     // every sampled frame is detected (same spacing as the detector search, every camera); CLIP has its own crop budget
     const cap = isMobile() ? 180 : 600;
-    let clipLeft = isMobile() ? 60 : 240;
     const step = Math.max(1, Math.ceil(list.length / cap));
     const frames = list.filter((_, i) => i % step === 0);
-    await V.ready;
-    const rec = V.mem.get(ev.id) || { eventId: ev.id, frames: {} };
-    const detConf = Math.max(0.2, Math.round(T.detect.prefs().conf * 0.75 * 100) / 100);
-    const perFrame = isMobile() ? 2 : 4;
-    const rows = [], plain = []; let fresh = 0, reused = 0;
+    const detConf = V.detConf();
     const t0 = performance.now();
     for (let i = 0; i < frames.length; i++) {
       if (ui.stopped()) break;
-      const s = frames[i], key = s.cam + "|" + s.t.toFixed(2);
-      ui.status("Looking for " + parsed.label + " · frame " + (i + 1) + " of " + frames.length + " · " + (CAM_LABEL[s.cam] || s.cam) + (useClip ? " · checking type" + (need.make ? " and make" : "") : "") + ". The video stays on this computer.");
-      let dets = rec.frames[key], v = null;
+      const s = frames[i];
+      ui.status("Looking for " + st.parsed.label + " · frame " + (i + 1) + " of " + frames.length + " · " + (CAM_LABEL[s.cam] || s.cam) + (st.useClip ? " · checking type" + (st.need.make ? " and make" : "") : "") + ". The video stays on this computer.");
+      let v = null;
       const getFrame = async () => (v = v || (await T.detect.frameAt(s.cam, s.t)));
-      if (!dets) {
-        if (!(await getFrame())) continue;
+      const getAll = async () => {
+        if (!(await getFrame())) return null;
         const td = performance.now();
-        let all;
-        try { all = await T.detect.detectImage(v, v.videoWidth, v.videoHeight, { conf: detConf }); }
-        catch (e) { if (!rows.length && i === 0) throw e; console.warn(e); continue; }
-        V.timings.det.push(performance.now() - td);
-        dets = all.filter((d) => VEH.has(d.label) && d.w * d.h >= 0.0015 && d.w >= 0.025).sort((a, b) => b.w * b.h - a.w * a.h).slice(0, 6)
-          .map((d) => ({ x: +d.x.toFixed(4), y: +d.y.toFixed(4), w: +d.w.toFixed(4), h: +d.h.toFixed(4), label: d.label, conf: +d.conf.toFixed(3) }));
-        rec.frames[key] = dets; fresh++;
-      } else reused++;
-      const cand = dets.filter((d) => parsed.cls.includes(d.label));
-      let n = 0;
-      for (const d of cand) {
-        const wantClip = (need.type && !d.types) || (need.make && !d.makes);
-        if (!d.color || (wantClip && n < perFrame)) {
-          if (!(await getFrame())) break;
-          if (!d.color) await V.describe(v, v.videoWidth, v.videoHeight, d, {});
-          // colour first: no CLIP for a box whose colour is clearly wrong
-          if (parsed.color && A().colorMatch(parsed.color, { name: d.color, scores: d.colors }) < 0.3) continue;
-          if (wantClip && n < perFrame && clipLeft > 0) { n++; clipLeft--; try { await V.describe(v, v.videoWidth, v.videoHeight, d, need); } catch (e) { if (!rows.length) throw e; console.warn("vehicle crop", e); } }
-        }
-        const m = V.score(parsed, d);
-        if (!m) { plain.push({ t: s.t, cam: s.cam, score: d.conf * 0.5, conf: d.conf, label: d.label, det: true, vehicle: true, unconfirmed: true, vdet: d, vq: parsed, parts: {}, box: { x: d.x, y: d.y, w: d.w, h: d.h } }); continue; }
-        rows.push({ t: s.t, cam: s.cam, score: m.score, conf: d.conf, label: d.label, det: true, vehicle: true, vdet: d, vq: parsed, parts: m.parts, box: { x: d.x, y: d.y, w: d.w, h: d.h } });
-      }
+        try { const all = await T.detect.detectImage(v, v.videoWidth, v.videoHeight, { conf: detConf }); V.timings.det.push(performance.now() - td); return all; }
+        catch (e) { if (!st.rows.length && i === 0) throw e; console.warn(e); return null; }
+      };
+      await V.frame(st, s, getAll, getFrame);
       if ((i & 3) === 0) await new Promise((r) => setTimeout(r, 0));
     }
-    V.lastSearch = { ms: performance.now() - t0, frames: frames.length, fresh, reused, unconfirmed: !rows.length && plain.length > 0 };
-    try { await save(rec); } catch (_) {}
-    // refinement, never a gate: when nothing passes the colour / type / make check, return what the detector saw (marked)
-    return rows.length ? rows : plain;
+    return V.end(st, performance.now() - t0, frames.length);
   };
 
   /** Group sightings (same camera within 2.5 s), keep the best of each, mark Best match, set the shared label. */
