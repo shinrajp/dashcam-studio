@@ -140,8 +140,7 @@
         if (hue >= 20 && hue <= 45 && s > 0.35) warm++;
         let name, k = 1;
         const gray = () => (v > GT[0] ? "white" : v > GT[1] ? "silver" : v > GT[2] ? "gray" : "black");
-        const rawV = Math.max(rgba[i], rgba[i + 1], rgba[i + 2]) / 255;
-        if (v < 0.2 || rawV < 0.16) { name = "black"; k = 0.55; }   // also glass, tyres and deep shadow (judged on the RAW pixel too: white-balance gains only amplify noise there)
+        if (v < 0.2) { name = "black"; k = 0.55; }   // also glass, tyres and deep shadow
         else if (s < 0.16 || c < 0.07 || neutral(r, g, b, v, hue)) { name = gray(); k = name === "black" ? 0.55 : 0.85; }
         else {
           k = 0.6 + s;   // saturated paint is the strongest clue
@@ -163,7 +162,7 @@
     const nonBlack = 1 - share.black || 1;
     let name, conf;
     // paint colour wins when it is a real part of the non-dark pixels and not clearly beaten by white/silver/gray
-    if (share.black >= 0.6 && share[topC] < 0.2) { name = "black"; conf = Math.min(1, share.black * 1.4); }   // a dark car at night: a few coloured reflections don't make it blue / brown
+    if (share.black >= 0.7 && share[topC] < 0.15) { name = "black"; conf = Math.min(1, share.black * 1.4); }   // a dark car at night: a few coloured reflections don't make it blue / brown
     else if (share[topC] / nonBlack >= 0.25 && share[topC] >= 0.85 * share[light]) { name = topC; conf = Math.min(1, (share[topC] / nonBlack) * 1.3); }
     else if (share.black >= 0.5) { name = "black"; conf = Math.min(1, share.black * 1.4); }
     else {
