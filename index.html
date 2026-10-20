@@ -50,6 +50,7 @@
         <div class="grid" id="grid"></div>
         <div class="overlay-layer" id="overlayLayer"></div>
         <div class="stage-time" id="stageTime" hidden></div>
+        <div class="wb-readout" id="wbReadout" role="status" aria-live="polite" hidden></div>
         <div class="stage-bar" id="stageBar">
           <div class="bar-grip" id="barGrip" title="Drag me to move this bar. Double-click to put it back at the top." aria-label="Move the camera bar"><svg viewBox="0 0 10 20" aria-hidden="true"><circle cx="3" cy="5" r="1.5"/><circle cx="7" cy="5" r="1.5"/><circle cx="3" cy="10" r="1.5"/><circle cx="7" cy="10" r="1.5"/><circle cx="3" cy="15" r="1.5"/><circle cx="7" cy="15" r="1.5"/></svg></div>
           <div class="cam-switch" id="camSwitch" role="group" aria-label="Camera"></div>
@@ -169,6 +170,7 @@
         <button class="chip" data-show="map" title="Route map (M)">Map</button>
         <button class="chip" data-show="fsd" title="Self-driving status (D)">Self-Driving</button>
         <button class="chip" data-show="time" title="Date &amp; time">Time</button>
+        <button class="chip chip-wb" id="chipWb" type="button" aria-pressed="false" title="White balance (live, viewer only): uses the white paint seen by the mirror cameras as the colour of the light and corrects the videos about 70% toward neutral. The export is not changed.">White balance</button>
       </div>
       <button class="chip chip-switch" id="chipCamBar" aria-pressed="true" title="Camera bar is ON. Click to hide it (C)"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="6" width="13" height="12" rx="2"/><path d="M16 10l5-3v10l-5-3"/></svg><span>Camera bar</span><span class="mini-switch" aria-hidden="true"><span></span></span></button>
       <button class="btn icon fs-btn" id="btnFullscreen" title="Full screen (F)" aria-label="Full screen"><svg viewBox="0 0 24 24" class="i-fs"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg><svg viewBox="0 0 24 24" class="i-fsx"><path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"/></svg></button>
@@ -333,6 +335,7 @@
   <script src="js/cloud-boost.js"></script>
   <script src="js/pano-toggle.js"></script>
   <script src="js/multi-search.js"></script>
+  <script src="js/wb.js"></script>
   <script src="js/search-ui.js"></script>
   <script src="js/search-strip.js"></script>
   <script src="js/connector-src.js"></script>
