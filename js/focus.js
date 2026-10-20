@@ -262,8 +262,7 @@
       row.append(cb, T.el("span", null, T.CAM_LABEL[cam]));
       menu.appendChild(row);
     }
-    $("btnCams").addEventListener("click", (e) => { e.stopPropagation(); menu.hidden = !menu.hidden; syncBar(); wake(); });
-    document.addEventListener("pointerdown", (e) => { if (!menu.hidden && !menu.contains(e.target) && e.target !== $("btnCams") && !$("btnCams").contains(e.target)) { menu.hidden = true; } });
+    camMenuInit(menu);
     $("btnZoomIn").addEventListener("click", (e) => { e.stopPropagation(); F.zoomBy(1.5); });
     $("btnZoomOut").addEventListener("click", (e) => { e.stopPropagation(); F.zoomBy(1 / 1.5); });
     $("btnFsStage").addEventListener("click", (e) => { e.stopPropagation(); F.fullscreen(); });
@@ -274,6 +273,110 @@
       el.addEventListener("pointerleave", () => { overBar = false; wake(); });
     }
   }
+  // ── Cameras picker popover (tag cam-popover) ──
+  // The menu lives in a top-level layer: it is moved to <body> and positioned with position: fixed, so no ancestor's
+  // overflow / transform / backdrop-filter can clip it and it sits above the stage, tiles, overlays, map and floating
+  // search (z-index in .cam-menu). It opens below the Cameras button, or upward when the bar is in the bottom half of
+  // the video or docked below it (or there is more room above), or sideways when neither fits. It is clamped to the
+  // viewport, scrolls when taller than the room, and follows the button (resize, scroll, bar drag, layout changes).
+  const POP_M = 8, POP_GAP = 6;
+  let popRaf = 0, popKey = "";
+  function camMenuInit(menu) {
+    const btn = $("btnCams");
+    if (menu.parentElement !== document.body) document.body.appendChild(menu);
+    menu.setAttribute("role", "group"); menu.setAttribute("aria-label", "Show in grid");
+    btn.setAttribute("aria-haspopup", "true"); btn.setAttribute("aria-controls", "camMenu"); btn.setAttribute("aria-expanded", "false");
+    btn.addEventListener("click", (e) => { e.stopPropagation(); F.camMenu(menu.hidden, e.detail === 0); });
+    document.addEventListener("pointerdown", (e) => { if (!menu.hidden && !menu.contains(e.target) && !(e.target.closest && e.target.closest("#stageBar"))) F.camMenu(false); }, true);   // the bar itself: dragging it keeps the menu open (it follows)
+    menu.addEventListener("pointerdown", (e) => { e.stopPropagation(); wake(); });
+    menu.addEventListener("pointerenter", () => { overBar = true; wake(); });
+    menu.addEventListener("pointerleave", () => { overBar = false; wake(); });
+    menu.addEventListener("keydown", (e) => {
+      const boxes = [...menu.querySelectorAll("input")], i = boxes.indexOf(document.activeElement);
+      if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); F.camMenu(false); btn.focus(); }
+      else if ((e.key === "ArrowDown" || e.key === "ArrowUp") && boxes.length) {
+        e.preventDefault(); e.stopPropagation();
+        boxes[(i + (e.key === "ArrowDown" ? 1 : -1) + boxes.length) % boxes.length].focus();
+      }
+    });
+    const again = () => { if (!menu.hidden) placeCamMenu(true); };
+    window.addEventListener("resize", again);
+    window.addEventListener("scroll", again, true);
+    if (window.visualViewport) { visualViewport.addEventListener("resize", again); visualViewport.addEventListener("scroll", again); }
+    // hidden by other code (Esc in ui.js, bar off, …): keep the button state in step
+    new MutationObserver(() => { if (menu.hidden) stopFollow(); syncCamBtn(); }).observe(menu, { attributes: true, attributeFilter: ["hidden"] });
+  }
+  function syncCamBtn() {
+    const m = $("camMenu"), b = $("btnCams"); if (!m || !b) return;
+    b.classList.toggle("on", !m.hidden); b.setAttribute("aria-expanded", String(!m.hidden));
+  }
+  function stopFollow() { cancelAnimationFrame(popRaf); popRaf = 0; popKey = ""; }
+  /** Open / close the Cameras picker. kb: opened from the keyboard → focus the first camera. */
+  F.camMenu = (open, kb) => {
+    const menu = $("camMenu");
+    if (!menu) return;
+    menu.hidden = !open;
+    if (open) {
+      placeCamMenu(true);
+      const follow = () => { if (menu.hidden) return stopFollow(); placeCamMenu(false); popRaf = requestAnimationFrame(follow); };
+      cancelAnimationFrame(popRaf); popRaf = requestAnimationFrame(follow);
+      if (kb) { const cb = menu.querySelector("input"); if (cb) cb.focus({ preventScroll: true }); }
+    } else stopFollow();
+    syncBar(); wake();
+  };
+  F.camMenuOpen = () => !!$("camMenu") && !$("camMenu").hidden;
+  /** Position the open menu next to the Cameras button. force: even if the button hasn't moved. */
+  function placeCamMenu(force) {
+    const menu = $("camMenu"), btn = $("btnCams");
+    if (!menu || menu.hidden || !btn) return;
+    const r = btn.getBoundingClientRect();
+    const vv = window.visualViewport;
+    const vw = vv ? vv.width : window.innerWidth, vh = vv ? vv.height : window.innerHeight;
+    const ox = vv ? vv.offsetLeft : 0, oy = vv ? vv.offsetTop : 0;
+    const bar = $("stageBar");
+    if (!r.width || !r.height || (bar && bar.hidden)) { F.camMenu(false); return; }   // the button went away (focus view, bar off)
+    const key = [r.left, r.top, r.width, r.height, vw, vh, ox, oy].map(Math.round).join(",");
+    if (!force && key === popKey) return;
+    popKey = key;
+    // natural size
+    menu.style.maxHeight = ""; menu.style.left = "0px"; menu.style.top = "0px";
+    const w = Math.min(menu.offsetWidth, vw - 2 * POP_M), h = menu.scrollHeight + 2;
+    // where is the bar? (bottom half of the video, or docked below it → open upward)
+    const st = stage(), sr = st ? st.getBoundingClientRect() : { top: 0, height: vh };
+    const br = bar ? bar.getBoundingClientRect() : r;
+    const barMid = br.top + br.height / 2;
+    const lowBar = document.body.classList.contains("bar-below") || barMid > sr.top + sr.height / 2 || r.top + r.height / 2 > oy + vh / 2;
+    const below = oy + vh - r.bottom - POP_GAP - POP_M, above = r.top - oy - POP_GAP - POP_M;
+    let dir;
+    if (lowBar ? above >= Math.min(h, 120) || above >= below : !(below >= Math.min(h, 120) || below >= above)) dir = "up"; else dir = "down";
+    const room = dir === "up" ? above : below;
+    let left, top, maxH;
+    if (room < Math.min(h, 120)) {
+      // no room above or below (a short landscape window, the bar beside the video): open sideways
+      const rightRoom = ox + vw - r.right - POP_GAP - POP_M, leftRoom = r.left - ox - POP_GAP - POP_M;
+      dir = rightRoom >= w || rightRoom >= leftRoom ? "right" : "left";
+      left = dir === "right" ? r.right + POP_GAP : r.left - POP_GAP - w;
+      maxH = vh - 2 * POP_M;
+      const hh = Math.min(h, maxH);
+      top = r.top + r.height / 2 - hh / 2;
+    } else {
+      maxH = room;
+      const hh = Math.min(h, maxH);
+      top = dir === "up" ? r.top - POP_GAP - hh : r.bottom + POP_GAP;
+      left = r.right - w;                                       // right-aligned with the button…
+      if (left < ox + POP_M) left = r.left;                     // …or flipped to start at its left edge
+    }
+    left = Math.min(Math.max(left, ox + POP_M), ox + vw - POP_M - w);
+    maxH = Math.max(60, Math.min(maxH, vh - 2 * POP_M));
+    const hh = Math.min(h, maxH);
+    top = Math.min(Math.max(top, oy + POP_M), oy + vh - POP_M - hh);
+    menu.style.maxHeight = Math.floor(maxH) + "px";
+    menu.style.left = Math.round(left) + "px";
+    menu.style.top = Math.round(top) + "px";
+    menu.dataset.dir = dir;
+  }
+  F.placeCamMenu = () => placeCamMenu(true);
+
   function syncBar() {
     const sw = $("camSwitch");
     if (!sw) return;
@@ -283,7 +386,7 @@
       if (cam) { b.disabled = !present(cam); b.title = present(cam) ? `${TIPS[cam]} · key ${F.ORDER.indexOf(cam) + 1}` : `This event has no ${NAMES[cam].toLowerCase()} camera video`; }
     });
     $("camMenu").querySelectorAll("input").forEach((cb) => (cb.checked = !hidden(cb.dataset.cam)));
-    $("btnCams").classList.toggle("on", !$("camMenu").hidden);
+    syncCamBtn();
     const nh = T.GRID.filter(hidden).length;
     $("btnCams").querySelector("span").textContent = nh ? `Cameras · ${6 - nh}/6` : "Cameras";
     const fs = F.isFullscreen();
