@@ -138,20 +138,90 @@
   const RED_MIN_S = { day: 0.16, lamps: 0.35, night: 0.42 };
   let BUF = null;
   const redAmber = (hue) => hue < 50 || hue >= 320;
+  /** sRGB 0..1 of pixel i after the white-balance gains or matrix (shared by the crop and the scene). */
+  const px3 = (rgba, i, g0, g1, g2, M) => {
+    if (M) { const lr = LINT[rgba[i]], lg = LINT[rgba[i + 1]], lb = LINT[rgba[i + 2]]; return [ENC(M[0][0] * lr + M[0][1] * lg + M[0][2] * lb), ENC(M[1][0] * lr + M[1][1] * lg + M[1][2] * lb), ENC(M[2][0] * lr + M[2][1] * lg + M[2][2] * lb)]; }
+    return [Math.min(1, (rgba[i] / 255) * g0), Math.min(1, (rgba[i + 1] / 255) * g1), Math.min(1, (rgba[i + 2] / 255) * g2)];
+  };
+  /** Scene cast (tag glare-fix). Night dashcam frames often carry a cast that depends on brightness: the dark sky, road
+   *  and glass go red / maroon (sky glow, lamp flare, the camera's night processing) while the bright crosswalk stays
+   *  near neutral, so no single white-balance gain removes it. From a small downscaled frame (rgba, w × h), leaving out
+   *  the vehicle boxes [{x,y,w,h}] (normalised), it measures the median log(r/g), log(b/g) of the SURROUNDINGS per
+   *  brightness band, after the same gains / matrix as the crop. colorFromPixels(…, {cast}) divides it out of each crop
+   *  pixel at that pixel's brightness. → { bands:[{v0,v1,rg,bg,n}], medV (median luma), night } or null (too few pixels). */
+  const CAST_BANDS = [0.03, 0.08, 0.14, 0.22, 0.32, 0.45, 0.62, 1.01], CAST_MIN = 30;
+  function sceneCast(rgba, w, h, boxes, opts) {
+    const gn = opts && opts.gains, M = opts && opts.matrix, g0 = gn ? gn[0] : 1, g1 = gn ? gn[1] : 1, g2 = gn ? gn[2] : 1;
+    const nb = CAST_BANDS.length - 1, L = Array.from({ length: nb }, () => [[], []]), allV = [];
+    const bx = (boxes || []).map((b) => [b.x - 0.02, b.y - 0.02, b.x + b.w + 0.02, b.y + b.h + 0.02]);
+    for (let y = 0; y < h; y++) {
+      const ny = (y + 0.5) / h;
+      if (ny < 0.04) continue;   // timestamp / label strip
+      for (let x = 0; x < w; x++) {
+        const nx = (x + 0.5) / w; if (bx.some((b) => nx >= b[0] && nx <= b[2] && ny >= b[1] && ny <= b[3])) continue;
+        const [r, g, b] = px3(rgba, (y * w + x) * 4, g0, g1, g2, M), v = Math.max(r, g, b);
+        allV.push(0.2126 * r + 0.7152 * g + 0.0722 * b);   // luma: a red cast lifts R, not the scene's brightness
+        if (v < CAST_BANDS[0] || Math.min(r, g, b) >= 0.97 || g < 0.01) continue;   // black / clipped
+        let k = 0; while (k < nb - 1 && v >= CAST_BANDS[k + 1]) k++;
+        L[k][0].push(Math.log(Math.max(r, 0.004) / g)); L[k][1].push(Math.log(Math.max(b, 0.004) / g));
+      }
+    }
+    if (allV.length < 100) return null;
+    const med = (a) => { a.sort((p, q) => p - q); return a[a.length >> 1]; };
+    const bands = [];
+    for (let k = 0; k < nb; k++) if (L[k][0].length >= CAST_MIN) bands.push({ v0: CAST_BANDS[k], v1: CAST_BANDS[k + 1], rg: Math.max(-0.5, Math.min(1.2, med(L[k][0]))), bg: Math.max(-0.7, Math.min(0.5, med(L[k][1]))), n: L[k][0].length });
+    const medV = med(allV);
+    return bands.length ? { bands, medV: Math.round(medV * 1000) / 1000, night: medV < 0.2 } : null;
+  }
+  /** Log red cast at brightness v, RELATIVE to the brightest band measured (the lit road / crosswalk, which the white
+   *  balance already handles): only the extra red of the darker bands is removed (it is what turns a grey car red), never
+   *  blue (dark night surroundings are naturally warm: dividing blue out would turn dark cars blue). Above the brightest
+   *  band → 0. */
+  function castAt(cs, v) {
+    const B = cs.bands, top = B[B.length - 1], ref = top.v0 >= 0.22 ? top.rg : Math.min(top.rg, 0.1);
+    let b = B[0]; for (const x of B) { if (v >= x.v0) b = x; }
+    if (v >= top.v1 || b === top) return 0;
+    return Math.max(0, b.rg - ref) * CAST_K;
+  }
+  let CAST_K = 1;
+  const CAST_REF = (cs) => { const top = cs.bands[cs.bands.length - 1]; return Math.exp(Math.max(0, top.v0 >= 0.22 ? top.rg : Math.min(top.rg, 0.1))); };
+  /** Vehicle colour of a crop. opts: { gains | matrix, night, cast (sceneCast of the frame around it), debug }.
+   *  The scene cast is used where it matters and is safe (tag glare-fix): when the vehicle's OWN red lamps are lit and the
+   *  answer is a lamp colour, the crop is judged again with the surroundings' extra red divided out; if the red is gone
+   *  or only slight, it is not a red vehicle (grey / black / dark, low confidence). Without lit lamps the cast is not
+   *  divided out: dark red paint at night looks just like a red cast (a red Tesla would turn grey). */
+  const LAMP_COL = new Set(["red", "purple", "brown", "orange"]);
   function colorFromPixels(rgba, w, h, opts) {
+    const cs = opts && opts.cast, night = !!(opts && opts.night) || !!(cs && cs.night);
+    const o1 = cs || night ? Object.assign({}, opts, { cast: null, night }) : opts;
+    const r = colorCore(rgba, w, h, o1);
+    // how strong the frame's red cast is (log units of extra red in the dark parts): the colour lock trusts such frames less
+    if (cs) { const ref = Math.log(CAST_REF(cs)); r.cast = Math.round(Math.max(0, ...cs.bands.map((b) => b.rg - ref)) * 100) / 100; }
+    if (!cs || !r.rearLit || !LAMP_COL.has(r.name)) return r;
+    const r2 = colorCore(rgba, w, h, Object.assign({}, o1, { cast: cs, castForce: true }));
+    r2.castFix = true; r2.before = r.name; r2.cast = r.cast;
+    if (LAMP_COL.has(r2.name)) {
+      // still a lamp colour: it must be clearly red paint (strong and a real part of the body), else dark / grey
+      const sh = r2.scores[r2.name] / (1 - r2.scores.black || 1);
+      if (sh < 0.5 || r2.conf < 0.45) { r2.name = (r2.scores.black >= 0.35 ? "black" : ["white", "silver", "gray"].reduce((a, b) => (r2.scores[b] > r2.scores[a] ? b : a))); r2.conf = Math.min(r2.conf, 0.4); r2.dark = true; }
+    } else r2.conf = Math.min(r2.conf, 0.6);
+    return r2;
+  }
+  function colorCore(rgba, w, h, opts) {
     const gn = opts && opts.gains, g0 = gn ? gn[0] : 1, g1 = gn ? gn[1] : 1, g2 = gn ? gn[2] : 1;
-    const M = opts && opts.matrix, night = !!(opts && opts.night), dbg = opts && opts.debug;
+    const M = opts && opts.matrix, dbg = opts && opts.debug;
+    // scene cast: only in dark scenes (by day the surroundings are sky, trees and buildings, not a neutral reference)
+    const cast = opts && opts.cast && (opts.castForce || opts.night || opts.cast.night) ? opts.cast : null;
+    const night = !!(opts && opts.night) || !!(cast && cast.night);
     const GT = night ? GRAY_NIGHT : GRAY_DAY;
     const sc = {}; COLORS.forEach((c) => (sc[c] = 0));
     const N = w * h;
     if (!BUF || BUF.n < N) BUF = { n: N, R: new Float32Array(N), G: new Float32Array(N), B: new Float32Array(N), V: new Float32Array(N), S: new Float32Array(N), HU: new Float32Array(N), RAW: new Float32Array(N) };   // reused: no garbage per crop (phones)
     const { R, G, B, V, S, HU, RAW } = BUF;
     for (let p = 0, i = 0; p < N; p++, i += 4) {
-      let r, g, b;
-      if (M) {   // colour-constancy prototype: a 3×3 in LINEAR sRGB (CAT16 / Bradford / linear gains), then back to sRGB
-        const lr = LINT[rgba[i]], lg = LINT[rgba[i + 1]], lb = LINT[rgba[i + 2]];
-        r = ENC(M[0][0] * lr + M[0][1] * lg + M[0][2] * lb); g = ENC(M[1][0] * lr + M[1][1] * lg + M[1][2] * lb); b = ENC(M[2][0] * lr + M[2][1] * lg + M[2][2] * lb);
-      } else { r = Math.min(1, (rgba[i] / 255) * g0); g = Math.min(1, (rgba[i + 1] / 255) * g1); b = Math.min(1, (rgba[i + 2] / 255) * g2); }
+      // colour-constancy prototype: M = a 3×3 in LINEAR sRGB (CAT16 / Bradford / linear gains); else per-channel gains
+      let [r, g, b] = px3(rgba, i, g0, g1, g2, M);
+      if (cast) { const cr = castAt(cast, Math.max(r, g, b)); if (cr > 0) r = Math.max(r * Math.exp(-cr), Math.min(r, g * CAST_REF(cast))); }   // divide the surroundings' extra red out (never past neutral)
       const mx = Math.max(r, g, b), mn = Math.min(r, g, b), c = mx - mn;
       let hue = 0;
       if (c > 1e-6) { if (mx === r) hue = ((g - b) / c) % 6; else if (mx === g) hue = (b - r) / c + 2; else hue = (r - g) / c + 4; hue *= 60; if (hue < 0) hue += 360; }
@@ -184,10 +254,27 @@
       }
     }
     if (nSeed > LAMP_MAX * N) { for (let p = 0; p < N; p++) if (seed[p] !== 2) seed[p] = 0; nSeed = nClip; nRed = 0; nLens = 0; if (nClip > LAMP_MAX * N) { seed.fill(0); nSeed = 0; } }
+    // light bar (tag glare-fix): a wide, thin band of bright red across the rear (a full-width tail-light bar) is a lamp,
+    // although as one connected patch it is far bigger than a LAMP_BLOB
+    let bar = false;
+    if (dark) {
+      const isBar = (p) => redAmber(HU[p]) && S[p] >= 0.4 && V[p] >= Math.max(0.35, medV + 0.12);
+      const rows = []; for (let y = 0; y < h; y++) { let c = 0; for (let x = 0; x < w; x++) if (isBar(y * w + x)) c++; if (c >= 0.45 * w) rows.push(y); }
+      for (let i = 0; i < rows.length; ) { let j = i; while (j + 1 < rows.length && rows[j + 1] - rows[j] <= 2) j++;
+        // …and it is a LAMP: some of it nearly clipped, and clearly brighter than the red just above and below it (bright
+        // red paint in a band of light is not)
+        let hot = 0, inV = 0, inN = 0, outV = 0, outN = 0;
+        for (let y = rows[i]; y <= rows[j]; y++) for (let x = 0; x < w; x++) { const p = y * w + x; if (isBar(p)) { inV += V[p]; inN++; if (V[p] >= 0.85) hot++; } }
+        for (const y of [rows[i] - 3, rows[i] - 2, rows[j] + 2, rows[j] + 3]) if (y >= 0 && y < h) for (let x = 0; x < w; x++) { const p = y * w + x; if (redAmber(HU[p]) && S[p] >= 0.3) { outV += V[p]; outN++; } }
+        const lampLike = hot >= 3 && (outN < 0.3 * w || inV / inN >= 1.25 * (outV / outN));
+        if (lampLike && rows[j] - rows[i] + 1 <= Math.max(2, Math.round(0.15 * h))) { bar = true; for (let y = rows[i]; y <= rows[j]; y++) for (let x = 0; x < w; x++) { const p = y * w + x; if (!seed[p] && isBar(p)) { seed[p] = 1; nSeed++; nLens++; if (HU[p] < 20 || HU[p] >= 320) nRed++; } } }
+        i = j + 1; }
+    }
     // lit red lamps = we see the vehicle's rear with its lamps on: red on its body may be their glow, so red counts less.
     // Red lenses, or lamps that clip to white with a red ring (most real tail lamps at night): see after the halo below.
     let rearLit = nRed >= Math.max(2, N * 0.004);
-    const lampMask = new Uint8Array(N);   // 1 = lamp + halo, 2 = glow zone (red / amber pixels there are dropped if saturated)
+    const lampMask = new Uint8Array(N);   // 1 = lamp + halo, 2 = glow zone (red / amber pixels there are dropped if saturated), 3 = glow gradient
+    let glowEnd = 0;
     if (nSeed) {
       const r1 = Math.max(1, Math.round(Math.min(w, h) * LAMP_HALO)), r2 = r1 * 2;
       const dist = new Float32Array(N).fill(1e9);   // chessboard distance to the nearest seed (two-pass)
@@ -199,6 +286,22 @@
         if (dist[p] > 0 && dist[p] <= r1 && V[p] >= 0.2) { ring++; if ((HU[p] < 20 || HU[p] >= 320) && S[p] >= 0.3 && V[p] >= Math.max(0.45, medV + 0.15)) ringRed++; }
       }
       if (ring >= 4 && ringRed >= 0.3 * ring) rearLit = true;
+      // glow (tag glare-fix): red that rises toward a lit lamp is its light on the body, glass and the air around it, not
+      // paint. Redness (saturation of red-hued pixels) by distance from the lamps; out to where it falls to the level of
+      // the part of the vehicle farthest from them, red pixels redder than that are left out.
+      if (rearLit || bar) {
+        const Dmax = Math.max(r2 + 2, Math.round(Math.min(w, h) * 0.4)), sum = new Float32Array(Dmax + 2), cnt = new Float32Array(Dmax + 2);
+        for (let p = 0; p < N; p++) { if (V[p] < 0.12) continue; const d = Math.min(Dmax + 1, dist[p]); sum[d] += HU[p] < 20 || HU[p] >= 320 ? S[p] : 0; cnt[d]++; }
+        // a GRADUAL fall (light spreading over the body), not a step (red paint ending at the road / tyres): the profile
+        // must pass through ≥ 3 rings between the lamp's level and the base
+        const ringM = []; for (let d = r2 + 1; d <= Dmax + 1; d++) if (cnt[d] >= Math.max(3, 0.25 * w)) ringM.push([d, sum[d] / cnt[d]]);
+        const base = ringM.length ? Math.min(...ringM.map((x) => x[1])) : 1, top0 = ringM.length ? ringM[0][1] : 0;
+        if (opts && opts.debugGlow) opts.debugGlow.push({ r2, Dmax, ringM: ringM.map((x) => [x[0], +x[1].toFixed(2)]) });
+        if (ringM.length >= 4 && top0 - base >= 0.2 && ringM.filter((x) => x[1] > base + 0.05 && x[1] < top0 - 0.05).length >= 3) {
+          let end = r2; for (const [d, m] of ringM) { if (m <= base + 0.05) break; end = d; }
+          if (end > r2) { glowEnd = end; for (let p = 0; p < N; p++) if (!lampMask[p] && dist[p] <= end && (HU[p] < 20 || HU[p] >= 320) && S[p] > base + 0.05) lampMask[p] = 3; }
+        }
+      }
     }
     const redMin = night ? RED_MIN_S.night : nSeed ? RED_MIN_S.lamps : RED_MIN_S.day;
     let total = 0, all = 0, vSum = 0, n = 0, warm = 0, dropped = 0, nDarkC = 0;
@@ -210,7 +313,7 @@
         const p = y * w + x, r = R[p], g = G[p], b = B[p], v = V[p], s = S[p], hue = HU[p], c = v - Math.min(r, g, b);
         vSum += v; n++;
         all += wt;
-        if (lampMask[p] === 1 || (lampMask[p] === 2 && redAmber(hue) && s > Math.max(0.2, medS + 0.08))) { dropped += wt; continue; }   // lamp, its halo, its glow
+        if (lampMask[p] === 1 || lampMask[p] === 3 || (lampMask[p] === 2 && redAmber(hue) && s > Math.max(0.2, medS + 0.08))) { dropped += wt; continue; }   // lamp, its halo, its glow
         // uniform panels count more than edges, lettering and reflections (local brightness spread, 4-neighbours)
         if (x > 0 && y > 0 && x < w - 1 && y < h - 1) { const sd = (Math.abs(V[p - 1] - v) + Math.abs(V[p + 1] - v) + Math.abs(V[p - w] - v) + Math.abs(V[p + w] - v)) / 4; wt /= 1 + 6 * sd; }
         if (hue >= 20 && hue <= 45 && s > 0.35) warm++;
@@ -276,11 +379,11 @@
     }
     // too little body left after the lamp masks: say it, lean neutral
     const thin = lampFrac > 0.6;
-    if (thin) { if (lampHue && name === topC) name = light; conf *= 0.6; }
+    if (thin) { if (lampHue && name === topC && share[light] >= 0.15 && !(share[topC] >= 0.8 && share[light] < 0.1)) name = light; conf *= 0.6; }   // what's left is all paint colour: keep it
     const meanV = n ? vSum / n : 0;
     const lowLight = meanV < 0.18 || (n && warm / n > 0.6 && name !== "orange" && name !== "yellow");   // night, or orange sodium light
     if (lowLight) conf *= 0.5;
-    return { name, conf: Math.round(conf * 100) / 100, scores: share, lowLight: !!lowLight, corrected: !!(gn || M), lamps: Math.round(lampFrac * 100) / 100, thin, rearLit, dark: darkV, dbgSeeds: dbg ? [nSeed, nClip, nLens, nRed, +medV.toFixed(2), +medS.toFixed(2)] : undefined };
+    return { name, conf: Math.round(conf * 100) / 100, scores: share, lowLight: !!lowLight, corrected: !!(gn || M), lamps: Math.round(lampFrac * 100) / 100, thin, rearLit: rearLit || bar, bar, glow: glowEnd, dark: darkV, dbgSeeds: dbg ? [nSeed, nClip, nLens, nRed, +medV.toFixed(2), +medS.toFixed(2)] : undefined };
   }
   function neutral(r, g, b, v, hue) {
     const [L, A, B] = lab(r, g, b), C = Math.hypot(A, B);
@@ -308,7 +411,7 @@
     return out;
   }
 
-  const api = { COLORS, TYPES, MAKES, parse, colorFromPixels, colorMatch, makePrompts, lab };
+  const api = { setCastK: (k) => (CAST_K = k), COLORS, TYPES, MAKES, parse, colorFromPixels, sceneCast, colorMatch, makePrompts, lab };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   if (root && typeof window !== "undefined") { root.TDC = root.TDC || {}; root.TDC.vehicleAttrs = api; }
 })(typeof window !== "undefined" ? window : globalThis);

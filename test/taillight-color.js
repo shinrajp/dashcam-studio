@@ -27,6 +27,7 @@ function crop(spec, W = 64, H = 64) {
   const lampCol = spec.lamps === "amber" ? [1, 0.45, 0.02] : spec.lamps === "head" ? [0.6, 0.8, 1.4] : [1, 0.06, 0.04];
   const lampsAt = spec.lamps === "amber" ? [[0.1, bus ? 0.68 : 0.55]] : spec.lamps === "head" ? [[0.14, 0.55], [0.86, 0.55]]
     : spec.lamps === "bar" ? Array.from({ length: 15 }, (_, k) => [0.08 + k * 0.06, 0.36])   // a full-width tail-light bar (RAV4, many new SUVs)
+    : spec.lamps === "bar2" ? Array.from({ length: 29 }, (_, k) => [0.04 + k * 0.033, 0.42]).concat([[0.46, 0.1], [0.5, 0.1], [0.54, 0.1]])   // continuous bar + high brake light
     : spec.lamps && spec.lamps !== "none" ? [[0.1, bus ? 0.66 : 0.55], [0.9, bus ? 0.66 : 0.55], [0.1, bus ? 0.76 : 0.6], [0.9, bus ? 0.76 : 0.6]] : [];
   const lampR = spec.lamps === "bar" ? 0.025 : bus ? 0.045 : 0.06, glowK = spec.glow == null ? (spec.lamps === "brake" ? 0.9 : 0.45) : spec.glow;
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
@@ -46,10 +47,29 @@ function crop(spec, W = 64, H = 64) {
       else if (dd < lampR) em = em.map((c, k) => c + lampCol[k] * 1.4);   // lens
       if (glowK) { const g = glowK * Math.exp(-(dd * dd) / (2 * 0.12 * 0.12)) * 0.5; if (!win) lit = lit.map((c, k) => c + lampCol[k] * g); else em = em.map((c, k) => c + lampCol[k] * g * 0.15); }
     }
+    if (spec.lamps === "bar2" && win && Math.abs(v - 0.3) < 0.02) em = em.map((c, k) => c + lampCol[k] * 0.12);   // the bar reflected in the rear glass
     for (let k = 0; k < 3; k++) { const n = (R() - 0.5) * 0.02; d[i + k] = Math.round(enc(refl[k] * lit[k] + em[k] + n * 0.1) * 255); }
     d[i + 3] = 255;
+    if (spec.redCast) redCast(d, i, spec.redCast);
   }
   return { d, w: W, h: H };
+}
+/** The night front-camera cast of user report 3: red ADDED to the dark parts of the picture (sky, glass, dark road go
+ *  maroon; the bright crosswalk stays near neutral), so no white-balance gain removes it. */
+function redCast(d, i, P) { const Y = (0.2126 * d[i] + 0.7152 * d[i + 1] + 0.0722 * d[i + 2]) / 255; d[i] = Math.min(255, d[i] + Math.round(255 * P * Math.max(0, 1 - 1.6 * Y))); d[i + 1] = Math.max(0, d[i + 1] - Math.round(255 * P * 0.08 * Math.max(0, 1 - 1.6 * Y))); }
+/** The frame around the vehicle (for the scene cast): dark sky, dark road, a bright crosswalk, the same light and cast;
+ *  the vehicle's box is BOX (left out by sceneCast). */
+const BOX = { x: 0.36, y: 0.3, w: 0.3, h: 0.6 };
+function scene(spec, W = 96, H = 60) {
+  const L = ILLUM[spec.light || "warm"], exp = spec.exp == null ? 0.55 : spec.exp, R = rnd(11), d = new Uint8ClampedArray(W * H * 4);
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    const u = (x + 0.5) / W, v = (y + 0.5) / H, i = (y * W + x) * 4;
+    const refl = v < 0.45 ? 0.01 + 0.015 * R() : v > 0.62 && v < 0.7 && Math.floor(u * 16) % 2 ? 0.7 : 0.04 + 0.04 * R();   // night: dark sky and road
+    for (let k = 0; k < 3; k++) d[i + k] = Math.round(enc(refl * L[k] * exp * 1.1) * 255);
+    d[i + 3] = 255;
+    if (spec.redCast) redCast(d, i, spec.redCast);
+  }
+  return { d, w: W, h: H, boxes: [BOX] };
 }
 /** WB.classifyGains for this light: white point = a white body's raw pixel, full correction, clamp [0.4, 2.8]. */
 function gains(spec) {
@@ -89,6 +109,14 @@ const CASES = [
   ["dark SUV rear, lit tail bar + glow", { paint: [0.05, 0.05, 0.055], kind: "car", lamps: "bar", glow: 1.4, cast: [0.12, 0, 0.02], lower: [0.1, 0.11, 0.13] }, ["black", "gray"]],
   ["dark SUV rear, tail bar, blue-heavy correction", { paint: [0.05, 0.05, 0.055], kind: "car", lamps: "bar", glow: 1.4, cast: [0.12, 0, 0.02], lower: [0.1, 0.11, 0.13], gainMul: [0.97, 1.05, 1.25] }, ["black", "gray"]],
   ["white car, front, headlights on", { paint: WHITE, kind: "car", lamps: "head", glow: 0.3 }, ["white", "silver"]],
+  // third user report (tag glare-fix): the same dark grey RAV4 from behind read "red car 50%": a full-width lit tail bar,
+  // its reflection in the glass, a high brake light, light grey lower bumper, and a red cast over the dark parts of the
+  // whole frame. Judged with and without the white-balance gains, with the scene cast from the frame around it.
+  ["dark grey SUV rear, lit bar + reflection + red frame cast (report 3)", { paint: [0.1, 0.1, 0.11], kind: "car", lamps: "bar2", glow: 0.7, lower: [0.32, 0.32, 0.33], redCast: 0.2, scene: true }, ["gray", "black", "silver"]],
+  ["dark grey SUV rear, lit bar + red frame cast, no white balance", { paint: [0.1, 0.1, 0.11], kind: "car", lamps: "bar2", glow: 0.7, lower: [0.32, 0.32, 0.33], redCast: 0.2, scene: true, noGains: true, light: "day", exp: 0.3 }, ["gray", "black", "silver"]],
+  ["dark grey SUV rear, brighter glow + stronger cast", { paint: [0.1, 0.1, 0.11], kind: "car", lamps: "bar2", glow: 1.2, lower: [0.32, 0.32, 0.33], redCast: 0.28, scene: true, noGains: true, light: "day", exp: 0.3 }, ["gray", "black", "silver"]],
+  ["red SUV rear, lit bar + red frame cast → still red", { paint: RED, kind: "car", lamps: "bar2", glow: 0.7, redCast: 0.2, scene: true }, ["red"]],
+  ["red SUV rear, lit bar + cast, no white balance → still red", { paint: RED, kind: "car", lamps: "bar2", glow: 0.7, redCast: 0.2, scene: true, noGains: true, light: "day", exp: 0.3 }, ["red"]],
   ["blue bus, tail lamps", { paint: BLUE, kind: "bus", lamps: "tail" }, ["blue"]],
   ["black car, brake lamps", { paint: BLACK, kind: "car", lamps: "brake" }, ["black"]],
   ["silver car, tail lamps", { paint: SILVER, kind: "car", lamps: "tail" }, ["silver", "gray", "white"]],
@@ -96,13 +124,15 @@ const CASES = [
 function runCases(Acls) {
   const out = [];
   for (const [name, spec, want] of CASES) {
-    const c = crop(spec), g = gains(spec), night = spec.night != null ? spec.night : (spec.light || "warm") === "warm";
-    const r = Acls.colorFromPixels(c.d, c.w, c.h, { gains: g, night });
+    const c = crop(spec), g = spec.noGains ? null : gains(spec), night = spec.night != null ? spec.night : !spec.noGains && (spec.light || "warm") === "warm";
+    const o = g ? { gains: g, night } : { night };
+    if (spec.scene) { const f = scene(spec); o.cast = Acls.sceneCast(f.d, f.w, f.h, f.boxes, o); }
+    const r = Acls.colorFromPixels(c.d, c.w, c.h, o);
     out.push({ name, want, got: r.name, conf: r.conf, lamps: r.lamps || 0 });
   }
   return out;
 }
-module.exports = { crop, gains, CASES, runCases };
+module.exports = { crop, gains, scene, CASES, runCases };
 if (require.main !== module) return;
 
 (async () => {
@@ -115,8 +145,8 @@ if (require.main !== module) return;
       const b = await pw[bn].launch(bn === "chromium" ? { executablePath: "/usr/bin/google-chrome", args: ["--no-sandbox"] } : {});
       const p = await (await b.newContext()).newPage(); const errs = []; p.on("pageerror", (e) => errs.push(e.message));
       await p.goto(URL_, { waitUntil: "load" }); await new Promise((r) => setTimeout(r, 800));
-      const cases = CASES.map(([name, spec]) => { const c = crop(spec); return { name, d: Array.from(c.d), w: c.w, h: c.h, g: gains(spec), night: spec.night != null ? spec.night : (spec.light || "warm") === "warm" }; });
-      const got = await p.evaluate((cases) => cases.map((c) => { const r = TDC.vehicleAttrs.colorFromPixels(new Uint8ClampedArray(c.d), c.w, c.h, { gains: c.g, night: c.night }); return { name: c.name, got: r.name, conf: r.conf }; }), cases);
+      const cases = CASES.map(([name, spec]) => { const c = crop(spec), f = spec.scene ? scene(spec) : null; return { name, d: Array.from(c.d), w: c.w, h: c.h, g: spec.noGains ? null : gains(spec), night: spec.night != null ? spec.night : !spec.noGains && (spec.light || "warm") === "warm", f: f && { d: Array.from(f.d), w: f.w, h: f.h, boxes: f.boxes } }; });
+      const got = await p.evaluate((cases) => cases.map((c) => { const A = TDC.vehicleAttrs, o = c.g ? { gains: c.g, night: c.night } : { night: c.night }; if (c.f) o.cast = A.sceneCast(new Uint8ClampedArray(c.f.d), c.f.w, c.f.h, c.f.boxes, o); const r = A.colorFromPixels(new Uint8ClampedArray(c.d), c.w, c.h, o); return { name: c.name, got: r.name, conf: r.conf }; }), cases);
       got.forEach((r, i) => ok(bn + ": " + r.name + " → " + CASES[i][2].join("/"), CASES[i][2].includes(r.got), r));
       // live box tracker: a big stale box must not survive a much smaller detection of the same object
       const tr = await p.evaluate(() => {
