@@ -72,6 +72,11 @@
     const k = Math.max(1, Math.min(CC.C.BRIGHT_MAX, CC.C.BRIGHT_TARGET / lumRef)) * (CC.lum(white) / Math.max(...white));
     return M.map((r) => r.map((v) => v * k));
   };
+  /** Viewer: white = sRGB 0..255 (wb.js), strength = D. Brightness kept (the adapted white has the white's luminance). */
+  CC.viewerMatrix = (white255, adapt, D) => {
+    const w = CC.srgbToLin(white255), A = CC.adaptMatrix(w, adapt, D), o = mv(A, w), k = CC.lum(w) / Math.max(1e-6, CC.lum(o));
+    return A.map((r) => r.map((v) => v * k));
+  };
   /** CCT of a linear white (McCamy), for labels. */
   CC.cct = (w) => { const X = mv(RGB2XYZ, w), s = X[0] + X[1] + X[2], x = X[0] / s, y = X[1] / s, n = (x - 0.332) / (0.1858 - y); return Math.round(449 * n ** 3 + 3525 * n ** 2 + 6823.3 * n + 5520.33); };
   /** Angle (degrees) between two RGB lights. */
@@ -195,7 +200,13 @@
     const kind = cls === "bus" ? "bus" : cls === "truck" ? "truck" : cls === "motorcycle" ? "motorcycle" : "car";
     clipTxt = clipTxt || {};
     if (!clipTxt[kind]) clipTxt[kind] = await S.texts(CC.CLIP_COLOURS.map((c) => "a photo of a " + c + " " + kind));
-    const v = await S.image(crop), sims = clipTxt[kind].map((t) => t.reduce((s, x, i) => s + x * v[i], 0));
+    return CC.clipColourVec(await S.image(crop), cls);
+  };
+  CC.clipColourVec = async (v, cls) => {
+    const S = T.search && T.search.clip, kind = cls === "bus" ? "bus" : cls === "truck" ? "truck" : cls === "motorcycle" ? "motorcycle" : "car";
+    clipTxt = clipTxt || {};
+    if (!clipTxt[kind]) clipTxt[kind] = await S.texts(CC.CLIP_COLOURS.map((c) => "a photo of a " + c + " " + kind));
+    const sims = clipTxt[kind].map((t) => t.reduce((s, x, i) => s + x * v[i], 0));
     const mx = Math.max(...sims), ex = sims.map((s) => Math.exp((s - mx) * 100)), z = ex.reduce((a, b) => a + b, 0);
     const p = {}; CC.CLIP_COLOURS.forEach((c, i) => (p[c] = ex[i] / z));
     const best = CC.CLIP_COLOURS.reduce((a, c) => (p[c] > p[a] ? c : a));
@@ -243,8 +254,12 @@
     if (est && est.white) {
       const white = est.white, cct = CC.cct(white), D = T.wb && T.wb.C ? T.wb.C.CLASSIFY_STRENGTH : 1;
       out = { white, cct, conf: est.conf, sources: est.used || [{ name: P.estimator, w: 1 }], adapt: P.adapt, source: "cc-" + P.estimator };
-      if (P.adapt === "gains") { const s = CC.linToSrgb(white), mx = Math.max(...s); out.gains = T.wb ? T.wb.classifyGains(s.map((v) => (v * 230) / mx)) : s.map((v) => mx / v); }
-      else out.matrix = CC.adaptMatrix(white, P.adapt, D);
+      if (P.adapt === "gains") { const s = CC.linToSrgb(white.map((v) => v / Math.max(...white))), mx = Math.max(...s); out.gains = T.wb ? T.wb.classifyGains(s.map((v) => (v * 230) / mx)) : s.map((v) => mx / v); }
+      else {
+        const ls = [ests.lane, ests.plate].filter((e) => e && e.conf > 0.3 && CC.angle(e.white, white) < 5).map((e) => CC.lum(e.white)).sort((a, b) => a - b);
+        out.lumRef = ls.length ? ls[ls.length >> 1] : null;
+        out.matrix = CC.brighten(CC.adaptMatrix(white, P.adapt, D), white, out.lumRef);
+      }
     }
     CC.last = { t, cam, ests, est: out };
     cache.set(key, out); if (cache.size > 200) cache.delete(cache.keys().next().value);

@@ -503,7 +503,7 @@
       if (cancelled && cancelled()) break;
       const v = await frameAt(cam, t); if (!v) { n++; continue; }
       let dets = await D.detectImage(v, v.videoWidth, v.videoHeight);
-      if (T.vehicle && T.vehicle.decorateLive) dets = T.vehicle.decorateLive(v, v.videoWidth, v.videoHeight, dets, t, T.wb && T.wb.colourFix ? await T.wb.colourFix(t) : null);   // same colour words as the viewer (pixels untouched)
+      if (T.vehicle && T.vehicle.decorateLive) { let fx = T.wb && T.wb.colourFix ? await T.wb.colourFix(t) : null; if (T.cc && T.cc.on()) { try { fx = (await T.cc.fixFor(v, v.videoWidth, v.videoHeight, t, cam, fx)) || fx; } catch (e) { console.warn("cc fix", e); } } dets = T.vehicle.decorateLive(v, v.videoWidth, v.videoHeight, dets, t, fx); }   // same colour words as the viewer (pixels untouched)
       addSample(cam, { t, dets, hold, src: "export" });
       n++; if (onProgress) onProgress(n, jobs.length, cam);
     }

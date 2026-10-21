@@ -99,7 +99,7 @@
     if (!d.color) {
       const t0 = performance.now();
       const px = cropPixels(img, iw, ih, d);
-      const c = A().colorFromPixels(px.data, px.w, px.h, fix ? { gains: fix.gains, night: fix.cct < 4500 } : null);
+      const c = A().colorFromPixels(px.data, px.w, px.h, fix ? (fix.matrix ? { matrix: fix.matrix, night: fix.cct < 4500 } : { gains: fix.gains, night: fix.cct < 4500 }) : null);
       if (fix) { d.wbK = Math.round(fix.cct / 100) * 100; d.rawColor = A().colorFromPixels(px.data, px.w, px.h).name; } else { delete d.wbK; delete d.rawColor; }
       d.color = c.name; d.colorConf = c.conf; d.lowLight = c.lowLight;
       d.colors = Object.fromEntries(Object.entries(c.scores).filter(([, v]) => v >= 0.08).map(([k, v]) => [k, Math.round(v * 100) / 100]));
@@ -121,7 +121,18 @@
         d.makes = mv.map((m, i) => [m.make, m.model, Math.round(p[i] * 1000) / 1000]).sort((a, b) => b[2] - a[2]).slice(0, 8);
       }
       V.timings.clip.push(performance.now() - t0); if (V.timings.clip.length > 60) V.timings.clip.shift();
+      d._vec = vec;
     }
+    // colour-constancy prototype (off by default): CLIP's colour on the crop, fused with the pixel statistics
+    const CCp = T.cc && T.cc.on() ? T.cc.prefs() : null;
+    if (CCp && CCp.clip && d.color && !d.clipColor && T.search && T.search.clip) {
+      try {
+        const vec = d._vec || (await T.search.clip.image(cropCanvas(img, iw, ih, d)));
+        const cl = await T.cc.clipColourVec(vec, d.label), f = T.cc.fuseColour({ name: d.color, scores: d.colors }, cl);
+        d.pixColor = d.color; d.clipColor = cl.name; d.color = f.name; d.colorConf = Math.round(f.conf * 100) / 100;
+      } catch (e) { console.warn("cc clip colour", e); }
+    }
+    delete d._vec;
     return d;
   };
 
@@ -170,14 +181,18 @@
     await V.ready;
     const ev = T.player.ev;
     const rec = V.mem.get(ev.id) || { eventId: ev.id, frames: {} };
-    const wbMode = T.wb && T.wb.colourMode ? T.wb.colourMode() : "off";
+    const wbMode = (T.wb && T.wb.colourMode ? T.wb.colourMode() : "off") + (T.cc && T.cc.on() ? "|cc:" + JSON.stringify(T.cc.prefs()) : "");
     // colours stored by older versions were read from raw pixels (and the setting may have changed): judge them again
     if (rec.cver !== COLOR_VER || rec.cwb !== wbMode) { for (const k of Object.keys(rec.frames || {})) for (const d of rec.frames[k]) for (const f of COLOR_FIELDS) delete d[f]; rec.cver = COLOR_VER; rec.cwb = wbMode; }
-    const wbFix = (t) => (T.wb && T.wb.colourFix ? T.wb.colourFix(t) : Promise.resolve(null));
+    const wbFix = async (t, img, iw, ih, cam) => {
+      const f = T.wb && T.wb.colourFix ? await T.wb.colourFix(t) : null;
+      if (img && T.cc && T.cc.on()) { try { const c = await T.cc.fixFor(img, iw, ih, t, cam || "front", f); if (c) return c; } catch (e) { console.warn("cc fix", e); } }
+      return f;
+    };
     return { q, parsed, need, useClip, rec, wbFix, clipLeft: isMobile() ? 60 : 240, perFrame: isMobile() ? 2 : 4, rows: [], plain: [], fresh: 0, reused: 0 };
   };
   const COLOR_VER = 2;   // 2: colour judged after white balance (tag wb-color); 1 (none): raw pixels
-  const COLOR_FIELDS = ["color", "colorConf", "colors", "lowLight", "wbK", "rawColor"];
+  const COLOR_FIELDS = ["color", "colorConf", "colors", "lowLight", "wbK", "rawColor", "pixColor", "clipColor"];
   V.COLOR_VER = COLOR_VER;
   V.colourModeChanged = () => { for (const rec of V.mem.values()) rec.cwb = "?"; };   // re-judged on the next search
   V.detConf = () => Math.max(0.2, Math.round(T.detect.prefs().conf * 0.75 * 100) / 100);
@@ -199,7 +214,13 @@
       const wantClip = (need.type && !d.types) || (need.make && !d.makes);
       if (!d.color || (wantClip && n < st.perFrame)) {
         if (!(v = v || (await getFrame()))) break;
-        if (!d.color) { const fix = await st.wbFix(s.t); await V.describe(v, v.videoWidth, v.videoHeight, d, {}, fix); }
+        if (!d.color) {
+          // prototype on: the light estimate takes a while (learned model) and the shared frame video can move on
+          // meanwhile, so judge a still copy of this frame
+          let img = v, iw = v.videoWidth, ih = v.videoHeight;
+          if (T.cc && T.cc.on()) { if (!st.snap || st.snapT !== s.t || st.snapCam !== s.cam) { st.snap = st.snap || document.createElement("canvas"); st.snap.width = iw; st.snap.height = ih; st.snap.getContext("2d").drawImage(v, 0, 0); st.snapT = s.t; st.snapCam = s.cam; } img = st.snap; }
+          const fix = await st.wbFix(s.t, img, iw, ih, s.cam); await V.describe(img, iw, ih, d, {}, fix);
+        }
         // colour first: no CLIP for a box whose colour is clearly wrong
         if (parsed.color && A().colorMatch(parsed.color, { name: d.color, scores: d.colors }) < 0.3) continue;
         if (wantClip && n < st.perFrame && st.clipLeft > 0) { n++; st.clipLeft--; try { await V.describe(v, v.videoWidth, v.videoHeight, d, need); } catch (e) { if (!st.rows.length) throw e; console.warn("vehicle crop", e); } }
@@ -263,7 +284,7 @@
   V.decorateLive = (img, iw, ih, dets, t, fix) => {
     if (!V.enabled() || !A()) return dets;
     if (fix === undefined) fix = T.wb && T.wb.colourFixNow && t != null ? T.wb.colourFixNow(t) : null;
-    for (const d of dets) if (VEH.has(d.label)) { try { const px = cropPixels(img, iw, ih, d); const c = A().colorFromPixels(px.data, px.w, px.h, fix ? { gains: fix.gains, night: fix.cct < 4500 } : null); d.attr = c.name + (c.lowLight ? "?" : ""); if (fix) d.attrWbK = Math.round(fix.cct / 100) * 100; } catch (_) {} }
+    for (const d of dets) if (VEH.has(d.label)) { try { const px = cropPixels(img, iw, ih, d); const c = A().colorFromPixels(px.data, px.w, px.h, fix ? (fix.matrix ? { matrix: fix.matrix, night: fix.cct < 4500 } : { gains: fix.gains, night: fix.cct < 4500 }) : null); d.attr = c.name + (c.lowLight ? "?" : ""); if (fix) d.attrWbK = Math.round(fix.cct / 100) * 100; } catch (_) {} }
     return dets;
   };
 

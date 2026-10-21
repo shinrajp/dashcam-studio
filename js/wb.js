@@ -222,12 +222,13 @@
 
   // ── rendering the correction ──
   let svgM = null;
+  let svgF = null;
   function ensureSvg() {
     if (svgM) return;
     const ns = "http://www.w3.org/2000/svg", svg = document.createElementNS(ns, "svg");
     svg.setAttribute("width", "0"); svg.setAttribute("height", "0"); svg.setAttribute("aria-hidden", "true");
     svg.style.cssText = "position:absolute;width:0;height:0;overflow:hidden";
-    const f = document.createElementNS(ns, "filter"); f.id = "tdcWb"; f.setAttribute("color-interpolation-filters", "sRGB");
+    const f = (svgF = document.createElementNS(ns, "filter")); f.id = "tdcWb"; f.setAttribute("color-interpolation-filters", "sRGB");
     f.setAttribute("x", "0"); f.setAttribute("y", "0"); f.setAttribute("width", "1"); f.setAttribute("height", "1");
     svgM = document.createElementNS(ns, "feColorMatrix"); svgM.setAttribute("type", "matrix");
     f.appendChild(svgM); svg.appendChild(f); document.body.appendChild(svg);
@@ -243,11 +244,16 @@
   function apply() {
     const cur = WB.isOn() && WB.current();
     const g = cur ? cur.gains : null, mode = WB.mode();
-    WB.applied = g ? { gains: g, mode } : null;
+    // colour-constancy prototype (off by default): a full 3×3 CAT16 / Bradford matrix in LINEAR RGB (SVG filters can
+    // work in linearRGB). Safari's blend path can only multiply per channel, so it keeps the gains (an approximation).
+    let ccm = null;
+    try { const P = T.cc && T.cc.on() ? T.cc.prefs() : null; if (g && mode === "svg" && P && P.adapt !== "gains") ccm = T.cc.viewerMatrix(cur.white, P.adapt, WB.cfg().strength); } catch (e) { console.warn("cc viewer", e); }
+    WB.applied = g ? { gains: g, mode, matrix: ccm } : null;
     document.body.classList.toggle("wb-on", !!g);
     if (g && mode === "svg") {
       ensureSvg();
-      svgM.setAttribute("values", `${fmt(g[0])} 0 0 0 0  0 ${fmt(g[1])} 0 0 0  0 0 ${fmt(g[2])} 0 0  0 0 0 1 0`);
+      if (ccm) { svgF.setAttribute("color-interpolation-filters", "linearRGB"); svgM.setAttribute("values", ccm.map((r) => r.map(fmt).join(" ") + " 0 0").join("  ") + "  0 0 0 1 0"); }
+      else { svgF.setAttribute("color-interpolation-filters", "sRGB"); svgM.setAttribute("values", `${fmt(g[0])} 0 0 0 0  0 ${fmt(g[1])} 0 0 0  0 0 ${fmt(g[2])} 0 0  0 0 0 1 0`); }
     }
     const mx = g ? Math.max(g[0], g[1], g[2]) : 1;
     for (const t of targets()) {
@@ -536,6 +542,18 @@
     cs.value = c.colour; cs.addEventListener("change", () => { WB.setCfg({ colour: cs.value }); if (T.vehicle && T.vehicle.colourModeChanged) T.vehicle.colourModeChanged(); });
     cs.title = "Vehicle colour (searches like 'white bus' and live labels) is judged on pixels corrected with the white point from the mirror cameras: a white bus under an orange streetlight then reads white, not brown. Auto: whenever a white point is found, even with the White balance toggle off.";
     row("Colour search uses white balance", cs);
+    if (T.cc) {   // colour-constancy prototype: OFF by default
+      const P = T.cc.prefs(), mk = (id, html, val, on) => { const e = document.createElement("select"); e.id = id; e.className = "select"; e.innerHTML = html; e.value = val; e.addEventListener("change", () => on(e.value)); return e; };
+      const ccOn = mk("ccOn", '<option value="off">Off</option><option value="on">On (prototype)</option>', P.on ? "on" : "off", (v) => { T.cc.setPref("on", v === "on"); buildSettings(); });
+      ccOn.title = "A second opinion on the light's colour (lane markings, plate background, a small learned model) fused with the car paint, a better colour adaptation (CAT16) and brightness, used for vehicle colour in search and burned-in labels. Prototype: off until you approve it.";
+      row("Colour constancy (prototype)", ccOn);
+      if (P.on) {
+        row("Light estimate", mk("ccEst", '<option value="fusion">Fused: paint + lanes + plates + learned</option><option value="paint">Car paint only</option><option value="learned">Learned model only (FC4)</option>', P.estimator, (v) => T.cc.setPref("estimator", v)));
+        row("Colour adaptation", mk("ccAdapt", '<option value="cat16">CAT16 (default)</option><option value="bradford">Bradford</option><option value="gains">Per-channel gains (shipped)</option>', P.adapt, (v) => T.cc.setPref("adapt", v)));
+        const cl = document.createElement("input"); cl.type = "checkbox"; cl.id = "ccClip"; cl.checked = !!P.clip; cl.addEventListener("change", () => T.cc.setPref("clip", cl.checked));
+        row("Also ask CLIP for the colour (slower)", cl);
+      }
+    }
     const btn = document.createElement("button"); btn.className = "btn ghost wide"; btn.type = "button"; btn.id = "wbForget"; btn.textContent = "Forget the learned car-body shape"; btn.addEventListener("click", () => WB.forgetMasks());
     host.appendChild(btn);
     const p = document.createElement("p"); p.className = "hint"; p.textContent = "White balance uses the white car body seen at the outer edge of the mirror cameras. Show sample area outlines the strip it searches and fills the part it samples (pink: found on this clip, violet: remembered, yellow: default sliver). Viewer only: exports are never changed.";
@@ -563,6 +581,7 @@
     document.addEventListener("visibilitychange", () => { if (!document.hidden) schedule(); });
     if (T.on) {
       T.on("player-open", () => { WB.reset(); resetZones(); lastKey = ""; wcache.clear(); wdone.clear(); schedule(); });
+      T.on("cc-changed", () => { try { apply(); } catch (e) { console.warn(e); } if (T.vehicle && T.vehicle.colourModeChanged) T.vehicle.colourModeChanged(); });
       T.on("time", () => { if (WB.isOn() && !timer) schedule(); });
       T.on("layout", () => { if (WB.applied) apply(); drawMasks(); });   // new tiles / 360 canvas get the correction too
     }
