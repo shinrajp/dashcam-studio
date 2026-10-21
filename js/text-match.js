@@ -14,7 +14,8 @@
   const norm = (s) => String(s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
   const canon = (s) => norm(s).replace(/[a-z|]/g, (c) => CANON[c] || c);
   const words = (s) => String(s || "").toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
-  const allowed = (n) => (n <= 3 ? 0 : n <= 7 ? 1 : 2);
+  // a short number (house number, "4821") must be read exactly: one edit would make 1482 / 4827 match
+  const allowed = (n, c) => (n <= 3 || (c && n <= 5 && /^[0-9]+$/.test(c)) ? 0 : n <= 7 ? 1 : 2);
   /** Smallest edit distance of `needle` against any substring of `hay` (Sellers). */
   function subDist(needle, hay) {
     const n = needle.length, m = hay.length;
@@ -46,14 +47,14 @@
     const cw = canon(w);
     if (!cw || !canon(line)) return 0;
     const d = lineDist(cw, line);
-    return d <= allowed(cw.length) ? 1 - d / Math.max(4, cw.length) : 0;
+    return d <= allowed(cw.length, norm(w)) ? 1 - d / Math.max(4, cw.length) : 0;
   }
   /** 0..1 (0 = no match). {score, part} part = only some words of the phrase. */
   function phraseMatch(phrase, line) {
     const cp = canon(phrase), cl = canon(line);
     if (!cp || !cl) return { score: 0, part: false };
     const d = lineDist(cp, line);
-    if (d <= allowed(cp.length)) return { score: 1 - 0.5 * d / Math.max(4, cp.length), part: false };
+    if (d <= allowed(cp.length, norm(phrase))) return { score: 1 - 0.5 * d / Math.max(4, cp.length), part: false };
     // OCR read only part of the line (it was cut by the frame edge, or the sign was split into words)
     const ws = words(phrase), dist = ws.filter((w) => !GENERIC.has(w) && (w.length >= 3 || /\d/.test(w)));
     let best = 0;

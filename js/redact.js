@@ -205,7 +205,7 @@
     const M = T.textMatch, hold = Math.max(0.3, (R.step || 0.5) * 0.6);
     if (M && R.tracks && R.tracks[cam]) {
       const out = [];
-      for (const tr of R.tracks[cam]) { const b = M.boxAt(tr, t, hold); if (b) out.push(M.pad(b, 0.03, 0.12)); }
+      for (const tr of R.tracks[cam]) { const b = M.boxAt(tr, t, hold); if (b) out.push(M.pad(b, 0.03, 0.2)); }
       return out;
     }
     const keys = R.frames[cam];
