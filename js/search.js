@@ -501,7 +501,7 @@
     q = String(q || "").trim();
     if (T.timeSearch && T.timeSearch.parse(q)) return "time";
     if (T.cloud && T.cloud.handlesQuery && T.cloud.handlesQuery(q)) return "cloud";
-    if (textQuery(q)) return "text";
+    if (textQuery(q)) return T.textSearch.on() ? "text" : "text (off)";
     if (T.multi && T.multi.split(q).length > 1) return "multi";
     const pa = T.plates && T.plates.parse(q);
     if (pa) return T.plates.enabled() ? "plate" : "plate (off)";

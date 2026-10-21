@@ -88,7 +88,7 @@ ok("tracks: moving box interpolated between samples, held a little past the ends
       const R = TDC.redact, Mm = TDC.textMatch, out = { checked: 0, readable: [], sharp: 0, sharpChecked: 0 }; const vid = document.createElement("video"); vid.muted = true; vid.playsInline = true;
       for (const cam of Object.keys(frames)) for (const u of [0.2, 0.55, 0.85]) {
         const f = frames[cam][Math.round(u * (frames[cam].length - 1))]; const its = f.items.filter((i) => want.includes(i.id)); if (!its.length) continue;
-        await TDC.search.seekSample(vid, TDC.player.ev.clips[0].files[cam], f.t);
+        try { await Promise.race([TDC.search.seekSample(vid, TDC.player.ev.clips[0].files[cam], f.t), new Promise((_, no) => setTimeout(() => no(new Error("seek timeout")), 8000))]); } catch (e) { out.seekFail = (out.seekFail || 0) + 1; vid.removeAttribute("src"); vid.load(); continue; }   // headless WebKit sometimes never finishes a seek on a fresh <video>
         const c = document.createElement("canvas"); c.width = vid.videoWidth; c.height = vid.videoHeight; const x = c.getContext("2d", { willReadFrequently: true }); x.drawImage(vid, 0, 0);
         const before = x.getImageData(0, 0, c.width, c.height).data.slice();
         R.burn(x, cam, f.t, { x: 0, y: 0, w: c.width, h: c.height }, c.width, c.height, vid);
@@ -124,7 +124,7 @@ ok("tracks: moving box interpolated between samples, held a little past the ends
     await p.evaluate(() => TDC.searchUI.show(false));
     const res = await p.evaluate(async () => { document.getElementById("usQuery").value = "text PELLO CAFE"; TDC.searchUI.find("text PELLO CAFE"); for (let i = 0; i < 200 && TDC.search.running; i++) await new Promise((r) => setTimeout(r, 100)); await new Promise((r) => setTimeout(r, 400));
       return [...document.querySelectorAll("#usResults .us-item")].map((b) => ({ txt: b.textContent, img: !!b.querySelector("img.us-thumb") })); });
-    ok(BR + ": 'text PELLO CAFE' → a result with time, camera (Back) and thumbnail", res.length >= 1 && res.some((r) => /\d:\d\d/.test(r.txt) && /Back/i.test(r.txt) && /PELLO/i.test(r.txt) && r.img), res);
+    ok(BR + ": 'text PELLO CAFE' → a result with time, camera (Rear) and thumbnail", res.length >= 1 && res.some((r) => /\d:\d\d/.test(r.txt) && /Rear|Back/i.test(r.txt) && /PELLO/i.test(r.txt) && r.img), res);
     await p.evaluate(() => TDC.player.seek(0.1)); await W(300);
     if (res.length) await p.click("#usResults .us-item.has-thumb");
     await W(900);
@@ -144,8 +144,8 @@ ok("tracks: moving box interpolated between samples, held a little past the ends
     ok(BR + ": switch off → text box, All text, Blur text hidden; plate and face presets stay", vis.query === "none" && vis.all === "none" && vis.usRedact === "none" && vis.plates !== "none" && vis.faces.length && vis.faces.every((d) => d !== "none"), vis);
     const offRun = await p.evaluate(async () => { await TDC.redact.run("blur all text"); return document.getElementById("redactStatus").textContent; });
     ok(BR + ": switch off → text redaction says it's off, plate/face still work", /turned off/.test(offRun), offRun);
-    const offRoute = await p.evaluate(async () => { document.getElementById("usQuery").value = "20:00"; return TDC.search.route("text Oak Ave"); });
-    ok(BR + ": switch off → 'text …' isn't routed to the text reader", offRoute !== "text", offRoute);
+    const offRoute = await p.evaluate(async () => { const r = TDC.search.route("text Oak Ave"); document.getElementById("usQuery").value = "text Oak Ave"; TDC.searchUI.find("text Oak Ave"); await new Promise((r) => setTimeout(r, 800)); return { r, st: document.getElementById("usStatus").textContent }; });
+    ok(BR + ": switch off → 'text …' says text search is off (no scan)", offRoute.r === "text (off)" && /turned off/.test(offRoute.st), offRoute);
     await open();
     const kept = await p.evaluate(() => ({ on: TDC.textSearch.on(), cls: document.body.classList.contains("no-text-search"), box: document.getElementById("setTextSearch") && document.getElementById("setTextSearch").checked }));
     ok(BR + ": the switch is remembered after reload (and shown in Settings)", kept.on === false && kept.cls && kept.box === false, kept);

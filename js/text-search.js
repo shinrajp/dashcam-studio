@@ -41,7 +41,11 @@
     const clip = ev.clips[T.player.clipIndexAt(t)], it = clip && clip.files[cam];
     if (!it || !it.blob) return null;
     vid = vid || Object.assign(document.createElement("video"), { muted: true, playsInline: true, preload: "auto" });
-    await T.search.seekSample(vid, it, Math.max(0, t - clip.start));
+    // a seek that never finishes (seen in WebKit) must not stall the whole scan: count the frame as unreadable
+    let to = 0;
+    try { await Promise.race([T.search.seekSample(vid, it, Math.max(0, t - clip.start)), new Promise((_, no) => { to = setTimeout(() => no(new Error("the video didn't seek in 10 s")), 10000); })]); }
+    catch (err) { vid.removeAttribute("src"); try { vid.load(); } catch (_) {} vid = null; throw err; }
+    finally { clearTimeout(to); }
     if (!vid.videoWidth) return null;
     const w = Math.min(isMobile() ? 1280 : 1920, vid.videoWidth), h = Math.round(vid.videoHeight * (w / vid.videoWidth));   // full resolution: small text is read from real pixels
     cv = cv || document.createElement("canvas"); if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; }
