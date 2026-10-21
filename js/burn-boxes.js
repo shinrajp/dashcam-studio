@@ -18,7 +18,7 @@
   /** Label text: class name + confidence. Future detector hits carry {label|cls, conf}; Phase 4 text-search hits use the phrase + match score. */
   // (CLIP scores are not probabilities, so picture-search hits are labelled "phrase? (best match)" / "phrase? (match)" without a %.)
   B.labelFor = (hit, phrase, best) => {
-    if (hit.boxText) return String(hit.boxText).slice(0, 80);   // Phase 6 plates / street text: one shared label format
+    if (hit.boxText) return String(T.vehicle && T.vehicle.hitText ? T.vehicle.hitText(hit) : hit.boxText).slice(0, 80);   // Phase 6 plates / street text: one shared label format
     const name = String(hit.label || hit.cls || hit.box.label || phrase || "match").slice(0, 40);
     let c = num(hit.conf) ? hit.conf : num(hit.box.conf) ? hit.box.conf : null;
     // Picture-search (CLIP) hits have no real confidence: say it's a match, not a percentage.

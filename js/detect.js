@@ -225,15 +225,15 @@
           // Detector hit, or a picture-search phrase that names the same class → real "car 91%".
           // Otherwise (picture-search box that the tracker followed) keep "umbrella? (match)": the % would be for another class.
           const same = !g.text || D.classFor(g.text) === g.track.label;
-          if (g.hit && g.hit.boxText) { out.push({ x: b.x, y: b.y, w: b.w, h: b.h, text: String(g.hit.boxText).slice(0, 80), hit: g.hit }); continue; }   // plates: shared label
+          if (g.hit && g.hit.boxText) { out.push({ x: b.x, y: b.y, w: b.w, h: b.h, text: String(T.vehicle && T.vehicle.hitText ? T.vehicle.hitText(g.hit) : g.hit.boxText).slice(0, 80), hit: g.hit }); continue; }   // plates / vehicles: shared label (vehicle colour = locked colour)
           out.push({ x: b.x, y: b.y, w: b.w, h: b.h, text: same ? g.track.label + " " + pct(b.conf) : String(g.text).slice(0, 40) + "? (match)", hit: g.hit });
         }
         return out;
       }
       const tl = T.player && T.player.playing && D.prefs().live ? D.trackedLive(cam, t) : null;
-      if (tl) return tl.map((b) => ({ x: b.x, y: b.y, w: b.w, h: b.h, text: (b.attr ? b.attr + " " : "") + b.label + " " + pct(b.conf), label: b.label, live: true }));
+      if (tl) return tl.map((b) => ({ x: b.x, y: b.y, w: b.w, h: b.h, text: liveText(b), label: b.label, live: true }));
       const lv = D.liveAt(cam, t);
-      if (lv) return lv.dets.map((b) => ({ x: b.x, y: b.y, w: b.w, h: b.h, text: (b.attr ? b.attr + " " : "") + b.label + " " + pct(b.conf), label: b.label, live: true }));
+      if (lv) return lv.dets.map((b) => ({ x: b.x, y: b.y, w: b.w, h: b.h, text: liveText(b), label: b.label, live: true }));
       return null;
     } catch (_) { return null; }
   };
@@ -373,23 +373,18 @@
         tr.vx = 0.5 * tr.vx + 0.5 * ((ncx - ocx) / dt); tr.vy = 0.5 * tr.vy + 0.5 * ((ncy - ocy) / dt);
         tr.w += EMA_SIZE * (d.w - tr.w); tr.h += EMA_SIZE * (d.h - tr.h); tr.x = ncx - tr.w / 2; tr.y = ncy - tr.h / 2;
       }
-      tr.t = t; tr.seen = t; tr.conf = d.conf; tr.attr = attrVote(tr, d);
+      tr.t = t; tr.seen = t; tr.conf = d.conf; tr.attr = d.attr; tr.clObs = d.clObs;
     }
-    dets.forEach((d, i) => { if (!ud.has(i)) { const tr = { label: d.label, x: d.x, y: d.y, w: d.w, h: d.h, vx: 0, vy: 0, t, seen: t, conf: d.conf }; tr.attr = attrVote(tr, d); list.push(tr); } });
+    dets.forEach((d, i) => { if (!ud.has(i)) { const tr = { label: d.label, x: d.x, y: d.y, w: d.w, h: d.h, vx: 0, vy: 0, t, seen: t, conf: d.conf, attr: d.attr, clObs: d.clObs }; list.push(tr); } });
   }
   D._track = track;   // tests
   /** Box w or h changed by more than k (default 1.6) × between two looks at the same object. */
   const sizeJump = (a, b, k) => Math.max(a.w / b.w, b.w / a.w, a.h / b.h, b.h / a.h) > (k || 1.6);   // interpolation (liveAt) uses 2.5: a fast-approaching bus still slides
-  /** Colour word of a followed vehicle: votes over its detections (older ones fade), so one frame with the brake lamps
-   *  flaring doesn't flip "white bus" to "red bus"; frames where lamps were masked or the light is poor count less. */
-  function attrVote(tr, d) {
-    if (!d.attrName) return d.attr;
-    const v = (tr.av = tr.av || {});
-    for (const k in v) v[k] *= 0.6;
-    v[d.attrName] = (v[d.attrName] || 0) + Math.max(0.05, d.attrConf || 0.5) * (d.attrLow ? 0.5 : 1) * (d.attrLamps > 0.03 ? 0.6 : 1);
-    let best = d.attrName; for (const k in v) if (v[k] > v[best]) best = k;
-    return best + (d.attrLow ? "?" : "");
-  }
+  /** Live / export box label. The colour word is the vehicle's LOCKED colour (js/color-lock.js: confidence-weighted
+   *  evidence over the vehicle's whole track, hysteresis before a change), so it doesn't flicker as the car moves
+   *  and the viewer, the search result and the export all say the same colour. */
+  const liveText = (b) => { const w = T.vehicle && T.vehicle.liveWord ? T.vehicle.liveWord(b) : b.attr; return (w ? w + " " : "") + b.label + " " + pct(b.conf); };
+  D.liveText = liveText;
   /** Viewer boxes from the tracker at time t (while playing), or null when it has nothing current for this camera. */
   D.trackedLive = (cam, t) => {
     const list = D.liveTracks[cam]; if (!list || !list.length) return null;
@@ -397,7 +392,7 @@
     for (const tr of list) {
       if (t - tr.seen > ex || t < tr.t - 0.3) continue;
       const dt = Math.min(0.5, Math.max(-0.3, t - tr.t));
-      out.push({ x: tr.x + tr.vx * dt, y: tr.y + tr.vy * dt, w: tr.w, h: tr.h, label: tr.label, conf: tr.conf, attr: tr.attr });
+      out.push({ x: tr.x + tr.vx * dt, y: tr.y + tr.vy * dt, w: tr.w, h: tr.h, label: tr.label, conf: tr.conf, attr: tr.attr, clObs: tr.clObs });
     }
     return out.length ? out : null;
   };
@@ -409,7 +404,7 @@
     const fast = D.speed() === "fast" && D.prefs().model !== "gdino";
     let dets = await D.detectImage(v, v.videoWidth, v.videoHeight, { slot: fast ? "fast" : "main" });
     D.liveStats.ms.push(performance.now() - t0); if (D.liveStats.ms.length > 50) D.liveStats.ms.shift();
-    if (T.vehicle && T.vehicle.decorateLive) dets = T.vehicle.decorateLive(v, v.videoWidth, v.videoHeight, dets, t);   // "white car 91%" (colour after white balance when known)
+    if (T.vehicle && T.vehicle.decorateLive) dets = T.vehicle.decorateLive(v, v.videoWidth, v.videoHeight, dets, t, undefined, cam);   // "white car 91%" (colour after white balance when known)
     const n = Math.max(1, D.liveCams().length), hold = Math.max(0.6, 0.6 + (n * D.liveEvery()) / 1000);
     D.live[cam] = { t, dets, hold, src: "live" };
     addSample(cam, D.live[cam]);
@@ -449,7 +444,7 @@
     loopOn = true; arm();
   };
 
-  D.clear = () => { D.tracks = []; D.live = {}; D.liveSamples = {}; D.liveTracks = {}; D.frameCache.clear(); };
+  D.clear = () => { D.tracks = []; D.live = {}; D.liveSamples = {}; D.liveTracks = {}; D.frameCache.clear(); if (T.colorLock) T.colorLock.clear(); };
   D.clearTracks = () => { D.tracks = []; };
   D.frameCache = new Map();   // "cam|t" → { conf, dets }: frames the search already ran (all classes), reused by the next search
   /** Live detections seen so far, as search rows for a class (same threshold as the search). */
@@ -524,7 +519,7 @@
       if (cancelled && cancelled()) break;
       const v = await frameAt(cam, t); if (!v) { n++; continue; }
       let dets = await D.detectImage(v, v.videoWidth, v.videoHeight);
-      if (T.vehicle && T.vehicle.decorateLive) { let fx = T.wb && T.wb.colourFix ? await T.wb.colourFix(t) : null; if (T.cc && T.cc.on()) { try { fx = (await T.cc.fixFor(v, v.videoWidth, v.videoHeight, t, cam, fx)) || fx; } catch (e) { console.warn("cc fix", e); } } dets = T.vehicle.decorateLive(v, v.videoWidth, v.videoHeight, dets, t, fx); }   // same colour words as the viewer (pixels untouched)
+      if (T.vehicle && T.vehicle.decorateLive) { let fx = T.wb && T.wb.colourFix ? await T.wb.colourFix(t) : null; if (T.cc && T.cc.on()) { try { fx = (await T.cc.fixFor(v, v.videoWidth, v.videoHeight, t, cam, fx)) || fx; } catch (e) { console.warn("cc fix", e); } } dets = T.vehicle.decorateLive(v, v.videoWidth, v.videoHeight, dets, t, fx, cam); }   // same colour words as the viewer (pixels untouched)
       addSample(cam, { t, dets, hold, src: "export" });
       n++; if (onProgress) onProgress(n, jobs.length, cam);
     }

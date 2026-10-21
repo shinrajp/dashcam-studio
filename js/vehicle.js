@@ -101,7 +101,7 @@
       const px = cropPixels(img, iw, ih, d);
       const c = A().colorFromPixels(px.data, px.w, px.h, fix ? (fix.matrix ? { matrix: fix.matrix, night: fix.cct < 4500 } : { gains: fix.gains, night: fix.cct < 4500 }) : null);
       if (fix) { d.wbK = Math.round(fix.cct / 100) * 100; d.rawColor = A().colorFromPixels(px.data, px.w, px.h).name; } else { delete d.wbK; delete d.rawColor; }
-      d.color = c.name; d.colorConf = c.conf; d.lowLight = c.lowLight;
+      d.color = c.name; d.colorConf = c.conf; d.lowLight = c.lowLight; d.colorQ = { lamps: c.lamps || 0, rearLit: !!c.rearLit, dark: !!c.dark, thin: !!c.thin };
       d.colors = Object.fromEntries(Object.entries(c.scores).filter(([, v]) => v >= 0.08).map(([k, v]) => [k, Math.round(v * 100) / 100]));
       V.timings.color.push(performance.now() - t0);
     }
@@ -158,8 +158,17 @@
   };
 
   /** "red tour bus · bus 88% · type 71% · color red" (+ make, "· Best match"). Same text in results, gold box, export, phone strip. */
+  /** The colour a result shows: its vehicle's locked colour (same as the live box and the export), else the frame's reading. */
+  V.shownColor = (h) => {
+    const d = h.vdet; if (!d) return null;
+    const L = T.colorLock; if (!L || !h.box) return d.color;
+    if (h._clv !== L.version) { h._clv = L.version; const c = L.colourAt(h.cam, h.t, h.box); h._clc = c && c.locked ? c.name : null; }
+    return h._clc || d.color;
+  };
+  /** Current label of a search hit: vehicle hits follow their colour lock (it may firm up after the search ran). */
+  V.hitText = (h) => (h && h.vdet && h.vehicle ? V.labelText(h) : h && h.boxText);
   V.labelText = (h) => {
-    const d = h.vdet, q = h.vq || {};
+    const d0 = h.vdet, q = h.vq || {}, sc = V.shownColor(h), d = sc && sc !== d0.color ? { ...d0, color: sc, colorConf: Math.max(0.5, d0.colorConf || 0), lowLight: false } : d0;
     const name = [d.color && (q.color || d.colorConf >= 0.3) ? d.color : null, q.make && d.makes && d.makes[0] ? d.makes[0][0] + (q.model ? " " + d.makes[0][1] : "") : null, q.type || (q.make ? null : d.label)].filter(Boolean).join(" ") || d.label;
     if (h.unconfirmed) return [d.label + " " + pct(d.conf), (q.label || "") + "? not confirmed", "color " + d.color + (d.wbK ? " (corrected for " + d.wbK + " K light)" : "")].concat(h.best ? ["Best match"] : []).join(" · ");
     const parts = [name, d.label + " " + pct(d.conf)];
@@ -192,7 +201,7 @@
     return { q, parsed, need, useClip, rec, wbFix, clipLeft: isMobile() ? 60 : 240, perFrame: isMobile() ? 2 : 4, rows: [], plain: [], fresh: 0, reused: 0 };
   };
   const COLOR_VER = 3;   // 3: lit lamps masked, red cast on a pale body is neutral (tag taillight-fix); 2: after white balance (tag wb-color); 1 (none): raw pixels
-  const COLOR_FIELDS = ["color", "colorConf", "colors", "lowLight", "wbK", "rawColor", "pixColor", "clipColor"];
+  const COLOR_FIELDS = ["color", "colorConf", "colors", "lowLight", "wbK", "rawColor", "pixColor", "clipColor", "colorQ"];
   V.COLOR_VER = COLOR_VER;
   V.colourModeChanged = () => { for (const rec of V.mem.values()) rec.cwb = "?"; };   // re-judged on the next search
   V.detConf = () => Math.max(0.2, Math.round(T.detect.prefs().conf * 0.75 * 100) / 100);
@@ -201,6 +210,7 @@
     .map((d) => ({ x: +d.x.toFixed(4), y: +d.y.toFixed(4), w: +d.w.toFixed(4), h: +d.h.toFixed(4), label: d.label, conf: +d.conf.toFixed(3) }));
   /** One sampled frame for one vehicle query. st = V.begin(...); getAll() → the frame's detector output (all classes) or null;
    *  getFrame() → the decoded frame (for colour / CLIP crops). Rows go to st.rows (confirmed) / st.plain (detector only). */
+  const clSeen = new WeakSet();
   V.frame = async (st, s, getAll, getFrame) => {
     const key = s.cam + "|" + s.t.toFixed(2), parsed = st.parsed, need = st.need;
     let dets = st.rec.frames[key];
@@ -229,6 +239,9 @@
       if (!m) { st.plain.push({ t: s.t, cam: s.cam, score: d.conf * 0.5, conf: d.conf, label: d.label, det: true, vehicle: true, unconfirmed: true, vdet: d, vq: parsed, parts: {}, box: { x: d.x, y: d.y, w: d.w, h: d.h } }); continue; }
       st.rows.push({ t: s.t, cam: s.cam, score: m.score, conf: d.conf, label: d.label, det: true, vehicle: true, vdet: d, vq: parsed, parts: m.parts, box: { x: d.x, y: d.y, w: d.w, h: d.h } });
     }
+    // colour lock: this frame's colour readings join the vehicles' colour tracks (once per session; index records stay clean)
+    if (T.colorLock) { const items = dets.filter((d) => d.color && !clSeen.has(d)).map((d) => { clSeen.add(d); return { det: d, c: { name: d.color, conf: d.colorConf, lowLight: d.lowLight, ...(d.colorQ || {}) }, pxW: d.w * (v && v.videoWidth ? v.videoWidth : 1280) }; });
+      if (items.length) try { T.colorLock.observeFrame(s.cam, s.t, items, true); } catch (_) {} }
   };
   /** Finish: save the vehicle index; refinement, never a gate: when nothing passes the colour / type / make check, return what
    *  the detector saw (marked "not confirmed"). */
@@ -269,6 +282,10 @@
   /** Group sightings (same camera within 2.5 s), keep the best of each, mark Best match, set the shared label. */
   V.cluster = (rows) => {
     const groups = [];
+    // colour lock: a box whose vehicle has locked onto a colour the query rules out ranks lower (the frame's own reading
+    // was a lamp / shadow flash; the label will show the locked colour)
+    for (const r of rows) { const q = r.vq && r.vq.color, sc = q && r.vdet ? V.shownColor(r) : null;
+      if (sc && sc !== r.vdet.color && A() && A().colorMatch(q, { name: sc }) < 0.3) { r.score *= 0.5; r.lockMismatch = sc; } }
     for (const r of rows.slice().sort((a, b) => b.score - a.score)) {
       const g = groups.find((x) => x.cam === r.cam && Math.abs(x.t - r.t) < 2.5);
       if (!g) groups.push({ ...r, seen: 1 }); else g.seen++;
@@ -281,12 +298,18 @@
   /** Live labels while playing: add the colour of vehicles (cheap, no CLIP). */
   /** t: the frame's time (white balance for colour at that moment); fix: a known colourFix (export prepare), else the
    *  white point known now (T.wb.colourFixNow). */
-  V.decorateLive = (img, iw, ih, dets, t, fix) => {
+  /** cam: the camera (colour lock: every reading joins its vehicle's colour track, js/color-lock.js). */
+  V.decorateLive = (img, iw, ih, dets, t, fix, cam) => {
     if (!V.enabled() || !A()) return dets;
     if (fix === undefined) fix = T.wb && T.wb.colourFixNow && t != null ? T.wb.colourFixNow(t) : null;
-    for (const d of dets) if (VEH.has(d.label)) { try { const px = cropPixels(img, iw, ih, d); const c = A().colorFromPixels(px.data, px.w, px.h, fix ? (fix.matrix ? { matrix: fix.matrix, night: fix.cct < 4500 } : { gains: fix.gains, night: fix.cct < 4500 }) : null); d.attr = c.name + (c.lowLight ? "?" : ""); d.attrName = c.name; d.attrConf = c.conf; d.attrLow = c.lowLight; d.attrLamps = c.lamps || 0; if (fix) d.attrWbK = Math.round(fix.cct / 100) * 100; } catch (_) {} }
+    const items = [];
+    for (const d of dets) if (VEH.has(d.label)) { try { const px = cropPixels(img, iw, ih, d); const c = A().colorFromPixels(px.data, px.w, px.h, fix ? (fix.matrix ? { matrix: fix.matrix, night: fix.cct < 4500 } : { gains: fix.gains, night: fix.cct < 4500 }) : null); d.attr = c.name + (c.lowLight ? "?" : ""); if (fix) d.attrWbK = Math.round(fix.cct / 100) * 100; items.push({ det: d, c, pxW: d.w * iw }); } catch (_) {} }
+    if (cam && T.colorLock && items.length) { try { T.colorLock.observeFrame(cam, t, items); } catch (e) { console.warn("color lock", e); } }
     return dets;
   };
+  /** Colour word of a live / exported box: its colour track's locked colour ("~white" while still deciding), else the
+   *  frame's own reading. */
+  V.liveWord = (b) => { try { if (b && b.clObs && T.colorLock) return T.colorLock.word(b.clObs); } catch (_) {} return b && b.attr ? b.attr : ""; };
 
   // ── Settings ▸ Vehicle details (beta) ──
   V.renderSettings = () => {
