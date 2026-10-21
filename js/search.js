@@ -56,9 +56,11 @@
     const sorted = rows.slice().sort((a, b) => a.t - b.t);
     const groups = [];
     for (const r of sorted) {
-      const g = groups.find((x) => x.cam === r.cam && Math.abs(x.t - r.t) < 4);
-      if (!g) groups.push({ ...r });
-      else if (r.score > g.score) Object.assign(g, r);
+      // a group spans at most 4 s from its FIRST sighting (it used to follow its best row, so a long sighting drifted and its
+      // early moments ended up more than 4 s from the result shown: tag taillight-fix, test/bus-detect.js S)
+      const g = groups.find((x) => x.cam === r.cam && r.t - x.t0 < 4);
+      if (!g) groups.push({ ...r, t0: r.t });
+      else if (r.score > g.score) { const t0 = g.t0; Object.assign(g, r); g.t0 = t0; }
     }
     groups.sort((a, b) => b.score - a.score);
     return groups.slice(0, 12).sort((a, b) => a.t - b.t);
