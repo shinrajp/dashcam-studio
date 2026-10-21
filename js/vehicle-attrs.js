@@ -128,7 +128,7 @@
   /** Lit lamps (tag taillight-fix). Seen from behind at night, tail / brake lamps are clipped cores with a saturated red
    *  (or amber) ring, and their glow tints the body around them (often the whole rear of a white bus pink). Seeds: clipped
    *  pixels (raw ≥ LAMP_CLIP; only in a dark crop, where nothing else clips) and bright, saturated red / amber pixels clearly
-   *  brighter than the body (or very saturated on a pale body). Seeds + a halo of LAMP_HALO × the crop's short side are left
+   *  brighter than the body (or very saturated on a pale body; dark crops only: by day, bright red paint looks the same). Seeds + a halo of LAMP_HALO × the crop's short side are left
    *  out of the vote (clipped: the DARKEST raw channel ≥ LAMP_CLIP, so bright red paint with R at 255 is not a lamp), and red / amber pixels within twice that, more saturated than the body, too (glow gradient). Many seeds
    *  (> LAMP_MAX of the crop) = paint, not lamps: only clipped seeds are kept, or none. */
   const LAMP_CLIP = 0.88, LAMP_HALO = 0.07, LAMP_MAX = 0.18, LAMP_BLOB = 0.03;
@@ -169,7 +169,7 @@
     const seed = new Uint8Array(N); let nSeed = 0, nClip = 0, nRed = 0, nLens = 0;
     for (let p = 0; p < N; p++) {
       const clip = dark && RAW[p] >= LAMP_CLIP;
-      const lens = redAmber(HU[p]) && S[p] >= 0.5 && V[p] >= lensMinV && (V[p] >= medV + 0.2 || (S[p] >= 0.75 && medS < 0.3));
+      const lens = dark && redAmber(HU[p]) && S[p] >= 0.5 && V[p] >= lensMinV && (V[p] >= medV + 0.2 || (S[p] >= 0.75 && medS < 0.3));
       const cool = dark && V[p] >= Math.max(0.75, medV + 0.35) && (S[p] < 0.2 || (HU[p] >= 180 && HU[p] < 275 && S[p] < 0.7));
       if (clip || lens || cool) { seed[p] = clip ? 2 : lens ? 1 : 3; nSeed++; if (clip) nClip++; else if (lens) nLens++; if (lens && !clip && (HU[p] < 20 || HU[p] >= 320)) nRed++; }
     }
