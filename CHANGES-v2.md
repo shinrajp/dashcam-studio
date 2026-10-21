@@ -355,3 +355,27 @@ Rollback point: tag `pre-taillight-fix` (= 8d5042e).
   - Two same-size vehicles crossing closely can swap tracks (position/size only, no appearance re-ID beyond colour).
   - A vehicle that drives out and back in after > 3 s gets a new track.
   - The first ~0.5–1.5 s shows the provisional `~` colour.
+
+## Red tail-light glare no longer turns a grey car red (tag glare-fix, rollback pre-glare-fix = d81084b)
+Report 3: the dark grey RAV4 from behind read "red car 50%" at night. It has a lit full-width tail bar, its reflection in the glass, a high brake light, and the whole frame has a red/maroon cast.
+- **Where the red cast comes from:** the footage, not the viewer.
+  - In the screenshot the cast depends on brightness. r/g is 3.3 in the darkest parts and 2.5 in the dark ones, against 1.15 on the crosswalk and bumper (a fit gives R ≈ 0.69·G + 38). In other words, red is added to the dark parts.
+  - Neither viewer path can do that. The SVG feColorMatrix and the Safari brightness() + multiply tint both scale each channel, and the gain sign is right (gain = white / channel).
+  - A red-lit paint reference would push the correction toward cyan/blue, not red. That matches the bluish over-correction at 3100 K in report 2. The user's mirror clip (20:53:30–40) gives about 3450 K, with gains [0.87, 1.02, 1.48], so red is reduced. The clip doesn't cover 20:53:46, and there is no front clip.
+- **White balance (`js/wb.js`):** a shift of the mirror white point toward red with blue about the same (Δlog r/g > 0.15, Δlog b/g > −0.5×that) means our own lamps are lighting the paint. Such a shift is held off for 54 samples (~12 s, e.g. a stop at a red light with the brake on), even when it is too small to count as a jump, and the last good estimate is kept. A warmer streetlight (red up and blue down) is followed as before. The existing gain clamp stays.
+- **Colour (`js/vehicle-attrs.js`):**
+  - **Light bar:** a wide (≥ 45 % of the width), thin (≤ 15 % of the height) band of bright red is a lamp. It must be lamp-like: ≥ 3 near-clipped pixels, and ≥ 1.25× brighter than the red just above and below it. Bright red paint in a band of light is not taken for a bar.
+  - **Glow gradient:** with the vehicle's own lamps lit, redness is measured by distance from the lamps. While it falls gradually (through ≥ 3 rings) toward the level of the least-lit part of the vehicle, red pixels in that range are left out. A step, such as red paint ending at the road, is not glow.
+  - **Scene cast:** `sceneCast()` reads a 96 px copy of the frame outside the vehicle boxes and takes the median log r/g and b/g per brightness band. It is used only at night (median luma < 0.2, or a night white point). When the vehicle's own lamps are lit and the answer is a lamp colour, the crop is judged again with the extra red of the darker bands (relative to the brightest band) divided out, never past neutral. If the colour is then not clearly red (< 50 % of the non-black body or confidence < 0.45), it reads black / grey / silver at ≤ 40 %.
+  - Without lit lamps the cast is not divided out: dark red paint at night looks just like the cast (the red Tesla would turn grey).
+  - A dark scene now also counts as night when no white point is known. The vehicle-colour White balance setting "off" still means raw pixels only.
+- **Colour lock:** own lamps lit ×0.35 (was ×0.6); masked lamps ×max(0.2, 1 − 2.5·share) (was 0.3 / 2·share); light bar ×0.7; judged after taking the cast out ×0.6; strong red cast (> 0.4 log units) ×max(0.35, 1 − 0.6·(cast − 0.4)). A lit bar + strong cast reading counts about 4 % of a clean one.
+- Search index colours are judged again (`COLOR_VER` 4).
+- Tests:
+  - `test/taillight-color.js`: 5 synthetic cases (dark grey SUV rear with a full-width bar, glass reflection, high brake light and an additive red cast in the dark parts of the frame, with and without white balance, plus a stronger version; a red SUV with the same bar and cast stays red).
+  - `test/color-lock.js`: glare weights, and a grey SUV whose glare frames read red stays grey.
+  - `test/white-balance.js`: red-lamp hold, and a warmer streetlight is still followed.
+- Limits:
+  - A dark red car seen from behind at night with its lamps lit, in a red-cast frame, can now read dark grey.
+  - Vehicles seen from behind at night lock their colour more slowly (their readings count less).
+  - The cast measure assumes the surroundings in the brightest band are about neutral after white balance.
