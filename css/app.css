@@ -718,7 +718,7 @@ body.no-text-search .text-only { display: none !important; }
 .style-tgl svg .fill { fill: currentColor; fill-opacity: .45; }
 .style-tgl[aria-pressed="true"] { background: rgba(230,180,80,.18); border-color: #e6b450; color: #ffe3a3; }
 .style-tgl[aria-pressed="false"] { text-decoration: line-through; text-decoration-color: rgba(255,255,255,.35); }
-.us-style { padding: 2px 2px 6px; }
+.us-style { padding: 2px 2px 6px; border-bottom: 1px solid var(--line); margin-bottom: 6px; }
 .find-bar .res-style { margin: 0 2px; }
 .term-group { display: inline-flex; align-items: center; gap: 2px; }
 .term-mode { appearance: none; width: 22px; height: 22px; padding: 0; display: inline-flex; align-items: center; justify-content: center; border-radius: 6px; border: 1px solid transparent; background: transparent; color: rgba(255,255,255,.35); cursor: pointer; }
@@ -727,3 +727,4 @@ body.no-text-search .text-only { display: none !important; }
 .term-mode[aria-pressed="true"] { color: var(--term, #e6b450); }
 .term-mode.own { border-color: rgba(255,255,255,.28); }
 @media (pointer: coarse) { .term-mode { width: 28px; height: 28px; } .style-tgl { height: 32px; } }
+.us-style { display: flex; width: 100%; box-sizing: border-box; }

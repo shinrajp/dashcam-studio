@@ -949,6 +949,7 @@
     if (R.running) return;
     R.running = true;
     R.stop = false;
+    if ($("redactShow")) $("redactShow").checked = true;   // a new Blur text / plates / faces run is shown (Show blur back on)
     R.action = parsed.action;
     R.frames = {};
     R.tracks = {};

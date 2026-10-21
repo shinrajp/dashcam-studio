@@ -365,7 +365,7 @@
       '<div class="us-style res-style" role="group" aria-label="How matches look"><span class="res-style-lbl">Matches</span>' +
       '<button type="button" class="style-tgl" data-style="hl" id="usHl" aria-pressed="true"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2.5" y="3.5" width="11" height="9" rx="1"/></svg>Highlight</button>' +
       '<button type="button" class="style-tgl" data-style="rd" id="usRd" aria-pressed="false"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2.5" y="3.5" width="11" height="9" rx="1" class="fill"/></svg>Redact</button>' +
-      '<button type="button" class="style-tgl blur-shown" id="usRedactShow" aria-pressed="true" hidden title="Show or hide the blur from Blur text, Blur plates, Blur faces, Street signs and All text (the export follows)">Show blur</button></span>' +
+      '<button type="button" class="style-tgl blur-shown" id="usRedactShow" aria-pressed="true" hidden title="Show or hide the blur from Blur text, Blur plates, Blur faces, Street signs and All text (the export follows)">Show blur</button></div>' +
       '<div class="us-presets">' + presets + "</div>" +
       '<div class="q-chips" id="usChips" hidden></div>' +
       '<div class="us-status" id="usStatus" hidden></div>' +
