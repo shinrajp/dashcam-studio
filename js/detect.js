@@ -378,8 +378,8 @@
     dets.forEach((d, i) => { if (!ud.has(i)) { const tr = { label: d.label, x: d.x, y: d.y, w: d.w, h: d.h, vx: 0, vy: 0, t, seen: t, conf: d.conf }; tr.attr = attrVote(tr, d); list.push(tr); } });
   }
   D._track = track;   // tests
-  /** Box w or h changed by more than 1.6× between two looks at the same object. */
-  const sizeJump = (a, b) => Math.max(a.w / b.w, b.w / a.w, a.h / b.h, b.h / a.h) > 1.6;
+  /** Box w or h changed by more than k (default 1.6) × between two looks at the same object. */
+  const sizeJump = (a, b, k) => Math.max(a.w / b.w, b.w / a.w, a.h / b.h, b.h / a.h) > (k || 1.6);   // interpolation (liveAt) uses 2.5: a fast-approaching bus still slides
   /** Colour word of a followed vehicle: votes over its detections (older ones fade), so one frame with the brake lamps
    *  flaring doesn't flip "white bus" to "red bus"; frames where lamps were masked or the light is poor count less. */
   function attrVote(tr, d) {
@@ -487,7 +487,7 @@
     if (a && b && b.t - a.t <= MAX_GAP && t > a.t + 1e-6) {
       const u = (t - a.t) / (b.t - a.t), nearA = u < 0.5, out = [];
       const pairs = [];
-      a.dets.forEach((d, i) => b.dets.forEach((e, j) => { if (d.label === e.label && near2(d, e) && !sizeJump(d, e)) pairs.push([iou(d, e) + 1 / (1 + Math.hypot(d.x - e.x, d.y - e.y)), i, j]); }));
+      a.dets.forEach((d, i) => b.dets.forEach((e, j) => { if (d.label === e.label && near2(d, e) && !sizeJump(d, e, 2.5)) pairs.push([iou(d, e) + 1 / (1 + Math.hypot(d.x - e.x, d.y - e.y)), i, j]); }));
       pairs.sort((p, q) => q[0] - p[0]);
       const ua = new Set(), ub = new Set();
       for (const [, i, j] of pairs) {
