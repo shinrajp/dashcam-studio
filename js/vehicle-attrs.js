@@ -220,8 +220,8 @@
         if (v < 0.2) {   // also glass, tyres and deep shadow
           // dark paint at night (a red car under a streetlight sits at v ≈ 0.15–0.2): a clearly coloured dark pixel votes
           // for its hue, weakly; a black car's noise is rarely saturated AND consistent (see the consistency check below)
-          // (not warm hues 12–68°: a dark yellowish-brown pixel at night is the streetlight's leftover, not paint)
-          if (night && v >= 0.1 && s >= 0.4 && c >= 0.05 && !(hue >= 12 && hue < 68)) { name = redHue ? "red" : hue < 165 ? "green" : hue < 255 ? "blue" : "purple"; k = 0.5; nDarkC++; }
+          // (red only: a dark yellowish-brown pixel at night is the streetlight's leftover, dark blue is glass and shade)
+          if (night && v >= 0.1 && s >= 0.4 && c >= 0.05 && redHue) { name = "red"; k = 0.5; nDarkC++; }
           else { name = "black"; k = 0.55; }
         }
         else if (s < 0.16 || c < 0.07 || neutral(r, g, b, v, hue) || (redHue && s < (night && v < 0.35 ? 0.3 : redMin))) { name = gray(); k = name === "black" ? 0.55 : 0.85; }
@@ -263,7 +263,7 @@
     else if (share.black >= 0.5) { name = "black"; conf = Math.min(1, share.black * 1.4); }
     else {
       name = light;
-      if (name === "silver" && share.white >= 0.75 * share.silver) name = "white";   // white paint in shade reads as silver
+      if (name === "silver" && share.white >= (night ? 0.6 : 0.75) * share.silver) name = "white";   // white paint in shade reads as silver (more so under a streetlight)
       conf = Math.min(1, (share[name] / nonBlack) * 1.3);
     }
     // a dark vehicle at night whose colour is weak or contradictory (red glow on top, blue-white reflections below): dark,

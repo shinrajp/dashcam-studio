@@ -330,6 +330,7 @@ Rollback point: tag `pre-taillight-fix` (= 8d5042e).
   - Rear lamps lit (red lenses, or a bright red ring round clipped cores): red counts half, and a lamp-coloured answer (red, orange, purple, brown) needs a clear majority, otherwise the less saturated reading wins.
   - Dark red paint at night votes red (red and purple together under a blue-heavy correction), and a consistent colour beats "dark gray" (road, glass, shade) unless the vehicle's own red lamps are lit.
   - A dark vehicle at night whose colour is contradictory (warm on top, cool below) reads black or gray, with confidence ≤ 0.4.
+  - Dark-pixel colour votes are red only (dark blue is glass and shade, dark yellow-brown is streetlight leftover). At night white wins over silver at ≥ 60 % of silver's share (was 75 %), so a white bus in streetlight shade doesn't flip to silver.
   - If more than 60 % of the crop was masked, the result leans neutral and confidence drops.
   - The result carries `lamps`, `rearLit`, `dark` and `thin`.
 - Live labels: the colour word is voted per followed vehicle (older votes fade; frames with lamps or poor light count less), so one brake flare doesn't flip the label. The vehicle index is re-judged (colour version 3).
