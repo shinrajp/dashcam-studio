@@ -19,8 +19,8 @@
     FC4_URL: "models/cc/fc4-squeezenet11-int8.onnx",
     FC4_SIDE: 384,
     // FC4 was trained on linear camera RGB (Canon, Gehler-Shi): this 3×3 maps its output to linear sRGB. Fitted on the
-    // synthetic set's calibration half (tools/cc-eval: fold A), tested on the other half. Identity = uncalibrated.
-    FC4_CAL: [[1, 0, 0], [0, 1, 0], [0, 0, 1]],
+    // whole synthetic set by test/cc-eval.js (CAL_ALL); the accuracy numbers use 2-fold cross-validation instead.
+    FC4_CAL: [[0.8734,  0.4027,  -0.2711],  [-0.004,  0.7043,  0.3099],  [0.041,  -0.1881,  1.167]],
     CLIP_W: 0.5,            // vehicle colour: CLIP share in the fused score (pixel stats get the rest)
   };
   CC.defaults = () => ({ on: false, estimator: "fusion", adapt: "cat16", clip: false });
@@ -61,6 +61,16 @@
     // scale: white → its brightest channel at D = 1, unchanged brightness at D = 0
     const out = mv(A, w), k = (D * m + (1 - D) * Math.max(out[0], out[1], out[2])) / Math.max(1e-6, Math.max(out[0], out[1], out[2]));
     return A.map((r) => r.map((v) => v * k));
+  };
+  CC.lum = (w) => 0.2126 * w[0] + 0.7152 * w[1] + 0.0722 * w[2];
+  CC.C.BRIGHT_TARGET = 0.75; CC.C.BRIGHT_MAX = 4;
+  /** Brightness too: adaptMatrix keeps the white at its brightest channel; at night everything is dim, so a white bus
+   *  reads gray. lumRef = the absolute (linear) luminance of a reference white in this frame (lane paint, plate
+   *  background): scale so that it lands at BRIGHT_TARGET (×1…BRIGHT_MAX). No lumRef → unchanged. */
+  CC.brighten = (M, white, lumRef) => {
+    if (!lumRef) return M;
+    const k = Math.max(1, Math.min(CC.C.BRIGHT_MAX, CC.C.BRIGHT_TARGET / lumRef)) * (CC.lum(white) / Math.max(...white));
+    return M.map((r) => r.map((v) => v * k));
   };
   /** CCT of a linear white (McCamy), for labels. */
   CC.cct = (w) => { const X = mv(RGB2XYZ, w), s = X[0] + X[1] + X[2], x = X[0] / s, y = X[1] / s, n = (x - 0.332) / (0.1858 - y); return Math.round(449 * n ** 3 + 3525 * n ** 2 + 6823.3 * n + 5520.33); };
@@ -128,6 +138,8 @@
   let fc4 = null;
   CC.loadLearned = () => fc4 || (fc4 = (async () => {
     const ort = window.ort; if (!ort) throw new Error("onnxruntime-web isn't loaded");
+    // the page's onnxruntime (shared with the bundled OCR): one thread, no proxy; its .wasm files sit in vendor/ort/
+    if (!ort.env.wasm.wasmPaths) { ort.env.wasm.numThreads = 1; ort.env.wasm.proxy = false; ort.env.wasm.wasmPaths = new URL("vendor/ort/", location.href).href; }
     const t0 = performance.now();
     const s = await ort.InferenceSession.create(CC.C.FC4_URL, { executionProviders: ["wasm"], graphOptimizationLevel: "all" });
     CC.info = { loadMs: Math.round(performance.now() - t0) };
