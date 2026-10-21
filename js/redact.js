@@ -214,6 +214,48 @@
     return best && dist <= 0.85 ? best.boxes : [];
   }
 
+  // Canvas 2D `filter` (blur) is missing in Safari (behind a flag up to Safari 27): setting it does nothing, and the
+  // "blur" drew a sharp copy of the plate. Test it once; without it, blur by shrinking the area to a few pixels and
+  // scaling it back up smoothly (two steps), which works in every browser.
+  let canFilter = null;
+  R.canvasFilter = () => {
+    if (canFilter !== null) return canFilter;
+    try {
+      if (!("filter" in CanvasRenderingContext2D.prototype)) return (canFilter = false);
+      const c = document.createElement("canvas"); c.width = c.height = 16;
+      const x = c.getContext("2d", { willReadFrequently: true }); x.filter = "blur(3px)"; x.fillStyle = "#fff"; x.fillRect(8, 0, 8, 16);
+      canFilter = x.getImageData(5, 8, 1, 1).data[3] > 0;
+    } catch (_) { canFilter = false; }
+    return canFilter;
+  };
+  R.forceSoftBlur = false;   // tests: use the fallback in Chromium too
+  let sA = null, sB = null, sC = null;
+  function softBlur(ctx, img, iw, ih, sx, sy, sw, sh, dx, dy, dw, dh, radius) {
+    // keep the source inside the frame (Safari draws nothing for an out-of-bounds source rect); move the target to match
+    if (iw && ih) {
+      const kx = dw / sw, ky = dh / sh, x0 = Math.max(0, sx), y0 = Math.max(0, sy), x1 = Math.min(iw, sx + sw), y1 = Math.min(ih, sy + sh);
+      if (x1 - x0 < 1 || y1 - y0 < 1) return;
+      dx += (x0 - sx) * kx; dy += (y0 - sy) * ky; dw = (x1 - x0) * kx; dh = (y1 - y0) * ky; sx = x0; sy = y0; sw = x1 - x0; sh = y1 - y0;
+    }
+    // shrink by halves (each half averages 2×2 pixels, also in WebKit, whose single big downscale only samples),
+    // down to about one pixel per blur radius, then scale up smoothly in two steps
+    const tw = Math.max(2, Math.round(dw / Math.max(2, radius))), th = Math.max(2, Math.round(dh / Math.max(2, radius)));
+    let w = Math.max(tw, Math.min(512, Math.round(sw))), h = Math.max(th, Math.min(512, Math.round(sh)));
+    sA = sA || document.createElement("canvas"); sB = sB || document.createElement("canvas");
+    const prep = (c, cw, ch) => { if (c.width < cw || c.height < ch) { c.width = Math.max(c.width, cw); c.height = Math.max(c.height, ch); } const x = c.getContext("2d"); x.imageSmoothingEnabled = true; try { x.imageSmoothingQuality = "high"; } catch (_) {} x.clearRect(0, 0, c.width, c.height); return x; };
+    let src = sA, x = prep(sA, w, h); x.drawImage(img, sx, sy, Math.max(1, sw), Math.max(1, sh), 0, 0, w, h);
+    while (w > tw || h > th) {
+      const nw = Math.max(tw, Math.ceil(w / 2)), nh = Math.max(th, Math.ceil(h / 2));
+      const dst = src === sA ? sB : sA; const y = prep(dst, nw, nh); y.drawImage(src, 0, 0, w, h, 0, 0, nw, nh);
+      src = dst; w = nw; h = nh;
+    }
+    // up ×3 first (smooth ramps), then to the target
+    const uw = Math.min(256, w * 3), uh = Math.min(256, h * 3);
+    sC = sC || document.createElement("canvas"); prep(sC, uw, uh).drawImage(src, 0, 0, w, h, 0, 0, uw, uh);
+    const s0 = ctx.imageSmoothingEnabled; ctx.imageSmoothingEnabled = true; try { ctx.imageSmoothingQuality = "high"; } catch (_) {}
+    ctx.drawImage(sC, 0, 0, uw, uh, dx, dy, dw, dh);
+    ctx.imageSmoothingEnabled = s0;
+  }
   function paintBox(ctx, img, iw, ih, fit, box, action) {
     const dx = fit.x + box.x * fit.w, dy = fit.y + box.y * fit.h;
     const dw = Math.max(2, box.w * fit.w), dh = Math.max(2, box.h * fit.h);
@@ -226,12 +268,14 @@
       const srcY = Math.max(0, sy - sh * 0.55);
       const srcH = Math.max(2, sh * 0.4);
       ctx.drawImage(img, sx, srcY, Math.max(2, sw), srcH, dx, dy, dw, dh);
-      ctx.filter = "blur(3px)";
-      ctx.drawImage(img, sx, srcY, Math.max(2, sw), srcH, dx, dy, dw, dh);
+      if (R.canvasFilter() && !R.forceSoftBlur) { ctx.filter = "blur(3px)"; ctx.drawImage(img, sx, srcY, Math.max(2, sw), srcH, dx, dy, dw, dh); }
+      else softBlur(ctx, img, iw, ih, sx, srcY, Math.max(2, sw), srcH, dx, dy, dw, dh, 3);
     } else {
-      const pad = 0.45;
-      ctx.filter = "blur(" + Math.max(10, Math.round(dw * 0.22)) + "px)";
-      ctx.drawImage(img, sx - sw * pad, sy - sh * pad, sw * (1 + 2 * pad), sh * (1 + 2 * pad), dx - dw * pad, dy - dh * pad, dw * (1 + 2 * pad), dh * (1 + 2 * pad));
+      const pad = 0.45, r = Math.max(10, Math.round(dw * 0.22));
+      if (R.canvasFilter() && !R.forceSoftBlur) {
+        ctx.filter = "blur(" + r + "px)";
+        ctx.drawImage(img, sx - sw * pad, sy - sh * pad, sw * (1 + 2 * pad), sh * (1 + 2 * pad), dx - dw * pad, dy - dh * pad, dw * (1 + 2 * pad), dh * (1 + 2 * pad));
+      } else softBlur(ctx, img, iw, ih, sx - sw * pad, sy - sh * pad, sw * (1 + 2 * pad), sh * (1 + 2 * pad), dx - dw * pad, dy - dh * pad, dw * (1 + 2 * pad), dh * (1 + 2 * pad), r);
     }
     ctx.restore();
   }
@@ -242,7 +286,10 @@
   }
 
   // Phase 6: plates found by the plate detector (Settings ▸ Plates & text ▸ Blur plates) are blurred too.
-  function plateBlur(cam, t) { try { return T.plates && T.plates.blurOn() ? T.plates.blurBoxesAt(cam, t) : []; } catch (_) { return []; } }
+  function plateBlur(cam, t) {
+    try { return T.plates && T.plates.blurOn() ? T.plates.blurBoxesAt(cam, t) : []; }
+    catch (e) { if (T.plates && T.plates.blurError) T.plates.blurError(e, "boxes"); else console.warn("plate blur", e); return []; }
+  }
 
   R.burn = (ctx, cam, t, cell, iw, ih, img) => {
     if (!iw || !ih) return;

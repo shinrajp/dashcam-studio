@@ -22,7 +22,7 @@
 
   L.defaults = () => ({ enabled: false, model: isMobile() ? "fast" : "accurate", conf: 0.3, minRead: 0.4, far: "auto", street: false, blur: false, urls: {} });
   L.prefs = () => { const d = L.defaults(); try { const v = JSON.parse(localStorage.getItem(KEY) || "null"); if (v && typeof v === "object") { if (!MODELS[v.model]) delete v.model; return { ...d, ...v }; } } catch (_) {} return d; };
-  L.setPref = (k, v) => { const p = L.prefs(); p[k] = v; try { localStorage.setItem(KEY, JSON.stringify(p)); } catch (_) {} if (k === "model") L.unload(); L.renderSettings(); L.syncExport(); if (k === "blur" || k === "enabled") T.emit && T.emit("layout"); };
+  L.setPref = (k, v) => { const p = L.prefs(); p[k] = v; try { localStorage.setItem(KEY, JSON.stringify(p)); } catch (_) {} if (k === "model") L.unload(); L.renderSettings(); L.syncExport(); if (k === "blur" || k === "enabled") { if (L.blurOn()) L.ensureBlur(); T.emit && T.emit("layout"); } };
   L.enabled = () => L.prefs().enabled === true;
   L.blurOn = () => { const p = L.prefs(); return p.enabled && p.blur; };
   /** Queries Phase 6 answers: "plate 7AB*", "7ABC 23", "plates", "street Palm Ave". */
@@ -253,8 +253,36 @@
       const out = [], slack = (L.blurStep || 1) * 0.75;
       for (const tr of list) { const b = D.trackAt(tr, t, slack); if (b) out.push({ x: Math.max(0, b.x - b.w * 0.12), y: Math.max(0, b.y - b.h * 0.2), w: Math.min(1, b.w * 1.24), h: Math.min(1, b.h * 1.4) }); }
       return out;
-    } catch (_) { return []; }
+    } catch (e) { L.blurError(e); return []; }
   };
+  /** Blur problems are shown (status line + console + one toast per message), never swallowed. */
+  const blurErrSeen = new Set();
+  L.blurError = (e, where) => {
+    const msg = (e && e.message) || String(e);
+    if (blurErrSeen.has(msg)) return; blurErrSeen.add(msg);
+    console.warn("plate blur" + (where ? " (" + where + ")" : ""), e);
+    setStatus("Plate blur problem: " + msg + ". Plates may not be blurred.");
+    T.toast && T.toast("Plate blur problem: " + msg, "err", 7000);
+  };
+  /** Blur on → the open event needs plate boxes. Saved index → tracks now; else scan in the background (raw frames,
+   *  the plate reader's own hidden video, never the blurred layer). Searches and export wait for this scan. */
+  L.ensureBlur = (ev) => {
+    ev = ev || (T.player && T.player.ev);
+    if (!ev || !L.blurOn()) return null;
+    if (L.blurEvent === ev.id) return null;
+    const cams = camsWithVideo(ev);
+    if (!cams.length) return null;
+    if (L.scanned(ev, cams, false)) { L.blurFromIndex(ev); setStatus("Blurring plates from the saved plate index."); return null; }
+    if (L.bgScan) return L.bgScan;
+    setStatus("Finding plates to blur…");
+    const run = L.scan(ev, cams, { status: setStatus, street: false, stopped: () => !T.player || T.player.ev !== ev || !L.blurOn() })
+      .then((sc) => { const n = sc.items.filter((i) => i.kind === "plate" && cams.includes(i.cam)).length; setStatus(n ? "Plates found and blurred (" + n + " readings)." : "No plates found in this event to blur."); return sc; })
+      .catch((e) => { if (e && e.message === "stopped") { setStatus("Plate scan stopped."); return null; } L.blurError(e, "scan"); return null; })
+      .finally(() => { if (L.bgScan === run) L.bgScan = null; });
+    L.bgScan = run;
+    return run;
+  };
+  const waitBg = async () => { while (L.bgScan) await L.bgScan; };
 
   // ── search ──
   /** Merge sightings of the same reading (any camera, any time) into one result: the best sighting is the hit,
@@ -297,6 +325,7 @@
     const parsed = L.parse(q); if (!parsed) return [];
     const street = parsed.kind === "text";
     cams = camsWithVideo(ev, cams);
+    await waitBg();
     if (!L.scanned(ev, cams, street)) await L.scan(ev, cams, { status: ui.status, stopped: ui.stopped, street: street || L.prefs().street });
     else if (L.blurEvent !== ev.id) L.blurFromIndex(ev);
     const X = T.libIndex.text, PTX = PT(), minRead = L.prefs().minRead;
@@ -348,6 +377,7 @@
   L.exportPrep = async (ev, say) => {
     if (!L.blurOn() || !ev) return;
     const cams = camsWithVideo(ev);
+    await waitBg();
     if (!L.scanned(ev, cams, false)) {
       say && say("Finding plates to blur before export (one time for this event)…");
       await L.scan(ev, cams, { status: say, street: false, dense: true });
@@ -399,7 +429,7 @@
       if (c) c.onchange = () => L.setPref("blur", c.checked);
       const go = document.getElementById("btnExport"); if (go) go.addEventListener("click", () => setTimeout(L.syncExport, 0));
       if (T.on) {
-        T.on("player-open", (ev) => { L.blurTracks = {}; L.blurEvent = null; if (ev && L.blurOn()) L.blurFromIndex(ev); });
+        T.on("player-open", (ev) => { L.blurTracks = {}; L.blurEvent = null; if (ev && L.blurOn()) { try { L.blurFromIndex(ev); } catch (e) { L.blurError(e, "index"); } } if (ev && L.blurOn()) setTimeout(() => { if (T.player.ev === ev) L.ensureBlur(ev); }, 800); });
         T.on("textindex", () => { const n = document.getElementById("setPlates"); if (n && !n.contains(document.activeElement)) L.renderSettings(); });
       }
     } catch (e) { console.warn("plates init", e); }
