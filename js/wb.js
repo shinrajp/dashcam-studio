@@ -38,6 +38,10 @@
     MAX_CHROMA: 1.0,        // a "white" farther than this from neutral (log units) is not believable paint
     RED_RG: 2.1, GREEN_RG: 0.8, GREEN_BG: 1.0,   // hue gate for lamp reflections
     JUMP: 0.22, JUMP_ACCEPT: 14,   // per-camera chroma-jump rejection (unless it lasts ~3 s)
+    // our own tail / brake lamps lighting the paint (tag glare-fix): the white point moves toward RED with blue about the
+    // same (a warmer streetlight lowers blue as much as it raises red). Such a shift is held off far longer (~12 s: a
+    // long stop at a red light with the brake on), even when it is too small to count as a jump; the last good estimate is kept
+    LAMP_DR: 0.15, LAMP_DB: -0.5, LAMP_ACCEPT: 54,
     EMA: 0.25,              // smoothing weight of a new sample
     LOST_MS: 8000,          // paint unseen this long → correction fades back to none
     GAIN_MIN: 0.65, GAIN_MAX: 1.7,   // clamp: the paint isn't perfectly neutral, never over-correct
@@ -197,9 +201,12 @@
   };
 
   // ── running estimate (log-chroma EMA with jump rejection) ──
-  const st = (WB.state = { est: null, lum: 0, jumps: 0, lastSeen: 0, cams: [], samples: 0, accepted: 0, rejected: 0, raw: null, camJumps: {} });
-  WB.reset = () => { st.est = null; st.lum = 0; st.jumps = 0; st.lastSeen = 0; st.cams = []; st.samples = st.accepted = st.rejected = 0; st.raw = null; st.camJumps = {}; apply(); render(); };
-  /** Feed one measurement (sRGB white, or null when not seen). Returns "init" | "ok" | "jump" | "accept-jump" | "none". */
+  const st = (WB.state = { est: null, lum: 0, jumps: 0, lastSeen: 0, cams: [], samples: 0, accepted: 0, rejected: 0, raw: null, camJumps: {}, reds: 0, camReds: {} });
+  WB.reset = () => { st.est = null; st.lum = 0; st.jumps = 0; st.lastSeen = 0; st.cams = []; st.samples = st.accepted = st.rejected = 0; st.raw = null; st.camJumps = {}; st.reds = 0; st.camReds = {}; apply(); render(); };
+  /** Is log-chroma c a shift from the estimate toward red with blue about the same (lamp light on the paint)? */
+  const redLamp = (c) => { if (!st.est) return false; const dr = c[0] - st.est[0], db = c[1] - st.est[1]; return dr > WB.C.LAMP_DR && db > WB.C.LAMP_DB * dr; };
+  WB.redLamp = redLamp;
+  /** Feed one measurement (sRGB white, or null when not seen). Returns "init" | "ok" | "jump" | "accept-jump" | "red-lamp" (held) | "accept-red" | "none". */
   WB.update = (rgb, now) => {
     now = now == null ? performance.now() : now;
     st.samples++;
@@ -207,6 +214,8 @@
     const c = [Math.log(rgb[0] / rgb[1]), Math.log(rgb[2] / rgb[1])];
     st.raw = c; st.lastSeen = now;
     if (!st.est) { st.est = c; st.jumps = 0; st.accepted++; return "init"; }
+    if (redLamp(c)) { if (++st.reds < WB.C.LAMP_ACCEPT) { st.rejected++; return "red-lamp"; } st.est = c; st.reds = 0; st.jumps = 0; st.accepted++; return "accept-red"; }
+    st.reds = 0;
     const d = Math.hypot(c[0] - st.est[0], c[1] - st.est[1]);
     if (d > WB.C.JUMP) {
       if (++st.jumps < WB.C.JUMP_ACCEPT) { st.rejected++; return "jump"; }
@@ -357,9 +366,12 @@
       if (!a.found) continue;
       // per-camera chroma-jump rejection against the running estimate (a lamp reflection on ONE mirror)
       if (st.est) {
-        const d = Math.hypot(Math.log(a.rgb[0] / a.rgb[1]) - st.est[0], Math.log(a.rgb[2] / a.rgb[1]) - st.est[1]);
+        const lc = [Math.log(a.rgb[0] / a.rgb[1]), Math.log(a.rgb[2] / a.rgb[1])];
+        if (redLamp(lc)) { if ((st.camReds[cam] = (st.camReds[cam] || 0) + 1) < WB.C.LAMP_ACCEPT) { a.rejected = "red-lamp"; st.rejected++; continue; } }
+        else st.camReds[cam] = 0;
+        const d = Math.hypot(lc[0] - st.est[0], lc[1] - st.est[1]);
         a.jump = d;
-        if (d > WB.C.JUMP && (st.camJumps[cam] = (st.camJumps[cam] || 0) + 1) < WB.C.JUMP_ACCEPT) { a.rejected = "jump"; st.rejected++; continue; }
+        if (d > WB.C.JUMP && !(st.camReds[cam] >= WB.C.LAMP_ACCEPT) && (st.camJumps[cam] = (st.camJumps[cam] || 0) + 1) < WB.C.JUMP_ACCEPT) { a.rejected = "jump"; st.rejected++; continue; }
       }
       st.camJumps[cam] = 0;
       seen.push(cam); whites.push(a.rgb);
@@ -370,7 +382,7 @@
     let rgb = null;
     if (whites.length) { const l = whites.map((w) => [Math.log(w[0] / w[1]), Math.log(w[2] / w[1])]); const m = [0, 1].map((k) => l.reduce((s, v) => s + v[k], 0) / l.length); rgb = [Math.exp(m[0]), 1, Math.exp(m[1])]; }
     const r = WB.update(rgb);
-    st.cams = r === "jump" ? st.cams : seen;
+    st.cams = r === "jump" || r === "red-lamp" ? st.cams : seen;
     if (st.est && rgb && ev) remember(ev, T.player.time, st.est, st.cams);
     drawMasks();
     return r;

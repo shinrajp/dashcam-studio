@@ -116,6 +116,13 @@ async function runBrowser(bn) {
       // a real light change persists → accepted after JUMP_ACCEPT samples
       WB.reset(); WB.update(base, t0); let r = null, n = 0; for (; n < 40 && r !== "accept-jump"; n++) r = WB.update([110, 120, 140], t0 + n);
       out.persist = { r, n, need: C.JUMP_ACCEPT };
+      // our own brake lamps light the paint: a lasting shift toward red (blue the same) is held for LAMP_ACCEPT samples
+      // (a long stop at a red light), the last good estimate kept (tag glare-fix)
+      WB.reset(); WB.update(base, t0); const e1 = WB.state.est.slice(), rl = [];
+      for (let i = 0; i < C.LAMP_ACCEPT + 2; i++) rl.push(WB.update([190, 106, 62], t0 + 100 + i));
+      out.redLamp = { held: rl.slice(0, C.LAMP_ACCEPT - 1).every((x) => x === "red-lamp"), heldN: rl.filter((x) => x === "red-lamp").length, accepted: rl.includes("accept-red"), need: C.LAMP_ACCEPT, moved: +Math.hypot(WB.state.est[0] - e1[0], WB.state.est[1] - e1[1]).toFixed(3) };
+      // a warmer streetlight (red up AND blue down) is not a lamp: it is followed as before
+      WB.reset(); WB.update(base, t0); out.warmer = WB.update([200, 106, 40], t0 + 200);
       // smoothing: a small step (below the jump threshold)
       WB.reset(); WB.update(base, t0); const tgt = [150 * 1.12, 106, 60 * 1.05], lt = [Math.log(tgt[0] / tgt[1]), Math.log(tgt[2] / tgt[1])], le = WB.state.est.slice();
       const step = Math.hypot(lt[0] - le[0], lt[1] - le[1]), prog = [];
@@ -137,7 +144,9 @@ async function runBrowser(bn) {
     ok(tag + " unit: default wedge sliver: none at the top, widening to the bottom", u.wedge.top === 0 && u.wedge.mid > 0 && u.wedge.bottom > u.wedge.mid, u.wedge);
     ok(tag + " unit: body mask from frames: static body up to a static dark edge while the scene moves (±1 cell)", u.mask.conf && u.mask.moving && u.mask.maxErr <= 1, u.mask);
     ok(tag + " unit: no body at the edge (everything moves) → noBody; a parked, motionless scene → not learned (default sliver)", !u.noBody.conf && u.noBody.noBody && !u.parked.conf && !u.parked.moving, { noBody: u.noBody, parked: u.parked });
-    ok(tag + " unit: a 3-sample red jump is rejected (estimate unchanged); a lasting change is accepted after JUMP_ACCEPT samples", u.spike.spike.every((s) => s === "jump") && u.spike.afterSpike < 1e-9 && u.persist.r === "accept-jump" && u.persist.n === u.persist.need, { ...u.spike, persist: u.persist });
+    ok(tag + " unit: a lasting red shift from our own lamps is held ~12 s (LAMP_ACCEPT samples), then accepted", u.redLamp.held && u.redLamp.heldN === u.redLamp.need - 1 && u.redLamp.accepted, u.redLamp);
+    ok(tag + " unit: a warmer streetlight (red up, blue down) is not taken for a lamp", u.warmer === "ok" || u.warmer === "jump", u.warmer);
+    ok(tag + " unit: a 3-sample red jump is rejected (estimate unchanged); a lasting change is accepted after JUMP_ACCEPT samples", u.spike.spike.every((s) => s === "jump" || s === "red-lamp") && u.spike.afterSpike < 1e-9 && u.persist.r === "accept-jump" && u.persist.n === u.persist.need, { ...u.spike, persist: u.persist });
     ok(tag + " unit: smoothing over several frames (1 sample < 35 %, 12 samples > 90 % of a step)", u.smooth.after1 < 0.35 && u.smooth.after4 > 0.5 && u.smooth.after12 > 0.9, u.smooth);
     ok(tag + " unit: CCT (McCamy) and words: white ≈ 6500 K Daylight, 3000 K white ≈ 3000 K, orange = Sodium, bluish = Cool/Daylight", Math.abs(u.cct.d65 - 6500) < 150 && Math.abs(u.cct.k3000 - 3000) < 150 && u.cct.sodium === "Sodium streetlight" && u.cct.d65w === "Daylight" && /Cool|Daylight/.test(u.cct.cool), u.cct);
     ok(tag + " unit: gains = lerp(1, ref/white, 0.7), red down / blue up, clamped", u.gains[0] < 1 && u.gains[2] > 1 && u.gains.every((g) => g >= 0.65 && g <= 1.7), u.gains);
