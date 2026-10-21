@@ -342,3 +342,16 @@ Rollback point: tag `pre-taillight-fix` (= 8d5042e).
   - The 3100 K frame of report 2 looks over-corrected: a white crosswalk shows hue ≈ 215°, s ≈ 0.3 even at the viewer's 70 %. The mirror white point (the car's own paint) was warmer than the street light; that is a white-balance estimate issue, not fixed here.
   - "SUV" is not a detector class (YOLO/COCO has car, truck, bus); with Vehicle details on, "SUV" in a search is checked by the CLIP type step, but live labels don't name it.
   - Classifying a crop takes ~1.2 ms instead of ~0.3 ms (64 px crop, desktop).
+
+## Colour lock: one colour tag per vehicle (tag color-lock, rollback pre-color-lock = 51922fd)
+- `js/color-lock.js`: every colour reading of a vehicle (live detection, export preparation, vehicle-search frames) is chained, per camera, into a colour track. Readings are linked by predicted position, size and class family (car/truck together); one reading per track per frame; a vehicle lost for ≤ 3 s is re-acquired near its predicted path, and a clearly different locked colour needs a close overlap to join after a gap.
+- Each reading is weighted: confidence × crop size (full weight from 120 px wide). It counts less when lamps are masked (down to ×0.3), its own rear lamps are lit (×0.6), in low light (×0.5), when the crop is dark (×0.6) or thin (×0.4), at the frame edge (×0.4), or when it overlaps another vehicle (×0.5).
+- The colour is provisional (`~white`) until there are ≥ 2.2 good-frame equivalents and the leading colour has ≥ 60 % of them. After that it is LOCKED. It changes only when another colour holds ≥ 72 % of the good readings (weight ≥ 0.25) of the last 2.5 s, over ≥ 3 readings spanning ≥ 1.5 s (weight ≥ 1.6). The old evidence is then scaled ×0.3.
+- The live label while playing (tracker), the paused viewer and the *Burn detection boxes* export (`D.boxesAt` → `burnBoxes.at`) and the vehicle-search result labels (`V.cluster` / `V.hitText`) all use the locked colour, so they say the same thing. A search result whose vehicle locked onto a colour that the query excludes ranks lower (×0.5). Readings arriving out of order (export gap filling, search) trigger a full re-chain on the next lookup.
+- Replaces the short decaying vote of taillight-fix. The cost is ~0.06 ms per reading (node). Labels only look up the reading's track (O(1)). Pure JS, no new browser APIs.
+- Test: `test/color-lock.js` (node + Chromium + WebKit). A synthetic white car with dusk, brake flashes, an overlapping blue car and a 1.2 s loss: one track and no flicker in any of the viewer-playing, viewer-paused, export or search-label paths. A red car in another lane, a red car appearing later where the white car was lost, and a sustained gray→red change all still come through (the change after ≥ 1.5 s). There is also a real-pixel `decorateLive` pass.
+- Limits:
+  - The lock lives in memory for the open event (cleared when a player opens).
+  - Two same-size vehicles crossing closely can swap tracks (position/size only, no appearance re-ID beyond colour).
+  - A vehicle that drives out and back in after > 3 s gets a new track.
+  - The first ~0.5–1.5 s shows the provisional `~` colour.
