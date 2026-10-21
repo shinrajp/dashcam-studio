@@ -20,8 +20,11 @@
   L.weight = (o) => {
     let w = Math.max(0.05, Math.min(1, o.conf == null ? 0.5 : o.conf));
     w *= Math.max(0.15, Math.min(1, (o.pxW || 120) / 120));             // small / distant crops say little
-    if (o.lamps > 0.02) w *= Math.max(0.3, 1 - 2 * o.lamps);              // lamps masked: what's left is less reliable
-    if (o.rearLit) w *= 0.6;                                              // its own lamps are lit (brake flash)
+    if (o.lamps > 0.02) w *= Math.max(0.2, 1 - 2.5 * o.lamps);            // lamps masked: what's left is less reliable
+    if (o.rearLit) w *= 0.35;                                             // its own lamps are lit (brake flash, tail bar: glare)
+    if (o.bar) w *= 0.7;                                                  // a full-width light bar lights the whole rear
+    if (o.castFix) w *= 0.6;                                              // only judged after taking the frame's red cast out
+    if (o.cast > 0.4) w *= Math.max(0.35, 1 - 0.6 * (o.cast - 0.4));      // strong red cast over the frame (night, flare)
     if (o.lowLight) w *= 0.5;
     if (o.dark) w *= 0.6;
     if (o.thin) w *= 0.4;
@@ -45,7 +48,7 @@
       const det = it.det, c = it.c;
       if (!det || !c || !c.name || !VEH[det.label]) continue;
       const crowd = dets.some((o) => o !== det && o && VEH[o.label] && iou(o, det) > 0.15);
-      const o = { cam, t, x: det.x, y: det.y, w: det.w, h: det.h, label: det.label, fam: VEH[det.label], name: c.name, conf: c.conf, lamps: c.lamps || 0, rearLit: !!c.rearLit, lowLight: !!c.lowLight, dark: !!c.dark, thin: !!c.thin, pxW: it.pxW, crowd, tr: null };
+      const o = { cam, t, x: det.x, y: det.y, w: det.w, h: det.h, label: det.label, fam: VEH[det.label], name: c.name, conf: c.conf, lamps: c.lamps || 0, rearLit: !!c.rearLit, bar: !!c.bar, castFix: !!c.castFix, cast: c.cast || 0, lowLight: !!c.lowLight, dark: !!c.dark, thin: !!c.thin, pxW: it.pxW, crowd, tr: null };
       o.wt = L.weight(o);
       // same moment, same box (export prepare re-reading a live frame, a search frame read twice): replace
       const dup = S.obs.find((p) => Math.abs(p.t - t) < 0.02 && p.fam === o.fam && iou(p, o) > 0.8);

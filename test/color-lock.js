@@ -95,6 +95,17 @@ function check(tag, r) {
   ok("node: weights — lamps, night, small, edge, overlap all count less than a clean big crop",
     ["lamps", "lowLight", "small", "edge", "crowd", "rearLit"].every((k) => { const base = { conf: 0.8, pxW: 300, x: 0.3, y: 0.3, w: 0.2, h: 0.12 }; const o = Object.assign({}, base, k === "lamps" ? { lamps: 0.1 } : k === "small" ? { pxW: 30 } : k === "edge" ? { x: 0 } : { [k]: true }); return L.weight(o) < L.weight(base) * 0.85; }));
 
+  // glare (tag glare-fix): a reading with its own lamps lit (tail bar) in a frame with a strong red cast counts far less
+  { const base = { conf: 0.8, pxW: 300, x: 0.3, y: 0.3, w: 0.2, h: 0.12 };
+    const glare = Object.assign({}, base, { rearLit: true, bar: true, lamps: 0.3, cast: 1.0 }), lit = Object.assign({}, base, { rearLit: true, lamps: 0.05 });
+    ok("node: lit lamps + light bar + strong red cast → weight ≤ 0.15 × a clean reading (" + (L.weight(glare) / L.weight(base)).toFixed(3) + ")", L.weight(glare) <= 0.15 * L.weight(base));
+    ok("node: own lamps lit → weight ≤ 0.4 × clean (" + (L.weight(lit) / L.weight(base)).toFixed(3) + ")", L.weight(lit) <= 0.4 * L.weight(base));
+    // a grey SUV whose glare frames read red now and then (every 3rd frame) stays grey
+    L.clear(); const words = [];
+    for (let k = 0; k < 30; k++) { const det = { label: "car", conf: 0.9, x: 0.35, y: 0.3, w: 0.3, h: 0.5 }, red = k % 3 === 1;
+      L.observeFrame("front", 200 + k * 0.2, [{ det, c: red ? { name: "red", conf: 0.5, rearLit: true, bar: true, lamps: 0.3, cast: 1.0 } : { name: "gray", conf: 0.6, rearLit: true, lamps: 0.05, cast: 1.0 }, pxW: 380 }]); words.push(L.word(det.clObs)); }
+    ok("node: grey SUV with glare frames reading red → locked gray, never red", words.every((w) => w === "gray" || w === "~gray") && words[words.length - 1] === "gray", words);
+  }
   if (URL_) {
     const pw = require("playwright");
     for (const bn of (process.env.BR || "chromium,webkit").split(",")) {
