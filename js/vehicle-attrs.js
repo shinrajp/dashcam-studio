@@ -122,8 +122,12 @@
   /** rgba = Uint8ClampedArray of a w×h crop of ONE vehicle (box from the detector). opts.gains = [r,g,b] white-balance
    *  gains applied to every pixel first (WB.classifyGains, from the mirror cameras' white point).
    *  → { name, conf, scores, lowLight, corrected } */
+  const LINT = new Float32Array(256); for (let i = 0; i < 256; i++) { const c = i / 255; LINT[i] = c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); }
+  const ENCT = new Float32Array(4097); for (let i = 0; i <= 4096; i++) { const c = i / 4096; ENCT[i] = c <= 0.0031308 ? c * 12.92 : 1.055 * Math.pow(c, 1 / 2.4) - 0.055; }
+  const ENC = (v) => (v <= 0 ? 0 : v >= 1 ? 1 : ENCT[Math.round(v * 4096)]);
   function colorFromPixels(rgba, w, h, opts) {
     const gn = opts && opts.gains, g0 = gn ? gn[0] : 1, g1 = gn ? gn[1] : 1, g2 = gn ? gn[2] : 1;
+    const M = opts && opts.matrix;
     const GT = opts && opts.night ? GRAY_NIGHT : GRAY_DAY;
     const sc = {}; COLORS.forEach((c) => (sc[c] = 0));
     let total = 0, vSum = 0, n = 0, warm = 0;
@@ -132,7 +136,12 @@
       for (let x = 0; x < w; x++) {
         const dx = (x + 0.5) / w - 0.5;
         const wt = Math.exp(-(dx * dx) / (2 * 0.3 * 0.3) - (dy * dy) / (2 * 0.32 * 0.32));   // centre of the body counts most
-        const i = (y * w + x) * 4, r = Math.min(1, (rgba[i] / 255) * g0), g = Math.min(1, (rgba[i + 1] / 255) * g1), b = Math.min(1, (rgba[i + 2] / 255) * g2);
+        const i = (y * w + x) * 4;
+        let r, g, b;
+        if (M) {   // colour-constancy prototype: a 3×3 in LINEAR sRGB (CAT16 / Bradford / linear gains), then back to sRGB
+          const lr = LINT[rgba[i]], lg = LINT[rgba[i + 1]], lb = LINT[rgba[i + 2]];
+          r = ENC(M[0][0] * lr + M[0][1] * lg + M[0][2] * lb); g = ENC(M[1][0] * lr + M[1][1] * lg + M[1][2] * lb); b = ENC(M[2][0] * lr + M[2][1] * lg + M[2][2] * lb);
+        } else { r = Math.min(1, (rgba[i] / 255) * g0); g = Math.min(1, (rgba[i + 1] / 255) * g1); b = Math.min(1, (rgba[i + 2] / 255) * g2); }
         const mx = Math.max(r, g, b), mn = Math.min(r, g, b), v = mx, c = mx - mn, s = mx ? c / mx : 0;
         let hue = 0;
         if (c > 1e-6) { if (mx === r) hue = ((g - b) / c) % 6; else if (mx === g) hue = (b - r) / c + 2; else hue = (r - g) / c + 4; hue *= 60; if (hue < 0) hue += 360; }
@@ -173,7 +182,7 @@
     const meanV = n ? vSum / n : 0;
     const lowLight = meanV < 0.18 || (n && warm / n > 0.6 && name !== "orange" && name !== "yellow");   // night, or orange sodium light
     if (lowLight) conf *= 0.5;
-    return { name, conf: Math.round(conf * 100) / 100, scores: share, lowLight: !!lowLight, corrected: !!gn };
+    return { name, conf: Math.round(conf * 100) / 100, scores: share, lowLight: !!lowLight, corrected: !!(gn || M) };
   }
   function neutral(r, g, b, v, hue) {
     const [L, A, B] = lab(r, g, b), C = Math.hypot(A, B);
