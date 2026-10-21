@@ -701,3 +701,10 @@ body.fs.ss-on .wb-readout { bottom: calc(var(--tp-h, 62px) + var(--ss-h, 0px) + 
 .wb-mask-layer[hidden] { display: none; }
 .wb-range { display: inline-flex; align-items: center; gap: 8px; }
 .wb-range output { min-width: 38px; text-align: right; font: 650 12px ui-monospace, Menlo, Consolas, monospace; color: var(--dim); }
+/* text search & redaction (text-search.js): off switch hides the text-only controls; thumbnails + time results */
+body.no-text-search .text-only { display: none !important; }
+.find-hit .hit-thumb { width: 44px; height: 33px; object-fit: cover; border-radius: 4px; margin-right: 6px; vertical-align: middle; }
+.us-item.has-thumb { display: flex; align-items: center; gap: 8px; }
+.us-item .us-thumb { flex: 0 0 auto; width: 56px; height: 42px; object-fit: cover; border-radius: 4px; background: #111; }
+.us-item.us-time .us-t { color: var(--accent, #e6b450); }
+.us-item.us-time.out { opacity: .8; }

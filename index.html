@@ -101,7 +101,7 @@
 
   <footer class="transport" id="transport">
     <div class="find-bar">
-      <input id="findQuery" type="search" placeholder="Find in the video — a person in a hoodie and a mask" autocomplete="off" spellcheck="false">
+      <input id="findQuery" type="search" placeholder="Find in the video — a person in a hoodie · text Oak Ave · 20:53:46 · 2:30" autocomplete="off" spellcheck="false">
       <select id="findCam" class="select small" title="Which cameras to look at for picture and plate searches (object and vehicle searches always check every camera)">
         <option value="front">Front camera</option>
         <option value="around">Front, sides, and rear</option>
@@ -117,12 +117,12 @@
     <div class="find-status" id="findStatus" hidden></div>
     <div class="find-hits" id="findHits"></div>
     <div class="redact-bar">
-      <input id="redactQuery" type="text" placeholder="Main St, Oak Ave, Elm Rd" autocomplete="off" spellcheck="false">
+      <input id="redactQuery" class="text-only" type="text" placeholder="Main St, Oak Ave, Elm Rd" autocomplete="off" spellcheck="false">
       <select id="redactCam" class="select small" title="Which cameras to redact">
         <option value="front">Front camera</option>
         <option value="around">Front, sides, and rear</option>
       </select>
-      <button class="btn primary" id="btnRedact" type="button">Apply</button>
+      <button class="btn primary text-only" id="btnRedact" type="button">Apply</button>
       <label class="redact-toggle" id="redactShowWrap" title="Show or hide the blur on the video. After Apply, this switches instantly." hidden><input type="checkbox" id="redactShow" checked> Show blur</label>
       <button class="btn ghost" id="btnRedactStop" type="button" hidden>Stop</button>
       <button class="btn ghost" id="btnRedactClear" type="button" hidden>Clear</button>
@@ -130,8 +130,8 @@
         <button type="button" data-q="blur the license plate">Blur plates</button>
         <button type="button" data-q="remove the license plate">Remove plates</button>
         <button type="button" data-q="blur faces">Blur faces</button>
-        <button type="button" data-q="blur street signs">Street signs</button>
-        <button type="button" data-q="blur all text">All text</button>
+        <button type="button" class="text-only" data-q="blur street signs">Street signs</button>
+        <button type="button" class="text-only" data-q="blur all text">All text</button>
       </div>
     </div>
     <div class="find-status" id="redactStatus" hidden></div>
@@ -328,6 +328,9 @@
   <script src="js/export.js?v=color-constancy-proto"></script>
   <script src="js/search.js?v=color-constancy-proto"></script>
   <script src="js/redact.js?v=color-constancy-proto"></script>
+  <script src="js/text-match.js?v=text-search-fix"></script>
+  <script src="js/text-search.js?v=text-search-fix"></script>
+  <script src="js/time-search.js?v=text-search-fix"></script>
   <script src="js/burn-boxes.js?v=color-constancy-proto"></script>
   <script src="js/worker-start.js?v=color-constancy-proto"></script>
   <script src="js/detect.js?v=color-constancy-proto"></script>

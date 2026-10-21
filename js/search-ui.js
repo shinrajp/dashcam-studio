@@ -261,7 +261,8 @@
     if (hits.length) {
       h += '<div class="us-group">Find matches <span>' + hits.length + "</span></div>";
       hits.forEach((x, i) => {
-        h += '<button type="button" class="us-item' + (x.best ? " best" : "") + '" role="option" data-kind="find" data-i="' + i + '"><span class="us-t">' + esc(fmt(x.t)) + "</span><span>" + (x.termColor ? '<i class="term-dot" style="background:' + esc(x.termColor) + '"></i>' : "") + esc(CAM[x.cam] || x.cam) + (x.term ? " · " + esc(x.term) : "") + (x.text ? " · " + esc(x.text) : "") + (x.weak ? ' <em>weak</em>' : "") + "</span></button>";
+        if (x.timeJump) { h += '<button type="button" class="us-item us-time' + (x.inRange === false ? " out" : "") + '" role="option" data-kind="find" data-i="' + i + '"><span class="us-t">⏱ ' + esc(fmt(x.t)) + "</span><span>" + esc(x.text) + "</span></button>"; return; }
+        h += '<button type="button" class="us-item' + (x.best ? " best" : "") + (x.thumb ? " has-thumb" : "") + '" role="option" data-kind="find" data-i="' + i + '">' + (x.thumb ? '<img class="us-thumb" alt="" src="' + esc(x.thumb) + '">' : "") + '<span class="us-t">' + esc(fmt(x.t)) + "</span><span>" + (x.termColor ? '<i class="term-dot" style="background:' + esc(x.termColor) + '"></i>' : "") + esc(CAM[x.cam] || x.cam) + (x.term ? " · " + esc(x.term) : "") + (x.text ? " · " + esc(x.text) : "") + (x.weak ? ' <em>weak</em>' : "") + "</span></button>";
       });
     }
     if (runs.length) {
@@ -348,7 +349,7 @@
     clock.parentNode.insertBefore(btn, clock.nextSibling);
     built.push(btn);
 
-    const presets = [...document.querySelectorAll(".redact-presets button")].map((b) => '<button type="button" class="us-chip" data-q="' + esc(b.getAttribute("data-q")) + '">' + esc(b.textContent) + "</button>").join("");
+    const presets = [...document.querySelectorAll(".redact-presets button")].map((b) => '<button type="button" class="us-chip' + (b.classList.contains("text-only") ? " text-only" : "") + '" data-q="' + esc(b.getAttribute("data-q")) + '">' + esc(b.textContent) + "</button>").join("");
     const p = el("div", { class: "us-panel", id: "usPanel", role: "dialog", "aria-label": "Search the video", hidden: "" },
       '<div class="us-grab" aria-hidden="true"></div>' +
       '<div class="us-head" id="usHead"><span class="us-grip" id="usGrip" role="button" tabindex="-1" aria-label="Move the search window (arrow keys, Shift for bigger steps)" title="Drag to move · arrow keys move it">' +
@@ -356,10 +357,10 @@
       '<button type="button" class="btn icon sm us-float" id="usFloat" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true" class="i-float"><rect x="3" y="12" width="18" height="9" rx="2"/><rect x="7" y="3" width="12" height="7" rx="1.5"/></svg><svg viewBox="0 0 24 24" aria-hidden="true" class="i-dock"><rect x="3" y="3" width="18" height="11" rx="2"/><path d="M3 19h18"/></svg></button>' +
       '<button type="button" class="btn icon sm us-pin" id="usPin" aria-pressed="false" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3h6l-1 6 3 3v2H7v-2l3-3z"/><path d="M12 14v7"/></svg></button>' +
       '<button type="button" class="btn icon sm us-x" id="usClose" aria-label="Close search (Esc)" title="Close (Esc)"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>' +
-      '<div class="us-row">' + svg + '<input id="usQuery" type="search" enterkeyhint="search" autocomplete="off" spellcheck="false" placeholder="A cyclist in the bike lane · or text to hide: Oak Ave" aria-label="Search"></div>' +
+      '<div class="us-row">' + svg + '<input id="usQuery" type="search" enterkeyhint="search" autocomplete="off" spellcheck="false" placeholder="A cyclist in the bike lane · text Oak Ave · 20:53:46 · 2:30" aria-label="Search"></div>' +
       '<div class="us-actions"><select id="usCam" class="select small" aria-label="Cameras"><option value="front">Front camera</option><option value="around">All cameras</option></select>' +
       '<button type="button" class="btn primary small" id="usFind" title="Find the moment that matches the words (Enter)">Find moment</button>' +
-      '<button type="button" class="btn small" id="usRedact" title="Blur this text wherever it appears (Shift+Enter)">Blur text</button>' +
+      '<button type="button" class="btn small text-only" id="usRedact" title="Blur this text wherever it appears, on every camera (Shift+Enter)">Blur text</button>' +
       '<button type="button" class="btn ghost small" id="usStop" hidden>Stop</button></div>' +
       '<div class="us-presets">' + presets + "</div>" +
       '<div class="q-chips" id="usChips" hidden></div>' +

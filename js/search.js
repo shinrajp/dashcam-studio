@@ -354,6 +354,7 @@
     return p;
   }
   async function openHitImpl(hit) {
+    if (hit.timeJump) { T.player.seek(hit.t); S.anchor = null; renderHits(); status(hit.inRange === false ? hit.text.replace(/ instead$/, "") + " (jumped there)." : hit.text.replace(/^Jump to/, "Jumped to") + "."); return; }
     const vehSummary = hit.vehicle ? ($("findStatus").textContent || "") : "";
     S.anchor = hit.t;
     S.pickedCam = hit.cam;
@@ -385,7 +386,11 @@
     }
     paintBoxes();
     // Phase 5: follow the object across nearby frames with the detector (only when detection is turned on)
-    if (show && n && T.plates && group.some((g) => g.plate)) {   // Phase 6: follow the plate with the plate detector
+    if (show && n && group.some((g) => g.textHit)) {   // text: the gold box follows the readings (no extra model)
+      if (T.detect) T.detect.tracks = group.filter((g) => g.textHit && g.pts && g.pts.length).map((g) => ({ cam: g.cam, from: g.from - 0.4, to: g.to + 0.4, track: { pts: g.pts }, hit: g, text: g.boxText }));
+      status("Read as " + (hit.reading ? "“" + hit.reading + "”" : "text") + " on the " + (CAM_LABEL[hit.cam] || hit.cam) + " camera at " + T.fmtTime(hit.t, true) + ". The gold box follows it while it was read.");
+      paintBoxes();
+    } else if (show && n && T.plates && group.some((g) => g.plate)) {   // Phase 6: follow the plate with the plate detector
       const token = (S.trackToken = (S.trackToken || 0) + 1);
       try {
         status("Following the plate across nearby frames…");
@@ -419,7 +424,8 @@
       const picked = group.indexOf(h) >= 0;
       b.className = "find-hit" + (h.weak ? " weak" : " on") + (picked ? " picked" : "");
       const txt = h.text || (h.term && h.det && h.label && h.conf != null ? h.label + " " + Math.round(h.conf * 100) + "%" : "");
-      b.textContent = T.fmtTime(h.t, true) + " · " + (CAM_LABEL[h.cam] || h.cam) + (h.term ? " · " + h.term : "") + (txt && txt !== h.term ? " · " + txt : "") + (h.weak ? " · weak" : "");
+      b.textContent = h.timeJump ? "⏱ " + h.text : T.fmtTime(h.t, true) + " · " + (CAM_LABEL[h.cam] || h.cam) + (h.term ? " · " + h.term : "") + (txt && txt !== h.term ? " · " + txt : "") + (h.weak ? " · weak" : "");
+      if (h.thumb) { const im = document.createElement("img"); im.className = "hit-thumb"; im.alt = ""; im.src = h.thumb; b.prepend(im); }
       if (h.termColor) { const dot = document.createElement("i"); dot.className = "term-dot"; dot.style.background = h.termColor; b.prepend(dot); b.style.setProperty("--term", h.termColor); b.classList.add("termed"); }
       b.title = "Jump to this moment and outline it";
       b.addEventListener("click", () => openHit(h));
@@ -490,10 +496,73 @@
     T.toast(n + " section" + (n === 1 ? "" : "s") + " added around the matches", "ok");
   };
 
+  /** Which search a query goes to (also used by tests and the status line). */
+  S.route = (q) => {
+    q = String(q || "").trim();
+    if (T.timeSearch && T.timeSearch.parse(q)) return "time";
+    if (T.cloud && T.cloud.handlesQuery && T.cloud.handlesQuery(q)) return "cloud";
+    if (textQuery(q)) return "text";
+    if (T.multi && T.multi.split(q).length > 1) return "multi";
+    const pa = T.plates && T.plates.parse(q);
+    if (pa) return T.plates.enabled() ? "plate" : "plate (off)";
+    if (T.vehicle && T.vehicle.handlesQuery(q) && T.detect) return "vehicle";
+    if (T.detect && T.detect.handlesQuery(q)) return "detector";
+    return "picture (CLIP)";
+  };
+  /** "text …", "sign …", quoted text, or a bare ALL-CAPS phrase that no other search claims → {phrase, how}, else null. */
+  function textQuery(q) {
+    const TS = T.textSearch;
+    if (!TS || !TS.parseQuery) return null;
+    const tq = TS.parseQuery(q);
+    if (!tq) return null;
+    if (tq.how === "caps") {
+      if (!TS.on()) return null;
+      try { if (T.multi && T.multi.recognized && T.multi.recognized(q.toLowerCase())) return null; } catch (_) {}
+      try { if (T.detect && T.detect.classFor && T.detect.classFor(q.toLowerCase())) return null; } catch (_) {}
+    }
+    return tq;
+  }
+  S.textQuery = textQuery;
+
+  // A time ("20:53:46", "8:53 pm", "2:30", "+1:05"): jump there on every camera, list it as a result
+  function runTime(res) {
+    const P = T.player, cam = S.pickedCam || (T.focus && T.focus.cam) || "front";
+    S.phrase = ""; S.query = null; S.anchor = null; S.openedHit = null; S.allHits = null; S.terms = null; S.termFilter = null;
+    if (T.detect) (T.detect.clearTracks || T.detect.clear)();
+    S.hits = res.map((r) => ({ t: r.t, cam, timeJump: true, text: r.label, weak: !r.inRange, inRange: r.inRange }));
+    renderHits();
+    const first = res[0];
+    P.seek(first.t);   // every camera follows the player clock
+    status(first.inRange ? first.label.replace(/^Jump to/, "Jumped to") + (res.length > 1 ? ". Also: " + res.slice(1).map((r) => r.label.replace(/^Jump to /, "")).join("; ") + " (tap it below)." : ".") : first.label.replace(/ instead$/, "") + " (jumped there).");
+    if (T.ui && T.ui.drawTimeline) T.ui.drawTimeline();
+  }
+  S.runTime = runTime;
+
+  async function runText(tq, ev) {
+    const TS = T.textSearch;
+    S.phrase = tq.phrase; S.query = null; S.anchor = null;
+    if (T.vehicle) T.vehicle.chips(["text", tq.phrase]);
+    if (!TS.on()) { status("Text search is turned off (Settings ▸ Search ▸ Show text search & redaction). Time search, plates and the picture search still work."); return; }
+    const cams = TS.camsWithVideo(ev);
+    const fresh = !TS.scanned(ev, cams);
+    await TS.scan(ev, cams, { status, stopped: () => S.stop });
+    S.allHits = TS.find(ev, tq.phrase, cams);
+    applyBest();
+    renderHits();
+    const sum = TS.summary(ev) || {};
+    const errs = sum.errors ? " " + sum.errors + " frame" + (sum.errors === 1 ? "" : "s") + " couldn't be read." : "";
+    if (!S.hits.length) status("Didn't read “" + tq.phrase + "” on " + cams.length + " camera" + (cams.length === 1 ? "" : "s") + " (" + (sum.lines || 0) + " lines of text read in " + (sum.frames || 0) + " frames, one every " + (sum.step || 1) + " s)." + errs + " Try one distinctive word, or the spelling on the sign.");
+    else status((S.hits.length < S.allHits.length ? "Best match only: " + S.hits.length + " of " + S.allHits.length : String(S.hits.length)) + " place" + (S.allHits.length === 1 ? "" : "s") + " with “" + tq.phrase + "” (" + cams.length + " camera" + (cams.length === 1 ? "" : "s") + (fresh ? "" : ", from the text already read") + "). Tap one to jump there; the gold box follows the text. Read on this device; check the video, readings can be wrong." + errs);
+    if (S.hits.length) openHit(S.hits.find((h) => h.best) || S.hits[0]);
+  }
+
   S.run = async () => {
     const ev = T.player.ev;
     const q = ($("findQuery").value || "").trim();
     if (!ev) { T.toast("Open an event first.", "err"); return; }
+    if (S.running) return;
+    const tres = T.timeSearch && T.timeSearch.lookup ? T.timeSearch.lookup(q) : null;
+    if (tres && tres.length) { runTime(tres); return; }
     if (q.length < 3) { T.toast("Type what to look for, for example: a person in a hoodie and a mask", "err"); return; }
     if (S.running) return;
     const cams = camsFor($("findCam").value, ev);
@@ -523,6 +592,14 @@
         console.warn("cloud search failed", err);
         status(String(err.message) === "cancelled" ? "Nothing was sent." : "Cloud search failed: " + (err.message || err) + " Nothing else changed.");
       } finally { S.running = false; S.stop = false; $("btnFind").disabled = false; $("btnFindStop").hidden = true; }
+      return;
+    }
+    // Text in the picture ("text Zender Bakery", "\"4821\"", ZENDER BAKERY): read every camera once, then match (text-search.js)
+    const tq = textQuery(q);
+    if (tq) {
+      try { await runText(tq, ev); }
+      catch (err) { console.warn("text search failed", err); status(String(err && err.message) === "stopped" ? "Stopped. Search again to read the rest." : "Text search failed: " + (err.message || err) + ". Nothing else changed."); }
+      finally { S.running = false; S.stop = false; $("btnFind").disabled = false; $("btnFindStop").hidden = true; }
       return;
     }
     // Several things at once ("bus, person, police car", "red car and cyclist"): one pass over every camera (multi-search.js)
