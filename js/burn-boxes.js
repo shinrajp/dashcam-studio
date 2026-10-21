@@ -1,6 +1,7 @@
 /* burn-boxes.js — optional export overlay: draws the gold search/detection boxes and their labels into exported frames.
  * Uses the same data as the viewer's gold box (TDC.search.hits with a located .box, normalised 0..1 to the source frame).
- * Off by default; the choice is kept in localStorage ("tdc.export.burnBoxes"). Any missing data → draws nothing. */
+ * Off by default; the choice is kept in localStorage ("tdc.export.burnBoxes"). Any missing data → draws nothing.
+ * B.redactAt: the matches to blur (search Redact switch / per term), shared by the viewer and the export the same way. */
 (function () {
   const T = (window.TDC = window.TDC || {});
   const KEY = "tdc.export.burnBoxes";
@@ -28,27 +29,35 @@
 
   /** THE box set for one camera at event time t: [{x,y,w,h,text}] (normalised). The live viewer (search.js paintBoxes) and the
    *  export (compositor → draw) both call this, so they show the same boxes: followed tracks / live detections first, else every
-   *  result (detector, picture, plate, vehicle; after the Best-match filter) within ±NEAR s of t on that camera. */
+   *  result (detector, picture, plate, vehicle; after the Best-match filter) within ±NEAR s of t on that camera.
+   *  Highlight off (Boxes / X / the "Gold box" tick) → nothing, unless a term of a several-thing search was set to highlight. */
   B.at = (cam, t, hits, phrase) => {
     try {
       const S = T.search;
       hits = hits || (S && S.hits) || [];
       phrase = phrase != null ? phrase : (S && S.phrase) || "";
       if (!Array.isArray(hits) || !num(t)) return [];
-      if (S && S.goldShown && !S.goldShown()) return [];   // "Show the gold box" unticked: nothing in the viewer, nothing burned
+      if (S && S.goldShown && !S.goldShown() && !(S.anyHl && S.anyHl())) return [];   // highlight off: nothing in the viewer, nothing burned
+      const on = (ti) => !(S && S.termMode) || S.termMode(ti).hl;
       // several things in one search (multi-search.js): every term's results get the term's colour, gold stays for the opened
       // result (and what follows it); followed / live boxes and the other terms' results are shown together
       const multi = !!(S && S.terms && S.terms.length);
       let out = [];
       if (T.detect && T.detect.boxesAt) {   // Phase 5: tracked / detected boxes
         const tr = T.detect.boxesAt(cam, t);
-        if (tr && !multi) return tr;
-        if (tr) out = tr.map((b) => { const o = { x: b.x, y: b.y, w: b.w, h: b.h, text: b.text }; if (b.hit && b.hit !== S.openedHit && b.hit.termColor) o.color = b.hit.termColor; return o; });
+        if (tr && !multi) return on(null) ? tr : [];
+        if (tr) for (const b of tr) {
+          const ti = b.hit ? b.hit.ti : termOfLive(b);
+          if (!on(ti)) continue;
+          const o = { x: b.x, y: b.y, w: b.w, h: b.h, text: b.text }; if (b.hit && b.hit !== S.openedHit && b.hit.termColor) o.color = b.hit.termColor;
+          out.push(o);
+        }
       }
       const best = hits.reduce((m, h) => (h && num(h.score) && h.score > m ? h.score : m), 0);
       const pre = out.length;
       for (const h of hits) {
         if (!h || h.tracked || h.cam !== cam || !num(h.t) || Math.abs(h.t - t) > NEAR || !validBox(h.box)) continue;
+        if (multi && !on(h.ti)) continue;
         const o = { x: h.box.x, y: h.box.y, w: h.box.w, h: h.box.h, text: B.labelFor(h, phrase, best) };
         if (multi) {
           if (out.slice(0, pre).some((b) => iou(b, o) > 0.5)) continue;   // already drawn as a followed / live box
@@ -57,6 +66,50 @@
         out.push(o);
       }
       return out;
+    } catch (_) { return []; }
+  };
+
+  // live detection of a searched class → that term (several-thing search), else undefined (follows the switch)
+  function termOfLive(b) {
+    const S = T.search, D = T.detect;
+    if (!b || !b.label || !S || !S.terms || !D || !D.classFor) return undefined;
+    const c = S.terms.find((c) => { try { return D.classFor(c.term) === b.label; } catch (_) { return false; } });
+    return c ? c.i : undefined;
+  }
+
+  /** Matches to REDACT (opaque blur) on one camera at time t: [{x,y,w,h}] normalised. Same sources as B.at (followed tracks,
+   *  live detections, results within ±NEAR s), but: only what the search matched (live detections of other classes are left
+   *  alone), every result (not just the chip / Best-match view, so a filter never un-hides something), and it does not depend
+   *  on Highlight. Used by the viewer (redact.js blur layer) and the export (redact.burn), so both blur the same spots. */
+  B.redactAt = (cam, t, hits) => {
+    try {
+      const S = T.search;
+      if (!S || !S.anyRd || !S.anyRd() || !num(t)) return [];
+      hits = hits || S.allHits || S.hits || [];
+      if (!Array.isArray(hits) || !hits.length) return [];
+      const multi = !!(S.terms && S.terms.length);
+      const on = (ti) => S.termMode(ti).rd;
+      let cls = null;
+      if (!multi && T.detect && T.detect.classFor) { try { cls = T.detect.classFor(S.phrase || ""); } catch (_) {} }
+      const out = [];
+      const tr = T.detect && T.detect.boxesAt ? T.detect.boxesAt(cam, t) : null;
+      if (tr) for (const b of tr) {
+        let ti;
+        if (b.hit) { if (!hits.includes(b.hit) && !(S.hits || []).includes(b.hit)) continue; ti = multi ? b.hit.ti : null; }
+        else if (b.live) { if (multi) { ti = termOfLive(b); if (ti === undefined) continue; } else if (!cls || b.label !== cls) continue; else ti = null; }
+        else continue;
+        if (!on(ti)) continue;
+        out.push({ x: b.x, y: b.y, w: b.w, h: b.h });
+      }
+      const pre = out.length;
+      for (const h of hits) {
+        if (!h || h.cam !== cam || !num(h.t) || Math.abs(h.t - t) > NEAR || !validBox(h.box)) continue;
+        if (!on(multi ? h.ti : null)) continue;
+        const o = { x: h.box.x, y: h.box.y, w: h.box.w, h: h.box.h };
+        if (out.slice(0, pre).some((b) => iou(b, o) > 0.3)) continue;   // the followed box already covers it
+        out.push(o);
+      }
+      return out.filter(validBox);
     } catch (_) { return []; }
   };
 
@@ -73,7 +126,7 @@
     } catch (_) {}
     let n = 0;
     try {
-      if (T.detect && T.detect.prepareLive && !(S && S.goldShown && !S.goldShown()))
+      if (T.detect && T.detect.prepareLive && !(S && (S.needBoxes ? !S.needBoxes() : S.goldShown && !S.goldShown())))
         n = await T.detect.prepareLive(ranges, (i, k, cam) => { status("Detecting objects for the burned-in boxes · " + i + " of " + k + (cam ? " · " + ((T.CAM_LABEL && T.CAM_LABEL[cam]) || cam) : "") + " (same as while playing)…"); if (B.onPrepare) B.onPrepare(i, k, cam); }, cancelled);
     } catch (e) { console.warn("burn boxes: live detection for export skipped", e); status("Couldn't run live detection for the export (" + (e.message || e) + "); burning the boxes that are ready."); }
     return n;

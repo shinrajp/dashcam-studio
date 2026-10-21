@@ -11,7 +11,7 @@
   <title>Dashcam Studio — Tesla Sentry &amp; Dashcam viewer</title>
   <meta name="color-scheme" content="dark">
   <link rel="icon" href="data:,">
-  <link rel="stylesheet" href="css/app.css?v=color-constancy-proto">
+  <link rel="stylesheet" href="css/app.css?v=redact-toggle">
 </head>
 <body class="simple">
   <header class="topbar">
@@ -108,6 +108,7 @@
       </select>
       <label class="find-opt" title="One camera switches to it. Several cameras return to the grid with a gold box on each" hidden><input type="checkbox" id="findFollow" checked> Switch to match</label>
       <label class="find-opt" title="Draw or hide the gold box around the match" hidden><input type="checkbox" id="findShow" checked> Gold box</label>
+      <span class="res-style" id="findStyle" role="group" aria-label="How matches look"><span class="res-style-lbl">Matches</span><button type="button" class="style-tgl" data-style="hl" id="findHl" aria-pressed="true"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2.5" y="3.5" width="11" height="9" rx="1"/></svg>Highlight</button><button type="button" class="style-tgl" data-style="rd" id="findRd" aria-pressed="false"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2.5" y="3.5" width="11" height="9" rx="1" class="fill"/></svg>Redact</button></span>
       <button class="btn primary" id="btnFind" type="button">Find</button>
       <button class="btn ghost" id="btnFindStop" type="button" hidden>Stop</button>
       <button class="btn ghost" id="btnFindMarks" type="button" hidden title="Add a short section around each match">Make sections</button>
@@ -230,6 +231,7 @@
           <div class="row wrap"><span>Burn in</span><div id="exportShow" class="mini-toggles"></div></div>
         </div>
         <label class="row burn-boxes-row" id="exportBoxesWrap" title="Draw the gold search boxes and their labels (name + confidence) into the exported video. Nothing is drawn where there is no box."><span>Burn detection boxes</span><input type="checkbox" id="exportBoxes"></label>
+        <p class="hint export-style-note" id="exportStyleNote" hidden></p>
         <label class="row burn-boxes-row" id="exportPlatesWrap" hidden title="Blur licence plates found by the plate reader (Settings ▸ Plates & text). The first export of an event scans it for plates first."><span>Blur licence plates</span><input type="checkbox" id="exportPlates"></label>
         <p class="hint" id="exportHint"></p>
         <div class="export-unsupported" id="exportUnsupported" hidden></div>
@@ -305,54 +307,54 @@
   <!-- Cameras picker: a top-level layer on <body> (never inside the camera bar, whose backdrop-filter would make
        position:fixed relative to the bar); js/focus.js places it next to the Cameras button. -->
   <div class="cam-menu" id="camMenu" hidden></div>
-  <script src="vendor/mp4-muxer.js?v=color-constancy-proto"></script>
-  <script src="vendor/webm-muxer.js?v=color-constancy-proto"></script>
-  <script src="vendor/ort.wasm.min.js?v=color-constancy-proto"></script>
-  <script src="vendor/ocr-pack.js?v=color-constancy-proto"></script>
+  <script src="vendor/mp4-muxer.js?v=redact-toggle"></script>
+  <script src="vendor/webm-muxer.js?v=redact-toggle"></script>
+  <script src="vendor/ort.wasm.min.js?v=redact-toggle"></script>
+  <script src="vendor/ocr-pack.js?v=redact-toggle"></script>
   <!-- app (classic scripts: they work when opened from file://) -->
-  <script src="js/core.js?v=color-constancy-proto"></script>
-  <script src="js/mp4.js?v=color-constancy-proto"></script>
-  <script src="js/sei.js?v=color-constancy-proto"></script>
-  <script src="js/crypto.js?v=color-constancy-proto"></script>
-  <script src="js/teslacam.js?v=color-constancy-proto"></script>
-  <script src="js/telemetry.js?v=color-constancy-proto"></script>
-  <script src="js/batching.js?v=color-constancy-proto"></script>
-  <script src="js/library.js?v=color-constancy-proto"></script>
-  <script src="js/player.js?v=color-constancy-proto"></script>
-  <script src="js/draw.js?v=color-constancy-proto"></script>
-  <script src="js/hud.js?v=color-constancy-proto"></script>
-  <script src="js/map.js?v=color-constancy-proto"></script>
-  <script src="js/compositor.js?v=color-constancy-proto"></script>
-  <script src="js/overlays.js?v=color-constancy-proto"></script>
-  <script src="js/focus.js?v=color-constancy-proto"></script>
-  <script src="js/export.js?v=color-constancy-proto"></script>
-  <script src="js/search.js?v=color-constancy-proto"></script>
-  <script src="js/redact.js?v=color-constancy-proto"></script>
-  <script src="js/text-match.js?v=text-search-fix"></script>
-  <script src="js/text-search.js?v=text-search-fix"></script>
-  <script src="js/time-search.js?v=text-search-fix"></script>
-  <script src="js/burn-boxes.js?v=color-constancy-proto"></script>
-  <script src="js/worker-start.js?v=color-constancy-proto"></script>
-  <script src="js/detect.js?v=color-constancy-proto"></script>
-  <script src="js/plate-text.js?v=color-constancy-proto"></script>
-  <script src="js/plates.js?v=color-constancy-proto"></script>
-  <script src="js/vehicle-attrs.js?v=color-constancy-proto"></script>
-  <script src="js/vehicle.js?v=color-constancy-proto"></script>
-  <script src="js/cloud-boost.js?v=color-constancy-proto"></script>
-  <script src="js/pano-toggle.js?v=color-constancy-proto"></script>
-  <script src="js/multi-search.js?v=color-constancy-proto"></script>
-  <script src="js/wb.js?v=color-constancy-proto"></script>
-  <script src="js/colour-constancy.js?v=color-constancy-proto"></script>
-  <script src="js/search-ui.js?v=color-constancy-proto"></script>
-  <script src="js/search-strip.js?v=color-constancy-proto"></script>
-  <script src="js/connector-src.js?v=color-constancy-proto"></script>
-  <script src="js/tesla-auth.js?v=color-constancy-proto"></script>
-  <script src="js/key-import.js?v=color-constancy-proto"></script>
-  <script src="js/key-store.js?v=color-constancy-proto"></script>
-  <script src="js/ui.js?v=color-constancy-proto"></script>
-  <script src="js/lib-index.js?v=color-constancy-proto"></script>
-  <script src="js/lib-index-ui.js?v=color-constancy-proto"></script>
-  <script src="js/auto.js?v=color-constancy-proto"></script>
-  <script src="js/app.js?v=color-constancy-proto"></script>
+  <script src="js/core.js?v=redact-toggle"></script>
+  <script src="js/mp4.js?v=redact-toggle"></script>
+  <script src="js/sei.js?v=redact-toggle"></script>
+  <script src="js/crypto.js?v=redact-toggle"></script>
+  <script src="js/teslacam.js?v=redact-toggle"></script>
+  <script src="js/telemetry.js?v=redact-toggle"></script>
+  <script src="js/batching.js?v=redact-toggle"></script>
+  <script src="js/library.js?v=redact-toggle"></script>
+  <script src="js/player.js?v=redact-toggle"></script>
+  <script src="js/draw.js?v=redact-toggle"></script>
+  <script src="js/hud.js?v=redact-toggle"></script>
+  <script src="js/map.js?v=redact-toggle"></script>
+  <script src="js/compositor.js?v=redact-toggle"></script>
+  <script src="js/overlays.js?v=redact-toggle"></script>
+  <script src="js/focus.js?v=redact-toggle"></script>
+  <script src="js/export.js?v=redact-toggle"></script>
+  <script src="js/search.js?v=redact-toggle"></script>
+  <script src="js/redact.js?v=redact-toggle"></script>
+  <script src="js/text-match.js?v=redact-toggle"></script>
+  <script src="js/text-search.js?v=redact-toggle"></script>
+  <script src="js/time-search.js?v=redact-toggle"></script>
+  <script src="js/burn-boxes.js?v=redact-toggle"></script>
+  <script src="js/worker-start.js?v=redact-toggle"></script>
+  <script src="js/detect.js?v=redact-toggle"></script>
+  <script src="js/plate-text.js?v=redact-toggle"></script>
+  <script src="js/plates.js?v=redact-toggle"></script>
+  <script src="js/vehicle-attrs.js?v=redact-toggle"></script>
+  <script src="js/vehicle.js?v=redact-toggle"></script>
+  <script src="js/cloud-boost.js?v=redact-toggle"></script>
+  <script src="js/pano-toggle.js?v=redact-toggle"></script>
+  <script src="js/multi-search.js?v=redact-toggle"></script>
+  <script src="js/wb.js?v=redact-toggle"></script>
+  <script src="js/colour-constancy.js?v=redact-toggle"></script>
+  <script src="js/search-ui.js?v=redact-toggle"></script>
+  <script src="js/search-strip.js?v=redact-toggle"></script>
+  <script src="js/connector-src.js?v=redact-toggle"></script>
+  <script src="js/tesla-auth.js?v=redact-toggle"></script>
+  <script src="js/key-import.js?v=redact-toggle"></script>
+  <script src="js/key-store.js?v=redact-toggle"></script>
+  <script src="js/ui.js?v=redact-toggle"></script>
+  <script src="js/lib-index.js?v=redact-toggle"></script>
+  <script src="js/lib-index-ui.js?v=redact-toggle"></script>
+  <script src="js/auto.js?v=redact-toggle"></script>
+  <script src="js/app.js?v=redact-toggle"></script>
 </body>
 </html>

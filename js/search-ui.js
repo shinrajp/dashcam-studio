@@ -362,6 +362,10 @@
       '<button type="button" class="btn primary small" id="usFind" title="Find the moment that matches the words (Enter)">Find moment</button>' +
       '<button type="button" class="btn small text-only" id="usRedact" title="Blur this text wherever it appears, on every camera (Shift+Enter)">Blur text</button>' +
       '<button type="button" class="btn ghost small" id="usStop" hidden>Stop</button></div>' +
+      '<div class="us-style res-style" role="group" aria-label="How matches look"><span class="res-style-lbl">Matches</span>' +
+      '<button type="button" class="style-tgl" data-style="hl" id="usHl" aria-pressed="true"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2.5" y="3.5" width="11" height="9" rx="1"/></svg>Highlight</button>' +
+      '<button type="button" class="style-tgl" data-style="rd" id="usRd" aria-pressed="false"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2.5" y="3.5" width="11" height="9" rx="1" class="fill"/></svg>Redact</button>' +
+      '<button type="button" class="style-tgl blur-shown" id="usRedactShow" aria-pressed="true" hidden title="Show or hide the blur from Blur text, Blur plates, Blur faces, Street signs and All text (the export follows)">Show blur</button></span>' +
       '<div class="us-presets">' + presets + "</div>" +
       '<div class="q-chips" id="usChips" hidden></div>' +
       '<div class="us-status" id="usStatus" hidden></div>' +
@@ -392,6 +396,7 @@
     $("usFind").addEventListener("click", () => U.find());
     $("usRedact").addEventListener("click", () => U.redact());
     $("usStop").addEventListener("click", U.stop);
+    $("usRedactShow").addEventListener("click", (e) => { e.preventDefault(); e.stopPropagation(); if (T.redact && T.redact.setShown) T.redact.setShown(!T.redact.shown()); });
     $("usClear").addEventListener("click", U.clear);
     $("usClassic").addEventListener("change", (e) => U.setClassic(e.target.checked));
     $("usBest").addEventListener("change", (e) => { if (T.search.setBestOnly) T.search.setBestOnly(e.target.checked); refresh(); if (T.searchStrip && T.searchStrip.ok) T.searchStrip.update(); });
@@ -434,6 +439,7 @@
       build();
       U.ok = true;
       U.setClassic(U.classic());
+      if (T.search && T.search.syncStyle) T.search.syncStyle();
       document.body.classList.add("usearch");
       applyMode();
       placeSheet();

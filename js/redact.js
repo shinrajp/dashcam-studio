@@ -234,7 +234,19 @@
     return canFilter;
   };
   R.forceSoftBlur = false;   // tests: use the fallback in Chromium too
-  let sA = null, sB = null, sC = null;
+  let sA = null, sB = null, sC = null, sV = null;
+  let vfLast = null;
+  function frameCanvas(vf, iw, ih) {
+    const w = Math.round(iw || vf.displayWidth), h = Math.round(ih || vf.displayHeight);
+    sV = sV || document.createElement("canvas");
+    if (vfLast !== vf || sV.width !== w || sV.height !== h) {
+      if (sV.width !== w || sV.height !== h) { sV.width = w; sV.height = h; }
+      sV.getContext("2d").drawImage(vf, 0, 0, w, h);
+      vfLast = vf;
+    }
+    return sV;
+  }
+  R.frameCanvas = frameCanvas;
   function softBlur(ctx, img, iw, ih, sx, sy, sw, sh, dx, dy, dw, dh, radius) {
     // keep the source inside the frame (Safari draws nothing for an out-of-bounds source rect); move the target to match
     if (iw && ih) {
@@ -247,6 +259,9 @@
     const tw = Math.max(2, Math.round(dw / Math.max(2, radius))), th = Math.max(2, Math.round(dh / Math.max(2, radius)));
     let w = Math.max(tw, Math.min(512, Math.round(sw))), h = Math.max(th, Math.min(512, Math.round(sh)));
     sA = sA || document.createElement("canvas"); sB = sB || document.createElement("canvas");
+    // WebKit ignores the source rectangle of a decoded (I420) VideoFrame, the export's frames: drawImage(frame, sx, sy, sw, sh, …)
+    // draws the WHOLE frame shrunk into the box (a tiny sharp copy, not a blur). Copy the frame to a canvas once, use that.
+    if (typeof VideoFrame !== "undefined" && img instanceof VideoFrame) img = frameCanvas(img, iw, ih);
     const prep = (c, cw, ch) => { if (c.width < cw || c.height < ch) { c.width = Math.max(c.width, cw); c.height = Math.max(c.height, ch); } const x = c.getContext("2d"); x.imageSmoothingEnabled = true; try { x.imageSmoothingQuality = "high"; } catch (_) {} x.clearRect(0, 0, c.width, c.height); return x; };
     let src = sA, x = prep(sA, w, h); x.drawImage(img, sx, sy, Math.max(1, sw), Math.max(1, sh), 0, 0, w, h);
     while (w > tw || h > th) {
@@ -262,6 +277,7 @@
     ctx.imageSmoothingEnabled = s0;
   }
   function paintBox(ctx, img, iw, ih, fit, box, action) {
+    if (typeof VideoFrame !== "undefined" && img instanceof VideoFrame) img = frameCanvas(img, iw, ih);   // see softBlur (WebKit export)
     const dx = fit.x + box.x * fit.w, dy = fit.y + box.y * fit.h;
     const dw = Math.max(2, box.w * fit.w), dh = Math.max(2, box.h * fit.h);
     const sx = box.x * iw, sy = box.y * ih, sw = box.w * iw, sh = box.h * ih;
@@ -297,10 +313,18 @@
     catch (e) { if (T.plates && T.plates.blurError) T.plates.blurError(e, "boxes"); else console.warn("plate blur", e); return []; }
   }
 
+  // search matches with Redact on (burn-boxes.js redactAt: the same list in the viewer and the export)
+  function matchBlur(cam, t) {
+    try { return T.burnBoxes && T.burnBoxes.redactAt ? T.burnBoxes.redactAt(cam, t) : []; }
+    catch (e) { console.warn("match redaction", e); return []; }
+  }
+
   R.burn = (ctx, cam, t, cell, iw, ih, img) => {
     if (!iw || !ih) return;
     const pb = plateBlur(cam, t);
     if (pb.length) { const fit = contain(iw, ih, cell); for (const box of pb) paintBox(ctx, img, iw, ih, fit, box, "blur"); }
+    const mb = matchBlur(cam, t);   // burned in whatever Highlight / "Burn detection boxes" say
+    if (mb.length) { const fit = contain(iw, ih, cell); for (const box of mb) paintBox(ctx, img, iw, ih, fit, box, "blur"); }
     if (!R.active || !blurOn()) return;
     const boxes = boxesAt(cam, t);
     if (!boxes.length) return;
@@ -342,6 +366,8 @@
       if (!video || !video.videoWidth) continue;
       const pb = plateBlur(cam, t);
       if (pb.length) { const fit = contain(video.videoWidth, video.videoHeight, { x: 0, y: 0, w: tw, h: th }); for (const box of pb) paintBox(ctx, video, video.videoWidth, video.videoHeight, fit, box, "blur"); tintLike(ctx, fit, pb); }
+      const mb = matchBlur(cam, t);
+      if (mb.length) { const fit = contain(video.videoWidth, video.videoHeight, { x: 0, y: 0, w: tw, h: th }); for (const box of mb) paintBox(ctx, video, video.videoWidth, video.videoHeight, fit, box, "blur"); tintLike(ctx, fit, mb); }
       if (!R.active || !blurOn()) continue;
       const boxes = boxesAt(cam, t);
       if (!boxes.length) continue;
@@ -887,6 +913,8 @@
     if (go) go.disabled = R.running;
     const wrap = $("redactShowWrap");
     if (wrap) wrap.hidden = !on;
+    const ub = $("usRedactShow");   // search panel copy of "Show blur"
+    if (ub) { ub.hidden = !on; ub.setAttribute("aria-pressed", String(blurOn())); }
   }
 
   R.clear = () => {
@@ -998,6 +1026,10 @@
     }
   };
   R.clearText = () => { if (R.active) R.clear(); };
+  R.paint = () => { try { paintLive(); } catch (e) { console.warn("redact paint", e); } };
+  /** "Show blur" for Blur text / plates / faces results (classic bar tick, search panel button). */
+  R.shown = () => blurOn();
+  R.setShown = (on) => { const b = $("redactShow"); if (b) b.checked = !!on; paintLive(); syncButtons(); if (T.emit) T.emit("redact-shown", !!on); };
 
   R.init = () => {
     ensureLayers();
@@ -1005,7 +1037,7 @@
     $("redactQuery").addEventListener("keydown", (e) => { if (e.key === "Enter") R.run(); });
     $("btnRedactStop").addEventListener("click", () => { R.stop = true; status("Stopping…"); });
     $("btnRedactClear").addEventListener("click", () => R.clear());
-    if ($("redactShow")) $("redactShow").addEventListener("change", () => paintLive());
+    if ($("redactShow")) $("redactShow").addEventListener("change", () => { paintLive(); syncButtons(); });
     document.querySelectorAll(".redact-presets button").forEach((b) => {
       b.addEventListener("click", () => {
         $("redactQuery").value = b.getAttribute("data-q");

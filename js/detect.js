@@ -231,9 +231,9 @@
         return out;
       }
       const tl = T.player && T.player.playing && D.prefs().live ? D.trackedLive(cam, t) : null;
-      if (tl) return tl.map((b) => ({ x: b.x, y: b.y, w: b.w, h: b.h, text: (b.attr ? b.attr + " " : "") + b.label + " " + pct(b.conf) }));
+      if (tl) return tl.map((b) => ({ x: b.x, y: b.y, w: b.w, h: b.h, text: (b.attr ? b.attr + " " : "") + b.label + " " + pct(b.conf), label: b.label, live: true }));
       const lv = D.liveAt(cam, t);
-      if (lv) return lv.dets.map((b) => ({ x: b.x, y: b.y, w: b.w, h: b.h, text: (b.attr ? b.attr + " " : "") + b.label + " " + pct(b.conf) }));
+      if (lv) return lv.dets.map((b) => ({ x: b.x, y: b.y, w: b.w, h: b.h, text: (b.attr ? b.attr + " " : "") + b.label + " " + pct(b.conf), label: b.label, live: true }));
       return null;
     } catch (_) { return null; }
   };
@@ -399,7 +399,7 @@
   function onFrame(now, meta) {
     if (!loopOn) return;
     const P = D.prefs();
-    const boxesOff = T.search && T.search.goldShown && !T.search.goldShown();   // Boxes off: nothing would be drawn, save the power
+    const boxesOff = T.search && (T.search.needBoxes ? !T.search.needBoxes() : T.search.goldShown && !T.search.goldShown());   // nothing outlined or blurred: save the power
     if (!P.enabled || !P.live || !T.player || !T.player.playing || boxesOff) { loopOn = false; loopVid = null; return; }
     D.liveStats.frames++;
     const cams = D.liveCams();
@@ -424,7 +424,7 @@
   D.liveTick = () => {
     const P = D.prefs();
     if (!P.enabled || !P.live || !T.player || !T.player.playing || !T.player.tiles || loopOn) return;
-    if (T.search && T.search.goldShown && !T.search.goldShown()) return;   // Boxes off: live detection paused
+    if (T.search && (T.search.needBoxes ? !T.search.needBoxes() : T.search.goldShown && !T.search.goldShown())) return;   // Boxes off (and nothing to redact): live detection paused
     loopOn = true; arm();
   };
 

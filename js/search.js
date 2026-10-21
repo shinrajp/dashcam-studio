@@ -210,13 +210,66 @@
   }
   S.setBoxes = (on) => {
     try { on ? localStorage.removeItem(BOX_KEY) : localStorage.setItem(BOX_KEY, "0"); } catch (_) {}
-    syncBoxes();
+    syncBoxes(); syncStyle();
     if (on && S.anchor != null && groupAt(S.anchor).some((g) => !g.box)) openHit(groupAt(S.anchor)[0]);
     S.paintBoxes();
+    if (T.redact && T.redact.paint) T.redact.paint();
+    if (S.terms && T.multi) T.multi.renderChips();
     if (T.detect && T.detect.liveTick) T.detect.liveTick();   // resume Detect while playing
     T.emit && T.emit("boxes", on);
   };
-  S.toggleBoxes = () => S.setBoxes(!S.boxesOn());
+  S.toggleBoxes = () => S.setHighlight(!S.boxesOn());
+
+  // ── How matches look: Highlight (= the Boxes state above: outline + label) and Redact (opaque blur over the match), each on
+  // its own, so highlight only / redact only / both / neither. Redact is saved too (off by default). A term of a several-thing
+  // search can override either (S.terms[i].hl / .rd: true / false; null = follow the switch); flipping a switch resets that
+  // switch's overrides. Viewer (search.js outlines, redact.js blur layer) and export (compositor) read the same
+  // burnBoxes.at / burnBoxes.redactAt, so the file matches the screen; redaction is burned in even when highlights are off. ──
+  const RD_KEY = "tdc.results.redact";
+  S.redactOn = () => { try { return localStorage.getItem(RD_KEY) === "1"; } catch (_) { return false; } };
+  const terms = () => (Array.isArray(S.terms) ? S.terms : []);
+  S.termMode = (ti) => {
+    const c = ti != null ? terms()[ti] : null;
+    return { hl: c && c.hl != null ? !!c.hl : S.goldShown(), rd: c && c.rd != null ? !!c.rd : S.redactOn() };
+  };
+  S.anyHl = () => S.goldShown() || terms().some((c) => c.hl === true);
+  S.anyRd = () => S.redactOn() || terms().some((c) => c.rd === true);
+  /** Boxes are needed at all (locate / follow the match, live detection, export prepare): something is outlined or blurred. */
+  S.needBoxes = () => S.anyHl() || (S.anyRd() && !!((S.allHits && S.allHits.length) || (S.hits && S.hits.length)));
+  function syncStyle() {
+    const hl = S.goldShown(), rd = S.redactOn();
+    document.querySelectorAll('.style-tgl[data-style="hl"]').forEach((b) => { b.setAttribute("aria-pressed", String(hl)); b.title = (hl ? "Highlight is on: matches get an outline and a label" : "Highlight is off: no outlines (live detection paused)") + " · X"; });
+    document.querySelectorAll('.style-tgl[data-style="rd"]').forEach((b) => { b.setAttribute("aria-pressed", String(rd)); b.title = (rd ? "Redact is on: matches are blurred, in the viewer and burned into the export" : "Redact is off: matches are not blurred") + " · R"; });
+  }
+  S.syncStyle = syncStyle;
+  function restyle() {
+    syncStyle();
+    S.paintBoxes();
+    if (T.redact && T.redact.paint) T.redact.paint();
+    if (T.detect && T.detect.liveTick) T.detect.liveTick();
+    if (S.terms && T.multi) T.multi.renderChips();
+    T.emit && T.emit("result-style", { hl: S.goldShown(), rd: S.redactOn() });
+  }
+  S.restyle = restyle;
+  S.setRedact = (on) => {
+    try { on ? localStorage.setItem(RD_KEY, "1") : localStorage.removeItem(RD_KEY); } catch (_) {}
+    for (const c of terms()) c.rd = null;
+    // a match without a box yet (picture search): find it now, so there is something to blur
+    if (on && S.anchor != null && groupAt(S.anchor).some((g) => !g.box)) openHit(groupAt(S.anchor)[0]);
+    restyle();
+  };
+  S.toggleRedact = () => S.setRedact(!S.redactOn());
+  S.setHighlight = (on) => { for (const c of terms()) c.hl = null; S.setBoxes(on); };
+  /** 'hl' | 'rd' of one term: flip it; back to null when it equals the switch again. */
+  S.toggleTerm = (ti, which) => {
+    const c = terms()[ti];
+    if (!c || (which !== "hl" && which !== "rd")) return;
+    const want = !S.termMode(ti)[which], glob = which === "hl" ? S.goldShown() : S.redactOn();
+    c[which] = want === glob ? null : want;
+    restyle();
+  };
+  /** Mode name for tests / status: "highlight" | "redact" | "both" | "none". */
+  S.styleName = (ti) => { const m = S.termMode(ti); return m.hl && m.rd ? "both" : m.hl ? "highlight" : m.rd ? "redact" : "none"; };
   S.paintBoxes = () => { S.forcePaint = true; try { paintBoxes(); } finally { S.forcePaint = false; } };   // explicit call: always redraw
   function paintBoxes() {
     if (!T.player.tiles) return;
@@ -369,7 +422,7 @@
     T.player.seek(hit.t);
     renderHits();
     paintBoxes();
-    const show = !$("findShow") || $("findShow").checked;
+    const show = S.needBoxes ? S.needBoxes() : !$("findShow") || $("findShow").checked;   // outlined or blurred: locate + follow it
     if (show && !hit.vehicle) {
       status("Outlining “" + (S.phrase || "the match") + "”…");
       for (const g of group) {
@@ -438,6 +491,7 @@
     if (show) show.parentElement.hidden = !has;
     if (follow) follow.parentElement.hidden = !has;
     if (S.terms && T.multi) T.multi.renderChips();
+    if (T.redact && T.redact.paint) T.redact.paint();   // redacted matches appear / go with the results
     if (T.ui && T.ui.drawTimeline) T.ui.drawTimeline();
   }
 
@@ -760,7 +814,14 @@
     $("btnFindStop").addEventListener("click", () => { S.stop = true; status("Stopping…"); });
     $("btnFindClear").addEventListener("click", () => S.clear());
     $("btnFindMarks").addEventListener("click", () => S.markSections());
-    syncBoxes();
+    syncBoxes(); syncStyle();
+    document.addEventListener("click", (e) => {   // Highlight / Redact switches (classic bar, search panel, phone strip)
+      const b = e.target && e.target.closest && e.target.closest(".style-tgl");
+      if (!b) return;
+      e.preventDefault();
+      if (b.dataset.style === "hl") S.setHighlight(!S.goldShown());
+      else if (b.dataset.style === "rd") S.setRedact(!S.redactOn());
+    });
     if ($("btnBoxes")) $("btnBoxes").addEventListener("click", (e) => { e.stopPropagation(); S.toggleBoxes(); });
     if ($("findShow")) $("findShow").addEventListener("change", () => {
       const on = $("findShow").checked;

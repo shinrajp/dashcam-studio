@@ -706,7 +706,15 @@
       box.appendChild(c);
     }
     const bx = $("exportBoxes");
-    if (bx) { bx.checked = !!(T.burnBoxes && T.burnBoxes.enabled()); bx.onchange = () => { if (T.burnBoxes) T.burnBoxes.setEnabled(bx.checked); }; }
+    const styleNote = () => {   // what the search switches mean for this export
+      const n = $("exportStyleNote"), S = T.search; if (!n || !S || !S.anyRd) return;
+      const has = !!((S.allHits && S.allHits.length) || (S.hits && S.hits.length));
+      const hl = S.anyHl(), rd = S.anyRd();
+      n.hidden = !has;
+      n.textContent = "Search matches: " + (hl ? (bx && bx.checked ? "highlighted (burned in)" : "highlight on, tick Burn detection boxes to burn it in") : "highlight off") + " · " + (rd ? "redacted (always burned in)" : "not redacted") + ".";
+    };
+    if (bx) { bx.checked = !!(T.burnBoxes && T.burnBoxes.enabled()); bx.onchange = () => { if (T.burnBoxes) T.burnBoxes.setEnabled(bx.checked); styleNote(); }; }
+    styleNote();
     updateExportHint();
     const cap = T.exporter.capability();
     $("exportUnsupported").hidden = cap.mode !== "none";
@@ -932,6 +940,7 @@
       else if ((k === "-" || k === "_") && T.focus.cam) T.focus.zoomBy(1 / 1.5);
       else if (k === "l" || k === "L") toggleShow("labels");
       else if ((k === "x" || k === "X") && T.search && T.search.toggleBoxes) T.search.toggleBoxes();   // detection boxes on / off (B is Advanced: split section)
+      else if ((k === "r" || k === "R") && !e.altKey && T.search && T.search.toggleRedact) T.search.toggleRedact();   // redact (blur) search matches on / off
       else if ((k === "i" || k === "I") && T.prefs.advanced) $("btnIn").click();
       else if ((k === "o" || k === "O") && T.prefs.advanced) $("btnOut").click();
       else if ((k === "a" || k === "A") && T.prefs.advanced && P().ev) U.addSeg();

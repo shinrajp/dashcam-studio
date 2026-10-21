@@ -708,3 +708,22 @@ body.no-text-search .text-only { display: none !important; }
 .us-item .us-thumb { flex: 0 0 auto; width: 56px; height: 42px; object-fit: cover; border-radius: 4px; background: #111; }
 .us-item.us-time .us-t { color: var(--accent, #e6b450); }
 .us-item.us-time.out { opacity: .8; }
+
+/* ── how matches look (search.js S.setHighlight / S.setRedact): Highlight = outline + label, Redact = opaque blur; per term too ── */
+.res-style { display: inline-flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.res-style-lbl { font-size: 11px; font-weight: 700; color: var(--faint); text-transform: uppercase; letter-spacing: .04em; margin-right: 2px; }
+.style-tgl { appearance: none; display: inline-flex; align-items: center; gap: 4px; height: 28px; padding: 0 9px; border-radius: 8px; border: 1px solid var(--line); background: transparent; color: var(--dim); font: 650 12px/1 system-ui, sans-serif; cursor: pointer; white-space: nowrap; }
+.style-tgl[hidden] { display: none; }
+.style-tgl svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.6; }
+.style-tgl svg .fill { fill: currentColor; fill-opacity: .45; }
+.style-tgl[aria-pressed="true"] { background: rgba(230,180,80,.18); border-color: #e6b450; color: #ffe3a3; }
+.style-tgl[aria-pressed="false"] { text-decoration: line-through; text-decoration-color: rgba(255,255,255,.35); }
+.us-style { padding: 2px 2px 6px; }
+.find-bar .res-style { margin: 0 2px; }
+.term-group { display: inline-flex; align-items: center; gap: 2px; }
+.term-mode { appearance: none; width: 22px; height: 22px; padding: 0; display: inline-flex; align-items: center; justify-content: center; border-radius: 6px; border: 1px solid transparent; background: transparent; color: rgba(255,255,255,.35); cursor: pointer; }
+.term-mode svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 1.7; }
+.term-mode svg .fill { fill: currentColor; fill-opacity: .5; }
+.term-mode[aria-pressed="true"] { color: var(--term, #e6b450); }
+.term-mode.own { border-color: rgba(255,255,255,.28); }
+@media (pointer: coarse) { .term-mode { width: 28px; height: 28px; } .style-tgl { height: 32px; } }

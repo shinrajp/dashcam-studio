@@ -84,12 +84,20 @@
       html += '<button type="button" class="q-chip term-chip' + (S.termFilter == null ? " on" : "") + '" data-term="all" aria-pressed="' + (S.termFilter == null) + '">All · ' + (S.bestFiltered ? S.bestFiltered().length : all.length) + "</button>";
       for (const c of terms) {
         const n = all.filter((h) => h.ti === c.i).length;
-        html += '<button type="button" class="q-chip term-chip' + (S.termFilter === c.i ? " on" : "") + (n ? "" : " none") + '" data-term="' + c.i + '" aria-pressed="' + (S.termFilter === c.i) + '" title="' + esc(M.kindLabel[c.kind] || c.kind) + '" style="--term:' + c.color + '"><i style="background:' + c.color + '"></i>' + esc(c.term) + " · " + n + "</button>";
+        const chip = '<button type="button" class="q-chip term-chip' + (S.termFilter === c.i ? " on" : "") + (n ? "" : " none") + '" data-term="' + c.i + '" aria-pressed="' + (S.termFilter === c.i) + '" title="' + esc(M.kindLabel[c.kind] || c.kind) + '" style="--term:' + c.color + '"><i style="background:' + c.color + '"></i>' + esc(c.term) + " · " + n + "</button>";
+        // per term: outline (highlight) and blur (redact) on / off; a ring marks a term that differs from the switch
+        const m = S.termMode ? S.termMode(c.i) : { hl: true, rd: false };
+        const tb = (k, on, svg, what) => '<button type="button" class="term-mode' + (c[k] != null ? " own" : "") + '" data-ti="' + c.i + '" data-m="' + k + '" aria-pressed="' + on + '" aria-label="' + what + " “" + esc(c.term) + "”: " + (on ? "on" : "off") + '" title="' + what + " “" + esc(c.term) + "”: " + (on ? "on" : "off") + (c[k] != null ? " (just this term)" : "") + '">' + svg + "</button>";
+        html += '<span class="term-group" style="--term:' + c.color + '">' + chip +
+          tb("hl", m.hl, '<svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2.5" y="3.5" width="11" height="9" rx="1"/></svg>', "Highlight") +
+          tb("rd", m.rd, '<svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2.5" y="3.5" width="11" height="9" rx="1" class="fill"/></svg>', "Redact") + "</span>";
       }
     }
     for (const id of ["findChips", "usChips", "ssChips"]) { const n = $(id); if (n) { n.innerHTML = html; n.hidden = !html; } }
   };
   document.addEventListener("click", (e) => {
+    const tm = e.target && e.target.closest && e.target.closest(".term-mode");
+    if (tm && T.search && T.search.toggleTerm) { e.preventDefault(); T.search.toggleTerm(+tm.getAttribute("data-ti"), tm.getAttribute("data-m")); return; }
     const b = e.target && e.target.closest && e.target.closest(".term-chip");
     if (!b || !T.search || !T.search.setTermFilter) return;
     const v = b.getAttribute("data-term"), i = v === "all" ? null : +v;
