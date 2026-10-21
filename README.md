@@ -205,6 +205,8 @@ Night clips under streetlights often look orange. Tap **White balance** in the b
 ![](screenshots/white-balance-after-chromium.png)
 ![Show sample area: the learned body sliver on each mirror camera](screenshots/white-balance-mask-chromium.png)
 
+- **Colour constancy (prototype, off by default):** Settings ▸ White balance ▸ *Colour constancy*. Uses more references (lane markings, plates, a small 1.8 MB on-device model) and CAT16 / Bradford adaptation for colour search and export labels; optional CLIP colour check. On the synthetic test it raises strict colour accuracy from 56 % to 64–65 %, but it can be worse on some real clips. Details in CHANGES-v2.md.
+
 ## 360 view (beta prototype)
 Tap **360** in the camera bar. The six cameras are stitched on your device's GPU (WebGL2, or WebGL1 on older browsers) into one view around the car:
 - **Look around:** drag to turn, pinch or scroll to zoom, double-click to reset. **Gyro** uses the phone's motion sensor (iPhone asks for permission).
