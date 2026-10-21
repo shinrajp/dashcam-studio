@@ -125,32 +125,72 @@
   const LINT = new Float32Array(256); for (let i = 0; i < 256; i++) { const c = i / 255; LINT[i] = c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); }
   const ENCT = new Float32Array(4097); for (let i = 0; i <= 4096; i++) { const c = i / 4096; ENCT[i] = c <= 0.0031308 ? c * 12.92 : 1.055 * Math.pow(c, 1 / 2.4) - 0.055; }
   const ENC = (v) => (v <= 0 ? 0 : v >= 1 ? 1 : ENCT[Math.round(v * 4096)]);
+  /** Lit lamps (tag taillight-fix). Seen from behind at night, tail / brake lamps are clipped cores with a saturated red
+   *  (or amber) ring, and their glow tints the body around them (often the whole rear of a white bus pink). Seeds: clipped
+   *  pixels (raw ≥ LAMP_CLIP; only in a dark crop, where nothing else clips) and bright, saturated red / amber pixels clearly
+   *  brighter than the body (or very saturated on a pale body). Seeds + a halo of LAMP_HALO × the crop's short side are left
+   *  out of the vote, and red / amber pixels within twice that, more saturated than the body, too (glow gradient). Many seeds
+   *  (> LAMP_MAX of the crop) = paint, not lamps: only clipped seeds are kept, or none. */
+  const LAMP_CLIP = 0.96, LAMP_HALO = 0.07, LAMP_MAX = 0.18;
+  /** At night (and wherever lamps were found) a red / pink / magenta reading needs real saturation: a red cast on a white
+   *  body (lamp glow, a pink-leaning white balance) sits at s ≈ 0.2–0.35, red paint at ≥ 0.5 even dim. Below → neutral. */
+  const RED_MIN_S = { day: 0.16, lamps: 0.35, night: 0.42 };
+  const redAmber = (hue) => hue < 50 || hue >= 320;
   function colorFromPixels(rgba, w, h, opts) {
     const gn = opts && opts.gains, g0 = gn ? gn[0] : 1, g1 = gn ? gn[1] : 1, g2 = gn ? gn[2] : 1;
-    const M = opts && opts.matrix;
-    const GT = opts && opts.night ? GRAY_NIGHT : GRAY_DAY;
+    const M = opts && opts.matrix, night = !!(opts && opts.night);
+    const GT = night ? GRAY_NIGHT : GRAY_DAY;
     const sc = {}; COLORS.forEach((c) => (sc[c] = 0));
-    let total = 0, vSum = 0, n = 0, warm = 0;
+    const N = w * h, R = new Float32Array(N), G = new Float32Array(N), B = new Float32Array(N), V = new Float32Array(N), S = new Float32Array(N), HU = new Float32Array(N), RAW = new Float32Array(N);
+    for (let p = 0, i = 0; p < N; p++, i += 4) {
+      let r, g, b;
+      if (M) {   // colour-constancy prototype: a 3×3 in LINEAR sRGB (CAT16 / Bradford / linear gains), then back to sRGB
+        const lr = LINT[rgba[i]], lg = LINT[rgba[i + 1]], lb = LINT[rgba[i + 2]];
+        r = ENC(M[0][0] * lr + M[0][1] * lg + M[0][2] * lb); g = ENC(M[1][0] * lr + M[1][1] * lg + M[1][2] * lb); b = ENC(M[2][0] * lr + M[2][1] * lg + M[2][2] * lb);
+      } else { r = Math.min(1, (rgba[i] / 255) * g0); g = Math.min(1, (rgba[i + 1] / 255) * g1); b = Math.min(1, (rgba[i + 2] / 255) * g2); }
+      const mx = Math.max(r, g, b), mn = Math.min(r, g, b), c = mx - mn;
+      let hue = 0;
+      if (c > 1e-6) { if (mx === r) hue = ((g - b) / c) % 6; else if (mx === g) hue = (b - r) / c + 2; else hue = (r - g) / c + 4; hue *= 60; if (hue < 0) hue += 360; }
+      R[p] = r; G[p] = g; B[p] = b; V[p] = mx; S[p] = mx ? c / mx : 0; HU[p] = hue; RAW[p] = Math.max(rgba[i], rgba[i + 1], rgba[i + 2]) / 255;
+    }
+    // body brightness / saturation: medians of the non-dark pixels
+    const med = (arr) => { const a = []; for (let p = 0; p < N; p++) if (V[p] >= 0.2) a.push(arr[p]); if (!a.length) return 0; a.sort((x, y) => x - y); return a[a.length >> 1]; };
+    const medV = med(V), medS = med(S), dark = night || medV < 0.45;
+    // lamp seeds
+    const seed = new Uint8Array(N); let nSeed = 0, nClip = 0;
+    for (let p = 0; p < N; p++) {
+      const clip = dark && RAW[p] >= LAMP_CLIP;
+      const lens = redAmber(HU[p]) && S[p] >= 0.5 && V[p] >= 0.6 && (V[p] >= medV + 0.2 || (S[p] >= 0.75 && medS < 0.3));
+      if (clip || lens) { seed[p] = clip ? 2 : 1; nSeed++; if (clip) nClip++; }
+    }
+    if (nSeed > LAMP_MAX * N) { for (let p = 0; p < N; p++) if (seed[p] === 1) seed[p] = 0; nSeed = nClip; if (nClip > LAMP_MAX * N) { seed.fill(0); nSeed = 0; } }
+    const lampMask = new Uint8Array(N);   // 1 = lamp + halo, 2 = glow zone (red / amber pixels there are dropped if saturated)
+    if (nSeed) {
+      const r1 = Math.max(1, Math.round(Math.min(w, h) * LAMP_HALO)), r2 = r1 * 2;
+      const dist = new Float32Array(N).fill(1e9);   // chessboard distance to the nearest seed (two-pass)
+      for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) { const p = y * w + x; if (seed[p]) { dist[p] = 0; continue; } let d = dist[p]; if (x) d = Math.min(d, dist[p - 1] + 1); if (y) { d = Math.min(d, dist[p - w] + 1); if (x) d = Math.min(d, dist[p - w - 1] + 1); if (x < w - 1) d = Math.min(d, dist[p - w + 1] + 1); } dist[p] = d; }
+      for (let y = h - 1; y >= 0; y--) for (let x = w - 1; x >= 0; x--) { const p = y * w + x; let d = dist[p]; if (x < w - 1) d = Math.min(d, dist[p + 1] + 1); if (y < h - 1) { d = Math.min(d, dist[p + w] + 1); if (x < w - 1) d = Math.min(d, dist[p + w + 1] + 1); if (x) d = Math.min(d, dist[p + w - 1] + 1); } dist[p] = d; }
+      for (let p = 0; p < N; p++) lampMask[p] = dist[p] <= r1 ? 1 : dist[p] <= r2 ? 2 : 0;
+    }
+    const redMin = night ? RED_MIN_S.night : nSeed ? RED_MIN_S.lamps : RED_MIN_S.day;
+    let total = 0, all = 0, vSum = 0, n = 0, warm = 0, dropped = 0;
     for (let y = 0; y < h; y++) {
       const dy = (y + 0.5) / h - 0.55;
       for (let x = 0; x < w; x++) {
         const dx = (x + 0.5) / w - 0.5;
-        const wt = Math.exp(-(dx * dx) / (2 * 0.3 * 0.3) - (dy * dy) / (2 * 0.32 * 0.32));   // centre of the body counts most
-        const i = (y * w + x) * 4;
-        let r, g, b;
-        if (M) {   // colour-constancy prototype: a 3×3 in LINEAR sRGB (CAT16 / Bradford / linear gains), then back to sRGB
-          const lr = LINT[rgba[i]], lg = LINT[rgba[i + 1]], lb = LINT[rgba[i + 2]];
-          r = ENC(M[0][0] * lr + M[0][1] * lg + M[0][2] * lb); g = ENC(M[1][0] * lr + M[1][1] * lg + M[1][2] * lb); b = ENC(M[2][0] * lr + M[2][1] * lg + M[2][2] * lb);
-        } else { r = Math.min(1, (rgba[i] / 255) * g0); g = Math.min(1, (rgba[i + 1] / 255) * g1); b = Math.min(1, (rgba[i + 2] / 255) * g2); }
-        const mx = Math.max(r, g, b), mn = Math.min(r, g, b), v = mx, c = mx - mn, s = mx ? c / mx : 0;
-        let hue = 0;
-        if (c > 1e-6) { if (mx === r) hue = ((g - b) / c) % 6; else if (mx === g) hue = (b - r) / c + 2; else hue = (r - g) / c + 4; hue *= 60; if (hue < 0) hue += 360; }
+        let wt = Math.exp(-(dx * dx) / (2 * 0.3 * 0.3) - (dy * dy) / (2 * 0.32 * 0.32));   // centre of the body counts most
+        const p = y * w + x, r = R[p], g = G[p], b = B[p], v = V[p], s = S[p], hue = HU[p], c = v - Math.min(r, g, b);
         vSum += v; n++;
+        all += wt;
+        if (lampMask[p] === 1 || (lampMask[p] === 2 && redAmber(hue) && s > Math.max(0.2, medS + 0.08))) { dropped += wt; continue; }   // lamp, its halo, its glow
+        // uniform panels count more than edges, lettering and reflections (local brightness spread, 4-neighbours)
+        if (x > 0 && y > 0 && x < w - 1 && y < h - 1) { const sd = (Math.abs(V[p - 1] - v) + Math.abs(V[p + 1] - v) + Math.abs(V[p - w] - v) + Math.abs(V[p + w] - v)) / 4; wt /= 1 + 6 * sd; }
         if (hue >= 20 && hue <= 45 && s > 0.35) warm++;
         let name, k = 1;
         const gray = () => (v > GT[0] ? "white" : v > GT[1] ? "silver" : v > GT[2] ? "gray" : "black");
+        const redHue = hue < 12 || hue >= 290;
         if (v < 0.2) { name = "black"; k = 0.55; }   // also glass, tyres and deep shadow
-        else if (s < 0.16 || c < 0.07 || neutral(r, g, b, v, hue)) { name = gray(); k = name === "black" ? 0.55 : 0.85; }
+        else if (s < 0.16 || c < 0.07 || neutral(r, g, b, v, hue) || (redHue && s < redMin)) { name = gray(); k = name === "black" ? 0.55 : 0.85; }
         else {
           k = 0.6 + s;   // saturated paint is the strongest clue
           if (hue < 12 || hue >= 335) name = v < 0.35 && s < 0.5 ? "brown" : "red";
@@ -169,20 +209,28 @@
     const topC = chrom.reduce((a, b) => (share[b] > share[a] ? b : a));
     const light = ["white", "silver", "gray"].reduce((a, b) => (share[b] > share[a] ? b : a));
     const nonBlack = 1 - share.black || 1;
+    const lampFrac = all ? dropped / all : 0;
+    // lamps lit and a lamp-coloured answer (red, orange, purple, brown): it must be a clear majority, else the less
+    // saturated reading wins (glow and reflections are what's left after the masks)
+    const lampHue = nSeed > 0 && (topC === "red" || topC === "orange" || topC === "purple" || topC === "brown");
+    const minShare = lampHue ? (night ? 0.45 : 0.35) : 0.25;
     let name, conf;
     // paint colour wins when it is a real part of the non-dark pixels and not clearly beaten by white/silver/gray
     if (share.black >= 0.7 && share[topC] < 0.15) { name = "black"; conf = Math.min(1, share.black * 1.4); }   // a dark car at night: a few coloured reflections don't make it blue / brown
-    else if (share[topC] / nonBlack >= 0.25 && share[topC] >= 0.85 * share[light]) { name = topC; conf = Math.min(1, (share[topC] / nonBlack) * 1.3); }
+    else if (share[topC] / nonBlack >= minShare && share[topC] >= (lampHue ? 1.2 : 0.85) * share[light]) { name = topC; conf = Math.min(1, (share[topC] / nonBlack) * 1.3); }
     else if (share.black >= 0.5) { name = "black"; conf = Math.min(1, share.black * 1.4); }
     else {
       name = light;
       if (name === "silver" && share.white >= 0.75 * share.silver) name = "white";   // white paint in shade reads as silver
       conf = Math.min(1, (share[name] / nonBlack) * 1.3);
     }
+    // too little body left after the lamp masks: say it, lean neutral
+    const thin = lampFrac > 0.6;
+    if (thin) { if (lampHue && name === topC) name = light; conf *= 0.6; }
     const meanV = n ? vSum / n : 0;
     const lowLight = meanV < 0.18 || (n && warm / n > 0.6 && name !== "orange" && name !== "yellow");   // night, or orange sodium light
     if (lowLight) conf *= 0.5;
-    return { name, conf: Math.round(conf * 100) / 100, scores: share, lowLight: !!lowLight, corrected: !!(gn || M) };
+    return { name, conf: Math.round(conf * 100) / 100, scores: share, lowLight: !!lowLight, corrected: !!(gn || M), lamps: Math.round(lampFrac * 100) / 100, thin };
   }
   function neutral(r, g, b, v, hue) {
     const [L, A, B] = lab(r, g, b), C = Math.hypot(A, B);
