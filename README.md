@@ -103,6 +103,16 @@ The mode, position, size and pin are remembered on this device. Clicking the vid
 
 **Classic search bars:** Settings ▸ Search ▸ *Classic search bars* (or the checkbox at the bottom of the search box) brings back the original Find and Redact bars under the video. You can also open the app with `?search=classic`. If the new search ever fails to start, the classic bars appear on their own.
 
+### Highlight or redact what you found
+Under the search box, **Matches: Highlight · Redact** decide how the results look, in the viewer and in the export:
+- **Highlight** (on by default): the outline and label around each match. It is the same switch as the **Boxes** button in the camera bar, the **X** key and the *Gold box* tick.
+- **Redact** (off by default, **R** key): an opaque blur over each match (the same shrink-and-enlarge blur as Blur plates, so it looks the same in Safari, on an iPhone and in Chrome). The blur follows the match where it is followed (tracking, Detect while playing), and otherwise covers the result for ±1 s around its moment, like the outline. With object detection, only the searched class is blurred (searching `person` never blurs the cars).
+- So you can have highlight only, redact only, both, or neither. Both switches are remembered on this device; the classic Find bar has the same two buttons.
+- **Per term:** in a search for several things, every term chip has two small buttons, an outline (highlight) and a filled box (redact). Tap them to set that term on its own, e.g. `bus, person` with the people blurred and the bus outlined. A ringed button differs from the switch; tapping the switch again applies it to every term. Showing one term with its chip never un-blurs the others.
+- **Export:** redacted matches are always burned into the file (even with **Burn detection boxes** unticked or Highlight off); outlines are burned in when Highlight is on and **Burn detection boxes** is ticked. The Export dialog says which. The viewer and the export read the same list of boxes, so the file matches the screen.
+- See `screenshots/redact-toggle-panel.png` (the switches and the per-term buttons for `bus, person`) and `screenshots/redact-toggle-viewer.png` (bus redacted, person highlighted; synthetic footage).
+- **Blur text / plates / faces** results have their own **Show blur** button in the search panel (and the classic Redact bar): off shows the original picture in the viewer and the export, on blurs it again. Running Blur text, Blur plates or All text again keeps it on.
+
 ### Several things in one search
 Type them together, separated by commas, `and`, `or`, `+`, `/` or `;`, for example **`bus, person, police car`**, **`red car and cyclist`**, **`traffic light / stop sign`**, **`white police car + person`** or **`bus, plate 7AB*`**. One scan goes over every camera, and each frame is detected once for all the terms, so it is much faster than searching for each one in turn. Each term gets a coloured chip with its number of results (in the search panel, the floating search and the phone strip). Tap a chip to show only that term and tap **All** to show everything again. In the viewer and in the burned-in export each term's boxes have its colour; the result you opened stays gold.
 - Names with several words stay together (`traffic light`, `stop sign`, `fire hydrant`, `tour bus`, `white police car`), and a colour on its own joins what follows (`black and white police car`).
@@ -245,6 +255,7 @@ Tap **360** in the camera bar. The six cameras are stitched on your device's GPU
 | F | full screen |
 | C | camera bar on / off |
 | X | detection boxes on / off (same as the **Boxes** button in the camera bar and the *Gold box* checkbox; off = no boxes in the viewer or the export, and Detect while playing pauses) |
+| R | redact (blur) search matches on / off (the **Redact** button under the search box; burned into the export too) |
 | H · M · D · L | toggle HUD · map · Self-Driving badge · camera labels |
 
 With **Advanced** on: A adds a section, B splits the section at the playhead, I / O set its start / end, S plays only the sections, Delete removes the selected one. On the timeline, Ctrl+scroll or a pinch zooms in, scrolling sideways pans, and double-clicking (or the zoom button) zooms back out.
