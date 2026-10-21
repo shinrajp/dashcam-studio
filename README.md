@@ -110,6 +110,18 @@ Type them together, separated by commas, `and`, `or`, `+`, `/` or `;`, for examp
 - Objects need Settings ▸ Object detection on; vehicle words (colour, type, make) need Vehicle details; plates need Plates & text. Without them a term falls back to the picture search, like a single search.
 - **Best match only** applies to plate terms; the other terms always show all their results. Up to 6 terms.
 
+### Jump to a time
+Type a time in the search box and press Enter. Every camera jumps there together.
+- **`20:53:46`**, **`8:53 pm`**, **`8:53:46 PM`**, **`at 20:53:46`** are clock times (the time in the clip names / the Tesla timestamp). The result reads e.g. **"Jump to 20:53:46 (2:15 into the event)"**.
+- **`2:30`**, **`90s`**, **`1m30s`**, **`t=90`** are positions in the event (the clock time is shown next to it).
+- **`+1:05`**, **`-10s`** move from where you are.
+- A time outside the event says so and offers the nearest end, e.g. "23:10:00 is not in this event (20:51:31–20:54:31). Jump to the end instead". Nothing is downloaded for time search and it works with text search turned off.
+
+### Search for text (beta)
+Type **`text Oak Ave`** (or `sign: …`, or the words in quotes, or a bare ALL-CAPS phrase such as `ZENDER BAKERY` that isn't a plate or an object) and press Enter. The first text search of an event reads every camera once (about one frame a second; around a minute for a 10 s, 6-camera event on a laptop), then every further text search, **Blur text** and **All text** use what was read and answer at once. Results list the time, the camera, a thumbnail and what was read, e.g. "0:06.2 · Rear · “PELLOCAFE” · read 99% · 10 frames"; tap one to jump there and the gold box follows the text. Matching allows small OCR slips (0/O, 1/l, 8/B, one or two letters) and a cut-off sign, but a short number like `4821` must be read exactly, and a common word on its own (`St`, `Ave`) never matches.
+
+**Settings ▸ Search ▸ Show text search & redaction (beta)** (on by default, remembered on this device). Off hides the text-to-hide box, **Blur text**, **Street signs** and **All text**, and `text …` searches say the feature is off. **Blur plates**, **Blur faces** and time search stay.
+
 ## Object detection (beta)
 Settings ▸ **Object detection** (off until you turn it on). When it's on, a search for an object name (**car**, **person**, **truck**, **bicycle**, **dog**, **traffic light**… any of the 80 COCO classes, plurals and a few synonyms such as "people" or "bike") uses a YOLO11 object detector instead of the picture search. Results show the real class and confidence ("car 91%") on the gold box, and the box **follows the object**: frames ±2.5 s around the match are detected and linked with a simple IoU tracker. Export burns the same boxes in when **Burn detection boxes** is ticked. Any other phrase still uses the existing picture search. With **Grounding DINO** picked, any phrase goes to the detector.
 
@@ -248,7 +260,7 @@ With **Advanced** on: A adds a section, B splits the section at the playhead, I 
 - **Saved keys:** off by default. Only if you tick **Remember keys on this device** are the 16-byte clip keys stored in this browser (IndexedDB, not encrypted), so anyone using this browser profile could unlock those clips. **Forget saved keys** wipes them, the keys used in the current tab, and clipboard auto-apply, and re-locks open clips. Bearer tokens you paste are kept in memory only and never stored.
 
 ## Redact plates, faces, and text
-Nothing to install. Open **🔍 Search** (or use the classic **Redact** bar). Type the words to hide, such as a person's name or `Taco Bell, Costco`, and press **Blur text** (**Apply** on the classic bar). Only the text that matches those words is covered. Other words stay visible. **All text** is the switch that covers every word. Plates and faces are separate buttons. The effect shows on the picture and is included when you export. **Clear** takes it off. The original file on the USB drive is not changed.
+Nothing to install. Open **🔍 Search** (or use the classic **Redact** bar). Type the words to hide, such as a person's name or `Taco Bell, Costco`, and press **Blur text** (**Apply** on the classic bar). Only the text that matches those words is covered. Text is looked for on **every camera** (whatever the camera menu says), the blur follows the text between the frames that were read, and it is an opaque blur sized to the letters, so it works the same in Safari (which has no canvas blur filter) and in the export. Frames that couldn't be read are counted in the status line. See *Search for text (beta)* above for the switch that hides these controls. Other words stay visible. **All text** is the switch that covers every word. Plates and faces are separate buttons. The effect shows on the picture and is included when you export. **Clear** takes it off. The original file on the USB drive is not changed.
 
 The text finder is [PP-OCRv4](https://github.com/PaddlePaddle/PaddleOCR) (Apache-2.0), the same kind of detector as the Python tool's CRAFT model, converted so it runs inside the page. The letter models are already in the folder, so Apply works from a downloaded copy with no internet. The video is not uploaded. Plates are the wide text-shaped regions low in the frame. Faces use the browser's face finder. This does not remove an arbitrary object such as "the yellow truck."
 

@@ -97,7 +97,7 @@
         if (stopped()) throw new Error("stopped");
         n++;
         say("Reading text · frame " + n + " of " + total + " · " + (CAM_LABEL[job.cam] || job.cam) + " · " + T.fmtTime(job.t, true) + ". Read on this device; the video is not uploaded.");
-        try { await one(job.cam, job.t); }
+        try { await one(job.cam, job.t).catch(async () => { await new Promise((r) => setTimeout(r, 300)); return one(job.cam, job.t); }); }   // once more with a fresh <video>
         catch (err) { fails++; X.errors++; console.warn("text: frame skipped", job, err); if (fails >= 6 && fails === n) throw err; }
         if ((n & 3) === 0) await new Promise((r) => setTimeout(r, 0));
       }
