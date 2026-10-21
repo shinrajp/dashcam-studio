@@ -84,6 +84,24 @@
     cc.width = W; cc.height = H; cctx.drawImage(img, x, y, w, h, 0, 0, W, H);
     return { data: cctx.getImageData(0, 0, W, H).data, w: W, h: H };
   }
+  /** The whole frame, small (96 px wide), for the scene cast around the vehicles (tag glare-fix). ~0.2 ms. */
+  let sc = null, sctx = null;
+  function scenePixels(img, iw, ih, boxes) {
+    const W = 96, H = Math.max(8, Math.round((ih / iw) * W));
+    if (!sc) { sc = document.createElement("canvas"); sctx = sc.getContext("2d", { willReadFrequently: true }); }
+    sc.width = W; sc.height = H; sctx.drawImage(img, 0, 0, iw, ih, 0, 0, W, H);
+    return { data: sctx.getImageData(0, 0, W, H).data, w: W, h: H, boxes };
+  }
+  V._scenePixels = scenePixels;
+  /** Classifier options for a crop: white balance (fix) + the scene cast of the frame around it (scene = scenePixels). */
+  function colourOpts(fix, scene) {
+    const o = fix ? (fix.matrix ? { matrix: fix.matrix, night: fix.cct < 4500 } : { gains: fix.gains, night: fix.cct < 4500 }) : {};
+    // the scene cast is part of the colour correction: Settings ▸ White balance ▸ vehicle colour "off" = raw pixels only
+    const off = T.wb && T.wb.cfg && T.wb.cfg().colour === "off";
+    if (scene && !off && A().sceneCast) { try { o.cast = A().sceneCast(scene.data, scene.w, scene.h, scene.boxes, o); } catch (_) {} }
+    return o;
+  }
+  V._colourOpts = colourOpts;
   function cropCanvas(img, iw, ih, b) {    // 224×224 letterboxed crop with a little context for CLIP
     const pad = 0.06, x = Math.max(0, (b.x - b.w * pad) * iw), y = Math.max(0, (b.y - b.h * pad) * ih);
     const w = Math.min(iw - x, b.w * (1 + 2 * pad) * iw), h = Math.min(ih - y, b.h * (1 + 2 * pad) * ih);
@@ -95,13 +113,13 @@
 
   /** Attributes for one detected vehicle. need = { type, make } decides whether CLIP runs. Fills d.color/colorConf/colors/lowLight, d.types, d.makes. */
   /** fix = T.wb.colourFix(t) result ({gains, cct}) or null: the crop's colour is judged after that white balance. */
-  V.describe = async (img, iw, ih, d, need, fix) => {
+  V.describe = async (img, iw, ih, d, need, fix, scene) => {
     if (!d.color) {
       const t0 = performance.now();
       const px = cropPixels(img, iw, ih, d);
-      const c = A().colorFromPixels(px.data, px.w, px.h, fix ? (fix.matrix ? { matrix: fix.matrix, night: fix.cct < 4500 } : { gains: fix.gains, night: fix.cct < 4500 }) : null);
+      const c = A().colorFromPixels(px.data, px.w, px.h, colourOpts(fix, scene));
       if (fix) { d.wbK = Math.round(fix.cct / 100) * 100; d.rawColor = A().colorFromPixels(px.data, px.w, px.h).name; } else { delete d.wbK; delete d.rawColor; }
-      d.color = c.name; d.colorConf = c.conf; d.lowLight = c.lowLight; d.colorQ = { lamps: c.lamps || 0, rearLit: !!c.rearLit, dark: !!c.dark, thin: !!c.thin };
+      d.color = c.name; d.colorConf = c.conf; d.lowLight = c.lowLight; d.colorQ = { lamps: c.lamps || 0, rearLit: !!c.rearLit, dark: !!c.dark, thin: !!c.thin, bar: !!c.bar, castFix: !!c.castFix, cast: c.cast || 0 };
       d.colors = Object.fromEntries(Object.entries(c.scores).filter(([, v]) => v >= 0.08).map(([k, v]) => [k, Math.round(v * 100) / 100]));
       V.timings.color.push(performance.now() - t0);
     }
@@ -200,7 +218,7 @@
     };
     return { q, parsed, need, useClip, rec, wbFix, clipLeft: isMobile() ? 60 : 240, perFrame: isMobile() ? 2 : 4, rows: [], plain: [], fresh: 0, reused: 0 };
   };
-  const COLOR_VER = 3;   // 3: lit lamps masked, red cast on a pale body is neutral (tag taillight-fix); 2: after white balance (tag wb-color); 1 (none): raw pixels
+  const COLOR_VER = 4;   // 4: light bars, glow gradient, scene cast (tag glare-fix); 3: lit lamps masked, red cast on a pale body is neutral (tag taillight-fix); 2: after white balance (tag wb-color); 1 (none): raw pixels
   const COLOR_FIELDS = ["color", "colorConf", "colors", "lowLight", "wbK", "rawColor", "pixColor", "clipColor", "colorQ"];
   V.COLOR_VER = COLOR_VER;
   V.colourModeChanged = () => { for (const rec of V.mem.values()) rec.cwb = "?"; };   // re-judged on the next search
@@ -219,7 +237,7 @@
       dets = V.vehicleDets(all); st.rec.frames[key] = dets; st.fresh++;
     } else st.reused++;
     const cand = dets.filter((d) => parsed.cls.includes(d.label));
-    let n = 0, v = null;
+    let n = 0, v = null, scene = null;
     for (const d of cand) {
       const wantClip = (need.type && !d.types) || (need.make && !d.makes);
       if (!d.color || (wantClip && n < st.perFrame)) {
@@ -229,7 +247,9 @@
           // meanwhile, so judge a still copy of this frame
           let img = v, iw = v.videoWidth, ih = v.videoHeight;
           if (T.cc && T.cc.on()) { if (!st.snap || st.snapT !== s.t || st.snapCam !== s.cam) { st.snap = st.snap || document.createElement("canvas"); st.snap.width = iw; st.snap.height = ih; st.snap.getContext("2d").drawImage(v, 0, 0); st.snapT = s.t; st.snapCam = s.cam; } img = st.snap; }
-          const fix = await st.wbFix(s.t, img, iw, ih, s.cam); await V.describe(img, iw, ih, d, {}, fix);
+          const fix = await st.wbFix(s.t, img, iw, ih, s.cam);
+          if (!scene) scene = scenePixels(img, iw, ih, dets);   // once per frame
+          await V.describe(img, iw, ih, d, {}, fix, scene);
         }
         // colour first: no CLIP for a box whose colour is clearly wrong
         if (parsed.color && A().colorMatch(parsed.color, { name: d.color, scores: d.colors }) < 0.3) continue;
@@ -303,7 +323,9 @@
     if (!V.enabled() || !A()) return dets;
     if (fix === undefined) fix = T.wb && T.wb.colourFixNow && t != null ? T.wb.colourFixNow(t) : null;
     const items = [];
-    for (const d of dets) if (VEH.has(d.label)) { try { const px = cropPixels(img, iw, ih, d); const c = A().colorFromPixels(px.data, px.w, px.h, fix ? (fix.matrix ? { matrix: fix.matrix, night: fix.cct < 4500 } : { gains: fix.gains, night: fix.cct < 4500 }) : null); d.attr = c.name + (c.lowLight ? "?" : ""); if (fix) d.attrWbK = Math.round(fix.cct / 100) * 100; items.push({ det: d, c, pxW: d.w * iw }); } catch (_) {} }
+    let co = null;   // same options for every vehicle of this frame: white balance + the scene cast around them
+    if (dets.some((d) => VEH.has(d.label))) { try { co = colourOpts(fix, scenePixels(img, iw, ih, dets.filter((d) => VEH.has(d.label)))); } catch (_) { co = colourOpts(fix, null); } }
+    for (const d of dets) if (VEH.has(d.label)) { try { const px = cropPixels(img, iw, ih, d); const c = A().colorFromPixels(px.data, px.w, px.h, co); d.attr = c.name + (c.lowLight ? "?" : ""); if (fix) d.attrWbK = Math.round(fix.cct / 100) * 100; items.push({ det: d, c, pxW: d.w * iw }); } catch (_) {} }
     if (cam && T.colorLock && items.length) { try { T.colorLock.observeFrame(cam, t, items); } catch (e) { console.warn("color lock", e); } }
     return dets;
   };
