@@ -191,7 +191,7 @@
     };
     return { q, parsed, need, useClip, rec, wbFix, clipLeft: isMobile() ? 60 : 240, perFrame: isMobile() ? 2 : 4, rows: [], plain: [], fresh: 0, reused: 0 };
   };
-  const COLOR_VER = 2;   // 2: colour judged after white balance (tag wb-color); 1 (none): raw pixels
+  const COLOR_VER = 3;   // 3: lit lamps masked, red cast on a pale body is neutral (tag taillight-fix); 2: after white balance (tag wb-color); 1 (none): raw pixels
   const COLOR_FIELDS = ["color", "colorConf", "colors", "lowLight", "wbK", "rawColor", "pixColor", "clipColor"];
   V.COLOR_VER = COLOR_VER;
   V.colourModeChanged = () => { for (const rec of V.mem.values()) rec.cwb = "?"; };   // re-judged on the next search
@@ -284,7 +284,7 @@
   V.decorateLive = (img, iw, ih, dets, t, fix) => {
     if (!V.enabled() || !A()) return dets;
     if (fix === undefined) fix = T.wb && T.wb.colourFixNow && t != null ? T.wb.colourFixNow(t) : null;
-    for (const d of dets) if (VEH.has(d.label)) { try { const px = cropPixels(img, iw, ih, d); const c = A().colorFromPixels(px.data, px.w, px.h, fix ? (fix.matrix ? { matrix: fix.matrix, night: fix.cct < 4500 } : { gains: fix.gains, night: fix.cct < 4500 }) : null); d.attr = c.name + (c.lowLight ? "?" : ""); if (fix) d.attrWbK = Math.round(fix.cct / 100) * 100; } catch (_) {} }
+    for (const d of dets) if (VEH.has(d.label)) { try { const px = cropPixels(img, iw, ih, d); const c = A().colorFromPixels(px.data, px.w, px.h, fix ? (fix.matrix ? { matrix: fix.matrix, night: fix.cct < 4500 } : { gains: fix.gains, night: fix.cct < 4500 }) : null); d.attr = c.name + (c.lowLight ? "?" : ""); d.attrName = c.name; d.attrConf = c.conf; d.attrLow = c.lowLight; d.attrLamps = c.lamps || 0; if (fix) d.attrWbK = Math.round(fix.cct / 100) * 100; } catch (_) {} }
     return dets;
   };
 

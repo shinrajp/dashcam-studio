@@ -362,12 +362,33 @@
     for (const [, i, j] of pairs) {
       if (ud.has(i) || ut.has(j)) continue; ud.add(i); ut.add(j);
       const d = dets[i], tr = list[j], p = pred[j], dt = Math.max(1e-3, t - tr.t);
-      const nx = p.x + EMA_POS * (d.x - p.x), ny = p.y + EMA_POS * (d.y - p.y);
-      tr.vx = 0.5 * tr.vx + 0.5 * ((nx - tr.x) / dt); tr.vy = 0.5 * tr.vy + 0.5 * ((ny - tr.y) / dt);
-      tr.x = nx; tr.y = ny; tr.w += EMA_SIZE * (d.w - tr.w); tr.h += EMA_SIZE * (d.h - tr.h);
-      tr.t = t; tr.seen = t; tr.conf = d.conf; tr.attr = d.attr;
+      if (sizeJump(p, d) || iou(p, d) < 0.2) {
+        // the object changed size a lot (a bus that drove past the car and pulled away) or the prediction is far off:
+        // take the detection as it is. Smoothing here left a frame-wide box around a small, distant bus (tag taillight-fix).
+        tr.x = d.x; tr.y = d.y; tr.w = d.w; tr.h = d.h; tr.vx = 0; tr.vy = 0;
+      } else {
+        // smooth the CENTRE and the size (smoothing the corner and the size separately drifts the box off the object)
+        const pcx = p.x + p.w / 2, pcy = p.y + p.h / 2, ncx = pcx + EMA_POS * (d.x + d.w / 2 - pcx), ncy = pcy + EMA_POS * (d.y + d.h / 2 - pcy);
+        const ocx = tr.x + tr.w / 2, ocy = tr.y + tr.h / 2;
+        tr.vx = 0.5 * tr.vx + 0.5 * ((ncx - ocx) / dt); tr.vy = 0.5 * tr.vy + 0.5 * ((ncy - ocy) / dt);
+        tr.w += EMA_SIZE * (d.w - tr.w); tr.h += EMA_SIZE * (d.h - tr.h); tr.x = ncx - tr.w / 2; tr.y = ncy - tr.h / 2;
+      }
+      tr.t = t; tr.seen = t; tr.conf = d.conf; tr.attr = attrVote(tr, d);
     }
-    dets.forEach((d, i) => { if (!ud.has(i)) list.push({ label: d.label, x: d.x, y: d.y, w: d.w, h: d.h, vx: 0, vy: 0, t, seen: t, conf: d.conf, attr: d.attr }); });
+    dets.forEach((d, i) => { if (!ud.has(i)) { const tr = { label: d.label, x: d.x, y: d.y, w: d.w, h: d.h, vx: 0, vy: 0, t, seen: t, conf: d.conf }; tr.attr = attrVote(tr, d); list.push(tr); } });
+  }
+  D._track = track;   // tests
+  /** Box w or h changed by more than 1.6× between two looks at the same object. */
+  const sizeJump = (a, b) => Math.max(a.w / b.w, b.w / a.w, a.h / b.h, b.h / a.h) > 1.6;
+  /** Colour word of a followed vehicle: votes over its detections (older ones fade), so one frame with the brake lamps
+   *  flaring doesn't flip "white bus" to "red bus"; frames where lamps were masked or the light is poor count less. */
+  function attrVote(tr, d) {
+    if (!d.attrName) return d.attr;
+    const v = (tr.av = tr.av || {});
+    for (const k in v) v[k] *= 0.6;
+    v[d.attrName] = (v[d.attrName] || 0) + Math.max(0.05, d.attrConf || 0.5) * (d.attrLow ? 0.5 : 1) * (d.attrLamps > 0.03 ? 0.6 : 1);
+    let best = d.attrName; for (const k in v) if (v[k] > v[best]) best = k;
+    return best + (d.attrLow ? "?" : "");
   }
   /** Viewer boxes from the tracker at time t (while playing), or null when it has nothing current for this camera. */
   D.trackedLive = (cam, t) => {
@@ -466,7 +487,7 @@
     if (a && b && b.t - a.t <= MAX_GAP && t > a.t + 1e-6) {
       const u = (t - a.t) / (b.t - a.t), nearA = u < 0.5, out = [];
       const pairs = [];
-      a.dets.forEach((d, i) => b.dets.forEach((e, j) => { if (d.label === e.label && near2(d, e)) pairs.push([iou(d, e) + 1 / (1 + Math.hypot(d.x - e.x, d.y - e.y)), i, j]); }));
+      a.dets.forEach((d, i) => b.dets.forEach((e, j) => { if (d.label === e.label && near2(d, e) && !sizeJump(d, e)) pairs.push([iou(d, e) + 1 / (1 + Math.hypot(d.x - e.x, d.y - e.y)), i, j]); }));
       pairs.sort((p, q) => q[0] - p[0]);
       const ua = new Set(), ub = new Set();
       for (const [, i, j] of pairs) {
