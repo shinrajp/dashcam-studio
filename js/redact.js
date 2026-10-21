@@ -185,25 +185,29 @@
     });
   }
 
-  function boxesAt(cam, t) {
-    const keys = R.frames[cam];
-    if (!keys || !keys.length) return [];
-    let i = 0;
-    while (i < keys.length - 1 && keys[i + 1].t <= t) i++;
-    const a = keys[i];
-    const b = keys[i + 1];
-    if (!b || t < a.t - 0.2 || b.t - a.t > 1.2) return Math.abs((b && t > a.t ? b : a).t - t) <= 0.75 ? (t > a.t && b ? b.boxes : a.boxes) : [];
-    const u = Math.min(1, Math.max(0, (t - a.t) / (b.t - a.t)));
-    return lerpBoxes(a.boxes, b.boxes, u);
-  }
-
   function contain(iw, ih, r) {
     const s = Math.min(r.w / iw, r.h / ih);
     const w = iw * s, h = ih * s;
     return { x: r.x + (r.w - w) / 2, y: r.y + (r.h - h) / 2, w, h };
   }
 
+  // Boxes between samples: the same text in consecutive samples is linked into a track (text-match.js) and moved
+  // smoothly between them, held about half a sample past the first / last sighting. Before, the nearest sample's boxes
+  // were shown as they were (they jumped, and moving text such as a truck's side slid out from under its blur).
+  function rebuild() {
+    R.tracks = {};
+    const M = T.textMatch;
+    if (!M) return;
+    for (const cam of Object.keys(R.frames)) R.tracks[cam] = M.buildTracks(R.frames[cam].filter((f) => f.boxes.length), { maxGap: (R.step || 0.5) * 2.6 + 0.05 });
+  }
+  R.rebuild = rebuild;
   function boxesAt(cam, t) {
+    const M = T.textMatch, hold = Math.max(0.3, (R.step || 0.5) * 0.6);
+    if (M && R.tracks && R.tracks[cam]) {
+      const out = [];
+      for (const tr of R.tracks[cam]) { const b = M.boxAt(tr, t, hold); if (b) out.push(M.pad(b, 0.03, 0.12)); }
+      return out;
+    }
     const keys = R.frames[cam];
     if (!keys || !keys.length) return [];
     let best = null, dist = 1e9;
@@ -213,6 +217,7 @@
     }
     return best && dist <= 0.85 ? best.boxes : [];
   }
+  R.boxesAt = (cam, t) => (R.active ? boxesAt(cam, t) : []);
 
   // Canvas 2D `filter` (blur) is missing in Safari (behind a flag up to Safari 27): setting it does nothing, and the
   // "blur" drew a sharp copy of the plate. Test it once; without it, blur by shrinking the area to a few pixels and
@@ -271,11 +276,12 @@
       if (R.canvasFilter() && !R.forceSoftBlur) { ctx.filter = "blur(3px)"; ctx.drawImage(img, sx, srcY, Math.max(2, sw), srcH, dx, dy, dw, dh); }
       else softBlur(ctx, img, iw, ih, sx, srcY, Math.max(2, sw), srcH, dx, dy, dw, dh, 3);
     } else {
-      const pad = 0.45, r = Math.max(10, Math.round(dw * 0.22));
-      if (R.canvasFilter() && !R.forceSoftBlur) {
-        ctx.filter = "blur(" + r + "px)";
-        ctx.drawImage(img, sx - sw * pad, sy - sh * pad, sw * (1 + 2 * pad), sh * (1 + 2 * pad), dx - dw * pad, dy - dh * pad, dw * (1 + 2 * pad), dh * (1 + 2 * pad));
-      } else softBlur(ctx, img, iw, ih, sx - sw * pad, sy - sh * pad, sw * (1 + 2 * pad), sh * (1 + 2 * pad), dx - dw * pad, dy - dh * pad, dw * (1 + 2 * pad), dh * (1 + 2 * pad), r);
+      // Radius from the SHORT side. It used to be 22% of the width: on a wide, short text line (a sign, a truck's side)
+      // that is far taller than the line, and the canvas blur faded the patch to mostly transparent, so the sharp
+      // text showed through. Now it is an opaque soft blur (shrink + smooth enlarge), the same in every browser.
+      const pad = 0.45, r = Math.max(6, Math.round(Math.min(dw * 0.22, dh * 0.6)));
+      softBlur(ctx, img, iw, ih, sx - sw * pad, sy - sh * pad, sw * (1 + 2 * pad), sh * (1 + 2 * pad), dx - dw * pad, dy - dh * pad, dw * (1 + 2 * pad), dh * (1 + 2 * pad), r);
+      // (the same in every browser: Safari has no canvas blur filter, and preview, export and Safari now all match)
     }
     ctx.restore();
   }
@@ -323,6 +329,9 @@
       if (!cv) continue;
       const video = tile.vids[T.player.active];
       cv.style.transform = video ? video.style.transform : "";
+      // live white balance colours the <video> with a CSS filter (wb.js); the blurred patches are drawn from the raw
+      // frame, so give them the same filter, or they show as uncorrected (orange) rectangles on a corrected picture
+      cv.style.filter = video && video.style.filter ? video.style.filter : "";
       const tw = tile.tile.clientWidth, th = tile.tile.clientHeight;
       const dpr = Math.min(2, window.devicePixelRatio || 1);
       const w = Math.max(1, Math.round(tw * dpr)), h = Math.max(1, Math.round(th * dpr));
@@ -332,13 +341,26 @@
       ctx.clearRect(0, 0, tw, th);
       if (!video || !video.videoWidth) continue;
       const pb = plateBlur(cam, t);
-      if (pb.length) { const fit = contain(video.videoWidth, video.videoHeight, { x: 0, y: 0, w: tw, h: th }); for (const box of pb) paintBox(ctx, video, video.videoWidth, video.videoHeight, fit, box, "blur"); }
+      if (pb.length) { const fit = contain(video.videoWidth, video.videoHeight, { x: 0, y: 0, w: tw, h: th }); for (const box of pb) paintBox(ctx, video, video.videoWidth, video.videoHeight, fit, box, "blur"); tintLike(ctx, fit, pb); }
       if (!R.active || !blurOn()) continue;
       const boxes = boxesAt(cam, t);
       if (!boxes.length) continue;
       const fit = contain(video.videoWidth, video.videoHeight, { x: 0, y: 0, w: tw, h: th });
       for (const box of boxes) paintBox(ctx, video, video.videoWidth, video.videoHeight, fit, box, R.action);
+      tintLike(ctx, fit, boxes);
     }
+  }
+  // wb.js "blend" mode tints with a multiply layer that sits under this canvas: tint the patches the same way
+  function tintLike(ctx, fit, boxes) {
+    try {
+      const A = T.wb && T.wb.applied;
+      if (!A || A.mode !== "blend" || !boxes.length) return;
+      const g = A.gains, mx = Math.max(g[0], g[1], g[2]);
+      ctx.save(); ctx.globalCompositeOperation = "multiply";
+      ctx.fillStyle = "rgb(" + g.map((x) => Math.round((255 * x) / mx)).join(",") + ")";
+      for (const b of boxes) ctx.fillRect(fit.x + b.x * fit.w, fit.y + b.y * fit.h, Math.max(2, b.w * fit.w), Math.max(2, b.h * fit.h));
+      ctx.restore();
+    } catch (e) { console.warn("redact tint", e); }
   }
 
   function b64ToU8(b64) {
@@ -368,6 +390,7 @@
     return new Uint8Array(await new Response(stream).arrayBuffer());
   }
 
+  R.loadText = () => textSession();
   async function textSession() {
     if (R.session) return R.session;
     const pack = window.TDC_PACK;
@@ -433,14 +456,70 @@
     return boxes;
   }
 
-  async function regionBoxes(canvas, session) {
-    const { rw, rh } = modelSize(canvas.width, canvas.height);
+  // Contrast stretch (2nd–98th percentile of luminance) on RGBA pixels, in place. Night frames and low-contrast signs
+  // otherwise reach the models as a few grey levels. Done by hand: the canvas `filter` used before is a no-op in Safari.
+  function stretch(px, strong) {
+    const hist = new Uint32Array(256); let n = 0;
+    for (let i = 0; i < px.length; i += 16) { hist[(px[i] * 77 + px[i + 1] * 150 + px[i + 2] * 29) >> 8]++; n++; }
+    let lo = 0, hi = 255, acc = 0;
+    const cut = n * (strong ? 0.02 : 0.01);
+    for (; lo < 255 && acc + hist[lo] <= cut; lo++) acc += hist[lo];
+    acc = 0; for (; hi > lo && acc + hist[hi] <= cut; hi--) acc += hist[hi];
+    const span = hi - lo;
+    if (span >= (strong ? 235 : 200) || span < 6) return false;
+    const k = 255 / span;
+    for (let i = 0; i < px.length; i += 4) {
+      px[i] = Math.max(0, Math.min(255, (px[i] - lo) * k)); px[i + 1] = Math.max(0, Math.min(255, (px[i + 1] - lo) * k)); px[i + 2] = Math.max(0, Math.min(255, (px[i + 2] - lo) * k));
+    }
+    return true;
+  }
+  R.stretch = stretch;
+  /** Local contrast (night): every pixel against the mean / spread of its ~48 px neighbourhood, so dim text next to a
+   *  bright streetlight or sky still stands out. Block statistics, bilinear between blocks; ~10 ms for a 960 px frame. */
+  function localContrast(px, w, h) {
+    const B = 48, gw = Math.ceil(w / B), gh = Math.ceil(h / B), mean = new Float32Array(gw * gh), sd = new Float32Array(gw * gh);
+    for (let gy = 0; gy < gh; gy++) for (let gx = 0; gx < gw; gx++) {
+      let s1 = 0, s2 = 0, n = 0;
+      for (let y = gy * B; y < Math.min(h, gy * B + B); y += 2) for (let x = gx * B; x < Math.min(w, gx * B + B); x += 2) { const i = (y * w + x) * 4, l = (px[i] * 77 + px[i + 1] * 150 + px[i + 2] * 29) >> 8; s1 += l; s2 += l * l; n++; }
+      const m = s1 / n; mean[gy * gw + gx] = m; sd[gy * gw + gx] = Math.sqrt(Math.max(0, s2 / n - m * m));
+    }
+    const at = (a, fx, fy) => { const x0 = Math.max(0, Math.min(gw - 1, Math.floor(fx))), y0 = Math.max(0, Math.min(gh - 1, Math.floor(fy))), x1 = Math.min(gw - 1, x0 + 1), y1 = Math.min(gh - 1, y0 + 1), u = Math.max(0, Math.min(1, fx - x0)), v = Math.max(0, Math.min(1, fy - y0));
+      return (a[y0 * gw + x0] * (1 - u) + a[y0 * gw + x1] * u) * (1 - v) + (a[y1 * gw + x0] * (1 - u) + a[y1 * gw + x1] * u) * v; };
+    for (let y = 0; y < h; y++) { const fy = y / B - 0.5; for (let x = 0; x < w; x++) {
+      const fx = x / B - 0.5, m = at(mean, fx, fy), k = 52 / (at(sd, fx, fy) + 6), i = (y * w + x) * 4;
+      px[i] = Math.max(0, Math.min(255, 128 + (px[i] - m) * k)); px[i + 1] = Math.max(0, Math.min(255, 128 + (px[i + 1] - m) * k)); px[i + 2] = Math.max(0, Math.min(255, 128 + (px[i + 2] - m) * k));
+    } }
+  }
+  R.isDark = (canvas) => { try { const c = document.createElement("canvas"); c.width = 32; c.height = 24; const x = c.getContext("2d", { willReadFrequently: true }); x.drawImage(canvas, 0, 0, 32, 24); const d = x.getImageData(0, 0, 32, 24).data; let s = 0; for (let i = 0; i < d.length; i += 4) s += (d[i] * 77 + d[i + 1] * 150 + d[i + 2] * 29) >> 8; return s / (d.length / 4) < 80; } catch (_) { return false; } };
+  // Dark frame (night): lift the shadows (gamma 0.5) so dim text on a dark background reaches the detector.
+  let LIFT = null;
+  function lift(px) {
+    let sum = 0, n = 0;
+    for (let i = 0; i < px.length; i += 64) { sum += px[i] * 77 + px[i + 1] * 150 + px[i + 2] * 29; n++; }
+    if (!n || sum / n / 256 > 80) return false;
+    if (!LIFT) { LIFT = new Uint8ClampedArray(256); for (let v = 0; v < 256; v++) LIFT[v] = Math.round(255 * Math.pow(v / 255, 0.5)); }
+    for (let i = 0; i < px.length; i += 4) { px[i] = LIFT[px[i]]; px[i + 1] = LIFT[px[i + 1]]; px[i + 2] = LIFT[px[i + 2]]; }
+    return true;
+  }
+
+  /** Text regions in a canvas (or a part of it: opt.rect in 0..1), as boxes in 0..1 of the whole canvas.
+   *  opt.limit: longest side given to the detector (default 960); opt.minCount: smallest blob (detector pixels). */
+  async function regionBoxes(canvas, session, opt) {
+    opt = opt || {};
+    const r = opt.rect || { x: 0, y: 0, w: 1, h: 1 };
+    const sx = r.x * canvas.width, sy = r.y * canvas.height, sw = r.w * canvas.width, sh = r.h * canvas.height;
+    const limit = opt.limit || 960;
+    const ratio = Math.min(opt.maxScale || 1, limit / Math.max(sw, sh));
+    const rw = Math.max(32, Math.round(sw * ratio / 32) * 32), rh = Math.max(32, Math.round(sh * ratio / 32) * 32);
     const work = R.work || (R.work = document.createElement("canvas"));
     work.width = rw;
     work.height = rh;
     const wctx = work.getContext("2d", { willReadFrequently: true });
-    wctx.drawImage(canvas, 0, 0, rw, rh);
+    wctx.imageSmoothingEnabled = true;
+    wctx.drawImage(canvas, sx, sy, sw, sh, 0, 0, rw, rh);
     const px = wctx.getImageData(0, 0, rw, rh).data;
+    if (opt.enhance === "local") localContrast(px, rw, rh);
+    else if (opt.enhance !== false) { lift(px); stretch(px, false); }
     const data = new Float32Array(3 * rw * rh);
     const plane = rw * rh;
     const mean = [0.485, 0.456, 0.406], std = [0.229, 0.224, 0.225];
@@ -453,19 +532,36 @@
     const result = await session.run({ x: tensor });
     const out = result[session.outputNames[0]];
     const oh = out.dims[2], ow = out.dims[3], map = out.data;
-    const mask = new Uint8Array(ow * oh);
-    for (let i = 0; i < mask.length; i++) if (map[i] > 0.3) mask[i] = 1;
-    const found = components(mask, ow, oh);
+    if (R.debugMap) R.debugMap.push({ map: Array.from(map, (v) => Math.round(v * 255)), ow, oh });
+    const thr = opt.thresh || 0.3;
+    // Text cores at 0.3 (PP-OCR's own threshold). A blob that is mostly empty (a sign touching palm fronds or a hedge, whose
+    // texture also scores a little) is split again at 0.5 and 0.7 inside its box, so the sign gets its own tight box.
+    const blobs = (t, x0, y0, x1, y1) => {
+      const bw = x1 - x0, bh = y1 - y0, mask = new Uint8Array(bw * bh);
+      for (let y = 0; y < bh; y++) for (let x = 0; x < bw; x++) if (map[(y + y0) * ow + x + x0] > t) mask[y * bw + x] = 1;
+      return components(mask, bw, bh, opt.minCount).map((b) => ({ minx: b.minx + x0, maxx: b.maxx + x0, miny: b.miny + y0, maxy: b.maxy + y0, count: b.count }));
+    };
+    const fill = (b) => b.count / ((b.maxx - b.minx + 1) * (b.maxy - b.miny + 1));
+    const meanProb = (b) => { let s = 0, n = 0; for (let y = b.miny; y <= b.maxy; y++) for (let x = b.minx; x <= b.maxx; x++) { const v = map[y * ow + x]; if (v > thr) { s += v; n++; } } return n ? s / n : 0; };
+    let found = [];
+    const split = (b, level) => {
+      const ts = [thr, 0.5, 0.7];
+      if (level < 2 && fill(b) < 0.45 && (b.maxy - b.miny) > 6) {
+        const parts = blobs(ts[level + 1], b.minx, b.miny, b.maxx + 1, b.maxy + 1);
+        if (parts.length) { for (const q of parts) split(q, level + 1); return; }
+      }
+      found.push(b);
+    };
+    for (const b of blobs(thr, 0, 0, ow, oh)) split(b, 0);
+    found = found.filter((b) => meanProb(b) >= 0.5);
     return found.map((b) => {
-      const padX = (b.maxx - b.minx + 1) * 0.18, padY = (b.maxy - b.miny + 1) * 0.28;
-      const box = {
-        x: Math.max(0, (b.minx - padX) / ow),
-        y: Math.max(0, (b.miny - padY) / oh),
-        w: Math.min(1, (b.maxx - b.minx + 1 + padX * 2) / ow),
-        h: Math.min(1, (b.maxy - b.miny + 1 + padY * 2) / oh),
-      };
+      // the detector marks a shrunk core of each text line: grow it back (PP-OCR "unclip", about 0.7 × the core height)
+      const bh = b.maxy - b.miny + 1, padX = bh * 0.7 + (b.maxx - b.minx + 1) * 0.03, padY = bh * 0.55;
+      const x0 = Math.max(0, (b.minx - padX) / ow), y0 = Math.max(0, (b.miny - padY) / oh);
+      const x1 = Math.min(1, (b.maxx + 1 + padX) / ow), y1 = Math.min(1, (b.maxy + 1 + padY) / oh);
+      const box = { x: r.x + x0 * r.w, y: r.y + y0 * r.h, w: (x1 - x0) * r.w, h: (y1 - y0) * r.h };
       return { box, area: box.w * box.h };
-    }).filter((row) => row.box.w >= 0.01 && row.box.h >= 0.008 && row.box.w < 0.7).sort((a, b) => b.area - a.area);
+    }).filter((row) => row.box.w >= 0.006 && row.box.h >= 0.006 && row.box.w <= 0.99 && row.box.h <= 0.5).sort((a, b) => b.area - a.area);
   }
 
   function topCrop(canvas) {
@@ -613,10 +709,10 @@
     const ctx = work.getContext("2d", { willReadFrequently: true });
     ctx.fillStyle = "#fff";
     ctx.fillRect(0, 0, rw, rh);
-    if (boost) ctx.filter = "contrast(1.7) brightness(1.12)";
+    ctx.imageSmoothingEnabled = true; try { ctx.imageSmoothingQuality = "high"; } catch (_) {}
     ctx.drawImage(canvas, x, y, w, h, 0, 0, rw, rh);
-    ctx.filter = "none";
     const px = ctx.getImageData(0, 0, rw, rh).data;
+    if (boost !== false) stretch(px, !!boost);   // every browser the same (the old ctx.filter boost did nothing in Safari)
     const data = new Float32Array(3 * rh * rw);
     const plane = rh * rw;
     for (let p = 0, i = 0; p < plane; p++, i += 4) {
@@ -639,6 +735,50 @@
     R.lastScore = cnt ? sum / cnt : 0;   // mean character confidence (Phase 6 street-text index)
     return text.trim();
   }
+
+  /** Every text line in a frame: [{box, text, conf}] (box 0..1). The whole frame goes to the detector at ≤ 960 px; with
+   *  opt.tiles (desktop) four overlapping quarters are also searched at up to 1.4× so small and far text (house numbers,
+   *  street signs) is found; lines found twice are merged. Each line is read from the full-resolution frame. */
+  R.ocrFrame = async (canvas, opt) => {
+    opt = opt || {};
+    const session = await textSession();
+    let rows = (await regionBoxes(canvas, session, { minCount: 14, limit: opt.detLimit || 960 })).map((r) => r.box);
+    if (opt.night !== false && (opt.night || R.isDark(canvas))) {   // night: a second look with local contrast
+      try { rows = rows.concat((await regionBoxes(canvas, session, { minCount: 14, limit: opt.detLimit || 960, enhance: "local" })).map((r) => r.box)); }
+      catch (err) { console.warn("night text pass skipped", err); }
+    }
+    if (opt.tiles) {
+      const ov = 0.14;
+      for (const [x, y] of [[0, 0], [0.5 - ov / 2, 0], [0, 0.5 - ov / 2], [0.5 - ov / 2, 0.5 - ov / 2]]) {
+        try { rows = rows.concat((await regionBoxes(canvas, session, { rect: { x, y, w: 0.5 + ov / 2, h: 0.5 + ov / 2 }, maxScale: 1.4, minCount: 14 })).map((r) => r.box)); }
+        catch (err) { console.warn("text tile skipped", err); }
+      }
+    }
+    // merge duplicates (same line seen by the full frame and a tile, or two tiles)
+    const merged = [];
+    rows.sort((a, b) => b.w * b.h - a.w * a.h);
+    for (const b of rows) {
+      // same line twice = similar height and mostly overlapping; a small sign inside a big blob is NOT merged into it
+      const m = merged.find((k) => overlaps(k, b) && Math.max(k.h / b.h, b.h / k.h) < 1.5);
+      if (!m) { merged.push({ ...b }); continue; }
+      const x0 = Math.min(m.x, b.x), y0 = Math.min(m.y, b.y), x1 = Math.max(m.x + m.w, b.x + b.w), y1 = Math.max(m.y + m.h, b.y + b.h);
+      m.x = x0; m.y = y0; m.w = x1 - x0; m.h = y1 - y0;
+    }
+    const out = [];
+    const cap = opt.maxLines || 48;
+    for (const box of merged.slice(0, cap)) {
+      let text = "", conf = 0;
+      try {
+        text = await recognize(canvas, box); conf = R.lastScore || 0;
+        if (conf < 0.75) {   // dim / low-contrast: a stronger stretch, keep the better reading
+          const t2 = await recognize(canvas, box, true), c2 = R.lastScore || 0;
+          if (c2 > conf) { text = t2; conf = c2; }
+        }
+      } catch (err) { R.ocrErrors = (R.ocrErrors || 0) + 1; R.lastOcrError = err; console.warn("text read failed", err); }
+      out.push({ box, text: text.replace(/\s+/g, " ").trim(), conf: Math.round(conf * 100) / 100 });
+    }
+    return out;
+  };
 
   async function faceDetector() {
     if (R.faces) return R.faces;
@@ -721,17 +861,21 @@
   }
 
   function samples(ev, cams) {
-    const step = 0.5;
+    // 0.5 s apart, wider when the event × cameras would exceed the budget. (It used to stop after 240 samples: with six
+    // cameras that was the first 20 s of the event, and nothing after that was ever blurred.)
+    const mob = T.detect && T.detect.isMobile && T.detect.isMobile();
+    const budget = mob ? 240 : 720;
+    const step = Math.min(4, Math.max(0.5, Math.ceil((ev.duration * cams.length / budget) * 4) / 4));
     const out = [];
-    for (let t = 0.2; t < ev.duration - 0.05; t += step) {
+    for (let t = Math.min(0.2, ev.duration / 2); t < ev.duration - 0.05; t += step) {
       const clip = ev.clips[T.player.clipIndexAt(t)];
       for (const cam of cams) {
         const it = clip && clip.files[cam];
         if (!it || !it.blob) continue;
         out.push({ t, cam, it, local: Math.max(0, t - clip.start) });
       }
-      if (out.length > 240) break;
     }
+    out.step = step;
     return out;
   }
 
@@ -748,6 +892,7 @@
   R.clear = () => {
     R.active = false;
     R.frames = {};
+    R.tracks = {};
     paintLive();
     status("");
     syncButtons();
@@ -762,6 +907,15 @@
       T.toast("Type the words to hide, for example a name. Or use Blur plates, Blur faces, or All text.", "err");
       return;
     }
+    const has = (k) => parsed.targets.indexOf(k) >= 0;
+    const TS = T.textSearch;
+    const wantText = has("text") || has("sign") || has("phrase");
+    const textOff = wantText && TS && !TS.on();
+    if (textOff && !has("plate") && !has("face")) {
+      status("Text redaction is turned off (Settings ▸ Search ▸ Show text search & redaction). Plate and face blur still work.");
+      return;
+    }
+    const useIndex = wantText && !textOff && !!(TS && T.textMatch);
     const cams = (CAMS[$("redactCam").value] || CAMS.front).filter((c) => ev.clips.some((clip) => clip.files[c] && clip.files[c].blob));
     if (!cams.length) { T.toast("No playable camera yet. Unlock encrypted clips first.", "err"); return; }
     if (R.running) return;
@@ -769,55 +923,81 @@
     R.stop = false;
     R.action = parsed.action;
     R.frames = {};
+    R.tracks = {};
     R.eventId = ev.id;
+    R.ocrErrors = 0;
     syncButtons();
-    const list = samples(ev, cams);
+    // plates / faces (and text when the text index isn't available) are looked for frame by frame here
+    const frameTargets = parsed.targets.filter((k) => k === "plate" || k === "face" || (!useIndex && !textOff && (k === "text" || k === "sign" || k === "phrase")));
+    const list = frameTargets.length ? samples(ev, cams) : [];
     const video = R.video || (R.video = document.createElement("video"));
     video.muted = true; video.playsInline = true;
     const canvas = R.canvas || (R.canvas = document.createElement("canvas"));
     const ctx = canvas.getContext("2d", { willReadFrequently: true });
-    let hits = 0;
+    let hits = 0, skipped = 0, textCams = 0;
+    const add = (cam, t, boxes) => { const a = R.frames[cam] || (R.frames[cam] = []); const f = a.find((x) => Math.abs(x.t - t) < 0.01); if (f) f.boxes.push(...boxes); else a.push({ t, boxes: boxes.slice() }); hits += boxes.length; };
     try {
       status("Loading the text finder into this window. The first time downloads it (about 15 MB). Nothing to install. The video stays on this computer.");
-      if (parsed.targets.indexOf("text") >= 0 || parsed.targets.indexOf("phrase") >= 0 || parsed.targets.indexOf("plate") >= 0) await textSession();
-      if (parsed.targets.indexOf("face") >= 0) await faceDetector();
-      for (let i = 0; i < list.length; i++) {
-        if (R.stop) break;
-        const sample = list[i];
-        status("Looking at " + (i + 1) + " of " + list.length + " · " + T.CAM_LABEL[sample.cam] + " · " + T.fmtTime(sample.t, true));
-        let shot;
-        try { shot = await grab(video, canvas, ctx, sample.it, sample.local); }
-        catch (err) { console.warn(err); continue; }
-        const boxes = [];
-        if (parsed.targets.indexOf("text") >= 0 || parsed.targets.indexOf("phrase") >= 0 || parsed.targets.indexOf("plate") >= 0) {
-          try { boxes.push.apply(boxes, await readText(canvas, parsed.targets, parsed.phrases)); }
-          catch (err) { console.warn(err); }
+      if (useIndex) {
+        // every camera: text to hide can be anywhere around the car, whatever the camera menu says
+        const all = TS.camsWithVideo(ev); textCams = all.length;
+        const X = await TS.scan(ev, all, { status, stopped: () => R.stop });
+        R.step = X.step;
+        skipped += X.errors || 0;
+        const per = TS.redactSamples(ev, { phrases: parsed.phrases, all: has("text"), sign: has("sign") });
+        for (const cam of Object.keys(per)) for (const f of per[cam]) add(cam, f.t, f.boxes);
+        if (hits) { R.active = true; rebuild(); paintLive(); syncButtons(); }
+      }
+      if (list.length) {
+        if (has("plate") || frameTargets.indexOf("text") >= 0 || frameTargets.indexOf("phrase") >= 0) await textSession();
+        if (has("face")) await faceDetector();
+        R.step = Math.min(R.step || 9, list.step || 0.5);
+        for (let i = 0; i < list.length; i++) {
+          if (R.stop) break;
+          const sample = list[i];
+          status("Looking at " + (i + 1) + " of " + list.length + " · " + T.CAM_LABEL[sample.cam] + " · " + T.fmtTime(sample.t, true));
+          let shot;
+          try { shot = await grab(video, canvas, ctx, sample.it, sample.local); }
+          catch (err) { console.warn(err); skipped++; continue; }
+          const boxes = [];
+          const tt = frameTargets.filter((k) => k !== "face");
+          if (tt.length) {
+            try { boxes.push.apply(boxes, await readText(canvas, tt, parsed.phrases)); }
+            catch (err) { console.warn(err); skipped++; R.lastError = err; }
+          }
+          if (has("face")) {
+            try { boxes.push.apply(boxes, await readFaces(canvas)); }
+            catch (err) { console.warn(err); skipped++; R.lastError = err; }
+          }
+          add(sample.cam, sample.t, boxes);
+          if (boxes.length) { R.active = true; rebuild(); paintLive(); syncButtons(); }
         }
-        if (parsed.targets.indexOf("face") >= 0) {
-          try { boxes.push.apply(boxes, await readFaces(canvas)); }
-          catch (err) { console.warn(err); }
-        }
-        if (!R.frames[sample.cam]) R.frames[sample.cam] = [];
-        R.frames[sample.cam].push({ t: sample.t, boxes });
-        hits += boxes.length;
-        if (boxes.length) { R.active = true; paintLive(); syncButtons(); }
       }
       R.active = hits > 0;
+      rebuild();
       paintLive();
-      if (R.stop) status("Stopped.");
-      else if (!hits) status(parsed.phrases && parsed.phrases.length ? "Didn't read “" + parsed.phrases.join(", ") + "” in this clip. Other words were left alone. Try the spelling as it appears." : "Nothing matched “" + q + "”. Try another camera, or a clearer moment in the clip.");
-      else status((parsed.action === "remove" ? "Removed" : "Blurred") + " " + hits + " spot" + (hits === 1 ? "" : "s") + (parsed.phrases && parsed.phrases.length ? " matching “" + parsed.phrases.join(", ") + "”. Other text stays visible." : " for “" + q + "”.") + " Playback and export both use this. Clear removes the effect. The original file is unchanged.");
+      const what = parsed.phrases && parsed.phrases.length ? "“" + parsed.phrases.join(", ") + "”" : "“" + q + "”";
+      const note = (skipped ? " " + skipped + " frame" + (skipped === 1 ? "" : "s") + " couldn't be read" + (R.lastError ? " (" + (R.lastError.message || R.lastError) + ")" : "") + "." : "") + (textOff ? " Text redaction is off in Settings, so only plates / faces were looked for." : "");
+      const where = textCams ? " on all " + textCams + " camera" + (textCams === 1 ? "" : "s") : "";
+      if (R.stop) status("Stopped." + (hits ? " " + hits + " spots blurred so far." : "") + note);
+      else if (!hits) status((parsed.phrases && parsed.phrases.length ? "Didn't read " + what + where + ". Other words were left alone. Try the spelling as it appears, or one distinctive word." : "Nothing matched " + what + where + ". Try another camera, or a clearer moment in the clip.") + note);
+      else status((parsed.action === "remove" ? "Removed" : "Blurred") + " " + hits + " spot" + (hits === 1 ? "" : "s") + (parsed.phrases && parsed.phrases.length ? " matching " + what + where + ". Other text stays visible." : " for " + what + where + ".") + " The blur follows the text between the frames that were read. Playback and export both use this. Clear removes the effect. The original file is unchanged." + note);
     } catch (err) {
       console.error(err);
-      R.active = false;
-      status("Could not start: " + (err && err.message ? err.message : err));
-      T.toast("Redaction could not start. See the note under the box.", "err", 7000);
+      R.active = hits > 0;
+      rebuild(); paintLive();
+      if (String(err && err.message) === "stopped") status("Stopped." + (hits ? " " + hits + " spots blurred so far." : ""));
+      else {
+        status("Could not start: " + (err && err.message ? err.message : err));
+        T.toast("Redaction could not start. See the note under the box.", "err", 7000);
+      }
     } finally {
       R.running = false;
       R.stop = false;
       syncButtons();
     }
   };
+  R.clearText = () => { if (R.active) R.clear(); };
 
   R.init = () => {
     ensureLayers();
