@@ -11,7 +11,7 @@
 //  - box tracker (js/detect.js, live boxes): a big stale track snaps to a much smaller detection (no "box spans the
 //    frame"), small moves are still smoothed; live-sample interpolation doesn't blend a huge and a small box
 // Usage: node test/taillight-color.js [url]   (url: also run the classifier cases + tracker in Chromium and WebKit)
-const A = require("../js/vehicle-attrs.js");
+const A = require(process.env.ATTRS || "../js/vehicle-attrs.js");
 const URL_ = process.argv[2] || "";
 let fails = 0; const ok = (n, c, x) => { console.log((c ? "PASS " : "FAIL ") + n + (x !== undefined ? "  " + JSON.stringify(x).slice(0, 400) : "")); if (!c) fails++; };
 
@@ -24,16 +24,19 @@ function rnd(seed) { let s = seed >>> 0; return () => ((s = (s * 1664525 + 10139
 function crop(spec, W = 64, H = 64) {
   const L = ILLUM[spec.light || "warm"], exp = spec.exp == null ? 0.55 : spec.exp, R = rnd(spec.seed || 7), d = new Uint8ClampedArray(W * H * 4);
   const bus = spec.kind !== "car";
-  const lampCol = spec.lamps === "amber" ? [1, 0.45, 0.02] : [1, 0.06, 0.04];
-  const lampsAt = spec.lamps === "amber" ? [[0.1, bus ? 0.68 : 0.55]] : spec.lamps && spec.lamps !== "none" ? [[0.1, bus ? 0.66 : 0.55], [0.9, bus ? 0.66 : 0.55], [0.1, bus ? 0.76 : 0.6], [0.9, bus ? 0.76 : 0.6]] : [];
-  const lampR = bus ? 0.045 : 0.06, glowK = spec.glow == null ? (spec.lamps === "brake" ? 0.9 : 0.45) : spec.glow;
+  const lampCol = spec.lamps === "amber" ? [1, 0.45, 0.02] : spec.lamps === "head" ? [0.6, 0.8, 1.4] : [1, 0.06, 0.04];
+  const lampsAt = spec.lamps === "amber" ? [[0.1, bus ? 0.68 : 0.55]] : spec.lamps === "head" ? [[0.14, 0.55], [0.86, 0.55]]
+    : spec.lamps === "bar" ? Array.from({ length: 15 }, (_, k) => [0.08 + k * 0.06, 0.36])   // a full-width tail-light bar (RAV4, many new SUVs)
+    : spec.lamps && spec.lamps !== "none" ? [[0.1, bus ? 0.66 : 0.55], [0.9, bus ? 0.66 : 0.55], [0.1, bus ? 0.76 : 0.6], [0.9, bus ? 0.76 : 0.6]] : [];
+  const lampR = spec.lamps === "bar" ? 0.025 : bus ? 0.045 : 0.06, glowK = spec.glow == null ? (spec.lamps === "brake" ? 0.9 : 0.45) : spec.glow;
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
     const u = (x + 0.5) / W, v = (y + 0.5) / H, i = (y * W + x) * 4;
     let refl = spec.paint.slice(), em = [0, 0, 0];
     // window (dark glass), bumper / tyres (black), road strip at the bottom
     const win = bus ? u > 0.14 && u < 0.86 && v > 0.08 && v < 0.45 : u > 0.18 && u < 0.82 && v > 0.12 && v < 0.38;
     if (win) refl = [0.03, 0.03, 0.035];
-    if (v > (bus ? 0.86 : 0.8)) refl = [0.04, 0.04, 0.04];
+    if (v > (bus ? 0.86 : 0.8)) refl = spec.road ? [0.14, 0.14, 0.14] : [0.04, 0.04, 0.04];
+    if (spec.lower && v > 0.62 && v <= 0.8) refl = spec.lower;   // lower bumper / cladding
     if (bus && u > 0.28 && u < 0.72 && v > 0.58 && v < 0.74) refl = refl.map((c) => c * 0.35);   // ad panel / number plate area
     let lit = L.map((c) => c * exp * (0.92 + 0.12 * (1 - v)));
     if (spec.cast) lit = lit.map((c, k) => c + spec.cast[k] * exp);
@@ -51,8 +54,8 @@ function crop(spec, W = 64, H = 64) {
 /** WB.classifyGains for this light: white point = a white body's raw pixel, full correction, clamp [0.4, 2.8]. */
 function gains(spec) {
   const L = ILLUM[spec.light || "warm"], exp = spec.exp == null ? 0.55 : spec.exp;
-  const w = L.map((c) => enc(0.85 * c * exp) * 255), mx = Math.max(...w);
-  return w.map((c) => Math.min(2.8, Math.max(0.4, mx / Math.max(c, 1))));
+  const w = L.map((c) => enc(0.85 * c * exp) * 255), mx = Math.max(...w), m = spec.gainMul || [1, 1, 1];
+  return w.map((c, k) => Math.min(2.8, Math.max(0.4, (mx / Math.max(c, 1)) * m[k])));
 }
 const WHITE = [0.85, 0.85, 0.85], RED = [0.55, 0.04, 0.035], BLUE = [0.04, 0.12, 0.5], BLACK = [0.035, 0.035, 0.04], SILVER = [0.42, 0.42, 0.44];
 const CASES = [
@@ -78,6 +81,14 @@ const CASES = [
   ["red bus, brake lamps, strong glow", { paint: RED, kind: "bus", lamps: "brake", exp: 0.4, glow: 1.6 }, ["red"]],
   ["red car, daylight, brake lamps", { paint: RED, kind: "car", lamps: "brake", light: "day", exp: 0.8 }, ["red"]],
   ["white car, daylight, brake lamps", { paint: WHITE, kind: "car", lamps: "brake", light: "day", exp: 0.85, glow: 0.15 }, ["white"]],
+  // second user report: a red Tesla seen from the front at night (blue-white headlights) read gray; a dark RAV4 from behind
+  // (lit full-width tail bar, red glow, blue-grey lower cladding) read blue. Also with a white point that over-corrects to blue.
+  ["dark red sedan, front, headlights on", { paint: [0.1, 0.007, 0.007], kind: "car", lamps: "head", exp: 0.3, glow: 0.3, road: true }, ["red"]],
+  ["dark red sedan, front, headlights, blue-heavy correction", { paint: [0.1, 0.007, 0.007], kind: "car", lamps: "head", exp: 0.3, glow: 0.3, road: true, gainMul: [0.97, 1.05, 1.2] }, ["red"]],
+  ["red car, front, headlights on", { paint: RED, kind: "car", lamps: "head", glow: 0.3 }, ["red"]],
+  ["dark SUV rear, lit tail bar + glow", { paint: [0.05, 0.05, 0.055], kind: "car", lamps: "bar", glow: 1.4, cast: [0.12, 0, 0.02], lower: [0.1, 0.11, 0.13] }, ["black", "gray"]],
+  ["dark SUV rear, tail bar, blue-heavy correction", { paint: [0.05, 0.05, 0.055], kind: "car", lamps: "bar", glow: 1.4, cast: [0.12, 0, 0.02], lower: [0.1, 0.11, 0.13], gainMul: [0.97, 1.05, 1.25] }, ["black", "gray"]],
+  ["white car, front, headlights on", { paint: WHITE, kind: "car", lamps: "head", glow: 0.3 }, ["white", "silver"]],
   ["blue bus, tail lamps", { paint: BLUE, kind: "bus", lamps: "tail" }, ["blue"]],
   ["black car, brake lamps", { paint: BLACK, kind: "car", lamps: "brake" }, ["black"]],
   ["silver car, tail lamps", { paint: SILVER, kind: "car", lamps: "tail" }, ["silver", "gray", "white"]],
