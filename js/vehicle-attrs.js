@@ -220,7 +220,8 @@
         if (v < 0.2) {   // also glass, tyres and deep shadow
           // dark paint at night (a red car under a streetlight sits at v ≈ 0.15–0.2): a clearly coloured dark pixel votes
           // for its hue, weakly; a black car's noise is rarely saturated AND consistent (see the consistency check below)
-          if (night && v >= 0.1 && s >= 0.4 && c >= 0.05) { name = redHue ? "red" : hue < 68 ? "brown" : hue < 165 ? "green" : hue < 255 ? "blue" : "purple"; k = 0.5; nDarkC++; }
+          // (not warm hues 12–68°: a dark yellowish-brown pixel at night is the streetlight's leftover, not paint)
+          if (night && v >= 0.1 && s >= 0.4 && c >= 0.05 && !(hue >= 12 && hue < 68)) { name = redHue ? "red" : hue < 165 ? "green" : hue < 255 ? "blue" : "purple"; k = 0.5; nDarkC++; }
           else { name = "black"; k = 0.55; }
         }
         else if (s < 0.16 || c < 0.07 || neutral(r, g, b, v, hue) || (redHue && s < (night && v < 0.35 ? 0.3 : redMin))) { name = gray(); k = name === "black" ? 0.55 : 0.85; }
@@ -247,7 +248,7 @@
     const lampFrac = all ? dropped / all : 0;
     // lamps lit and a lamp-coloured answer (red, orange, purple, brown): it must be a clear majority, else the less
     // saturated reading wins (glow and reflections are what's left after the masks)
-    const lampHue = (rearLit || nLens > 0) && (topC === "red" || topC === "orange" || topC === "purple" || topC === "brown");
+    const lampHue = (rearLit || nLens >= Math.max(2, N * 0.004)) && (topC === "red" || topC === "orange" || topC === "purple" || topC === "brown");
     const minShare = lampHue ? (night ? 0.45 : 0.35) : 0.25;
     // at night dark gray is what dark paint in shade, glass and the road all read as: a consistent colour over a quarter of
     // the body beats it (a red car at night next to its own headlights), unless the vehicle's red lamps are lit
