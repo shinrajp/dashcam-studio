@@ -132,6 +132,9 @@ Type **`text Oak Ave`** (or `sign: …`, or the words in quotes, or a bare ALL-C
 
 **Settings ▸ Search ▸ Show text search & redaction (beta)** (on by default, remembered on this device). Off hides the text-to-hide box, **Blur text**, **Street signs** and **All text**, and `text …` searches say the feature is off. **Blur plates**, **Blur faces** and time search stay.
 
+## Recognition settings
+Settings ▸ **Recognition (beta)** has five switches: *Find objects in search*, *Show boxes while playing*, *Vehicle colour & type*, *Read licence plates* and *Blur licence plates*, plus *Speed while playing*. A switch that needs another one turns it on. Everything else (models, thresholds, cameras, street signs, make & model, cloud boost, index buttons) is under **Advanced recognition settings**. It is collapsed by default and remembers whether it was open. The sections below describe those controls.
+
 ## Object detection (beta)
 Settings ▸ **Object detection** (off until you turn it on). When it's on, a search for an object name (**car**, **person**, **truck**, **bicycle**, **dog**, **traffic light**… any of the 80 COCO classes, plurals and a few synonyms such as "people" or "bike") uses a YOLO11 object detector instead of the picture search. Results show the real class and confidence ("car 91%") on the gold box, and the box **follows the object**: frames ±2.5 s around the match are detected and linked with a simple IoU tracker. Export burns the same boxes in when **Burn detection boxes** is ticked. Any other phrase still uses the existing picture search. With **Grounding DINO** picked, any phrase goes to the detector.
 
@@ -222,6 +225,8 @@ Night clips under streetlights often look orange. Tap **White balance** in the b
 - **Lamps:** a sudden red or green reflection (brake light, traffic light) is ignored: strongly red or green pixels are skipped, and a sudden colour jump on one mirror is rejected unless it lasts about 3 seconds (a real change of light).
 - **Export is not changed.** Exports, detection, search and the 360 export always use the original frames. The setting is remembered. It works in the grid, the full-screen single camera (with zoom) and the 360 view.
 - **Vehicle colour uses it too.** Searches like `white bus` and the live colour labels judge a vehicle's colour on pixels corrected with the white point from the mirror cameras at that moment (full correction, not 70 %), so a white bus under an orange streetlight reads *white*, not brown. The label says so: `color white (corrected for 2900 K light)`. Settings ▸ White balance ▸ **Colour search uses white balance**: *Auto* (default: whenever the car body is found in the mirrors, even with the White balance toggle off), *On*, *Off* (raw colours). Detection boxes and exports still use the original frames.
+- **Limits (look):** temperature and tint are limited separately. At night the blue is held back (blue gain ≤ 1.45, magenta tint halved). In daylight (bright mirror strips) only a small correction (≤ 4 %) is applied, so 6300–7700 K daylight isn't pushed red.
+- **Match cameras** (on by default): every camera uses the same mirror white point. Each camera is also nudged toward the mirror cameras using its own near-neutral pixels (at most ±7 %, smoothed), so the six views look alike.
 - Off by default; turning it off removes the correction at once and stops the sampling. Sampling also pauses while the tab is hidden.
 
 ![White balance off (top) and on (bottom): synthetic night footage under a ~3000 K streetlight](screenshots/white-balance-before-chromium.png)

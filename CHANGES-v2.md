@@ -379,3 +379,34 @@ Report 3: the dark grey RAV4 from behind read "red car 50%" at night. It has a l
   - A dark red car seen from behind at night with its lamps lit, in a red-cast frame, can now read dark grey.
   - Vehicles seen from behind at night lock their colour more slowly (their readings count less).
   - The cast measure assumes the surroundings in the brightest band are about neutral after white balance.
+
+## Safari feedback round (tag safari-feedback, rollback pre-safari-feedback = 37317e4)
+Six issues from a Mac Safari (Apple Silicon) test.
+1. **Plate blur lagging moving cars** (`js/plates.js`, `js/detect.js`, `js/prewarm.js`, `js/redact.js`):
+   - The scan now starts at the playhead, and blur tracks are rebuilt every 6 scanned frames, so blur appears before the whole clip is scanned.
+   - Fast plates are linked by distance (up to 5 plate widths per second), not only by overlap.
+   - Extra detector-only looks are taken between samples where a plate moved more than 0.6× its width or changed size more than 1.25×. Budget: 160 frames on desktop, 40 on mobile.
+   - Blur boxes are swept over t ± lead (0.12–0.4 s), padded, and extrapolated past track ends.
+   - Each camera is painted at its own presented frame time (`requestVideoFrameCallback`).
+   - Models load when a clip opens, with a small "loading detector" badge, and a first detection runs on the paused frame. The live tracker uses the measured speed from its second look.
+   - Synthetic fast-plate clip: first blur 8.4 s → 3.5 s, frames fully covered 35 % → 100 %.
+   - Test: `test/plate-lag.js`.
+2. **White balance too blue at night, red in daylight** (`js/wb.js`): temperature and tint are limited separately.
+   - Night: temperature ×0.85, at most ±0.26 log, blue gain at most 1.45, magenta tint halved.
+   - Daylight (bright mirror strips): ×0.25, at most ±4 %, so 6300–7700 K daylight is barely touched.
+   - Exports are unchanged (viewer only).
+3. **Cameras looked different** (`js/wb.js`): all cameras share the mirror white point. "Match cameras" (Settings ▸ White balance, on by default) also nudges each camera toward the mirror cameras.
+   - It uses the camera's own near-neutral pixels, offset at most ±7 %, smoothed.
+   - The look goes through a per-camera SVG filter, or a per-tile tint on Safari.
+4. **Left pillar tile shifting with WB on (Safari grid)**: the Safari path no longer puts a CSS `filter` on `<video>`. Brightness is now a `color-dodge` layer above the `multiply` tint; the redact canvas does the same.
+   - Test: `test/wb-grid.js`, which checks tile and video rects with WB on/off in Chromium and WebKit.
+   - Limit: the shift did not reproduce in Playwright WebKit on Linux. This fix targets the likely cause and needs a check on real Safari.
+5. **Black car read "blue car"** (`js/vehicle-attrs.js`, daylight only): low-saturation, mid-dark blue (sky and glass reflections) now counts weakly, and the glass area counts less.
+   - A mostly black/dark-grey body whose blue pixels are clearly brighter than the body reads black/grey (confidence at most 45 %).
+   - Test: `test/dark-car-color.js`. The red Tesla, grey RAV4 and bus cases still pass.
+   - Limit: a strong blue cast (≥ ~18 %) on a black car can still read blue.
+6. **Recognition settings simplified** (`js/recog-settings.js`):
+   - One "Recognition (beta)" section with five switches: Find objects in search, Show boxes while playing, Vehicle colour & type, Read licence plates, Blur licence plates. Plus a "Speed while playing" choice.
+   - Every other control (same elements and ids) is under "Advanced recognition settings", collapsed by default. Its open/closed state is remembered (`tdc.recogAdv.v1`).
+   - Tap targets are 44 px.
+   - Test: `test/recog-settings.js` (Chromium, WebKit, WebKit iPhone touch).
