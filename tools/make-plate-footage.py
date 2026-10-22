@@ -2,7 +2,9 @@
 """make-plate-footage.py — a short synthetic TeslaCam event with made-up California-style plates, for the
 Phase 6 end-to-end test (search → gold box → blur in export). Built from tools/mock-stills + the plate
 renderer in make-plate-fixtures.py. No real footage, no real plates.
-Usage: python3 tools/make-plate-footage.py [out_dir]   (default /tmp/plate-samples) — needs ffmpeg."""
+Usage: python3 tools/make-plate-footage.py [out_dir]   (default /tmp/plate-samples) — needs ffmpeg.
+PLATE_MOTION=fast: the front car and its plate slide across the picture, speeding up (0.12 → 0.88 of the width in 8 s,
+~0.19 of the width per second at the end), for the plate-blur lag test (test/plate-lag.js)."""
 import json, os, subprocess, sys
 from PIL import Image
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -13,6 +15,7 @@ mpf = importlib.util.module_from_spec(spec); spec.loader.exec_module(mpf)
 OUT = sys.argv[1] if len(sys.argv) > 1 else "/tmp/plate-samples"
 STAMP = "2026-10-16_12-00-00"
 W, H, FPS, SEC = 1280, 960, 24, 8
+FAST = os.environ.get("PLATE_MOTION") == "fast"
 
 def frames_front():
     base = Image.open(os.path.join(mpf.STILLS, "front.jpg")).convert("RGB").resize((W, int(W * 720 / 1280)))
@@ -20,10 +23,16 @@ def frames_front():
     truth = []
     for i in range(FPS * SEC):
         u = i / (FPS * SEC - 1)
-        z = 1.8 + 1.6 * u            # the car gets closer
-        img, (x0, y0) = mpf.zoomed(base, 651, 430, z)
-        cx, cy = (651 - x0) * z, (441 - y0) * z
-        box = mpf.place(img, plate, cx, cy, int(23 * z), blur=0.6)
+        if FAST:                     # the view pans: the car (and its plate) slides across, speeding up
+            z = 2.6; vw = base.width / z
+            img, (x0, y0) = mpf.zoomed(base, 651 - (0.12 + 0.76 * u * u) * vw + vw / 2, 430, z)
+            cx, cy = (651 - x0) * z, (441 - y0) * z
+            box = mpf.place(img, plate, cx, cy, int(23 * z), blur=0.6)
+        else:
+            z = 1.8 + 1.6 * u            # the car gets closer
+            img, (x0, y0) = mpf.zoomed(base, 651, 430, z)
+            cx, cy = (651 - x0) * z, (441 - y0) * z
+            box = mpf.place(img, plate, cx, cy, int(23 * z), blur=0.6)
         canvas.paste(img, (0, (H - img.height) // 2))
         yield canvas, {"t": i / FPS, "box": {"x": box["x"], "y": (box["y"] * img.height + (H - img.height) / 2) / H, "w": box["w"], "h": box["h"] * img.height / H}}
 

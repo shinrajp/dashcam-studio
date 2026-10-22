@@ -299,7 +299,8 @@
       const ctx = cv.getContext("2d");
       if (T.burnBoxes && T.burnBoxes.at) {
         // the SAME box set the export burns in at this moment (tracks / live detections, else results within ±2.5 s)
-        const boxes = video && video.videoWidth ? T.burnBoxes.at(cam, T.player.time || 0) : [];
+        const tc = T.redact && T.redact.camTime ? T.redact.camTime(cam, video) : T.player.time || 0;   // this camera's frame on screen (tag safari-feedback)
+        const boxes = video && video.videoWidth ? T.burnBoxes.at(cam, tc) : [];
         if (boxes.length) tile.tile.classList.add("find-on");
         // painted every frame while playing: skip the redraw when nothing moved by a pixel (saves compositing on phones)
         const q = (v, m) => Math.round(v * m);
@@ -308,7 +309,7 @@
         cv._sig = sig;
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
         ctx.clearRect(0, 0, tw, th);
-        if (boxes.length) T.burnBoxes.draw(ctx, cam, T.player.time, { x: 0, y: 0, w: tw, h: th }, video.videoWidth, video.videoHeight, boxes, 12);
+        if (boxes.length) T.burnBoxes.draw(ctx, cam, tc, { x: 0, y: 0, w: tw, h: th }, video.videoWidth, video.videoHeight, boxes, 12);
         continue;
       }
       cv._sig = null;

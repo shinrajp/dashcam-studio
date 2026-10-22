@@ -203,10 +203,15 @@
     const items = [], frames = {};
     L.scanning = true;
     const t0 = performance.now();
-    let n = 0, total = 0; for (let t = 0.2; t < ev.duration - 0.05; t += step) total += cams.length;
+    // times: from the playhead on first (ui.from), then the start of the event (tag safari-feedback: blur appears where the
+    // user is watching instead of after the whole event); the blur tracks are rebuilt as frames come in (ui.partial)
+    const times = []; for (let t = 0.2; t < ev.duration - 0.05; t += step) times.push(Math.round(t * 1000) / 1000);
+    if (ui.from > 0) { const i = times.findIndex((t) => t >= ui.from - step); if (i > 0) times.push(...times.splice(0, i)); }
+    let n = 0; const total = times.length * cams.length;
+    L.progress = { n: 0, total };
     try {
       await L.load();
-      for (let t = 0.2; t < ev.duration - 0.05; t += step) {
+      for (const t of times) {
         for (const cam of cams) {
           if (stopped()) throw new Error("stopped");
           n++;
@@ -218,20 +223,65 @@
           (frames[cam] = frames[cam] || []).push({ t, dets: r.dets.map((d) => ({ ...d, label: "plate" })) });
           for (const p of r.plates) items.push({ kind: "plate", cam, t: Math.round(t * 100) / 100, ...p });
           for (const x of r.texts) items.push({ kind: "text", cam, t: Math.round(t * 100) / 100, text: x.text, conf: x.conf != null ? x.conf : 0.6, box: x.box });
+          L.progress = { n, total };
+          if (ui.partial && (n % 6 === 0)) { try { ui.partial(frames); } catch (e) { console.warn(e); } }
           if ((n & 3) === 0) await new Promise((res) => setTimeout(res, 0));
         }
       }
-    } finally { L.scanning = false; }
+      if (ui.refine) await refine(frames, step, stopped, say);
+    } finally { L.scanning = false; L.progress = null; }
     const scan = { eventId: ev.id, at: Date.now(), cams: [...new Set(cams.concat(old ? old.cams : []))], step, street: street || !!(old && old.street), model: L.prefs().model, items: keep.concat(items), ms: Math.round(performance.now() - t0) };
     if (X) await X.put(scan); else L._scan = scan;
     L.buildBlur(ev, frames, step);
     return scan;
   };
 
+  /** Moving plates (tag safari-feedback): between two looks of the same plate that moved more than REFINE.move × its width
+   *  (or changed size), look again half-way (detector only, no reading), up to REFINE.budget extra frames; again on the
+   *  halves (REFINE.depth). The blur then follows the plate instead of cutting the corner between samples a second apart. */
+  /** Plate tracker options: IoU, or (moved more than its width) the same size within REFINE.near widths per second. */
+  L.trackOpt = (step) => ({ minIou: 0.05, maxGap: step * 2.2 + 0.1, near: L.REFINE.near });
+  L.REFINE = { near: 5,  move: 0.6, size: 1.25, depth: 2, budget: () => (isMobile() ? 40 : 160), minGap: 0.2 };
+  async function refine(frames, step, stopped, say) {
+    const D = T.detect; if (!D || !D.buildTracks) return 0;
+    let left = L.REFINE.budget(), done = 0;
+    for (let depth = 0; depth < L.REFINE.depth && left > 0; depth++) {
+      const want = [];
+      for (const cam of Object.keys(frames)) {
+        const tracks = D.buildTracks(frames[cam].map((f) => ({ t: f.t, dets: f.dets })), L.trackOpt(step));
+        for (const tr of tracks) for (let i = 1; i < tr.pts.length; i++) {
+          const a = tr.pts[i - 1], b = tr.pts[i];
+          if (b.t - a.t < L.REFINE.minGap * 2) continue;
+          const mv = Math.hypot(b.x + b.w / 2 - a.x - a.w / 2, b.y + b.h / 2 - a.y - a.h / 2) / Math.max(1e-3, Math.max(a.w, b.w)), sz = Math.max(a.w / b.w, b.w / a.w);
+          if (mv > L.REFINE.move || sz > L.REFINE.size) want.push({ cam, t: Math.round(((a.t + b.t) / 2) * 1000) / 1000, mv });
+        }
+          // seen once (a fast plate, or the start / end of its run): look half a step before and after it too
+        for (const tr of tracks) if (tr.pts.length === 1 && depth === 0) for (const dt of [-step / 2, step / 2]) { const t = Math.round((tr.pts[0].t + dt) * 1000) / 1000; if (t > 0.05) want.push({ cam, t, mv: 0.5 }); }
+      }
+      want.sort((a, b) => b.mv - a.mv);
+      const seen = new Set();
+      for (const w of want) {
+        if (left <= 0) break;
+        const k = w.cam + "|" + w.t; if (seen.has(k) || frames[w.cam].some((f) => Math.abs(f.t - w.t) < 0.05)) continue; seen.add(k);
+        if (stopped()) throw new Error("stopped");
+        let f; try { f = await grab(w.cam, w.t); } catch (_) { continue; }
+        if (!f) continue;
+        const dets = await L.detectPlates(f.img, f.w, f.h, {});
+        frames[w.cam].push({ t: w.t, dets: dets.map((d) => ({ ...d, label: "plate" })), refined: true });
+        frames[w.cam].sort((a, b) => a.t - b.t);
+        left--; done++;
+        if ((done & 3) === 0) { say("Following moving plates · " + done + " extra frames. The video stays on this device."); await new Promise((res) => setTimeout(res, 0)); }
+      }
+      if (!want.length) break;
+    }
+    L.lastRefine = done;
+    return done;
+  }
+
   // ── blur tracks (redaction of plates in playback + export) ──
   L.buildBlur = (ev, frames, step) => {
     const D = T.detect; if (!D || !D.buildTracks) return;
-    for (const cam of Object.keys(frames)) L.blurTracks[cam] = D.buildTracks(frames[cam], { minIou: 0.05, maxGap: step * 2.2 + 0.1 });
+    for (const cam of Object.keys(frames)) L.blurTracks[cam] = D.buildTracks(frames[cam], L.trackOpt(step));
     L.blurEvent = ev.id; L.blurStep = step;
     T.emit && T.emit("layout");
   };
@@ -250,10 +300,32 @@
     try {
       if (!L.blurOn() || !T.player || !T.player.ev || L.blurEvent !== T.player.ev.id) return [];
       const D = T.detect, list = L.blurTracks[cam]; if (!list || !D) return [];
-      const out = [], slack = (L.blurStep || 1) * 0.75;
-      for (const tr of list) { const b = D.trackAt(tr, t, slack); if (b) out.push({ x: Math.max(0, b.x - b.w * 0.12), y: Math.max(0, b.y - b.h * 0.2), w: Math.min(1, b.w * 1.24), h: Math.min(1, b.h * 1.4) }); }
+      const out = [], step = L.blurStep || 1, slack = step * 0.75, lead = L.blurLead(step);
+      for (const tr of list) {
+        // motion-aware (tag safari-feedback): the box where the plate is now and where it is ±lead s from now (the samples are
+        // up to a second apart and the picture on screen can be a frame or two off), so a moving plate stays covered
+        const b = L.plateAt(tr, t, slack); if (!b) continue;
+        let x0 = b.x, y0 = b.y, x1 = b.x + b.w, y1 = b.y + b.h;
+        for (const dt of [-lead, lead]) { const q = L.plateAt(tr, t + dt, slack + lead); if (q) { x0 = Math.min(x0, q.x); y0 = Math.min(y0, q.y); x1 = Math.max(x1, q.x + q.w); y1 = Math.max(y1, q.y + q.h); } }
+        const w = Math.max(b.w, 1e-3), h = Math.max(b.h, 1e-3), px = w * 0.12, py = h * 0.2;
+        const X0 = Math.max(0, x0 - px), Y0 = Math.max(0, y0 - py), X1 = Math.min(1, x1 + px), Y1 = Math.min(1, y1 + py);
+        out.push({ x: X0, y: Y0, w: X1 - X0, h: Y1 - Y0 });
+      }
       return out;
     } catch (e) { L.blurError(e); return []; }
+  };
+  L.blurLead = (step) => Math.max(0.12, Math.min(0.4, step * 0.3));
+  /** A plate track's box at t: linear between samples; past either end it keeps moving at the end's speed (up to slack s). */
+  L.plateAt = (tr, t, slack) => {
+    const D = T.detect, p = tr.pts; if (!p.length) return null;
+    if (t >= p[0].t && t <= p[p.length - 1].t) return D.trackAt(tr, t, slack);
+    const end = t < p[0].t ? 0 : p.length - 1, dt = t - p[end].t;
+    if (Math.abs(dt) > slack) return null;
+    const a = p[end], o = end === 0 ? p[1] : p[p.length - 2];
+    if (!o || Math.abs(a.t - o.t) < 1e-3 || Math.abs(a.t - o.t) > 2.5) return a;
+    const k = dt / (a.t - o.t), cx = a.x + a.w / 2 + (a.x + a.w / 2 - o.x - o.w / 2) * k, cy = a.y + a.h / 2 + (a.y + a.h / 2 - o.y - o.h / 2) * k;
+    const s = Math.max(0.5, Math.min(2, 1 + (a.w / o.w - 1) * k)), w = a.w * s, h = a.h * s;
+    return { t, x: cx - w / 2, y: cy - h / 2, w, h, conf: a.conf };
   };
   /** Blur problems are shown (status line + console + one toast per message), never swallowed. */
   const blurErrSeen = new Set();
@@ -275,7 +347,8 @@
     if (L.scanned(ev, cams, false)) { L.blurFromIndex(ev); setStatus("Blurring plates from the saved plate index."); return null; }
     if (L.bgScan) return L.bgScan;
     setStatus("Finding plates to blur…");
-    const run = L.scan(ev, cams, { status: setStatus, street: false, stopped: () => !T.player || T.player.ev !== ev || !L.blurOn() })
+    const from = T.player && T.player.ev === ev ? T.player.time || 0 : 0;
+    const run = L.scan(ev, cams, { status: setStatus, street: false, from, refine: true, partial: (fr) => { if (T.player && T.player.ev === ev) L.buildBlur(ev, fr, L.stepFor(ev, cams)); }, stopped: () => !T.player || T.player.ev !== ev || !L.blurOn() })
       .then((sc) => { const n = sc.items.filter((i) => i.kind === "plate" && cams.includes(i.cam)).length; setStatus(n ? "Plates found and blurred (" + n + " readings)." : "No plates found in this event to blur."); return sc; })
       .catch((e) => { if (e && e.message === "stopped") { setStatus("Plate scan stopped."); return null; } L.blurError(e, "scan"); return null; })
       .finally(() => { if (L.bgScan === run) L.bgScan = null; });

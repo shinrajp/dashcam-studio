@@ -730,3 +730,11 @@ body.no-text-search .text-only { display: none !important; }
 .us-style { display: flex; width: 100%; box-sizing: border-box; }
 .wb-lift { position: absolute; inset: 0; mix-blend-mode: color-dodge; pointer-events: none; }   /* Safari: brightness without a filter on the video */
 .wb-lift[hidden] { display: none; }
+/* models loading / plates being found (js/prewarm.js): bottom-left of the stage, opposite the white-balance readout */
+.model-loading { position: absolute; z-index: 6; left: 50px; bottom: 8px; max-width: calc(50% - 16px); padding: 3px 9px; border-radius: 6px; background: rgba(0,0,0,0.6); color: #e8ecf3; font: 650 11px system-ui, sans-serif; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none; }
+.model-loading[hidden] { display: none; }
+.model-loading::before { content: ""; display: inline-block; width: 8px; height: 8px; margin-right: 6px; border-radius: 50%; border: 2px solid rgba(255,255,255,.35); border-top-color: #fff; vertical-align: -1px; animation: ml-spin .8s linear infinite; }
+@keyframes ml-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .model-loading::before { animation: none; } }
+body.fs .model-loading { bottom: calc(var(--tp-h, 62px) + 8px); transition: bottom .25s; }
+body.fs.idle .model-loading { bottom: 8px; }

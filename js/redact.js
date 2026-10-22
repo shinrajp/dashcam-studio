@@ -342,16 +342,40 @@
     }
   }
 
+  // Which moment each tile shows (tag safari-feedback). The player clock follows the front video and lets the other cameras
+  // drift up to 0.15 s before it re-syncs them, and the frame on screen is the last PRESENTED frame (requestVideoFrameCallback
+  // mediaTime, Safari 15.4+ / Chromium), not the clock: the blur is drawn for that camera's own frame, so it doesn't trail
+  // a moving plate. Without the callback: the video's own currentTime.
+  function watchFrames(v) {
+    if (!v || v._rvfcOn || typeof v.requestVideoFrameCallback !== "function") return;
+    v._rvfcOn = true;
+    const cb = (now, meta) => {
+      v._pres = { mt: meta && isFinite(meta.mediaTime) ? meta.mediaTime : v.currentTime, at: performance.now() };
+      if (T.player && T.player.playing && !v.paused) v.requestVideoFrameCallback(cb); else v._rvfcOn = false;
+    };
+    v.requestVideoFrameCallback(cb);
+  }
+  R.camTime = (cam, video) => {
+    const P = T.player, t = P.time;
+    try {
+      if (!P.playing || !P.ev || !video || !video._url) return t;
+      watchFrames(video);
+      const clip = P.ev.clips[P.slotClip ? P.slotClip[P.active] : P.clipIndexAt(t)]; if (!clip) return t;
+      const pr = video._pres, lagS = pr ? video.currentTime - pr.mt : 1, mt = pr && performance.now() - pr.at < 250 && lagS > -0.01 && lagS < 0.07 ? pr.mt : video.currentTime;   // (a stale callback after a seek: the clock)
+      const ct = clip.start + mt;
+      return isFinite(ct) && Math.abs(ct - t) < 0.5 ? ct : t;
+    } catch (_) { return t; }
+  };
   function paintLive() {
     if (!T.player.tiles) return;
     ensureLayers();
-    const t = T.player.time;
     for (const cam of T.GRID) {
       const tile = T.player.tiles[cam];
       if (!tile) continue;
       const cv = tile.tile.querySelector(".redact-layer");
       if (!cv) continue;
       const video = tile.vids[T.player.active];
+      const t = R.camTime(cam, video);
       cv.style.transform = video ? video.style.transform : "";
       // live white balance colours the <video> with a CSS filter (wb.js); the blurred patches are drawn from the raw
       // frame, so give them the same filter, or they show as uncorrected (orange) rectangles on a corrected picture

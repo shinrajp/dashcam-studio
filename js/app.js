@@ -8,6 +8,7 @@
     if (T.redact) T.redact.init();
     try { if (T.detect) T.detect.init(); } catch (e) { console.warn("detect init", e); }
     try { if (T.plates) T.plates.init(); } catch (e) { console.warn("plates init", e); }
+    try { if (T.prewarm) T.prewarm.init(); } catch (e) { console.warn("prewarm init", e); }   // models load at clip open
     try { if (T.vehicle) T.vehicle.init(); } catch (e) { console.warn("vehicle init", e); }
     try { if (T.cloud) T.cloud.init(); } catch (e) { console.warn("cloud init", e); }
     if (T.searchUI) { try { T.searchUI.init(); } catch (e) { console.warn(e); } }   // Phase 4; falls back to the classic bars

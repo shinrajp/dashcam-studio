@@ -194,7 +194,14 @@
     for (const f of frames.slice().sort((a, b) => a.t - b.t)) {
       const open = tracks.filter((tr) => f.t - tr.pts[tr.pts.length - 1].t <= maxGap);
       const pairs = [];
-      f.dets.forEach((d, di) => open.forEach((tr) => { if (tr.label !== d.label) return; const v = iou(tr.pts[tr.pts.length - 1], d); if (v >= minIou) pairs.push([v, di, tr]); }));
+      f.dets.forEach((d, di) => open.forEach((tr) => {
+        if (tr.label !== d.label) return; const l = tr.pts[tr.pts.length - 1], v = iou(l, d);
+        if (v >= minIou) pairs.push([v, di, tr]);
+        else if (opt.near) {   // (plates, tag safari-feedback) a small object that moved more than its own width between samples: same size, close enough
+          const dist = Math.hypot(l.x + l.w / 2 - d.x - d.w / 2, l.y + l.h / 2 - d.y - d.h / 2) / Math.max(l.w, d.w, 1e-3), sz = Math.max(l.w / d.w, d.w / l.w, l.h / d.h, d.h / l.h);
+          if (dist <= opt.near * Math.max(1, f.t - l.t) && sz < 1.8) pairs.push([minIou * 0.5 / (1 + dist), di, tr]);
+        }
+      }));
       pairs.sort((a, b) => b[0] - a[0]);
       const usedD = new Set(), usedT = new Set();
       for (const [, di, tr] of pairs) { if (usedD.has(di) || usedT.has(tr)) continue; usedD.add(di); usedT.add(tr); const d = f.dets[di]; tr.pts.push({ t: f.t, x: d.x, y: d.y, w: d.w, h: d.h, conf: d.conf }); }
@@ -365,15 +372,19 @@
       if (sizeJump(p, d) || iou(p, d) < 0.2) {
         // the object changed size a lot (a bus that drove past the car and pulled away) or the prediction is far off:
         // take the detection as it is. Smoothing here left a frame-wide box around a small, distant bus (tag taillight-fix).
-        tr.x = d.x; tr.y = d.y; tr.w = d.w; tr.h = d.h; tr.vx = 0; tr.vy = 0;
+        tr.x = d.x; tr.y = d.y; tr.w = d.w; tr.h = d.h; tr.vx = 0; tr.vy = 0; tr.n = 0;
       } else {
         // smooth the CENTRE and the size (smoothing the corner and the size separately drifts the box off the object)
         const pcx = p.x + p.w / 2, pcy = p.y + p.h / 2, ncx = pcx + EMA_POS * (d.x + d.w / 2 - pcx), ncy = pcy + EMA_POS * (d.y + d.h / 2 - pcy);
         const ocx = tr.x + tr.w / 2, ocy = tr.y + tr.h / 2;
-        tr.vx = 0.5 * tr.vx + 0.5 * ((ncx - ocx) / dt); tr.vy = 0.5 * tr.vy + 0.5 * ((ncy - ocy) / dt);
+        // second look: take the measured speed as it is (from 0 it took 3–4 detections to catch up and the box trailed the
+        // car, tag safari-feedback); later looks smooth it
+        // (the position is still smoothed: small jitter stays calm)
+        if ((tr.n || 1) === 1) { tr.vx = (d.x + d.w / 2 - ocx) / dt; tr.vy = (d.y + d.h / 2 - ocy) / dt; }
+        else { tr.vx = 0.5 * tr.vx + 0.5 * ((ncx - ocx) / dt); tr.vy = 0.5 * tr.vy + 0.5 * ((ncy - ocy) / dt); }
         tr.w += EMA_SIZE * (d.w - tr.w); tr.h += EMA_SIZE * (d.h - tr.h); tr.x = ncx - tr.w / 2; tr.y = ncy - tr.h / 2;
       }
-      tr.t = t; tr.seen = t; tr.conf = d.conf; tr.attr = d.attr; tr.clObs = d.clObs;
+      tr.t = t; tr.seen = t; tr.conf = d.conf; tr.attr = d.attr; tr.clObs = d.clObs; tr.n = (tr.n || 1) + 1;
     }
     dets.forEach((d, i) => { if (!ud.has(i)) { const tr = { label: d.label, x: d.x, y: d.y, w: d.w, h: d.h, vx: 0, vy: 0, t, seen: t, conf: d.conf, attr: d.attr, clObs: d.clObs }; list.push(tr); } });
   }
@@ -435,6 +446,12 @@
     if (v && typeof v.requestVideoFrameCallback === "function") v.requestVideoFrameCallback(onFrame);
     else requestAnimationFrame((ts) => onFrame(ts, null));
   }
+  /** One live detection on the current (paused) frame of a camera (prewarm.js: boxes before the first play). */
+  D.detectOnce = async (cam) => {
+    const v = visible(cam); if (!v || liveBusy || v.readyState < 2) return false;
+    liveBusy = true;
+    try { await detectLive(cam, v, null); return true; } finally { liveBusy = false; }
+  };
   D.liveRVFC = () => { const cams = D.liveCams(), v = cams.length ? visible(cams[0]) : null; return !!(v && typeof v.requestVideoFrameCallback === "function"); };
   /** Called on every player time update: starts the frame loop when playing with live detection on. */
   D.liveTick = () => {
