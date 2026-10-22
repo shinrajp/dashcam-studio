@@ -355,7 +355,7 @@
       cv.style.transform = video ? video.style.transform : "";
       // live white balance colours the <video> with a CSS filter (wb.js); the blurred patches are drawn from the raw
       // frame, so give them the same filter, or they show as uncorrected (orange) rectangles on a corrected picture
-      cv.style.filter = video && video.style.filter ? video.style.filter : "";
+      cv.style.filter = video && video.style.filter ? video.style.filter : "";   // SVG mode only (blend mode: tintLike below)
       const tw = tile.tile.clientWidth, th = tile.tile.clientHeight;
       const dpr = Math.min(2, window.devicePixelRatio || 1);
       const w = Math.max(1, Math.round(tw * dpr)), h = Math.max(1, Math.round(th * dpr));
@@ -365,26 +365,29 @@
       ctx.clearRect(0, 0, tw, th);
       if (!video || !video.videoWidth) continue;
       const pb = plateBlur(cam, t);
-      if (pb.length) { const fit = contain(video.videoWidth, video.videoHeight, { x: 0, y: 0, w: tw, h: th }); for (const box of pb) paintBox(ctx, video, video.videoWidth, video.videoHeight, fit, box, "blur"); tintLike(ctx, fit, pb); }
+      if (pb.length) { const fit = contain(video.videoWidth, video.videoHeight, { x: 0, y: 0, w: tw, h: th }); for (const box of pb) paintBox(ctx, video, video.videoWidth, video.videoHeight, fit, box, "blur"); tintLike(ctx, fit, pb, cam); }
       const mb = matchBlur(cam, t);
-      if (mb.length) { const fit = contain(video.videoWidth, video.videoHeight, { x: 0, y: 0, w: tw, h: th }); for (const box of mb) paintBox(ctx, video, video.videoWidth, video.videoHeight, fit, box, "blur"); tintLike(ctx, fit, mb); }
+      if (mb.length) { const fit = contain(video.videoWidth, video.videoHeight, { x: 0, y: 0, w: tw, h: th }); for (const box of mb) paintBox(ctx, video, video.videoWidth, video.videoHeight, fit, box, "blur"); tintLike(ctx, fit, mb, cam); }
       if (!R.active || !blurOn()) continue;
       const boxes = boxesAt(cam, t);
       if (!boxes.length) continue;
       const fit = contain(video.videoWidth, video.videoHeight, { x: 0, y: 0, w: tw, h: th });
       for (const box of boxes) paintBox(ctx, video, video.videoWidth, video.videoHeight, fit, box, R.action);
-      tintLike(ctx, fit, boxes);
+      tintLike(ctx, fit, boxes, cam);
     }
   }
   // wb.js "blend" mode tints with a multiply layer that sits under this canvas: tint the patches the same way
-  function tintLike(ctx, fit, boxes) {
+  // (multiply by g / max(g), then color-dodge = × max(g): the same two layers wb.js puts over the video)
+  function tintLike(ctx, fit, boxes, cam) {
     try {
       const A = T.wb && T.wb.applied;
       if (!A || A.mode !== "blend" || !boxes.length) return;
-      const g = A.gains, mx = Math.max(g[0], g[1], g[2]);
+      const g = (T.wb.gainsFor && T.wb.gainsFor(cam)) || A.gains, mx = Math.max(g[0], g[1], g[2]);
+      const rect = (b) => ctx.fillRect(fit.x + b.x * fit.w, fit.y + b.y * fit.h, Math.max(2, b.w * fit.w), Math.max(2, b.h * fit.h));
       ctx.save(); ctx.globalCompositeOperation = "multiply";
       ctx.fillStyle = "rgb(" + g.map((x) => Math.round((255 * x) / mx)).join(",") + ")";
-      for (const b of boxes) ctx.fillRect(fit.x + b.x * fit.w, fit.y + b.y * fit.h, Math.max(2, b.w * fit.w), Math.max(2, b.h * fit.h));
+      for (const b of boxes) rect(b);
+      if (mx > 1.001) { const c = Math.round(Math.max(0, 1 - 1 / mx) * 255); ctx.globalCompositeOperation = "color-dodge"; ctx.fillStyle = "rgb(" + c + "," + c + "," + c + ")"; for (const b of boxes) rect(b); }
       ctx.restore();
     } catch (e) { console.warn("redact tint", e); }
   }

@@ -245,10 +245,32 @@
   const fmt = (x) => x.toFixed(4);
   function targets() {
     const P = T.player, out = [];
-    if (P && P.tiles) for (const cam of Object.keys(P.tiles)) { const t = P.tiles[cam]; out.push({ host: t.tile, after: t.vids[t.vids.length - 1], media: t.vids }); }
-    const pc = $("panoCanvas"); if (pc) out.push({ host: pc.parentElement, after: pc, media: [pc] });
+    if (P && P.tiles) for (const cam of Object.keys(P.tiles)) { const t = P.tiles[cam]; out.push({ cam, host: t.tile, after: t.vids[t.vids.length - 1], media: t.vids }); }
+    const pc = $("panoCanvas"); if (pc) out.push({ cam: null, host: pc.parentElement, after: pc, media: [pc] });
     return out;
   }
+  // per-camera gains: the shared estimate's gains × this camera's matching offset (WB.match, tag safari-feedback)
+  let per = {};
+  function gainsFor(cam, g) {
+    const m = cam && WB.matchOn() ? WB.match[cam] : null;
+    const out = m ? [g[0] * Math.exp(m[0]), g[1], g[2] * Math.exp(m[1])] : g.slice();
+    if (m) { const k = luma(g[0], g[1], g[2]) / Math.max(1e-6, luma(out[0], out[1], out[2])); for (let i = 0; i < 3; i++) out[i] *= k; }   // brightness kept
+    per[cam || "pano"] = out;
+    return out;
+  }
+  WB.gainsFor = (cam) => (WB.applied && WB.applied.per && (WB.applied.per[cam] || WB.applied.gains)) || null;
+  const svgCam = {};   // cam → feColorMatrix of its own filter (id tdcWb-<cam>); the shared #tdcWb is used when there is no offset
+  function svgFor(cam, gc) {
+    const A = WB.applied; if (!A) return "";
+    if (A.matrix || !cam || !(WB.matchOn() && WB.match[cam])) return "tdcWb";
+    ensureSvg();
+    let m = svgCam[cam];
+    if (!m) { const ns = "http://www.w3.org/2000/svg", f = svgF.cloneNode(false); f.id = "tdcWb-" + cam; f.setAttribute("color-interpolation-filters", "sRGB"); m = svgCam[cam] = document.createElementNS(ns, "feColorMatrix"); m.setAttribute("type", "matrix"); f.appendChild(m); svgF.parentNode.appendChild(f); }
+    m.setAttribute("values", `${fmt(gc[0])} 0 0 0 0  0 ${fmt(gc[1])} 0 0 0  0 0 ${fmt(gc[2])} 0 0  0 0 0 1 0`);
+    return "tdcWb-" + cam;
+  }
+  WB.match = {};             // cam → [log r-offset, log b-offset] (filled by the camera matcher, C3)
+  WB.matchOn = () => false;
   WB.applied = null;
   function apply() {
     const cur = WB.isOn() && WB.current();
@@ -257,23 +279,34 @@
     // work in linearRGB). Safari's blend path can only multiply per channel, so it keeps the gains (an approximation).
     let ccm = null;
     try { const P = T.cc && T.cc.on() ? T.cc.prefs() : null; if (g && mode === "svg" && P && P.adapt !== "gains") ccm = T.cc.viewerMatrix(cur.white, P.adapt, WB.cfg().strength); } catch (e) { console.warn("cc viewer", e); }
-    WB.applied = g ? { gains: g, mode, matrix: ccm } : null;
+    WB.applied = g ? { gains: g, mode, matrix: ccm } : null; per = {};
     document.body.classList.toggle("wb-on", !!g);
     if (g && mode === "svg") {
       ensureSvg();
       if (ccm) { svgF.setAttribute("color-interpolation-filters", "linearRGB"); svgM.setAttribute("values", ccm.map((r) => r.map(fmt).join(" ") + " 0 0").join("  ") + "  0 0 0 1 0"); }
       else { svgF.setAttribute("color-interpolation-filters", "sRGB"); svgM.setAttribute("values", `${fmt(g[0])} 0 0 0 0  0 ${fmt(g[1])} 0 0 0  0 0 ${fmt(g[2])} 0 0  0 0 0 1 0`); }
     }
-    const mx = g ? Math.max(g[0], g[1], g[2]) : 1;
+    // Safari / iOS ("blend"): NO CSS filter on the <video> (tag safari-feedback). A filter on a video moved the Left
+    // Pillar picture in the grid on Mac Safari and forces a slower paint path on iOS. Instead two layers above the video:
+    //   .wb-tint  mix-blend-mode multiply    × g / max(g)          (per channel, ≤ 1)
+    //   .wb-lift  mix-blend-mode color-dodge  ÷ (1 − c), c = 1 − 1/max(g)  = × max(g)   (the brightness, uniform)
+    // multiply then dodge = the same per-channel gains as before (brightness(max) + multiply), highlights clip last.
     for (const t of targets()) {
-      let tint = t.host.querySelector(":scope > .wb-tint");
-      if (g && mode === "blend") {
+      const gc = g ? gainsFor(t.cam, g) : null, mx = gc ? Math.max(gc[0], gc[1], gc[2]) : 1;
+      let tint = t.host.querySelector(":scope > .wb-tint"), lift = t.host.querySelector(":scope > .wb-lift");
+      if (gc && mode === "blend") {
         if (!tint) { tint = document.createElement("div"); tint.className = "wb-tint"; tint.setAttribute("aria-hidden", "true"); t.after.after(tint); }
-        tint.style.background = `rgb(${g.map((x) => ((255 * x) / mx).toFixed(2)).join(",")})`;
+        if (!lift) { lift = document.createElement("div"); lift.className = "wb-lift"; lift.setAttribute("aria-hidden", "true"); tint.after(lift); }
+        tint.style.background = `rgb(${gc.map((x) => ((255 * x) / mx).toFixed(2)).join(",")})`;
         tint.hidden = false;
-      } else if (tint) tint.hidden = true;
-      for (const m of t.media) m.style.filter = !g ? "" : mode === "svg" ? "url(#tdcWb)" : mx > 1.001 ? `brightness(${mx.toFixed(4)})` : "";
+        const c = Math.max(0, 1 - 1 / mx) * 255;
+        lift.style.background = `rgb(${c.toFixed(2)},${c.toFixed(2)},${c.toFixed(2)})`;
+        lift.hidden = !(mx > 1.001);
+      } else { if (tint) tint.hidden = true; if (lift) lift.hidden = true; }
+      const fid = gc && mode === "svg" ? svgFor(t.cam, gc) : "";
+      for (const m of t.media) m.style.filter = fid ? "url(#" + fid + ")" : "";
     }
+    if (WB.applied) WB.applied.per = per;
   }
   WB.apply = apply;
 

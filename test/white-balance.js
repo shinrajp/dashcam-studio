@@ -190,7 +190,7 @@ async function runBrowser(bn) {
     await W(500);
     const ovBox = await p.evaluate(() => { const r = TDC.player.tiles.front.tile.getBoundingClientRect(); return { x: r.left + 40, y: r.top + 37, width: 170, height: 156 }; });
     const ovPix = async () => p.evaluate(async (b64) => { const bm = await createImageBitmap(await (await fetch("data:image/png;base64," + b64)).blob()); const c = new OffscreenCanvas(bm.width, bm.height), x = c.getContext("2d"); x.drawImage(bm, 0, 0); const d = (px, py) => Array.from(x.getImageData(px, py, 1, 1).data.slice(0, 3)); return { gold: d(80, 3), cyan: d(50, 140) }; }, (await p.screenshot({ clip: ovBox })).toString("base64"));
-    const hideMedia = (h) => p.evaluate((h) => { document.querySelectorAll(".tile video, .wb-tint, #panoCanvas, .tile").forEach((e) => { if (e.classList.contains("tile")) e.style.background = h ? "#000" : ""; else e.style.visibility = h ? "hidden" : ""; }); document.getElementById("wbReadout").style.visibility = h ? "hidden" : ""; }, h);
+    const hideMedia = (h) => p.evaluate((h) => { document.querySelectorAll(".tile video, .wb-tint, .wb-lift, #panoCanvas, .tile").forEach((e) => { if (e.classList.contains("tile")) e.style.background = h ? "#000" : ""; else e.style.visibility = h ? "hidden" : ""; }); document.getElementById("wbReadout").style.visibility = h ? "hidden" : ""; }, h);
     const ovOn = await ovPix(); await hideMedia(true); await W(300); const stOn = await p.screenshot({ clip: await p.evaluate(() => { const r = document.getElementById("stage").getBoundingClientRect(); return { x: r.left, y: r.top, width: r.width, height: r.height }; }) }); await hideMedia(false);
     await setWb(p, false);
     const ovOff = await ovPix(); await hideMedia(true); await W(300); const stOff = await p.screenshot({ clip: await p.evaluate(() => { const r = document.getElementById("stage").getBoundingClientRect(); return { x: r.left, y: r.top, width: r.width, height: r.height }; }) }); await hideMedia(false);
@@ -264,7 +264,7 @@ async function runBrowser(bn) {
     ok(tag + ": on is kept after a reload (and applied again)", s.pressed === "true" && !!s.applied && /both mirrors/.test(s.readout || ""), s);
     await p.click("#chipWb"); await W(500);
     s = await ui(p);
-    const leftovers = await p.evaluate(() => [...document.querySelectorAll(".tile video")].filter((v) => v.style.filter).length + [...document.querySelectorAll(".wb-tint")].filter((t) => !t.hidden).length);
+    const leftovers = await p.evaluate(() => [...document.querySelectorAll(".tile video")].filter((v) => v.style.filter).length + [...document.querySelectorAll(".wb-tint, .wb-lift")].filter((t) => !t.hidden).length);
     ok(tag + ": tap again → off: saved '0', no readout, no filter or tint left on the videos", s.pressed === "false" && s.saved === "0" && !s.readoutVisible && !s.applied && leftovers === 0, { s, leftovers });
     await p.click("#chipWb"); await W(1200);
 

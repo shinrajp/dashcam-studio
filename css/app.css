@@ -728,3 +728,5 @@ body.no-text-search .text-only { display: none !important; }
 .term-mode.own { border-color: rgba(255,255,255,.28); }
 @media (pointer: coarse) { .term-mode { width: 28px; height: 28px; } .style-tgl { height: 32px; } }
 .us-style { display: flex; width: 100%; box-sizing: border-box; }
+.wb-lift { position: absolute; inset: 0; mix-blend-mode: color-dodge; pointer-events: none; }   /* Safari: brightness without a filter on the video */
+.wb-lift[hidden] { display: none; }

@@ -1,0 +1,76 @@
+// White balance in the 6-camera grid (tag safari-feedback). The user's Mac Safari: with White balance on, the Left Pillar
+// tile (top-left) shifted its picture in the non-full-screen grid. Safari/iOS ("blend" mode) now puts NO CSS filter on the
+// <video>: a multiply tint (per-channel) + a color-dodge lift (brightness) above it. Synthetic 6-camera footage
+// (tools/make-mock-footage.py). Playwright Chromium + WebKit, both modes (svg, blend), grid at the default window size:
+//  - every tile's video / tint / lift box = the tile box, on and off
+//  - screenshots on vs off: each tile's picture is in the same place (edge-image cross-correlation, best shift 0 px)
+//  - blend mode: no filter on any <video>; the on-screen colour change matches the gains (R/B ratio within 6 %)
+//  - per-camera matching (WB.match): each tile gets its own gains (front ≠ rear when their offsets differ), brightness kept
+// Usage: node test/wb-grid.js [url]   (BR=chromium,webkit   MOCK=/tmp/tdc-mock: footage, generated if missing)
+const pw = require("playwright"), fs = require("fs"), path = require("path"), os = require("os"), { execFileSync } = require("child_process");
+const URL_ = process.argv[2] || "http://127.0.0.1:8770/index.html";
+const MOCK = process.env.MOCK || "/tmp/tdc-mock", SHOTS = process.env.SHOTS || "";
+if (!fs.existsSync(MOCK + "/TeslaCam/SavedClips")) execFileSync("python3", [path.join(__dirname, "../tools/make-mock-footage.py"), MOCK], { stdio: "inherit" });
+const list = (d0) => { const o = []; (function w(d) { for (const f of fs.readdirSync(d)) { const q = path.join(d, f); fs.statSync(q).isDirectory() ? w(q) : o.push(q); } })(d0); return o; };
+const W = (ms) => new Promise((r) => setTimeout(r, ms));
+let fails = 0; const ok = (n, c, x) => { console.log((c ? "PASS " : "FAIL ") + n + (x !== undefined ? "  " + JSON.stringify(x).slice(0, 500) : "")); if (!c) fails++; };
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "wbgrid-"));
+// per tile: best (dx, dy) in ±6 px aligning the edge images of two screenshots, and the mean R/B ratio change
+const compare = (a, b, tiles) => { fs.writeFileSync(tmp + "/a.png", a); fs.writeFileSync(tmp + "/b.png", b); fs.writeFileSync(tmp + "/t.json", JSON.stringify(tiles));
+  return JSON.parse(execFileSync("python3", ["-c", `
+import json, numpy as np; from PIL import Image
+A=np.asarray(Image.open('${tmp}/a.png').convert('RGB')).astype(float); B=np.asarray(Image.open('${tmp}/b.png').convert('RGB')).astype(float)
+out={}
+for c,(x,y,w,h) in json.load(open('${tmp}/t.json')).items():
+  x,y,w,h=int(x)+8,int(y)+8,int(w)-16,int(h)-16
+  a=A[y:y+h,x:x+w]; b=B[y:y+h,x:x+w]
+  def edges(m):
+    l=m.mean(2); l=(l-l.mean())/(l.std()+1e-6); gx=np.abs(np.diff(l,axis=1))[:-1]; gy=np.abs(np.diff(l,axis=0))[:,:-1]; return gx+gy
+  ea,eb=edges(a),edges(b); best=None
+  for dy in range(-6,7):
+    for dx in range(-6,7):
+      s=ea[6+dy:ea.shape[0]-6+dy,6+dx:ea.shape[1]-6+dx]; t=eb[6:eb.shape[0]-6,6:eb.shape[1]-6]
+      v=float((s*t).mean())
+      if best is None or v>best[0]: best=(v,dx,dy)
+  ok=(a.max(2)<160)&(b.max(2)<235)&(a.min(2)>12)
+  ra=a[ok].mean(0); rb=b[ok].mean(0)
+  out[c]={"dx":best[1],"dy":best[2],"off":[round(v,1) for v in ra],"on":[round(v,1) for v in rb]}
+print(json.dumps(out))`]).toString()); };
+(async () => {
+  for (const bn of (process.env.BR || "chromium,webkit").split(",")) {
+    for (const mode of ["svg", "blend"]) {
+      const b = await pw[bn].launch(bn === "chromium" ? { executablePath: process.env.CHROME || "/usr/bin/google-chrome", args: ["--no-sandbox"] } : {});
+      const p = await (await b.newContext({ viewport: { width: 1280, height: 860 } })).newPage();
+      p.on("pageerror", (e) => console.log("PAGEERR", e.message));
+      await p.goto(URL_); await p.evaluate((m) => { localStorage.setItem("tdc.wb.v1", "0"); localStorage.setItem("tdc.wb.mode", m); }, mode); await p.reload();
+      await p.addStyleTag({ content: ".toast{display:none!important} .bar-hint{display:none!important} .wb-readout{visibility:hidden!important} .stage > :not(.grid){visibility:hidden!important} .tile > :not(video):not(.wb-tint):not(.wb-lift){visibility:hidden!important}" });   // only the pictures
+      await p.setInputFiles("#fileInput", list(MOCK + "/TeslaCam/SavedClips"));
+      for (let i = 0; i < 80 && (await p.evaluate(() => TDC.library.events.length)) < 1; i++) await W(250);
+      await p.evaluate(() => { [...document.querySelectorAll("button")].filter((x) => /Got it/.test(x.textContent)).forEach((x) => x.click()); });
+      await p.evaluate(async () => { await TDC.ui.activate(TDC.library.events.find((e) => /14-33-41/.test(e.id || e.name || "")) || TDC.library.events[0]); });
+      await W(2500); await p.evaluate(async () => { if (TDC.player.playing) TDC.player.pause && TDC.player.pause(); await TDC.player.seek(3.0); }); await W(1500);
+      const tag = bn + " [" + mode + "]";
+      const rects = () => p.evaluate(() => Object.fromEntries(Object.entries(TDC.player.tiles).map(([c, t]) => { const r = (e) => { const x = e.getBoundingClientRect(); return [x.left, x.top, x.width, x.height].map((v) => Math.round(v * 10) / 10); }; const q = (s) => { const e = t.tile.querySelector(":scope > " + s); return e && !e.hidden ? r(e) : null; }; return [c, { tile: r(t.tile), v: r(t.vids[TDC.player.active]), tint: q(".wb-tint"), lift: q(".wb-lift"), filter: t.vids.map((v) => v.style.filter).join("|") }]; })));
+      const off = await rects(), shotOff = await p.screenshot();
+      // a warm night white point (strong gains) so a mismatch would show
+      await p.evaluate(() => { TDC.wb.set(true); TDC.wb.reset(); TDC.wb.state.sceneY = 20; for (let i = 0; i < 6; i++) TDC.wb.update([240, 200, 130]); TDC.wb.apply(); });
+      await W(300); await p.evaluate(() => { TDC.wb.state.sceneY = 20; for (let i = 0; i < 3; i++) TDC.wb.update([240, 200, 130]); TDC.wb.apply(); }); await W(400);
+      const on = await rects(), shotOn = await p.screenshot(), gains = await p.evaluate(() => TDC.wb.applied && TDC.wb.applied.gains);
+      if (SHOTS) { fs.writeFileSync(path.join(SHOTS, "wb-grid-off-" + bn + "-" + mode + ".png"), shotOff); fs.writeFileSync(path.join(SHOTS, "wb-grid-on-" + bn + "-" + mode + ".png"), shotOn); }
+      const same = Object.keys(on).every((c) => JSON.stringify(on[c].v) === JSON.stringify(off[c].v) && JSON.stringify(on[c].v) === JSON.stringify(on[c].tile) && (mode !== "blend" || (JSON.stringify(on[c].tint) === JSON.stringify(on[c].tile) && JSON.stringify(on[c].lift) === JSON.stringify(on[c].tile))));
+      ok(tag + ": video, tint and lift boxes = the tile box, on and off", same, { left_pillar: { off: off.left_pillar, on: on.left_pillar } });
+      if (mode === "blend") ok(tag + ": no CSS filter on any <video> (tint + lift layers instead)", Object.values(on).every((x) => !x.filter.replace(/\|/g, "")), Object.fromEntries(Object.entries(on).map(([c, x]) => [c, x.filter])));
+      else ok(tag + ": SVG filter on the videos", Object.values(on).every((x) => /url\(/.test(x.filter)), on.front.filter);
+      const tiles = Object.fromEntries(Object.entries(on).map(([c, x]) => [c, x.tile]));
+      const cmp = compare(shotOff, shotOn, tiles);
+      ok(tag + ": every tile's picture stays in place (best edge alignment at 0,0 px)", Object.values(cmp).every((x) => x.dx === 0 && x.dy === 0), Object.fromEntries(Object.entries(cmp).map(([c, x]) => [c, [x.dx, x.dy]])));
+      const rb = (c) => (cmp[c].on[0] / cmp[c].on[2]) / (cmp[c].off[0] / cmp[c].off[2]), want = gains[0] / gains[2];
+      ok(tag + ": on-screen R/B change matches the gains (±6 %) on every tile", Object.keys(cmp).every((c) => Math.abs(rb(c) / want - 1) < 0.06), { want: +want.toFixed(3), got: Object.fromEntries(Object.keys(cmp).map((c) => [c, +rb(c).toFixed(3)])) });
+      // per-camera matching: give the rear camera an offset, the front none → different gains, the same brightness
+      const pc = await p.evaluate(() => { if (!TDC.wb.setMatch) return null; TDC.wb.setMatch({ back: [-0.08, 0.08], front: [0, 0] }); TDC.wb.apply(); const g = (c) => TDC.wb.gainsFor(c); const l = (x) => 0.2126 * x[0] + 0.7152 * x[1] + 0.0722 * x[2]; return { front: g("front"), back: g("back"), lum: [l(g("front")), l(g("back"))] }; });
+      if (pc) ok(tag + ": per-camera matching: rear gets its own (cooler) gains, brightness kept (±1 %)", pc.back[0] / pc.back[2] < pc.front[0] / pc.front[2] * 0.9 && Math.abs(pc.lum[1] / pc.lum[0] - 1) < 0.01, pc);
+      await b.close();
+    }
+  }
+  console.log(fails ? fails + " FAILED" : "ALL PASS"); process.exit(fails ? 1 : 0);
+})();
