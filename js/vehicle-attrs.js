@@ -160,8 +160,8 @@
       for (let x = 0; x < w; x++) {
         const nx = (x + 0.5) / w; if (bx.some((b) => nx >= b[0] && nx <= b[2] && ny >= b[1] && ny <= b[3])) continue;
         const [r, g, b] = px3(rgba, (y * w + x) * 4, g0, g1, g2, M), v = Math.max(r, g, b);
+        if (v < CAST_BANDS[0] || Math.min(r, g, b) >= 0.97 || g < 0.01) continue;   // black (letterbox bars, a hidden frame) / clipped
         allV.push(0.2126 * r + 0.7152 * g + 0.0722 * b);   // luma: a red cast lifts R, not the scene's brightness
-        if (v < CAST_BANDS[0] || Math.min(r, g, b) >= 0.97 || g < 0.01) continue;   // black / clipped
         let k = 0; while (k < nb - 1 && v >= CAST_BANDS[k + 1]) k++;
         L[k][0].push(Math.log(Math.max(r, 0.004) / g)); L[k][1].push(Math.log(Math.max(b, 0.004) / g));
       }
