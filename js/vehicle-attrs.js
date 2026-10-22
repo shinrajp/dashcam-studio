@@ -7,6 +7,10 @@
  *  - TYPES (roles: tour bus, city bus, police car, ambulance, fire truck…) and MAKES (brand → models) with CLIP prompts. */
 (function (root) {
   "use strict";
+  // sky reflections on dark glossy paint / glass (tag safari-feedback): blue pixel with s < s and v < v votes k (instead of
+  // 0.6 + s); in the top glassY of the box blue votes × glassK; car level: black (+ dark gray) share ≥ dark and the blue
+  // pixels ≥ dv brighter than the body's median → black / gray
+  const BLUE_REFL = { s: 0.5, v: 0.6, k: 0.35, glassY: 0.45, glassK: 0.35, dark: 0.2, dv: 0.12 };
   const COLORS = ["white", "black", "gray", "silver", "red", "blue", "green", "yellow", "orange", "brown", "beige", "purple"];
   const COLOR_SYN = { grey: "gray", maroon: "red", burgundy: "red", crimson: "red", navy: "blue", teal: "blue", turquoise: "blue", cyan: "blue", gold: "yellow", golden: "yellow", tan: "beige", cream: "beige", champagne: "beige", violet: "purple", pink: "red", charcoal: "gray", lime: "green", olive: "green" };
   // type id → YOLO (COCO) classes it can show up as, query words, CLIP prompts (ensembled)
@@ -304,7 +308,7 @@
       }
     }
     const redMin = night ? RED_MIN_S.night : nSeed ? RED_MIN_S.lamps : RED_MIN_S.day;
-    let total = 0, all = 0, vSum = 0, n = 0, warm = 0, dropped = 0, nDarkC = 0;
+    let total = 0, all = 0, vSum = 0, n = 0, warm = 0, dropped = 0, nDarkC = 0, bV = 0, bW = 0, bodyV = [];
     for (let y = 0; y < h; y++) {
       const dy = (y + 0.5) / h - 0.55;
       for (let x = 0; x < w; x++) {
@@ -312,6 +316,7 @@
         let wt = Math.exp(-(dx * dx) / (2 * 0.3 * 0.3) - (dy * dy) / (2 * 0.32 * 0.32));   // centre of the body counts most
         const p = y * w + x, r = R[p], g = G[p], b = B[p], v = V[p], s = S[p], hue = HU[p], c = v - Math.min(r, g, b);
         vSum += v; n++;
+        if (y >= h * BLUE_REFL.glassY) bodyV.push(v);
         all += wt;
         if (lampMask[p] === 1 || lampMask[p] === 3 || (lampMask[p] === 2 && redAmber(hue) && s > Math.max(0.2, medS + 0.08))) { dropped += wt; continue; }   // lamp, its halo, its glow
         // uniform panels count more than edges, lettering and reflections (local brightness spread, 4-neighbours)
@@ -334,7 +339,19 @@
           else if (hue < 36) name = s < 0.38 && v > 0.55 ? "beige" : v < 0.55 ? "brown" : "orange";
           else if (hue < 68) name = s < 0.32 && v > 0.55 ? "beige" : v < 0.42 ? "brown" : "yellow";
           else if (hue < 165) name = "green";
-          else if (hue < 255) { if (s < (night ? 0.42 : 0.35)) { name = gray(); k = 0.85; } else name = "blue"; }   // pale blue = sky reflected in paint or glass
+          else if (hue < 255) {
+            if (s < (night ? 0.42 : 0.35)) { name = gray(); k = 0.85; }   // pale blue = sky reflected in paint or glass
+            else {
+              name = "blue";
+              // (tag safari-feedback) sky reflected in glossy dark paint and in the windows: a weak, moderately saturated
+              // mid-dark blue. Real blue paint is more saturated (navy s ≈ 0.7) or light (sky-blue paint v > 0.6).
+              if (!night) {   // daylight only: the blue sky is what's reflected (at night the classifier's night rules apply)
+                if (s < BLUE_REFL.s && v < BLUE_REFL.v) k = BLUE_REFL.k;
+                if (y < h * BLUE_REFL.glassY) k *= BLUE_REFL.glassK;   // upper part of the box: windows / glass
+              }
+              bV += wt * k * v; bW += wt * k;
+            }
+          }
           else if (hue < 290) name = "purple";
           else name = "red";
         }
@@ -377,13 +394,22 @@
     if (night && medV < 0.5 && chrom.includes(name) && share[second] / nonBlack >= 0.12 && fam(second) !== fam(topC) && share[second] >= 0.4 * share[topC]) {
       name = medV < 0.3 ? "black" : "gray"; conf = Math.min(conf, 0.4); darkV = true;
     }
+    // (tag safari-feedback) a dark, glossy car in daylight: "blue" made of reflections. Much of the body is black / dark and
+    // the blue pixels are clearly BRIGHTER than the paint (30th percentile of the lower body: sky streaks), not the body itself (a navy car's
+    // blue IS its body brightness) → black / gray, low confidence.
+    let reflBlue = false;
+    if (!night && name === "blue" && bW > 0) {
+      bodyV.sort((a, b) => a - b);
+      const mB = bodyV.length ? bodyV[Math.floor(bodyV.length * 0.3)] : medV, blueV = bV / bW, darkShare = share.black + (mB < 0.3 ? share.gray : 0);
+      if (darkShare >= BLUE_REFL.dark && blueV > mB + BLUE_REFL.dv) { name = mB < 0.22 ? "black" : "gray"; conf = Math.min(conf, 0.45); reflBlue = true; }
+    }
     // too little body left after the lamp masks: say it, lean neutral
     const thin = lampFrac > 0.6;
     if (thin) { if (lampHue && name === topC && share[light] >= 0.15 && !(share[topC] >= 0.8 && share[light] < 0.1)) name = light; conf *= 0.6; }   // what's left is all paint colour: keep it
     const meanV = n ? vSum / n : 0;
     const lowLight = meanV < 0.18 || (n && warm / n > 0.6 && name !== "orange" && name !== "yellow");   // night, or orange sodium light
     if (lowLight) conf *= 0.5;
-    return { name, conf: Math.round(conf * 100) / 100, scores: share, lowLight: !!lowLight, corrected: !!(gn || M), lamps: Math.round(lampFrac * 100) / 100, thin, rearLit: rearLit || bar, bar, glow: glowEnd, dark: darkV, dbgSeeds: dbg ? [nSeed, nClip, nLens, nRed, +medV.toFixed(2), +medS.toFixed(2)] : undefined };
+    return { name, conf: Math.round(conf * 100) / 100, scores: share, lowLight: !!lowLight, corrected: !!(gn || M), lamps: Math.round(lampFrac * 100) / 100, thin, rearLit: rearLit || bar, bar, glow: glowEnd, dark: darkV, reflBlue, dbgSeeds: dbg ? [nSeed, nClip, nLens, nRed, +medV.toFixed(2), +medS.toFixed(2)] : undefined };
   }
   function neutral(r, g, b, v, hue) {
     const [L, A, B] = lab(r, g, b), C = Math.hypot(A, B);
