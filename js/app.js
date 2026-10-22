@@ -11,6 +11,7 @@
     try { if (T.prewarm) T.prewarm.init(); } catch (e) { console.warn("prewarm init", e); }   // models load at clip open
     try { if (T.vehicle) T.vehicle.init(); } catch (e) { console.warn("vehicle init", e); }
     try { if (T.cloud) T.cloud.init(); } catch (e) { console.warn("cloud init", e); }
+    try { if (T.recogSettings) T.recogSettings.init(); } catch (e) { console.warn("recognition settings init", e); }   // five switches + Advanced
     if (T.searchUI) { try { T.searchUI.init(); } catch (e) { console.warn(e); } }   // Phase 4; falls back to the classic bars
     try { if (T.textSearch) T.textSearch.init(); } catch (e) { console.warn("text search init", e); }   // text search & redaction switch
     try { if (T.wb) T.wb.init(); } catch (e) { console.warn("wb init", e); }   // live white balance (viewer only)
