@@ -50,6 +50,15 @@ print(json.dumps(out))`]).toString()); };
       await p.evaluate(async () => { await TDC.ui.activate(TDC.library.events.find((e) => /14-33-41/.test(e.id || e.name || "")) || TDC.library.events[0]); });
       await W(2500); await p.evaluate(async () => { if (TDC.player.playing) TDC.player.pause && TDC.player.pause(); await TDC.player.seek(3.0); }); await W(1500);
       const tag = bn + " [" + mode + "]";
+      if (mode === "svg") {   // viewer look limits (WB.viewGains): day ≈ no change, night limited, tint halved
+        const u = await p.evaluate(() => { const W = TDC.wb, L = (g) => g.map(Math.log); return { C: W.C, day7700: L(W.viewGains([205, 222, 250], 1)), day6300: L(W.viewGains([222, 228, 240], 1)), night3000: W.viewGains([255, 196, 110], 0), old3000: W.gains([255, 196, 110]),
+          green: { view: L(W.viewGains([200, 240, 170], 0)), old: L(W.gains([200, 240, 170])) }, dn: [W.dayness(20), W.dayness(75), W.dayness(140), W.dayness(null)] }; });
+        ok(bn + ": daylight 6300–7700 K white: viewer gains within ±4 % (no red cast added by day)", [...u.day7700, ...u.day6300].every((x) => Math.abs(x) < 0.04), { day7700: u.day7700.map((x) => +x.toFixed(3)), day6300: u.day6300.map((x) => +x.toFixed(3)) });
+        ok(bn + ": night 3000 K: blue gain ≤ BLUE_MAX and below the old full gain (less blue), red still lowered", u.night3000[2] <= u.C.BLUE_MAX + 1e-6 && u.night3000[2] < u.old3000[2] && u.night3000[0] < 1, { night: u.night3000, old: u.old3000 });
+        const tint = (l) => l[1] - (l[0] + l[2]) / 2;
+        ok(bn + ": greenish light: the magenta (tint) part of the correction is halved", Math.abs(tint(u.green.view)) < 0.6 * Math.abs(tint(u.green.old)), { view: +tint(u.green.view).toFixed(3), old: +tint(u.green.old).toFixed(3) });
+        ok(bn + ": day / night from the mirror strips' brightness (dark 0, bright 1, unknown = night)", u.dn[0] === 0 && u.dn[1] > 0 && u.dn[1] < 1 && u.dn[2] === 1 && u.dn[3] === 0, u.dn);
+      }
       const rects = () => p.evaluate(() => Object.fromEntries(Object.entries(TDC.player.tiles).map(([c, t]) => { const r = (e) => { const x = e.getBoundingClientRect(); return [x.left, x.top, x.width, x.height].map((v) => Math.round(v * 10) / 10); }; const q = (s) => { const e = t.tile.querySelector(":scope > " + s); return e && !e.hidden ? r(e) : null; }; return [c, { tile: r(t.tile), v: r(t.vids[TDC.player.active]), tint: q(".wb-tint"), lift: q(".wb-lift"), filter: t.vids.map((v) => v.style.filter).join("|") }]; })));
       const off = await rects(), shotOff = await p.screenshot();
       // a warm night white point (strong gains) so a mismatch would show

@@ -178,7 +178,7 @@ async function runBrowser(bn) {
       // what per-channel gains predict for the paint (sRGB values × gains, clipped)
       const pred = off.paint.map((c, i) => Math.min(255, c * g[i])), predRed = 1 - chroma(pred) / chroma(off.paint);
       const lumOff = 0.2126 * off.paint[0] + 0.7152 * off.paint[1] + 0.0722 * off.paint[2], lumOn = 0.2126 * on.paint[0] + 0.7152 * on.paint[1] + 0.0722 * on.paint[2];
-      ok(tag + " [" + mode + "]: white paint on screen moves toward neutral by ~70 % (55–85 %), brightness kept (±12 %)", red > 0.55 && red < 0.85 && Math.abs(lumOn / lumOff - 1) < 0.12, { off: off.paint.map(Math.round), on: on.paint.map(Math.round), reduction: +red.toFixed(3), predicted: +predRed.toFixed(3), lum: [lumOff, lumOn].map(Math.round), gains: g.map((x) => +x.toFixed(3)) });
+      ok(tag + " [" + mode + "]: white paint on screen moves toward neutral by ~55 % (45–75 %: 70 % strength, night temperature limit, tag safari-feedback), brightness kept (±12 %)", red > 0.45 && red < 0.75 && Math.abs(lumOn / lumOff - 1) < 0.12, { off: off.paint.map(Math.round), on: on.paint.map(Math.round), reduction: +red.toFixed(3), predicted: +predRed.toFixed(3), lum: [lumOff, lumOn].map(Math.round), gains: g.map((x) => +x.toFixed(3)) });
       ok(tag + " [" + mode + "]: the whole front camera is corrected too (R/B ratio drops)", on.front[0] / on.front[2] < 0.85 * (off.front[0] / off.front[2]), { off: off.front.map(Math.round), on: on.front.map(Math.round) });
     }
     await p.evaluate(() => { localStorage.removeItem("tdc.wb.mode"); TDC.wb.apply(); });
@@ -250,7 +250,7 @@ async function runBrowser(bn) {
     await seek(p, 1.0);
     const strengthAt = async (k) => { await p.evaluate((k) => TDC.wb.setCfg({ strength: k }), k); await W(400); const on = await shotMean(p, "right_repeater", 0.963, 0.76, 0.993, 0.95); return +(1 - chroma(on) / chroma(off.paint)).toFixed(3); };
     const s100 = await strengthAt(1), s30 = await strengthAt(0.3); await p.evaluate(() => TDC.wb.setCfg({ strength: 0.7 }));
-    ok(tag + ": Strength slider: 100 % → more than 70 % (> 75 %, gains are clamped so it never over-corrects), 30 % → ~30 % (15–45 %), default back to 70 %", s100 > 0.75 && s30 > 0.15 && s30 < 0.45 && (await p.evaluate(() => TDC.wb.cfg().strength)) === 0.7, { s100, s30 });
+    ok(tag + ": Strength slider: 100 % → clearly more than the default (> 60 %, still limited so it never over-corrects), 30 % → ~30 % (15–45 %), default back to 70 %", s100 > 0.6 && s30 > 0.15 && s30 < 0.45 && (await p.evaluate(() => TDC.wb.cfg().strength)) === 0.7, { s100, s30 });
 
     // ── tab hidden → paused ──
     const hid = await p.evaluate(async () => { TDC.player.play(); await new Promise((r) => setTimeout(r, 400)); Object.defineProperty(document, "hidden", { configurable: true, get: () => true }); document.dispatchEvent(new Event("visibilitychange")); await new Promise((r) => setTimeout(r, 400)); const n0 = TDC.wb.state.samples; await new Promise((r) => setTimeout(r, 1200)); const n1 = TDC.wb.state.samples; delete document.hidden; document.dispatchEvent(new Event("visibilitychange")); await new Promise((r) => setTimeout(r, 900)); const n2 = TDC.wb.state.samples; TDC.player.pause(); return { hidden: n1 - n0, visible: n2 - n1 }; });

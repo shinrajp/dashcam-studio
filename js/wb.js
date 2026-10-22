@@ -45,6 +45,14 @@
     EMA: 0.25,              // smoothing weight of a new sample
     LOST_MS: 8000,          // paint unseen this long → correction fades back to none
     GAIN_MIN: 0.65, GAIN_MAX: 1.7,   // clamp: the paint isn't perfectly neutral, never over-correct
+    // viewer look (tag safari-feedback; the user's Mac Safari: bluish at night, a little red by day). The correction is split
+    // into temperature (log B/R, warm ↔ cool) and tint (green ↔ magenta) and limited separately:
+    //   - tint × TINT_K: the magenta cast after correcting a greenish light is the most visible over-correction
+    //   - night: temperature × NIGHT_K, at most ±NIGHT_TEMP (log; 0.26 ≈ B/R × 1.7), blue gain ≤ BLUE_MAX (noisy channel)
+    //   - day (the mirror strip's median brightness ≥ DAY_Y[1] of 255, blended from DAY_Y[0]): the camera's own auto white
+    //     balance is good by day and the white paint mostly reflects the blue sky (reads 6300–7700 K) → temperature × DAY_K,
+    //     at most ±DAY_TEMP, tint at most ±DAY_TINT
+    TINT_K: 0.5, NIGHT_K: 0.85, NIGHT_TEMP: 0.26, BLUE_MAX: 1.45, DAY_Y: [55, 95], DAY_K: 0.25, DAY_TEMP: 0.04, DAY_TINT: 0.02,
     // body mask
     MASK_ALPHA: 0.12,       // running mean / variance weight per new frame
     MASK_MIN_FRAMES: 8,     // distinct frames before a mask can be trusted
@@ -99,6 +107,22 @@
     let g = w.map((c) => 1 + (ref / Math.max(c, 1) - 1) * k);
     const norm = ref / luma(w[0] * g[0], w[1] * g[1], w[2] * g[2]);
     return g.map((x) => Math.min(WB.C.GAIN_MAX, Math.max(WB.C.GAIN_MIN, x * norm)));
+  };
+  /** How much it is day (0 = night … 1 = day) from the mirror strips' median brightness (0–255); unknown = night. */
+  WB.dayness = (y) => { const [a, b] = WB.C.DAY_Y; return y == null || !(y >= 0) ? 0 : Math.max(0, Math.min(1, (y - a) / (b - a))); };
+  /** Viewer gains (what the user sees): WB.gains, then temperature / tint limited for night and day (see WB.C), brightness kept. */
+  WB.viewGains = (w, day, strength) => {
+    const C = WB.C, g0 = WB.gains(w, strength), l = g0.map((x) => Math.log(x));
+    let temp = (l[2] - l[0]) / 2, tint = l[1] - (l[0] + l[2]) / 2;
+    const d = Math.max(0, Math.min(1, day || 0)), lim = (x, m) => Math.max(-m, Math.min(m, x)), mix = (a, b) => a + (b - a) * d;
+    const ks = Math.max(1, (strength == null ? WB.cfg().strength : strength) / C.STRENGTH);   // Strength above the default raises the limits too
+    temp = lim(temp * mix(C.NIGHT_K, C.DAY_K), mix(C.NIGHT_TEMP, C.DAY_TEMP) * ks);
+    tint = lim(tint * C.TINT_K, mix(1, C.DAY_TINT));
+    let g = [Math.exp(-temp - tint / 3), Math.exp((2 * tint) / 3), Math.exp(temp - tint / 3)];
+    const ref = luma(w[0], w[1], w[2]), k = ref / luma(w[0] * g[0], w[1] * g[1], w[2] * g[2]);   // the white keeps its brightness
+    g = g.map((x) => x * k);
+    if (g[2] > C.BLUE_MAX) { const f = C.BLUE_MAX / g[2]; g = g.map((x) => x * f); }   // (a little darker rather than noisy blue)
+    return g.map((x) => Math.min(C.GAIN_MAX, Math.max(C.GAIN_MIN, x)));
   };
 
   const med = (a) => { if (!a.length) return 0; const s = Float64Array.from(a).sort(); return s[s.length >> 1]; };
@@ -201,8 +225,8 @@
   };
 
   // ── running estimate (log-chroma EMA with jump rejection) ──
-  const st = (WB.state = { est: null, lum: 0, jumps: 0, lastSeen: 0, cams: [], samples: 0, accepted: 0, rejected: 0, raw: null, camJumps: {}, reds: 0, camReds: {} });
-  WB.reset = () => { st.est = null; st.lum = 0; st.jumps = 0; st.lastSeen = 0; st.cams = []; st.samples = st.accepted = st.rejected = 0; st.raw = null; st.camJumps = {}; st.reds = 0; st.camReds = {}; apply(); render(); };
+  const st = (WB.state = { est: null, lum: 0, jumps: 0, lastSeen: 0, cams: [], samples: 0, accepted: 0, rejected: 0, raw: null, camJumps: {}, reds: 0, camReds: {}, sceneY: null });
+  WB.reset = () => { st.sceneY = null; st.est = null; st.lum = 0; st.jumps = 0; st.lastSeen = 0; st.cams = []; st.samples = st.accepted = st.rejected = 0; st.raw = null; st.camJumps = {}; st.reds = 0; st.camReds = {}; apply(); render(); };
   /** Is log-chroma c a shift from the estimate toward red with blue about the same (lamp light on the paint)? */
   const redLamp = (c) => { if (!st.est) return false; const dr = c[0] - st.est[0], db = c[1] - st.est[1]; return dr > WB.C.LAMP_DR && db > WB.C.LAMP_DB * dr; };
   WB.redLamp = redLamp;
@@ -227,7 +251,7 @@
   };
   /** Current smoothed white point as sRGB (green = 200), or null. */
   WB.white = () => { if (!st.est) return null; const w = [Math.exp(st.est[0]), 1, Math.exp(st.est[1])], k = 230 / Math.max(w[0], w[1], w[2]); return w.map((v) => v * k); };   // brightest channel = 230
-  WB.current = () => { const w = WB.white(); if (!w) return null; const k = WB.cct(w); return { white: w, cct: k, label: WB.describe(k, w), gains: WB.gains(w), cams: st.cams.slice() }; };
+  WB.current = () => { const w = WB.white(); if (!w) return null; const k = WB.cct(w), day = WB.dayness(st.sceneY); return { white: w, cct: k, label: WB.describe(k, w), gains: WB.viewGains(w, day), day, cams: st.cams.slice() }; };
 
   // ── rendering the correction ──
   let svgM = null;
@@ -370,7 +394,7 @@
     return { side, runs: WB.wedge(zw), source: "default sliver", Z: zones[cam + ":" + side] };
   };
   WB.sampleNow = (fresh) => {
-    const seen = [], whites = [];
+    const seen = [], whites = [], sceneYs = [];
     WB.last = {};
     let blank = 0, noBody = 0, present = 0;
     const ev = T.player && T.player.ev;
@@ -392,6 +416,7 @@
       const mk = WB.maskFor(cam), Z = mk.Z;
       if (!Z || !Z.img) { blank++; continue; }
       if (mk.source !== "learned" && Z.noBody && sides(cam).every((sd) => { const z = zones[cam + ":" + sd]; return z && z.noBody; })) { WB.last[cam] = { found: false, why: "no body at the edge", side: mk.side, source: mk.source }; noBody++; continue; }
+      { const dd = Z.img.data, ys = []; for (let i = 0; i < dd.length; i += 16) ys.push(luma(dd[i], dd[i + 1], dd[i + 2])); const y = med(ys); sceneYs.push(y); }   // day / night for the viewer look
       const a = WB.analyse(Z.img, mk.runs, Z.n >= WB.C.MASK_MIN_FRAMES ? Z.sceneY : null);
       Object.assign(a, { cam, side: mk.side, source: mk.source, cells: mk.runs.reduce((s, v) => s + v, 0) });
       WB.last[cam] = a;
@@ -409,6 +434,7 @@
       st.camJumps[cam] = 0;
       seen.push(cam); whites.push(a.rgb);
     }
+    if (sceneYs.length) { const y = sceneYs.reduce((a, b) => a + b, 0) / sceneYs.length; st.sceneY = st.sceneY == null ? y : st.sceneY + 0.2 * (y - st.sceneY); }
     if (!whites.length && blank) return "blank";
     if (!whites.length && Object.values(WB.last).some((a) => a.rejected)) return "jump";   // only a rejected lamp flash: hold
     if (!whites.length && present && noBody === present) { st.est = null; st.cams = []; st.camJumps = {}; drawMasks(); return "no-body"; }   // the world moves past both edges and no car body is there: nothing to measure
