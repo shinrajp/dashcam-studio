@@ -5,7 +5,10 @@
 //  - every tile's video / tint / lift box = the tile box, on and off
 //  - screenshots on vs off: each tile's picture is in the same place (edge-image cross-correlation, best shift 0 px)
 //  - blend mode: no filter on any <video>; the on-screen colour change matches the gains (R/B ratio within 6 %)
-//  - per-camera matching (WB.match): each tile gets its own gains (front ≠ rear when their offsets differ), brightness kept
+//  - per-camera matching (WB.match): each tile gets its own gains (front ≠ rear when their offsets differ), brightness kept;
+//    the matcher's neutral reading (grey → 0, warm grey → R up / B down, saturated / dark → none); on the mock footage the
+//    live offsets stay within ±MATCH_MAX
+//  - viewer look limits: daylight white ≈ no change, night blue limited, tint halved, day / night from the strip brightness
 // Usage: node test/wb-grid.js [url]   (BR=chromium,webkit   MOCK=/tmp/tdc-mock: footage, generated if missing)
 const pw = require("playwright"), fs = require("fs"), path = require("path"), os = require("os"), { execFileSync } = require("child_process");
 const URL_ = process.argv[2] || "http://127.0.0.1:8770/index.html";
@@ -57,6 +60,9 @@ print(json.dumps(out))`]).toString()); };
         ok(bn + ": night 3000 K: blue gain ≤ BLUE_MAX and below the old full gain (less blue), red still lowered", u.night3000[2] <= u.C.BLUE_MAX + 1e-6 && u.night3000[2] < u.old3000[2] && u.night3000[0] < 1, { night: u.night3000, old: u.old3000 });
         const tint = (l) => l[1] - (l[0] + l[2]) / 2;
         ok(bn + ": greenish light: the magenta (tint) part of the correction is halved", Math.abs(tint(u.green.view)) < 0.6 * Math.abs(tint(u.green.old)), { view: +tint(u.green.view).toFixed(3), old: +tint(u.green.old).toFixed(3) });
+        const nm = await p.evaluate(() => { const mk = (rgb, noise) => { const c = document.createElement("canvas"); c.width = 64; c.height = 40; const x = c.getContext("2d"); for (let i = 0; i < 64; i++) for (let j = 0; j < 40; j++) { const k = ((i * 7 + j * 13) % 9) - 4; x.fillStyle = "rgb(" + rgb.map((v) => v + k * (noise || 0)).join(",") + ")"; x.fillRect(i, j, 1, 1); } c.videoWidth = 64; c.videoHeight = 40; c.readyState = 4; return c; };
+          const W = TDC.wb; return { gray: W.neutralOf(mk([128, 128, 128], 3)), warm: W.neutralOf(mk([140, 128, 116], 3)), green: W.neutralOf(mk([60, 170, 60], 3)), dark: W.neutralOf(mk([10, 10, 10], 1)) }; });
+        ok(bn + ": camera matcher: neutral grey → 0, warm grey → R up / B down, saturated or dark frames → no reading", Math.abs(nm.gray[0]) < 0.02 && Math.abs(nm.gray[1]) < 0.02 && nm.warm[0] > 0.05 && nm.warm[1] < -0.05 && nm.green === null && nm.dark === null, nm);
         ok(bn + ": day / night from the mirror strips' brightness (dark 0, bright 1, unknown = night)", u.dn[0] === 0 && u.dn[1] > 0 && u.dn[1] < 1 && u.dn[2] === 1 && u.dn[3] === 0, u.dn);
       }
       const rects = () => p.evaluate(() => Object.fromEntries(Object.entries(TDC.player.tiles).map(([c, t]) => { const r = (e) => { const x = e.getBoundingClientRect(); return [x.left, x.top, x.width, x.height].map((v) => Math.round(v * 10) / 10); }; const q = (s) => { const e = t.tile.querySelector(":scope > " + s); return e && !e.hidden ? r(e) : null; }; return [c, { tile: r(t.tile), v: r(t.vids[TDC.player.active]), tint: q(".wb-tint"), lift: q(".wb-lift"), filter: t.vids.map((v) => v.style.filter).join("|") }]; })));
@@ -64,7 +70,7 @@ print(json.dumps(out))`]).toString()); };
       // a warm night white point (strong gains) so a mismatch would show
       await p.evaluate(() => { TDC.wb.set(true); TDC.wb.reset(); TDC.wb.state.sceneY = 20; for (let i = 0; i < 6; i++) TDC.wb.update([240, 200, 130]); TDC.wb.apply(); });
       await W(300); await p.evaluate(() => { TDC.wb.state.sceneY = 20; for (let i = 0; i < 3; i++) TDC.wb.update([240, 200, 130]); TDC.wb.apply(); }); await W(400);
-      const on = await rects(), shotOn = await p.screenshot(), gains = await p.evaluate(() => TDC.wb.applied && TDC.wb.applied.gains);
+      const on = await rects(), shotOn = await p.screenshot(), gains = await p.evaluate(() => TDC.wb.applied && TDC.wb.applied.gains), perCam = await p.evaluate(() => Object.fromEntries(Object.keys(TDC.player.tiles).map((c) => [c, TDC.wb.gainsFor(c)])));
       if (SHOTS) { fs.writeFileSync(path.join(SHOTS, "wb-grid-off-" + bn + "-" + mode + ".png"), shotOff); fs.writeFileSync(path.join(SHOTS, "wb-grid-on-" + bn + "-" + mode + ".png"), shotOn); }
       const same = Object.keys(on).every((c) => JSON.stringify(on[c].v) === JSON.stringify(off[c].v) && JSON.stringify(on[c].v) === JSON.stringify(on[c].tile) && (mode !== "blend" || (JSON.stringify(on[c].tint) === JSON.stringify(on[c].tile) && JSON.stringify(on[c].lift) === JSON.stringify(on[c].tile))));
       ok(tag + ": video, tint and lift boxes = the tile box, on and off", same, { left_pillar: { off: off.left_pillar, on: on.left_pillar } });
@@ -73,10 +79,12 @@ print(json.dumps(out))`]).toString()); };
       const tiles = Object.fromEntries(Object.entries(on).map(([c, x]) => [c, x.tile]));
       const cmp = compare(shotOff, shotOn, tiles);
       ok(tag + ": every tile's picture stays in place (best edge alignment at 0,0 px)", Object.values(cmp).every((x) => x.dx === 0 && x.dy === 0), Object.fromEntries(Object.entries(cmp).map(([c, x]) => [c, [x.dx, x.dy]])));
-      const rb = (c) => (cmp[c].on[0] / cmp[c].on[2]) / (cmp[c].off[0] / cmp[c].off[2]), want = gains[0] / gains[2];
-      ok(tag + ": on-screen R/B change matches the gains (±6 %) on every tile", Object.keys(cmp).every((c) => Math.abs(rb(c) / want - 1) < 0.06), { want: +want.toFixed(3), got: Object.fromEntries(Object.keys(cmp).map((c) => [c, +rb(c).toFixed(3)])) });
+      const rb = (c) => (cmp[c].on[0] / cmp[c].on[2]) / (cmp[c].off[0] / cmp[c].off[2]), want = (c) => perCam[c][0] / perCam[c][2];
+      ok(tag + ": on-screen R/B change matches each tile's gains (±5 %)", Object.keys(cmp).every((c) => Math.abs(rb(c) / want(c) - 1) < 0.05), { shared: +(gains[0] / gains[2]).toFixed(3), got: Object.fromEntries(Object.keys(cmp).map((c) => [c, [+rb(c).toFixed(3), +want(c).toFixed(3)]])) });
       // per-camera matching: give the rear camera an offset, the front none → different gains, the same brightness
       const pc = await p.evaluate(() => { if (!TDC.wb.setMatch) return null; TDC.wb.setMatch({ back: [-0.08, 0.08], front: [0, 0] }); TDC.wb.apply(); const g = (c) => TDC.wb.gainsFor(c); const l = (x) => 0.2126 * x[0] + 0.7152 * x[1] + 0.0722 * x[2]; return { front: g("front"), back: g("back"), lum: [l(g("front")), l(g("back"))] }; });
+      const live = await p.evaluate(() => { TDC.wb.setMatch({}); TDC.wb.matchCams(); return { m: TDC.wb.match, max: TDC.wb.C.MATCH_MAX, n: Object.keys(TDC.wb.camNeutral) }; });
+      ok(tag + ": camera matcher on the footage: offsets for the cameras, all within ±MATCH_MAX", live.n.length >= 4 && Object.values(live.m).every((o) => Math.abs(o[0]) <= live.max + 1e-9 && Math.abs(o[1]) <= live.max + 1e-9), live);
       if (pc) ok(tag + ": per-camera matching: rear gets its own (cooler) gains, brightness kept (±1 %)", pc.back[0] / pc.back[2] < pc.front[0] / pc.front[2] * 0.9 && Math.abs(pc.lum[1] / pc.lum[0] - 1) < 0.01, pc);
       await b.close();
     }

@@ -52,6 +52,11 @@
     //   - day (the mirror strip's median brightness ≥ DAY_Y[1] of 255, blended from DAY_Y[0]): the camera's own auto white
     //     balance is good by day and the white paint mostly reflects the blue sky (reads 6300–7700 K) → temperature × DAY_K,
     //     at most ±DAY_TEMP, tint at most ±DAY_TINT
+    // camera matching (tag safari-feedback): each camera has its own auto white balance, so one set of gains leaves the
+    // six pictures different. About once a second (phones: every 2 s) each camera's near-neutral pixels (luma 35–215 of
+    // 255, saturation < MATCH_S, unclipped) give its median log R/G, B/G; its offset = the mirror cameras' mean − its
+    // own, at most ±MATCH_MAX (log, ≈ ±7 %), smoothed (MATCH_EMA). Needs MATCH_MIN such pixels; else the offset is kept.
+    MATCH_EVERY: 4, MATCH_EVERY_MOBILE: 9, MATCH_S: 0.3, MATCH_MAX: 0.07, MATCH_EMA: 0.25, MATCH_MIN: 60, MATCH_W: 48, MATCH_H: 30,
     TINT_K: 0.5, NIGHT_K: 0.85, NIGHT_TEMP: 0.26, BLUE_MAX: 1.45, DAY_Y: [55, 95], DAY_K: 0.25, DAY_TEMP: 0.04, DAY_TINT: 0.02,
     // body mask
     MASK_ALPHA: 0.12,       // running mean / variance weight per new frame
@@ -73,7 +78,7 @@
   const KEY = "tdc.wb.v1", MODE_KEY = "tdc.wb.mode", CFG_KEY = "tdc.wb.cfg.v1", MASK_KEY = "tdc.wb.mask.v1";
   const REP = ["left_repeater", "right_repeater"];
   // user settings: strength, strip width, edge side per camera ("auto" | "left" | "right"), show the sample area
-  WB.cfg = () => { let c = {}; try { c = JSON.parse(localStorage.getItem(CFG_KEY) || "{}") || {}; } catch (_) {} return { strength: c.strength > 0 ? Math.min(1, c.strength) : WB.C.STRENGTH, width: c.width > 0 ? c.width : WB.C.ZONE_W, side: Object.assign({ left_repeater: "auto", right_repeater: "auto" }, c.side || {}), showMask: !!c.showMask, colour: c.colour === "on" || c.colour === "off" ? c.colour : "auto" }; };
+  WB.cfg = () => { let c = {}; try { c = JSON.parse(localStorage.getItem(CFG_KEY) || "{}") || {}; } catch (_) {} return { strength: c.strength > 0 ? Math.min(1, c.strength) : WB.C.STRENGTH, width: c.width > 0 ? c.width : WB.C.ZONE_W, side: Object.assign({ left_repeater: "auto", right_repeater: "auto" }, c.side || {}), showMask: !!c.showMask, match: c.match !== false, colour: c.colour === "on" || c.colour === "off" ? c.colour : "auto" }; };
   WB.setCfg = (patch) => { const c = Object.assign(WB.cfg(), patch); if (patch.side) c.side = Object.assign(WB.cfg().side, patch.side); try { localStorage.setItem(CFG_KEY, JSON.stringify(c)); } catch (_) {} if (patch.width || patch.side) resetZones(false); apply(); render(); drawMasks(); return c; };
   const NAME = { left_repeater: "left mirror", right_repeater: "right mirror" };
 
@@ -293,8 +298,39 @@
     m.setAttribute("values", `${fmt(gc[0])} 0 0 0 0  0 ${fmt(gc[1])} 0 0 0  0 0 ${fmt(gc[2])} 0 0  0 0 0 1 0`);
     return "tdcWb-" + cam;
   }
-  WB.match = {};             // cam → [log r-offset, log b-offset] (filled by the camera matcher, C3)
-  WB.matchOn = () => false;
+  WB.match = {};             // cam → [log r-offset, log b-offset] (camera matcher below)
+  WB.matchOn = () => WB.cfg().match;
+  WB.setMatch = (m) => { for (const k of Object.keys(WB.match)) delete WB.match[k]; Object.assign(WB.match, m || {}); };   // tests
+  let mcv = null, mcx = null;
+  WB.camNeutral = {};
+  /** Median log(R/G), log(B/G) of a camera's near-neutral pixels (raw frame), or null. */
+  WB.neutralOf = (v) => {
+    const C = WB.C;
+    if (!v || !v.videoWidth || v.readyState < 2) return null;
+    if (!mcv) { mcv = document.createElement("canvas"); mcv.width = C.MATCH_W; mcv.height = C.MATCH_H; mcx = mcv.getContext("2d", { willReadFrequently: true }); }
+    let d; try { mcx.drawImage(v, 0, 0, C.MATCH_W, C.MATCH_H); d = mcx.getImageData(0, 0, C.MATCH_W, C.MATCH_H).data; } catch (_) { return null; }
+    const lr = [], lb = [];
+    for (let i = 0; i < d.length; i += 4) {
+      const r = d[i], g = d[i + 1], b = d[i + 2], mx = Math.max(r, g, b), mn = Math.min(r, g, b), l = luma(r, g, b);
+      if (l < 35 || l > 215 || mx >= 245 || mn < 4 || (mx - mn) / mx >= C.MATCH_S) continue;
+      lr.push(Math.log(r / g)); lb.push(Math.log(b / g));
+    }
+    return lr.length >= C.MATCH_MIN ? [med(lr), med(lb)] : null;
+  };
+  let matchN = 0;
+  WB.matchCams = () => {
+    const P = T.player, C = WB.C; if (!P || !P.tiles) return;
+    const n = {};
+    for (const cam of Object.keys(P.tiles)) { const v = P.tiles[cam].vids[P.active]; const m = v && v._url ? WB.neutralOf(v) : null; if (m) n[cam] = m; }
+    WB.camNeutral = n;
+    const refs = REP.filter((c) => n[c]); if (!refs.length) return;   // the reference is the cameras the white point comes from
+    const ref = [0, 1].map((k) => refs.reduce((s, c) => s + n[c][k], 0) / refs.length);
+    const lim = (x) => Math.max(-C.MATCH_MAX, Math.min(C.MATCH_MAX, x));
+    for (const cam of Object.keys(n)) {
+      const tgt = [lim(ref[0] - n[cam][0]), lim(ref[1] - n[cam][1])], o = WB.match[cam] || [0, 0];
+      WB.match[cam] = [o[0] + C.MATCH_EMA * (tgt[0] - o[0]), o[1] + C.MATCH_EMA * (tgt[1] - o[1])];
+    }
+  };
   WB.applied = null;
   function apply() {
     const cur = WB.isOn() && WB.current();
@@ -606,6 +642,8 @@
       sel.value = c.side[cam]; sel.addEventListener("change", () => WB.setCfg({ side: { [cam]: sel.value } }));
       row((cam === "left_repeater" ? "Left" : "Right") + " mirror: car body at", sel);
     }
+    const mt = document.createElement("input"); mt.type = "checkbox"; mt.id = "wbMatch"; mt.checked = c.match; mt.addEventListener("change", () => { WB.setCfg({ match: mt.checked }); if (mt.checked) WB.matchCams(); apply(); });
+    row("Match cameras (same colour on all six)", mt).title = "Each camera sets its own colour. This nudges each picture (at most ±7 %) so neutral greys look the same as in the mirror cameras.";
     const cb = document.createElement("input"); cb.type = "checkbox"; cb.id = "wbShowMask"; cb.checked = c.showMask; cb.addEventListener("change", () => WB.setCfg({ showMask: cb.checked }));
     row("Show sample area", cb);
     const cs = document.createElement("select"); cs.id = "wbColour";
@@ -637,7 +675,11 @@
     if (!WB.isOn() || document.hidden || !P || !P.ev) { render(); return; }
     const key = P.active + ":" + (P.time || 0).toFixed(3) + ":" + (P.ev.id || P.ev.name || "");
     const fresh = key !== lastKey;   // only a NEW frame feeds the body-mask statistics
-    if (force || P.playing || fresh) { lastKey = key; if (WB.sampleNow(fresh) === "blank") lastKey = ""; }
+    if (force || P.playing || fresh) {
+      lastKey = key; if (WB.sampleNow(fresh) === "blank") lastKey = "";
+      const every = T.detect && T.detect.isMobile && T.detect.isMobile() ? WB.C.MATCH_EVERY_MOBILE : WB.C.MATCH_EVERY;
+      if (WB.matchOn() && st.est && (force || ++matchN % every === 0)) { try { WB.matchCams(); } catch (e) { console.warn("wb match", e); } }
+    }
     apply();   // also picks up a 360 canvas or tiles created since the last tick
     render(); schedule();
   }
@@ -651,7 +693,7 @@
     if (b) b.addEventListener("click", () => WB.toggle());
     document.addEventListener("visibilitychange", () => { if (!document.hidden) schedule(); });
     if (T.on) {
-      T.on("player-open", () => { WB.reset(); resetZones(); lastKey = ""; wcache.clear(); wdone.clear(); schedule(); });
+      T.on("player-open", () => { WB.reset(); WB.setMatch({}); resetZones(); lastKey = ""; wcache.clear(); wdone.clear(); schedule(); });
       T.on("cc-changed", () => { try { apply(); } catch (e) { console.warn(e); } if (T.vehicle && T.vehicle.colourModeChanged) T.vehicle.colourModeChanged(); });
       T.on("time", () => { if (WB.isOn() && !timer) schedule(); });
       T.on("layout", () => { if (WB.applied) apply(); drawMasks(); });   // new tiles / 360 canvas get the correction too
