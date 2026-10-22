@@ -70,7 +70,7 @@
   }
 
   /** Query → plate pattern, street/text phrase, or null (not ours).
-   *  Natural phrases work too: "find plate 9DZM", "blur the license plate", "show all plates", "plate number 7ABC123".
+   *  Natural phrases work too: "find plate 7ABC", "blur the license plate", "show all plates", "plate number 7ABC123".
    *  explicit = the words named a plate/street (so it's ours even when plate search is off); blur = "blur/hide/redact…". */
   function parseQuery(q) {
     let s = String(q || "").trim().replace(/[.!?]+$/, "").replace(/\s+/g, " ");

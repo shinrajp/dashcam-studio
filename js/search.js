@@ -667,7 +667,7 @@
       return;
     }
     // Phase 6: plates ("plate 7AB*", "7ABC 23", "plates") and street names ("street Palm Ave"), read on this device
-    // natural plate phrases ("blur the license plate", "find plate 9DZM") never go to the picture search
+    // natural plate phrases ("blur the license plate", "find plate 7ABC") never go to the picture search
     const plateAsk = T.plates && T.plates.parse(q);
     if (plateAsk && plateAsk.explicit && !T.plates.enabled()) {
       S.running = false; $("btnFind").disabled = false; $("btnFindStop").hidden = true;

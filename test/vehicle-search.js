@@ -45,8 +45,8 @@ const find = async (p, q, cam) => {
     ok(tag + " vehicle details off by default, settings toggle present", r.off && !r.makes && !r.takes && r.ui, r);
     r = await find(p, "blur the license plate");
     ok(tag + " 'blur the license plate' with plates off: says how to turn plates on, no picture search", /Plates & text/.test(r.status) && r.chips.includes("plate") && !r.hits.length, r);
-    r = await find(p, "find plate 9DZM");
-    ok(tag + " 'find plate 9DZM' with plates off: plate route, chip shows the pattern", /plate search/.test(r.status) && r.chips.includes("9DZM"), r.chips);
+    r = await find(p, "find plate 7ABC");
+    ok(tag + " 'find plate 7ABC' with plates off: plate route, chip shows the pattern", /plate search/.test(r.status) && r.chips.includes("7ABC"), r.chips);
     // ── turn on ──
     await p.evaluate(() => { TDC.vehicle.setPref("enabled", true); });
     r = await find(p, "red tour bus");

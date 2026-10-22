@@ -33,7 +33,7 @@ ok("query 'plates' = all plates", q("plates").all === true);
 ok("query 'license plate 1ABC234'", q("license plate 1ABC234").pattern === "1ABC234");
 ok("query 'street Palm Ave'", q("street Palm Ave").kind === "text" && q("street Palm Ave").phrase === "Palm Ave");
 ok("query 'car' not ours", q("car") === null && q("white car") === null && q("person in a hoodie") === null);
-ok("natural: 'find plate 9DZM'", q("find plate 9DZM").kind === "plate" && q("find plate 9DZM").pattern === "9DZM" && q("find plate 9DZM").explicit);
+ok("natural: 'find plate 7ABC'", q("find plate 7ABC").kind === "plate" && q("find plate 7ABC").pattern === "7ABC" && q("find plate 7ABC").explicit);
 ok("natural: 'blur the license plate'", q("blur the license plate").all === true && q("blur the license plate").blur === true);
 ok("natural: 'Blur license plates.'", q("Blur license plates.").blur === true && q("Blur license plates.").all === true);
 ok("natural: 'show me all plates'", q("show me all plates").all === true && !q("show me all plates").blur);
