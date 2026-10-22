@@ -9,6 +9,11 @@
 //    the matcher's neutral reading (grey → 0, warm grey → R up / B down, saturated / dark → none); on the mock footage the
 //    live offsets stay within ±MATCH_MAX
 //  - viewer look limits: daylight white ≈ no change, night blue limited, tint halved, day / night from the strip brightness
+//  - full UI (tag pillar-shift, the user's Mac Safari still saw the Left Pillar picture move down): labels, buttons and the WB
+//    badge visible, grid and the Left Pillar single view, daylight ~7800 K like the report, deviceScaleFactor 2. Stage, grid,
+//    every tile and video rect identical on vs off at 40 / 200 / 700 / 1500 ms after turning WB on; every tile's rendered
+//    picture at shift 0,0 with a sub-pixel estimate < 0.25 device px; nothing in the stage or a tile in normal flow; the SVG
+//    filter defs absolute 0×0 without pointer events; the badge absolute without pointer events. FULL_ONLY=1 runs just this.
 // Usage: node test/wb-grid.js [url]   (BR=chromium,webkit   MOCK=/tmp/tdc-mock: footage, generated if missing)
 const pw = require("playwright"), fs = require("fs"), path = require("path"), os = require("os"), { execFileSync } = require("child_process");
 const URL_ = process.argv[2] || "http://127.0.0.1:8770/index.html";
@@ -39,7 +44,114 @@ for c,(x,y,w,h) in json.load(open('${tmp}/t.json')).items():
   ra=a[ok].mean(0); rb=b[ok].mean(0)
   out[c]={"dx":best[1],"dy":best[2],"off":[round(v,1) for v in ra],"on":[round(v,1) for v in rb]}
 print(json.dumps(out))`]).toString()); };
+// full-UI version (tag pillar-shift): picture region of each tile (labels / badge / buttons masked out by insets),
+// best integer shift in ±6 px plus a sub-pixel estimate (gradient least squares) of on vs off
+const compare2 = (a, b, tiles) => { fs.writeFileSync(tmp + "/a.png", a); fs.writeFileSync(tmp + "/b.png", b); fs.writeFileSync(tmp + "/t.json", JSON.stringify(tiles));
+  return JSON.parse(execFileSync("python3", ["-c", `
+import json, numpy as np; from PIL import Image
+A=np.asarray(Image.open('${tmp}/a.png').convert('L')).astype(float); B=np.asarray(Image.open('${tmp}/b.png').convert('L')).astype(float)
+out={}
+for c,(x,y,w,h) in json.load(open('${tmp}/t.json')).items():
+  x0,y0,x1,y1=int(x)+10,int(y)+40,int(x+w)-10,int(y+h)-46
+  if x1-x0<40 or y1-y0<40: continue
+  a=A[y0:y1,x0:x1]; b=B[y0:y1,x0:x1]
+  n=lambda m:(m-m.mean())/(m.std()+1e-6)
+  ea,eb=n(a),n(b); best=None
+  for dy in range(-6,7):
+    for dx in range(-6,7):
+      s=ea[6+dy:ea.shape[0]-6+dy,6+dx:ea.shape[1]-6+dx]; t=eb[6:eb.shape[0]-6,6:eb.shape[1]-6]
+      v=float((s*t).mean())
+      if best is None or v>best[0]: best=(v,dx,dy)
+  gy=np.gradient(ea,axis=0); gx=np.gradient(ea,axis=1); d=(eb-ea)[2:-2,2:-2]
+  M=np.stack([gx[2:-2,2:-2].ravel(),gy[2:-2,2:-2].ravel(),np.ones(d.size)],1)
+  sx,sy,_=np.linalg.lstsq(M,-d.ravel(),rcond=None)[0]
+  out[c]={"dx":best[1],"dy":best[2],"sx":round(float(sx),3),"sy":round(float(sy),3)}
+print(json.dumps(out))`]).toString()); };
+// geometry of everything that could move: stage, grid, every tile and its visible video, and whether anything inside the
+// stage / a tile (and the SVG filter defs) sits in normal flow
+const geo = (p) => p.evaluate(() => {
+  const r = (e) => { const x = e.getBoundingClientRect(); return [x.left, x.top, x.width, x.height].map((v) => Math.round(v * 100) / 100); };
+  const flow = [];
+  const chk = (e) => { if (e.hidden) return; const cs = getComputedStyle(e); if (cs.display === "none") return; if (cs.position !== "absolute" && cs.position !== "fixed") flow.push((e.id || e.className || e.tagName) + ":" + cs.position); };
+  for (const t of Object.values(TDC.player.tiles)) for (const e of t.tile.children) chk(e);
+  for (const e of document.getElementById("stage").children) if (!e.classList.contains("stage-bar")) chk(e);
+  const defs = [...document.querySelectorAll("body > svg")].map((s) => { const cs = getComputedStyle(s), b = s.getBoundingClientRect(); return { pos: cs.position, w: b.width, h: b.height, pe: cs.pointerEvents }; });
+  const ro = document.getElementById("wbReadout"), rr = ro && !ro.hidden ? ro.getBoundingClientRect() : null;
+  // layer structure per tile: element, hidden, blend mode, will-change, transform (and the video's own filter in blend mode)
+  const layers = Object.fromEntries(Object.entries(TDC.player.tiles).map(([c, t]) => [c, [...t.tile.children].map((e) => { const cs = getComputedStyle(e); return [e.tagName, (e.className || "").toString().replace(/\bwb-idle\b/, "").replace(/\b(on|find-on)\b/g, "").trim(), e.hidden, cs.mixBlendMode, cs.willChange, cs.transform, e.tagName === "VIDEO" ? e.style.filter : ""].join("|"); })]));
+  return { layers, stage: r(document.getElementById("stage")), grid: r(document.getElementById("grid")), scroll: [scrollX, scrollY, document.documentElement.scrollHeight],
+    tiles: Object.fromEntries(Object.entries(TDC.player.tiles).filter(([, t]) => !t.tile.classList.contains("off")).map(([c, t]) => [c, { tile: r(t.tile), v: r(t.vids[TDC.player.active]), fit: getComputedStyle(t.vids[TDC.player.active]).objectFit, vwh: [t.vids[TDC.player.active].videoWidth, t.vids[TDC.player.active].videoHeight] }])),
+    flow, defs, badge: rr && rr.width > 0 ? { text: ro.textContent, pos: getComputedStyle(ro).position, pe: getComputedStyle(ro).pointerEvents } : null };
+});
+async function fullUi(bn, mode) {
+  const b = await pw[bn].launch(bn === "chromium" ? { executablePath: process.env.CHROME || "/usr/bin/google-chrome", args: ["--no-sandbox"] } : {});
+  const p = await (await b.newContext({ viewport: { width: 1280, height: 860 }, deviceScaleFactor: 2 })).newPage();
+  p.on("pageerror", (e) => console.log("PAGEERR", e.message));
+  await p.goto(URL_); await p.evaluate((m) => { localStorage.setItem("tdc.wb.v1", "0"); localStorage.setItem("tdc.wb.mode", m); }, mode); await p.reload();
+  await p.addStyleTag({ content: ".toast{display:none!important} .bar-hint{display:none!important} .tile video{transition:none!important}" });
+  await p.setInputFiles("#fileInput", list(MOCK + "/TeslaCam/SavedClips"));
+  for (let i = 0; i < 80 && (await p.evaluate(() => TDC.library.events.length)) < 1; i++) await W(250);
+  await p.evaluate(() => { [...document.querySelectorAll("button")].filter((x) => /Got it/.test(x.textContent)).forEach((x) => x.click()); });
+  await p.evaluate(async () => { await TDC.ui.activate(TDC.library.events.find((e) => /14-33-41/.test(e.id || e.name || "")) || TDC.library.events[0]); });
+  await W(2500); await p.evaluate(async () => { if (TDC.player.playing) TDC.player.pause && TDC.player.pause(); await TDC.player.seek(3.0); }); await W(1500);
+  const framing = {};
+  for (const view of ["grid", "left_pillar"]) {
+    const tag = bn + " [" + mode + ", full UI, " + view + "]";
+    await p.evaluate((v) => { TDC.wb.set(false); TDC.focus.focus(v === "grid" ? null : v); }, view); await W(900);
+    const g0 = await geo(p), s0 = await p.screenshot();
+    // the user's case: daylight (bright strips), ~7800 K white → badge "7800 K · Daylight · both mirrors"
+    await p.evaluate(() => { const W = TDC.wb; W.set(true); W.reset(); W.state.sceneY = 140; for (let i = 0; i < 6; i++) W.update([205, 222, 250]); W.apply(); W.render(); });
+    const shots = [];
+    for (const ms of [40, 200, 700, 1500]) { await W(ms - (shots.length ? [40, 200, 700, 1500][shots.length - 1] : 0)); await p.evaluate(() => { TDC.wb.state.sceneY = 140; TDC.wb.update([205, 222, 250]); TDC.wb.apply(); TDC.wb.render(); }); shots.push([ms, await p.screenshot(), await geo(p)]); }
+    const g1 = shots[shots.length - 1][2];
+    ok(tag + ": badge visible, absolutely positioned, no pointer events", !!g1.badge && g1.badge.pos === "absolute" && g1.badge.pe === "none", g1.badge);
+    ok(tag + ": nothing in the stage or a tile is in normal flow (on and off); SVG defs absolute, 0×0, no pointer events", !g0.flow.length && !g1.flow.length && g1.defs.every((d) => d.pos === "absolute" && d.w === 0 && d.h === 0 && d.pe === "none"), { off: g0.flow, on: g1.flow, defs: g1.defs });
+    // a clean capture for the framing check (labels, camera bar, HUD, map hidden; WB off)
+    await p.evaluate(() => { TDC.wb.set(false); const st = document.createElement("style"); st.id = "frameOnly"; st.textContent = ".stage > :not(.grid){visibility:hidden!important} .tile > :not(video){visibility:hidden!important}"; document.head.appendChild(st); });
+    await W(500); framing[view] = { shot: await p.screenshot(), g: g0 };
+    await p.evaluate(() => { document.getElementById("frameOnly").remove(); });
+    if (mode === "blend") ok(tag + ": the same layers on and off (tint + lift always there, only their colour changes; no blend / filter / will-change added or removed)", shots.every(([, , g]) => JSON.stringify(g.layers) === JSON.stringify(g0.layers)) && Object.values(g0.layers).every((l) => l.filter((x) => /wb-(tint|lift)\|false/.test(x)).length === 2), { off: g0.layers.left_pillar, on: shots[shots.length - 1][2].layers.left_pillar });
+    const strip = (g) => JSON.stringify({ stage: g.stage, grid: g.grid, scroll: g.scroll, tiles: g.tiles });
+    ok(tag + ": stage, grid, every tile and video rect identical on vs off at 40 / 200 / 700 / 1500 ms", shots.every(([, , g]) => strip(g) === strip(g0)), { off: g0.tiles.left_pillar, on: shots.map(([ms, , g]) => [ms, g.tiles.left_pillar]) });
+    const tiles = Object.fromEntries(Object.entries(g0.tiles).map(([c, x]) => [c, x.tile.map((v) => v * 2)]));
+    const res = shots.map(([ms, s]) => [ms, compare2(s0, s, tiles)]);
+    ok(tag + ": rendered picture of every tile in place (integer shift 0,0 and sub-pixel |dx|,|dy| < 0.25 device px) at every moment", res.every(([, r]) => Object.values(r).length && Object.values(r).every((x) => x.dx === 0 && x.dy === 0 && Math.abs(x.sx) < 0.25 && Math.abs(x.sy) < 0.25)), res.map(([ms, r]) => [ms, r.left_pillar]));
+    if (SHOTS) { fs.writeFileSync(path.join(SHOTS, "pillar-" + view + "-off-" + bn + "-" + mode + ".png"), s0); fs.writeFileSync(path.join(SHOTS, "pillar-" + view + "-on-" + bn + "-" + mode + ".png"), shots[shots.length - 1][1]); }
+  }
+  // grid tile vs the single-camera view: the same picture (object-fit contain, the video's own aspect), only scaled
+  { const tag = bn + " [" + mode + "]", G = framing.grid.g.tiles.left_pillar, F = framing.left_pillar.g.tiles.left_pillar;
+    const pic = (x) => { const [L, T_, w, h] = x.v, [vw, vh] = x.vwh, k = Math.min(w / vw, h / vh); return [L + (w - vw * k) / 2, T_ + (h - vh * k) / 2, vw * k, vh * k]; };
+    const pg = pic(G), pf = pic(F), asp = G.vwh[0] / G.vwh[1];
+    ok(tag + ": Left Pillar framing: object-fit contain in the grid and the single view, picture aspect = video aspect in both (±0.5 %)", G.fit === "contain" && F.fit === "contain" && Math.abs(pg[2] / pg[3] / asp - 1) < 0.005 && Math.abs(pf[2] / pf[3] / asp - 1) < 0.005, { grid: pg.map((v) => +v.toFixed(2)), single: pf.map((v) => +v.toFixed(2)), video: G.vwh });
+    fs.writeFileSync(tmp + "/g.png", framing.grid.shot); fs.writeFileSync(tmp + "/f.png", framing.left_pillar.shot);
+    const fr = JSON.parse(execFileSync("python3", ["-c", `
+import json, numpy as np; from PIL import Image
+pg=${JSON.stringify(pg.map((v) => v * 2))}; pf=${JSON.stringify(pf.map((v) => v * 2))}
+G=Image.open('${tmp}/g.png').convert('L'); F=Image.open('${tmp}/f.png').convert('L')
+m=0.12   # skip label / buttons / badge strips
+def crop(im,p): x,y,w,h=p; return im.crop((round(x+w*m),round(y+h*m),round(x+w*(1-m)),round(y+h*(1-m))))
+g=crop(G,pg); f=crop(F,pf).resize(g.size, Image.LANCZOS)
+a=np.asarray(g,float); b=np.asarray(f,float); n=lambda z:(z-z.mean())/(z.std()+1e-6); a,b=n(a),n(b); best=None
+for dy in range(-4,5):
+  for dx in range(-4,5):
+    v=float((a[4+dy:a.shape[0]-4+dy,4+dx:a.shape[1]-4+dx]*b[4:-4,4:-4]).mean())
+    if best is None or v>best[0]: best=(v,dx,dy)
+print(json.dumps({"ncc":round(best[0],3),"dx":best[1],"dy":best[2],"size":g.size}))`]).toString());
+    ok(tag + ": Left Pillar grid tile = single view scaled down (same crop: best alignment within 1 device px = 0.5 CSS px of resampling, correlation > 0.9)", Math.abs(fr.dx) <= 1 && Math.abs(fr.dy) <= 1 && fr.ncc > 0.9, fr);
+  }
+  // ?debug=wb: the hidden geometry readout shows every tile's numbers
+  if (mode === "blend") {
+    await p.goto(URL_ + (URL_.includes("?") ? "&" : "?") + "debug=wb"); await W(800);
+    const d0 = await p.evaluate(() => { const e = document.getElementById("wbDebug"); return !!e && /dpr/.test(e.textContent) && typeof TDC.wbDebug.snap === "function"; });
+    await p.goto(URL_); await W(500);
+    const d1 = await p.evaluate(() => !document.getElementById("wbDebug"));
+    ok(bn + ": ?debug=wb shows the geometry readout; without it nothing is added", d0 && d1, { d0, d1 });
+  }
+  await b.close();
+}
 (async () => {
+  for (const bn of (process.env.BR || "chromium,webkit").split(",")) for (const mode of ["svg", "blend"]) await fullUi(bn, mode);
+  if (process.env.FULL_ONLY) { console.log(fails ? fails + " FAILED" : "ALL PASS"); process.exit(fails ? 1 : 0); }
   for (const bn of (process.env.BR || "chromium,webkit").split(",")) {
     for (const mode of ["svg", "blend"]) {
       const b = await pw[bn].launch(bn === "chromium" ? { executablePath: process.env.CHROME || "/usr/bin/google-chrome", args: ["--no-sandbox"] } : {});

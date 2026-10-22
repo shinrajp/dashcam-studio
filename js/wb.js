@@ -265,7 +265,7 @@
     if (svgM) return;
     const ns = "http://www.w3.org/2000/svg", svg = document.createElementNS(ns, "svg");
     svg.setAttribute("width", "0"); svg.setAttribute("height", "0"); svg.setAttribute("aria-hidden", "true");
-    svg.style.cssText = "position:absolute;width:0;height:0;overflow:hidden";
+    svg.style.cssText = "position:absolute;left:0;top:0;width:0;height:0;overflow:hidden;pointer-events:none";   // filter defs only: out of flow, 0×0
     const f = (svgF = document.createElementNS(ns, "filter")); f.id = "tdcWb"; f.setAttribute("color-interpolation-filters", "sRGB");
     f.setAttribute("x", "0"); f.setAttribute("y", "0"); f.setAttribute("width", "1"); f.setAttribute("height", "1");
     svgM = document.createElementNS(ns, "feColorMatrix"); svgM.setAttribute("type", "matrix");
@@ -354,14 +354,19 @@
     for (const t of targets()) {
       const gc = g ? gainsFor(t.cam, g) : null, mx = gc ? Math.max(gc[0], gc[1], gc[2]) : 1;
       let tint = t.host.querySelector(":scope > .wb-tint"), lift = t.host.querySelector(":scope > .wb-lift");
-      if (gc && mode === "blend") {
+      // tag pillar-shift: in blend mode the two layers stay in place, composited, when WB is off too (multiply with white,
+      // color-dodge with black = no change). Turning WB on / off only changes their colour, never the layer structure, so
+      // Safari doesn't re-composite (and re-snap) the video. Desktop: from player open. Phones (6 extra blend layers cost
+      // GPU while WB is off): from the first time WB is turned on, then kept for that player.
+      if (gc && mode === "blend") keepLayers = true;
+      if (mode === "blend" && (gc || keepLayers || !mobile())) {
         if (!tint) { tint = document.createElement("div"); tint.className = "wb-tint"; tint.setAttribute("aria-hidden", "true"); t.after.after(tint); }
         if (!lift) { lift = document.createElement("div"); lift.className = "wb-lift"; lift.setAttribute("aria-hidden", "true"); tint.after(lift); }
-        tint.style.background = `rgb(${gc.map((x) => ((255 * x) / mx).toFixed(2)).join(",")})`;
-        tint.hidden = false;
-        const c = Math.max(0, 1 - 1 / mx) * 255;
+        tint.hidden = false; lift.hidden = false;
+        const c = gc ? Math.max(0, 1 - 1 / mx) * 255 : 0;
+        tint.style.background = gc ? `rgb(${gc.map((x) => ((255 * x) / mx).toFixed(2)).join(",")})` : "rgb(255,255,255)";
         lift.style.background = `rgb(${c.toFixed(2)},${c.toFixed(2)},${c.toFixed(2)})`;
-        lift.hidden = !(mx > 1.001);
+        tint.classList.toggle("wb-idle", !gc); lift.classList.toggle("wb-idle", !gc);
       } else { if (tint) tint.hidden = true; if (lift) lift.hidden = true; }
       const fid = gc && mode === "svg" ? svgFor(t.cam, gc) : "";
       for (const m of t.media) m.style.filter = fid ? "url(#" + fid + ")" : "";
@@ -369,6 +374,8 @@
     if (WB.applied) WB.applied.per = per;
   }
   WB.apply = apply;
+  let keepLayers = false;
+  const mobile = () => !!(T.detect && T.detect.isMobile && T.detect.isMobile());
 
   // ── readout + toggle ──
   WB.text = () => {
@@ -693,10 +700,10 @@
     if (b) b.addEventListener("click", () => WB.toggle());
     document.addEventListener("visibilitychange", () => { if (!document.hidden) schedule(); });
     if (T.on) {
-      T.on("player-open", () => { WB.reset(); WB.setMatch({}); resetZones(); lastKey = ""; wcache.clear(); wdone.clear(); schedule(); });
+      T.on("player-open", () => { WB.reset(); WB.setMatch({}); resetZones(); lastKey = ""; wcache.clear(); wdone.clear(); keepLayers = false; schedule(); setTimeout(() => { try { apply(); } catch (e) { console.warn(e); } }, 0); });   // blend layers in place from the start (desktop)
       T.on("cc-changed", () => { try { apply(); } catch (e) { console.warn(e); } if (T.vehicle && T.vehicle.colourModeChanged) T.vehicle.colourModeChanged(); });
       T.on("time", () => { if (WB.isOn() && !timer) schedule(); });
-      T.on("layout", () => { if (WB.applied) apply(); drawMasks(); });   // new tiles / 360 canvas get the correction too
+      T.on("layout", () => { apply(); drawMasks(); });   // new tiles / 360 canvas get the correction (or the idle blend layers) too   // new tiles / 360 canvas get the correction too
     }
     buildSettings();
     render(); apply(); schedule();

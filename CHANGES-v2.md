@@ -410,3 +410,20 @@ Six issues from a Mac Safari (Apple Silicon) test.
    - Every other control (same elements and ids) is under "Advanced recognition settings", collapsed by default. Its open/closed state is remembered (`tdc.recogAdv.v1`).
    - Tap targets are 44 px.
    - Test: `test/recog-settings.js` (Chromium, WebKit, WebKit iPhone touch).
+
+## Left Pillar picture moving when White balance is turned on, Mac Safari (tag pillar-shift, rollback pre-pillar-shift = bb94249)
+- **Measured:** the user's screenshots (day and night, WB off vs on) are the same to the pixel in position. The best shift is 0,0 and the sub-pixel estimate is ≤ 0.001 px. The picture edges are on the same rows and columns, and only the colour and the badge differ. Safari's own screen captures don't show the shift; it is only visible live. So it is treated as a compositing artifact (Safari re-compositing the video when the WB layers appear), not a layout change.
+- **Fix:**
+  - In blend mode (Safari / iOS) the two WB layers (multiply tint, color-dodge lift) are always there. On desktop they are added when the player opens; on phones, from the first time WB is turned on, and then kept.
+  - With WB off the layers have identity colours (white multiply, black dodge = no change). Toggling WB only changes their colour. No blend mode, filter or will-change is ever added or removed.
+  - Every `.tile` is always `isolation: isolate`, so the blend layers never change the stacking or compositing of the grid.
+  - The SVG filter defs are absolute, 0×0, with no pointer events.
+- **Debug:** `?debug=wb` shows a small readout with each tile's video rect, the contain picture rect, videoWidth × videoHeight, devicePixelRatio, the fractional device-pixel edges and the layers present. "Copy" puts the numbers on the clipboard, and they are logged on every WB toggle.
+- **Grid vs single view:** both use `object-fit: contain` on the same video, so the picture has the video's own aspect in both (no crop); only the scale differs.
+- **Test:** `test/wb-grid.js` has a full-UI phase in Chromium and WebKit (svg and blend; grid and the Left Pillar single view; badge visible; DPR 2):
+  - Rects are identical, and the picture is at 0,0 at 40, 200, 700 and 1500 ms after turning WB on.
+  - The layer structure is identical on and off (blend mode).
+  - Nothing is in normal flow.
+  - The grid tile matches the single view scaled down (within 1 device px).
+  - The `?debug=wb` readout works.
+- **Limit:** the shift never reproduced in Playwright WebKit (Linux), and Safari's captures don't show it. Whether it is gone can only be confirmed by looking at it live in Safari.

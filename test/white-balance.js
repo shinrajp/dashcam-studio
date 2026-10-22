@@ -264,7 +264,7 @@ async function runBrowser(bn) {
     ok(tag + ": on is kept after a reload (and applied again)", s.pressed === "true" && !!s.applied && /both mirrors/.test(s.readout || ""), s);
     await p.click("#chipWb"); await W(500);
     s = await ui(p);
-    const leftovers = await p.evaluate(() => [...document.querySelectorAll(".tile video")].filter((v) => v.style.filter).length + [...document.querySelectorAll(".wb-tint, .wb-lift")].filter((t) => !t.hidden).length);
+    const leftovers = await p.evaluate(() => [...document.querySelectorAll(".tile video")].filter((v) => v.style.filter).length + [...document.querySelectorAll(".wb-tint, .wb-lift")].filter((t) => !t.hidden && !(t.classList.contains("wb-idle") && /^rgb\((255, 255, 255|0, 0, 0)\)$/.test(getComputedStyle(t).backgroundColor))).length);   // idle blend layers (white multiply / black dodge = no change) may stay (tag pillar-shift)
     ok(tag + ": tap again → off: saved '0', no readout, no filter or tint left on the videos", s.pressed === "false" && s.saved === "0" && !s.readoutVisible && !s.applied && leftovers === 0, { s, leftovers });
     await p.click("#chipWb"); await W(1200);
 
