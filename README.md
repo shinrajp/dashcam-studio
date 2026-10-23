@@ -18,6 +18,7 @@ A Tesla dashcam and Sentry viewer that runs entirely in your browser. Drop in yo
 - **Big libraries.** A saved library index remembers every event you've opened (metadata only, never video), with **All / Undecrypted only / Already decrypted** filters, a reviewed checkbox and **Clear index**.
 - **Encrypted clips, the easy way.** **Sign in with Tesla** fetches keys through a small connector userscript (Chrome + Tampermonkey, Safari + Userscripts), in session-aware batches of up to 30 files. You can also import a keys file or paste keys / a Bearer token, and the console helper always works as a fallback. Optional **Remember keys on this device** re-unlocks clips automatically next time.
 - **iPhone & iPad.** Touch-sized controls, a 2×3 grid on a phone held upright, and Save / Share to Photos or Files after an export.
+- **Slim controls on phones.** Just play / pause, the time and the timeline at the bottom. Tap ⌃ or drag the grip up for everything else (speed, frame steps, sections, chips, full screen); tap the video to close it.
 
 ![Full screen: front camera at golden hour with the telemetry HUD and Self-Driving badge](screenshots/photo-hero-fullscreen.png)
 

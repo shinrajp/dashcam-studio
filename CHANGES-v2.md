@@ -456,3 +456,33 @@ Six issues from a Mac Safari (Apple Silicon) test.
   | WebKit, 300 ms looks, focused | 7.4 CSS px / 162 ms (p90 551) | 5.9 CSS px / 127 ms (p90 178) |
 
   Error and lag are medians unless marked p90.
+
+## Phones: slim playback bar + pull-up sheet (tag mobile-bar, rollback pre-mobile-bar = 5fb3330)
+
+On an iPhone held upright the transport (time row, timeline + sections lane, buttons, trim row, chips) took about a
+third of the screen (259 of 932 px at 430×932).
+
+- **Slim bar** (phones: width ≤ 760 px, or a touch screen in landscape ≤ 500 px tall): play / pause, the current time,
+  the timeline and a ⌃ button, 62 px plus the home-indicator inset. It is in the page flow, so the cameras get the space.
+- **Pull-up sheet** with everything else: stop, frame steps, speed, camera bar, full screen, the timeline with the
+  sections lane and its hint, the trim buttons and the Labels / HUD / Map / Self-Driving / Time / White balance chips.
+  Open: tap ⌃ or the grip, or drag the grip up. Close: tap again, drag down, tap the cameras (that tap does nothing
+  else), or Esc. It overlays the cameras (the grid doesn't resize), slides with `transform` only (no slide with
+  reduced motion), starts collapsed and remembers open / closed on the device (`tdc.mbarOpen`).
+- **Sections:** adding a section opens the sheet at the trim row; the ⌃ button shows how many sections there are.
+- **iOS:** 44 px targets; `touch-action: none` only on the grip and ⌃ (the timeline keeps its own scrub); a handle, not an
+  edge swipe, so it doesn't fight the home indicator.
+- **Unchanged:** keyboard shortcuts, desktop and tablet layouts. The nodes are moved, not copied (`js/mobile-bar.js`),
+  so every handler and id is the same, and widening the window puts the original transport back.
+
+Camera area (`test/mobile-bar.js MEASURE=1`, synthetic footage, WebKit and Chromium give the same numbers):
+
+| 430×932 / 932×430 | before | after |
+|---|---|---|
+| portrait: transport height | 259 px | 63 px |
+| portrait: camera area height | 603 px | 799 px (+196) |
+| portrait: 2×3 tile height | 155 px | 155 px (tiles are width-bound when upright; the grid no longer sits under the controls) |
+| landscape: transport height | 173 px | 63 px |
+| landscape: camera area / 3×2 tile height | 205 / 102 px | 315 / 157 px (+54 %) |
+
+Test: `node test/mobile-bar.js` (126 checks: WebKit + Chromium touch, portrait + landscape, desktop).
