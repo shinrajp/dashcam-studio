@@ -403,8 +403,12 @@
         // the prediction missed (a fast car moved more than its own width) or this is the second look: the detection's
         // position and the measured speed as they are (from 0 it took 3–4 looks to catch up, tag safari-feedback; a miss
         // used to stop the box until the next look, tag live-lag)
-        tr.x = d.x; tr.y = d.y; tr.w += EMA_SIZE * (d.w - tr.w); tr.h += EMA_SIZE * (d.h - tr.h); tr.x = dcx - tr.w / 2; tr.y = dcy - tr.h / 2;
-        tr.vx = vmx; tr.vy = vmy; if (iou(p, d) < 0.2) tr.n = 0;
+        // A miss takes the detection's position as it is; the second look (overlapping) still smooths it (EMA_POS) so a
+        // parked car's jitter stays calm (test/taillight-color.js)
+        const miss = iou(p, d) < 0.2, a = miss ? 1 : EMA_POS, pcx = p.x + p.w / 2, pcy = p.y + p.h / 2;
+        tr.w += EMA_SIZE * (d.w - tr.w); tr.h += EMA_SIZE * (d.h - tr.h);
+        tr.x = pcx + a * (dcx - pcx) - tr.w / 2; tr.y = pcy + a * (dcy - pcy) - tr.h / 2;
+        tr.vx = vmx; tr.vy = vmy; if (miss) tr.n = 0;
       } else {
         // alpha-beta: correct the predicted centre and the speed by the miss (small jitter stays calm)
         const pcx = p.x + p.w / 2, pcy = p.y + p.h / 2, rx = dcx - pcx, ry = dcy - pcy, k = BETA / Math.max(0.05, dt);
