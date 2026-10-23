@@ -10,7 +10,7 @@
 // Usage: node test/live-lag.js [url]   (BR=chromium,webkit THR=4 INF=150 MODES=grid,focused LIVE_FIX=dir OUT=file.json
 //        ASSERT=1: fail when the lag is over the limits of tag live-lag)
 const pw = require("playwright"), fs = require("fs"), path = require("path"), { execFileSync } = require("child_process");
-const URL_ = process.argv[2] || "http://127.0.0.1:8770/index.html";
+const URL0 = process.argv[2] || "http://127.0.0.1:8770/index.html", URL_ = URL0 + (URL0.includes("?") ? "&" : "?") + "debug=det";
 const FIX = process.env.LIVE_FIX || "/tmp/live-lag-fix";
 const THR = +(process.env.THR || 4), INF = +(process.env.INF || 150), MODES = (process.env.MODES || "grid,focused").split(",");
 const W = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -98,14 +98,14 @@ const results = [];
       const speed = (mt) => (carX(mt + 0.25) - carX(mt - 0.25)) / 0.5;
       const ps = run.paints.filter((x) => x.mt >= 2 && x.mt <= 7.5);
       const have = ps.filter((x) => x.x != null);
-      const dxPx = [], dxV = [], lagMs = [], tcOff = [];
+      const dxPx = [], dxV = [], lagMs = [], tcOff = [], bySec = {};
       let fit = null;
       for (const x of have) {
         // the video is letterboxed (contain) in the tile
         const s = Math.min(x.tw / x.vw, x.th / x.vh), wpx = x.vw * s;
         fit = { tileW: x.tw, tileH: x.th, videoCssW: +wpx.toFixed(1) };
         const e = x.x - carX(x.mt);
-        tcOff.push((x.mt - x.tc) * 1000);
+        tcOff.push((x.mt - x.tc) * 1000); (bySec[Math.floor(x.mt)] = bySec[Math.floor(x.mt)] || []).push((-(x.x - carX(x.mt)) / speed(x.mt)) * 1000);
         dxPx.push(Math.abs(e) * wpx); dxV.push(Math.abs(e) * x.vw); lagMs.push((-e / speed(x.mt)) * 1000);
       }
       const front = run.dets.filter((d) => d.cam === "front" && d.mt >= 2 && d.mt <= 7.5);
@@ -116,11 +116,13 @@ const results = [];
         errCssPx: { med: +q(dxPx, 0.5).toFixed(1), p90: +q(dxPx, 0.9).toFixed(1), max: +Math.max(...dxPx).toFixed(1) },
         errVideoPx: { med: +q(dxV, 0.5).toFixed(1), p90: +q(dxV, 0.9).toFixed(1) },
         lagMs: { med: Math.round(q(lagMs, 0.5)), p10: Math.round(q(lagMs, 0.1)), p90: Math.round(q(lagMs, 0.9)) },
-        paintVsFrameMs: Math.round(q(tcOff, 0.5)), paintHz: +(ps.length / 5.5).toFixed(1), fit, dbg: run.dbg,
+        paintVsFrameMs: Math.round(q(tcOff, 0.5)), paintHz: +(ps.length / 5.5).toFixed(1), lagBySec: Object.fromEntries(Object.entries(bySec).map(([k, a]) => [k, Math.round(q(a, 0.5))])), fit, dbg: run.dbg,
       };
       if (process.env.DUMP) console.log("DUMP " + JSON.stringify(ps.slice(40, 52).map((x) => [x.now, x.tc, x.mt, x.rv, x.ct, x.pa].map((v) => +(+v).toFixed(3)))));
       results.push(r);
       console.log("RESULT " + JSON.stringify(r));
+      const dd = await p.evaluate(() => { const e = document.getElementById("detDebug"); return e ? e.textContent : null; });
+      ok(bn + " " + mode + ": ?debug=det readout (backend, per-camera looks, model ms, prediction)", !!dd && /det-debug/.test(dd) && /looks/.test(dd) && /prediction on/.test(dd) && /front/.test(dd), (dd || "").slice(0, 300));
       ok(bn + " " + mode + ": boxes painted while playing", have.length > 20, { paints: ps.length, have: have.length });
       if (process.env.ASSERT) {
         const lim = mode === "grid" ? { p90: 14, lag: 60 } : { p90: 8, lag: 40 };
