@@ -10,6 +10,7 @@
     try { if (T.plates) T.plates.init(); } catch (e) { console.warn("plates init", e); }
     try { if (T.prewarm) T.prewarm.init(); } catch (e) { console.warn("prewarm init", e); }   // models load at clip open
     try { if (T.wbDebugInit) T.wbDebugInit(); } catch (e) { console.warn("wb debug init", e); }   // ?debug=wb geometry readout
+    try { if (T.detDebugInit) T.detDebugInit(); } catch (e) { console.warn("det debug init", e); }   // ?debug=det live detection readout
     try { if (T.vehicle) T.vehicle.init(); } catch (e) { console.warn("vehicle init", e); }
     try { if (T.cloud) T.cloud.init(); } catch (e) { console.warn("cloud init", e); }
     try { if (T.recogSettings) T.recogSettings.init(); } catch (e) { console.warn("recognition settings init", e); }   // five switches + Advanced

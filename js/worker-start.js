@@ -10,6 +10,9 @@
   const T = (window.TDC = window.TDC || {});
   const W = (T.workerStart = {});
   W.isWebKit = (ua) => { ua = ua == null ? navigator.userAgent : ua; return /AppleWebKit/.test(ua) && !/Chrome|Chromium|CriOS|Edg|OPR|Android/.test(ua) || /iPhone|iPad|iPod/.test(ua); };
+  // ?webgpu=on / ?webgpu=off (tag live-lag): the same override from the address bar, kept for later visits; WebGPU also
+  // needs a secure context (https or localhost: an iPhone opening the Mac by its LAN address over http has no WebGPU)
+  try { const m = /(?:[?&#])webgpu=(on|off|auto)\b/.exec(location.search + location.hash); if (m) { if (m[1] === "auto") localStorage.removeItem("tdc.webgpu"); else localStorage.setItem("tdc.webgpu", m[1]); } } catch (_) {}
   W.gpuOk = () => { let o = ""; try { o = localStorage.getItem("tdc.webgpu") || ""; } catch (_) {} if (o === "on") return true; if (o === "off") return false; return !W.isWebKit(); };
   /** Start a worker for m = { worker: "js/x.js", module?: bool }. Resolves to { worker, how }. */
   W.start = async (m, what) => {
