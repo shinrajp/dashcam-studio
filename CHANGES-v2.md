@@ -427,3 +427,32 @@ Six issues from a Mac Safari (Apple Silicon) test.
   - The grid tile matches the single view scaled down (within 1 device px).
   - The `?debug=wb` readout works.
 - **Limit:** the shift never reproduced in Playwright WebKit (Linux), and Safari's captures don't show it. Whether it is gone can only be confirmed by looking at it live in Safari.
+
+## Live boxes keep up with moving cars on iPhone (tag live-lag, rollback pre-live-lag = dc767dc)
+- **Causes (measured with `test/live-lag.js`):**
+  - In the 6-camera grid every visible camera got the same share of looks (plain round robin), so the camera with the moving car got one look in six, about 1 per second.
+  - Between looks the box was moved for at most 0.5 s and then stopped. In the grid the next look usually comes later than that, so the box stood still and then jumped.
+  - When the car moved more than its own width between looks, the match "missed": the box jumped to the car with zero speed and stood still again.
+  - The speed was smoothed from the smoothed position, so it was always behind a car that speeds up.
+- **Fix (viewer only; the export still uses the frame-exact boxes between two real detections):**
+  - Alpha-beta tracker: the predicted centre and the speed are both corrected by the measured miss. The second look, and a car found again after a miss, take the measured speed as it is.
+  - Every paint moves the box to the painted frame's own time (rVFC / camTime, as before). It moves at full speed up to about 1.3 looks ahead, then slows down (τ 0.3 s, at most 2 s), and stays inside the picture.
+  - Next camera to look at: the one that has waited longest, weighted ×1 with a moving box, ×0.6 with a new box, ×0.25 still or empty, and by tile size on screen (√ share, at least 0.4).
+  - Box lifetime per camera follows that camera's own measured gap between looks.
+- **Not changed, on purpose:**
+  - WebGPU stays off in Safari / iOS because onnxruntime-web 1.22's WebGPU build gets the worker killed there (#26827). It also needs a secure context, and an iPhone that opens the Mac over `http://<LAN address>` has no WebGPU and no WASM threads. `?webgpu=on|off|auto` (kept for later visits) lets you try it.
+  - Frames already go to the worker as ImageBitmaps.
+  - The Fast model's input is fixed at 320 px.
+- **Debug:** `?debug=det` shows a readout with the backend, WASM threads, frame path, cross-origin isolated / secure context, model and input size, looks per second (all cameras and per camera, with the gap and "moving"), look and model ms, and Prediction on/off (a button; also `?pred=0`).
+- **Measured** (mock detector answering with the true box after 150 ms; iPhone emulation 440×956 DPR 3; frame identified by a code burned into the picture):
+
+  | Setup | Before: error / lag | After: error / lag |
+  | --- | --- | --- |
+  | Chromium 4× CPU, grid | 16.3 CSS px / 732 ms | 2.1 CSS px / 75 ms |
+  | Chromium 4× CPU, focused | 2.2 CSS px / 54 ms | 1.6 CSS px / 34 ms |
+  | Chromium 4× CPU, 300 ms looks, grid | 33.5 CSS px / 1351 ms | 7.8 CSS px / 308 ms |
+  | Chromium 4× CPU, 300 ms looks, focused | 6.2 CSS px / 162 ms (p90 565) | 4.5 CSS px / 107 ms (p90 199) |
+  | WebKit, focused | 4.4 CSS px / 89 ms | 3.8 CSS px / 82 ms |
+  | WebKit, 300 ms looks, focused | 7.4 CSS px / 162 ms (p90 551) | 5.9 CSS px / 127 ms (p90 178) |
+
+  Error and lag are medians unless marked p90.
