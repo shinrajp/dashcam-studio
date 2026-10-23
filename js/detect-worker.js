@@ -92,7 +92,7 @@ const slots = {};
 async function load(msg) {
   await loadOrt(msg);
   const key = msg.slot || "main", cur = slots[key];
-  if (cur && cur.url === msg.urls[0]) return { backend: cur.backend, url: cur.url, cached: true, size: cur.size, offscreen: typeof OffscreenCanvas !== "undefined", slot: key };
+  if (cur && cur.url === msg.urls[0]) return { backend: cur.backend, url: cur.url, cached: true, size: cur.size, offscreen: typeof OffscreenCanvas !== "undefined", slot: key, threads: cur.backend === "wasm" && RT ? RT.env.wasm.numThreads : null };
   if (cur) { try { await cur.session.release(); } catch (_) {} delete slots[key]; }
   const t0 = Date.now();
   const got = await fetchModel(msg.urls, msg.useCache !== false, (p) => postMessage({ type: "progress", ...p }));
@@ -111,7 +111,7 @@ async function load(msg) {
   const sz = meta && meta.shape && +meta.shape[2] > 0 ? +meta.shape[2] : msg.size || 640;
   slots[key] = { session: sess, backend: be, url: msg.urls[0], inputName: sess.inputNames[0], outputName: sess.outputNames[0], size: sz };
   if (key === "main") { session = sess; backend = be; modelUrl = msg.urls[0]; inputName = sess.inputNames[0]; outputName = sess.outputNames[0]; size = sz; }
-  return { backend: be, url: got.url, cached: got.cached, saved: got.saved, bytes: got.buf.byteLength, downloadMs: tDl, loadMs: Date.now() - t0 - tDl, size: sz, offscreen: typeof OffscreenCanvas !== "undefined", slot: key };
+  return { backend: be, url: got.url, cached: got.cached, saved: got.saved, bytes: got.buf.byteLength, downloadMs: tDl, loadMs: Date.now() - t0 - tDl, size: sz, offscreen: typeof OffscreenCanvas !== "undefined", slot: key , threads: be === "wasm" ? RT.env.wasm.numThreads : null };
 }
 
 // A transferred ImageBitmap (whole video frame, read on the GPU side, no main-thread getImageData) → letterboxed RGBA here.

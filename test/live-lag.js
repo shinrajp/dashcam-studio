@@ -36,7 +36,7 @@ const results = [];
   for (const bn of (process.env.BR || "chromium,webkit").split(",")) {
     for (const mode of MODES) {
       const b = await pw[bn].launch(bn === "chromium" ? { executablePath: process.env.CHROME || "/usr/bin/google-chrome", args: ["--no-sandbox", "--autoplay-policy=no-user-gesture-required"] } : {});
-      const ctx = await b.newContext({ viewport: { width: 440, height: 956 }, deviceScaleFactor: 3, isMobile: true, hasTouch: true, userAgent: UA });
+      const ctx = await b.newContext({ viewport: { width: 440, height: 956 }, deviceScaleFactor: +(process.env.DPR || 3), isMobile: true, hasTouch: true, userAgent: UA });
       const p = await ctx.newPage();
       const errs = []; p.on("pageerror", (e) => errs.push(e.message));
       await p.goto(URL_, { waitUntil: "load" });

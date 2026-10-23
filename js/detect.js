@@ -340,7 +340,7 @@
   D.liveGap = () => SPEEDS[D.speed()].gap;
   D.liveEvery = () => Math.max(D.liveGap(), D.avgMs ? D.avgMs() : 300);   // ms between two detections (one camera)
   D.avgMs = () => { const a = D.liveStats.ms.slice(-10); return a.length ? a.reduce((x, y) => x + y, 0) / a.length : 0; };
-  D.liveStats = { starts: [], ms: [], skipped: 0, frames: 0 };
+  D.liveStats = { starts: [], ms: [], skipped: 0, frames: 0, byCam: {} };
   D.liveRate = (sec) => { const now = performance.now(), w = (sec || 5) * 1000; return D.liveStats.starts.filter((x) => now - x <= w).length / (sec || 5); };
 
   const visible = (cam) => { const tl = T.player.tiles && T.player.tiles[cam]; if (!tl) return null; const v = tl.vids[T.player.active]; if (!v || !v.videoWidth || !v._url && !v.src) return null; const el = tl.tile; if (!el || el.hidden || el.classList.contains("off") || el.offsetParent === null || el.clientWidth < 4) return null; return v; };   // .off = hidden behind a focused camera (WebKit hands back blank frames for it)
@@ -355,13 +355,36 @@
     return t;
   };
 
-  // per-camera viewer tracker
+  // per-camera viewer tracker (tag live-lag: alpha-beta filter, prediction to the painted frame, damped past the next look)
+  // The user's iPhone: the boxes trailed moving cars, worst in the grid. Causes: the prediction stopped after 0.5 s (in the grid
+  // a camera's next look is often later than that), a missed match (the car moved more than its own width) froze the box,
+  // and the speed was smoothed from the smoothed position (always behind an accelerating car). Now: position and speed are
+  // corrected by the measured miss (alpha-beta), the second look and a re-found fast car take the measured speed, and the
+  // box is moved to the painted frame's time on every paint, at full speed until a little after the next look is due, then
+  // slowing down (no runaway when the car stopped or the detector lost it). The viewer only: the export stays frame-exact
+  // (liveAt, between two real detections).
   D.liveTracks = {};
-  const EMA_POS = 0.6, EMA_SIZE = 0.4;
-  const expiry = (cam) => { const n = Math.max(1, D.liveCams().length); return Math.max(0.5, 1.5 * n * D.liveEvery() / 1000); };
+  const EMA_POS = 0.7, BETA = 0.5, EMA_SIZE = 0.4, VMAX = 2.5;   // VMAX: picture widths per second
+  D.camGap = {};   // seconds between two looks at a camera (event time, smoothed)
+  const gapOf = (cam) => { const n = Math.max(1, D.liveCams().length); return Math.max(D.camGap[cam] || 0, Math.min(3, n * D.liveEvery() / 1000)); };
+  const expiry = (cam) => Math.max(0.5, 1.5 * gapOf(cam) + 0.15);
+  /** Prediction on (default) or off (?pred=0 or localStorage "tdc.livePredict" = "off": boxes stay where the detector saw them). */
+  D.predictOn = () => { try { if (/(?:[?&#])pred=0\b/.test(location.search + location.hash)) return false; return localStorage.getItem("tdc.livePredict") !== "off"; } catch (_) { return true; } };
+  const clampV = (v) => Math.max(-VMAX, Math.min(VMAX, v));
+  /** Where track tr is at event time t: full speed up to ~1.3 looks ahead, then slowing down (τ 0.3 s), at most 2 s. */
+  const predictAt = (tr, t, gap) => {
+    let dt = t - tr.t;
+    if (dt < 0) dt = Math.max(-0.3, dt);
+    else { const h = Math.max(0.25, 1.3 * (gap || 0.5)); if (dt > h) dt = h + 0.3 * (1 - Math.exp(-(dt - h) / 0.3)); dt = Math.min(2, dt); }
+    let cx = tr.x + tr.w / 2 + tr.vx * dt, cy = tr.y + tr.h / 2 + tr.vy * dt;
+    cx = Math.max(-0.02, Math.min(1.02, cx)); cy = Math.max(-0.02, Math.min(1.02, cy));
+    return { x: cx - tr.w / 2, y: cy - tr.h / 2, w: tr.w, h: tr.h };
+  };
+  D._predictAt = predictAt;   // tests
   function track(cam, t, dets) {
     const list = (D.liveTracks[cam] = (D.liveTracks[cam] || []).filter((tr) => t - tr.seen <= expiry(cam) && tr.t <= t + 0.05));
-    const pred = list.map((tr) => { const dt = Math.min(0.5, Math.max(0, t - tr.t)); return { x: tr.x + tr.vx * dt, y: tr.y + tr.vy * dt, w: tr.w, h: tr.h }; });
+    const gap = gapOf(cam);
+    const pred = list.map((tr) => predictAt(tr, t, gap));
     const pairs = [];
     dets.forEach((d, i) => list.forEach((tr, j) => { if (tr.label === d.label && near2(pred[j], d)) pairs.push([iou(pred[j], d), i, j]); }));
     pairs.sort((a, b) => b[0] - a[0]);
@@ -369,24 +392,30 @@
     for (const [, i, j] of pairs) {
       if (ud.has(i) || ut.has(j)) continue; ud.add(i); ut.add(j);
       const d = dets[i], tr = list[j], p = pred[j], dt = Math.max(1e-3, t - tr.t);
-      if (sizeJump(p, d) || iou(p, d) < 0.2) {
-        // the object changed size a lot (a bus that drove past the car and pulled away) or the prediction is far off:
-        // take the detection as it is. Smoothing here left a frame-wide box around a small, distant bus (tag taillight-fix).
+      const dcx = d.x + d.w / 2, dcy = d.y + d.h / 2, mdt = t - (tr.mt != null ? tr.mt : tr.t);
+      // speed measured between the last two looks (raw detections, not the smoothed box)
+      const vmx = mdt > 0.02 ? clampV((dcx - (tr.mcx != null ? tr.mcx : tr.x + tr.w / 2)) / mdt) : tr.vx, vmy = mdt > 0.02 ? clampV((dcy - (tr.mcy != null ? tr.mcy : tr.y + tr.h / 2)) / mdt) : tr.vy;
+      if (sizeJump(p, d)) {
+        // the object changed size a lot (a bus that drove past the car and pulled away): take the detection as it is.
+        // Smoothing here left a frame-wide box around a small, distant bus (tag taillight-fix).
         tr.x = d.x; tr.y = d.y; tr.w = d.w; tr.h = d.h; tr.vx = 0; tr.vy = 0; tr.n = 0;
+      } else if (iou(p, d) < 0.2 || (tr.n || 1) === 1) {
+        // the prediction missed (a fast car moved more than its own width) or this is the second look: the detection's
+        // position and the measured speed as they are (from 0 it took 3–4 looks to catch up, tag safari-feedback; a miss
+        // used to stop the box until the next look, tag live-lag)
+        tr.x = d.x; tr.y = d.y; tr.w += EMA_SIZE * (d.w - tr.w); tr.h += EMA_SIZE * (d.h - tr.h); tr.x = dcx - tr.w / 2; tr.y = dcy - tr.h / 2;
+        tr.vx = vmx; tr.vy = vmy; if (iou(p, d) < 0.2) tr.n = 0;
       } else {
-        // smooth the CENTRE and the size (smoothing the corner and the size separately drifts the box off the object)
-        const pcx = p.x + p.w / 2, pcy = p.y + p.h / 2, ncx = pcx + EMA_POS * (d.x + d.w / 2 - pcx), ncy = pcy + EMA_POS * (d.y + d.h / 2 - pcy);
-        const ocx = tr.x + tr.w / 2, ocy = tr.y + tr.h / 2;
-        // second look: take the measured speed as it is (from 0 it took 3–4 detections to catch up and the box trailed the
-        // car, tag safari-feedback); later looks smooth it
-        // (the position is still smoothed: small jitter stays calm)
-        if ((tr.n || 1) === 1) { tr.vx = (d.x + d.w / 2 - ocx) / dt; tr.vy = (d.y + d.h / 2 - ocy) / dt; }
-        else { tr.vx = 0.5 * tr.vx + 0.5 * ((ncx - ocx) / dt); tr.vy = 0.5 * tr.vy + 0.5 * ((ncy - ocy) / dt); }
+        // alpha-beta: correct the predicted centre and the speed by the miss (small jitter stays calm)
+        const pcx = p.x + p.w / 2, pcy = p.y + p.h / 2, rx = dcx - pcx, ry = dcy - pcy, k = BETA / Math.max(0.05, dt);
+        const ncx = pcx + EMA_POS * rx, ncy = pcy + EMA_POS * ry;
+        tr.vx = clampV(tr.vx + k * rx); tr.vy = clampV(tr.vy + k * ry);
         tr.w += EMA_SIZE * (d.w - tr.w); tr.h += EMA_SIZE * (d.h - tr.h); tr.x = ncx - tr.w / 2; tr.y = ncy - tr.h / 2;
       }
+      tr.mcx = dcx; tr.mcy = dcy; tr.mt = t;
       tr.t = t; tr.seen = t; tr.conf = d.conf; tr.attr = d.attr; tr.clObs = d.clObs; tr.n = (tr.n || 1) + 1;
     }
-    dets.forEach((d, i) => { if (!ud.has(i)) { const tr = { label: d.label, x: d.x, y: d.y, w: d.w, h: d.h, vx: 0, vy: 0, t, seen: t, conf: d.conf, attr: d.attr, clObs: d.clObs }; list.push(tr); } });
+    dets.forEach((d, i) => { if (!ud.has(i)) { const tr = { label: d.label, x: d.x, y: d.y, w: d.w, h: d.h, vx: 0, vy: 0, t, seen: t, conf: d.conf, attr: d.attr, clObs: d.clObs, mcx: d.x + d.w / 2, mcy: d.y + d.h / 2, mt: t }; list.push(tr); } });
   }
   D._track = track;   // tests
   /** Box w or h changed by more than k (default 1.6) × between two looks at the same object. */
@@ -399,11 +428,11 @@
   /** Viewer boxes from the tracker at time t (while playing), or null when it has nothing current for this camera. */
   D.trackedLive = (cam, t) => {
     const list = D.liveTracks[cam]; if (!list || !list.length) return null;
-    const ex = expiry(cam), out = [];
+    const ex = expiry(cam), gap = gapOf(cam), pr = D.predictOn(), out = [];
     for (const tr of list) {
       if (t - tr.seen > ex || t < tr.t - 0.3) continue;
-      const dt = Math.min(0.5, Math.max(-0.3, t - tr.t));
-      out.push({ x: tr.x + tr.vx * dt, y: tr.y + tr.vy * dt, w: tr.w, h: tr.h, label: tr.label, conf: tr.conf, attr: tr.attr, clObs: tr.clObs });
+      const b = pr ? predictAt(tr, t, gap) : tr;
+      out.push({ x: b.x, y: b.y, w: tr.w, h: tr.h, label: tr.label, conf: tr.conf, attr: tr.attr, clObs: tr.clObs });
     }
     return out.length ? out : null;
   };
@@ -412,16 +441,39 @@
   async function detectLive(cam, v, meta) {
     const t = frameTime(v, meta), t0 = performance.now();
     D.liveStats.starts.push(t0); if (D.liveStats.starts.length > 200) D.liveStats.starts.shift();
+    const bc = (D.liveStats.byCam[cam] = D.liveStats.byCam[cam] || []); bc.push(t0); if (bc.length > 60) bc.shift();
     const fast = D.speed() === "fast" && D.prefs().model !== "gdino";
     let dets = await D.detectImage(v, v.videoWidth, v.videoHeight, { slot: fast ? "fast" : "main" });
     D.liveStats.ms.push(performance.now() - t0); if (D.liveStats.ms.length > 50) D.liveStats.ms.shift();
     if (T.vehicle && T.vehicle.decorateLive) dets = T.vehicle.decorateLive(v, v.videoWidth, v.videoHeight, dets, t, undefined, cam);   // "white car 91%" (colour after white balance when known)
     const n = Math.max(1, D.liveCams().length), hold = Math.max(0.6, 0.6 + (n * D.liveEvery()) / 1000);
+    const prev = D.live[cam]; if (prev && t > prev.t && t - prev.t < 3) D.camGap[cam] = D.camGap[cam] ? 0.7 * D.camGap[cam] + 0.3 * (t - prev.t) : t - prev.t;
     D.live[cam] = { t, dets, hold, src: "live" };
     addSample(cam, D.live[cam]);
     track(cam, t, dets);
     // while playing the boxes are repainted on every frame ("time"); a "layout" here would also re-place the dock/bar
     if (!T.player || !T.player.playing) T.emit("layout");
+  }
+  // Which camera looks next (tag live-lag). Was a plain round robin: in the 6-camera grid the camera with the moving car
+  // got one look in six (about 1 per second on the user's iPhone) like five cameras showing parked cars. Now the camera
+  // that has waited longest, weighted: a camera with a moving box ×1, one with a new box (speed not known yet) ×0.6, a
+  // still or empty camera ×0.25 (still looked at, so new cars appear), and the tile's size on screen (√ of its share of
+  // the largest tile, at least 0.4). One camera, or Focused camera: every look goes to it.
+  const lastLook = {};
+  D.camMoving = (cam) => { const list = D.liveTracks[cam] || []; let m = 0; for (const tr of list) { if ((tr.n || 1) < 2) m = Math.max(m, 0.6); else if (Math.hypot(tr.vx, tr.vy) > 0.02) return 1; } return m || 0.25; };
+  D.lastLook = lastLook;
+  function pickCam(cams) {
+    if (cams.length === 1) return cams[0];
+    const now = performance.now(), area = {}; let amax = 1;
+    for (const c of cams) { const el = T.player.tiles[c].tile; area[c] = Math.max(1, el.clientWidth * el.clientHeight); amax = Math.max(amax, area[c]); }
+    let best = cams[rr++ % cams.length], bs = -1;
+    for (const c of cams) {
+      const age = lastLook[c] == null ? 1e9 : now - lastLook[c];
+      const sc = age * D.camMoving(c) * Math.max(0.4, Math.sqrt(area[c] / amax));
+      if (sc > bs) { bs = sc; best = c; }
+    }
+    lastLook[best] = now;
+    return best;
   }
   function onFrame(now, meta) {
     if (!loopOn) return;
@@ -431,7 +483,7 @@
     D.liveStats.frames++;
     const cams = D.liveCams();
     if (liveBusy || !cams.length || performance.now() - liveLast < D.liveGap()) { if (liveBusy) D.liveStats.skipped++; return arm(); }
-    const cam = cams[rr++ % cams.length], v = visible(cam);
+    const cam = pickCam(cams), v = visible(cam);
     if (!v) return arm();
     liveBusy = true; liveLast = performance.now();
     detectLive(cam, v, v === loopVid ? meta : null)
@@ -452,6 +504,17 @@
     liveBusy = true;
     try { await detectLive(cam, v, null); return true; } finally { liveBusy = false; }
   };
+  /** ?debug=det readout (js/det-debug.js): backend, frame path, threads, per-camera looks per second, inference time, prediction. */
+  D.debugInfo = () => {
+    const now = performance.now(), hz = (a) => +((a || []).filter((x) => now - x <= 3000).length / 3).toFixed(1), avg = (a) => (a.length ? Math.round(a.reduce((x, y) => x + y, 0) / a.length) : null);
+    const cams = {};
+    for (const c of T.GRID) { const tl = T.player && T.player.tiles && T.player.tiles[c]; if (!tl || tl.tile.classList.contains("off")) continue; cams[c] = { hz: hz(D.liveStats.byCam[c]), gap: D.camGap[c] ? Math.round(D.camGap[c] * 1000) : null, tracks: (D.liveTracks[c] || []).length, moving: D.camMoving(c) === 1, px: tl.tile.clientWidth + "×" + tl.tile.clientHeight }; }
+    const fi = fastInfo || null, P = D.prefs();
+    return { backend: (D.speed() === "fast" && fi ? fi.backend : D.backend) || (D._mock ? "mock" : "not loaded"), model: D.speed() === "fast" && fi ? "yolo11n-" + (fi.size || 320) : P.model, input: slotSize(D.speed() === "fast" && fi ? "fast" : "main"),
+      threads: (fi || D.info || {}).threads || null, path: D.lastPath || null, coi: !!self.crossOriginIsolated, secure: !!self.isSecureContext, gpuApi: !!navigator.gpu, gpuAllowed: T.workerStart ? T.workerStart.gpuOk() : null,
+      speed: D.speed(), camsMode: D.liveCamsMode(), live: !!(P.enabled && P.live), playing: !!(T.player && T.player.playing), totalHz: +D.liveRate(3).toFixed(1),
+      lookMs: avg(D.liveStats.ms.slice(-10)), inferMs: avg(D.timings.slice(-10)), skipped: D.liveStats.skipped, predict: D.predictOn(), cams };
+  };
   D.liveRVFC = () => { const cams = D.liveCams(), v = cams.length ? visible(cams[0]) : null; return !!(v && typeof v.requestVideoFrameCallback === "function"); };
   /** Called on every player time update: starts the frame loop when playing with live detection on. */
   D.liveTick = () => {
@@ -461,7 +524,7 @@
     loopOn = true; arm();
   };
 
-  D.clear = () => { D.tracks = []; D.live = {}; D.liveSamples = {}; D.liveTracks = {}; D.frameCache.clear(); if (T.colorLock) T.colorLock.clear(); };
+  D.clear = () => { D.tracks = []; D.live = {}; D.liveSamples = {}; D.liveTracks = {}; D.camGap = {}; D.frameCache.clear(); if (T.colorLock) T.colorLock.clear(); };
   D.clearTracks = () => { D.tracks = []; };
   D.frameCache = new Map();   // "cam|t" → { conf, dets }: frames the search already ran (all classes), reused by the next search
   /** Live detections seen so far, as search rows for a class (same threshold as the search). */
