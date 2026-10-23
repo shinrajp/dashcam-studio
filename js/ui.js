@@ -199,7 +199,7 @@
   const view = { z: 1, v0: 0 };
   const MAX_TL_Z = 40;
   const isCoarse = () => !!(window.matchMedia && matchMedia("(pointer: coarse)").matches);
-  const laneOn = () => !!(T.prefs.advanced && P().ev);
+  const laneOn = () => !!(T.prefs.advanced && P().ev) && !document.body.classList.contains("mb-slim");   // phones: no lane in the slim bar (js/mobile-bar.js)
   function span() { const d = P().duration() || 0; return d / view.z; }
   function clampView() {
     const d = P().duration() || 0;

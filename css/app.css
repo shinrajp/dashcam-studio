@@ -761,3 +761,53 @@ body.fs.idle .model-loading { bottom: 8px; }
 /* the five switches live on top: hide their twins inside Advanced (same settings) */
 .recog-adv .row:has(> label > #detEnabled), .recog-adv .row:has(> label > #detLive), .recog-adv .row:has(> label > #plEnabled),
 .recog-adv .row:has(> label > #plBlur), .recog-adv .row:has(> label > #vehEnabled), .recog-adv .row:has(#detSpeed) { display: none; }
+
+/* ---------- phones: slim playback bar + pull-up sheet (js/mobile-bar.js, tag mobile-bar) ---------- */
+/* The bar (grip strip + one row: play, time, timeline, ⌃) is all that stays in page flow: about 62 px plus the
+   home-indicator inset. Everything else of the transport lives in .mb-sheet, which slides up over the cameras. */
+body.mbar .transport { position: relative; z-index: 36; gap: 0; padding: 0; border-top: 0; }
+body.fs.mbar .transport { position: fixed; }
+.mb-bar { position: relative; background: var(--bg2); border-top: 1px solid var(--line); padding: 0 max(8px, env(safe-area-inset-right)) env(safe-area-inset-bottom) max(8px, env(safe-area-inset-left)); }
+body.fs .mb-bar { background: rgba(14,16,20,0.94); }
+.mb-grip { display: flex; align-items: center; justify-content: center; width: 100%; height: 14px; margin: 0; padding: 0; border: 0; background: none; color: inherit; cursor: grab;
+  touch-action: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; position: relative; }
+.mb-grip::before { content: ""; position: absolute; left: 25%; right: 25%; top: -16px; bottom: 0; }   /* a 30 px tall hit area (half over the cameras' bottom edge) */
+.mb-grip-line { width: 40px; height: 5px; border-radius: 3px; background: rgba(255,255,255,0.32); }
+.mb-grip:focus-visible .mb-grip-line { background: var(--blue); }
+.mb-row { display: flex; align-items: center; gap: 8px; height: 48px; min-width: 0; }
+.mb-row #btnPlay { width: 44px; height: 44px; flex: none; }
+.mb-row #timeLabel { flex: none; min-width: 52px; font-size: 13px; font-variant-numeric: tabular-nums; }
+.mb-row #timeline { flex: 1; height: 44px; min-width: 0; }
+.mb-more { flex: none; width: 44px; height: 44px; position: relative; touch-action: none; -webkit-tap-highlight-color: transparent; }
+.mb-more svg { transition: transform .26s cubic-bezier(.2,.8,.2,1); }
+.mb-open .mb-more svg { transform: rotate(180deg); }
+.mb-badge { position: absolute; top: 2px; right: 2px; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px; background: #e6b422; color: #111; font-size: 10px; font-weight: 700; line-height: 16px; text-align: center; }
+.mb-open .mb-more { margin-left: auto; }   /* the timeline is up in the sheet: keep ⌃ at the right */
+.mb-sheet { position: absolute; left: 0; right: 0; bottom: 100%; z-index: -1; display: flex; flex-direction: column; gap: 6px;
+  padding: 12px max(10px, env(safe-area-inset-right)) 10px max(10px, env(safe-area-inset-left)); background: var(--bg2); border-top: 1px solid var(--line); border-radius: 14px 14px 0 0;
+  box-shadow: 0 -10px 30px rgba(0,0,0,.45); max-height: calc(100vh - var(--top-h, 58px) - var(--mb-bar, 62px) - 8px); max-height: calc(100dvh - var(--top-h, 58px) - var(--mb-bar, 62px) - 8px);
+  overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch;
+  transform: translateY(calc(100% + var(--mb-bar, 62px))); visibility: hidden; transition: transform .26s cubic-bezier(.2,.8,.2,1), visibility 0s linear .26s; will-change: transform; }
+.mb-open .mb-sheet { transform: none; visibility: visible; transition: transform .26s cubic-bezier(.2,.8,.2,1), visibility 0s; }
+.mb-drag .mb-sheet { visibility: visible; transition: none; }
+@media (prefers-reduced-motion: reduce) { .mb-sheet, .mb-open .mb-sheet, .mb-more svg { transition: none !important; } }
+body.fs .mb-sheet { background: rgba(14,16,20,0.94); }
+/* inside the sheet: every control, wrapped onto centred rows, 44 px targets */
+body.mbar .mb-sheet .tp-controls { flex-wrap: wrap; justify-content: center; overflow: visible; row-gap: 8px; gap: 8px; }
+body.mbar .mb-sheet .tp-trim { order: 10; flex-basis: 100%; justify-content: center; flex-wrap: wrap; }
+body.mbar .mb-sheet .chips { display: flex; order: 11; flex-basis: 100%; justify-content: center; flex-wrap: wrap; }
+body.mbar #btnStop { display: inline-flex; }
+body.mbar .mb-sheet .tp-scrub { display: grid; grid-template-columns: 1fr auto auto; grid-template-areas: ". zoom dur" "tl tl tl"; column-gap: 8px; row-gap: 2px; }
+body.mbar.mb-slim .mb-sheet .tp-scrub { display: none; }   /* the timeline is down in the bar */
+body.mbar .mb-sheet .tp-scrub #timeline { grid-area: tl; width: 100%; }
+/* the classic search bars hide the same as directly in the transport */
+body.usearch:not(.usearch-classic) .mb-sheet > .find-bar, body.usearch:not(.usearch-classic) .mb-sheet > .redact-bar,
+body.usearch:not(.usearch-classic) .mb-sheet > #findStatus, body.usearch:not(.usearch-classic) .mb-sheet > #findHits,
+body.usearch:not(.usearch-classic) .mb-sheet > #redactStatus, body.usearch:not(.usearch-classic) .mb-sheet > #btnCloudRecheck { display: none !important; }
+/* the floating search button, moved out of the sheet (its position: fixed must stay relative to the screen) */
+body.mbar .transport > .us-btn { position: fixed; z-index: 35; right: max(12px, env(safe-area-inset-right)); bottom: calc(var(--tp-h, 62px) + 10px); width: 44px; height: 44px; padding: 0; justify-content: center; border-radius: 22px;
+  background: rgba(23,26,32,0.82); border: 1px solid rgba(255,255,255,0.14); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); box-shadow: 0 4px 14px rgba(0,0,0,.45); }
+body.mbar .transport > .us-btn svg { width: 20px; height: 20px; }
+body.mbar .transport > .us-btn .us-lbl { display: none; }
+body.mbar .transport > .us-btn .us-count { position: absolute; top: -4px; right: -4px; }
+body.mbar.us-open .transport > .us-btn, body.mbar.no-event .transport > .us-btn, body.mbar.us-docked .transport > .us-btn, body.mbar .transport.mb-open > .us-btn { display: none; }
