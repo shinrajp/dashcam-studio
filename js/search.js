@@ -290,8 +290,9 @@
         tile.tile.appendChild(cv);
       }
       const video = tile.vids[T.player.active];
-      cv.style.transform = video ? video.style.transform : "";
+      cv.style.transform = video ? (video._zoomPlain != null ? video._zoomPlain : video.style.transform) : "";   // un-flipped layer: boxes are mirrored in x, the text stays readable (layout.js)
       cv.style.transformOrigin = "50% 50%";
+      const mir = T.layout && T.layout.mirrored(cam);
       const tw = tile.tile.clientWidth, th = tile.tile.clientHeight;
       const dpr = Math.min(2, window.devicePixelRatio || 1);
       const w = Math.max(1, Math.round(tw * dpr)), h = Math.max(1, Math.round(th * dpr));
@@ -300,11 +301,12 @@
       if (T.burnBoxes && T.burnBoxes.at) {
         // the SAME box set the export burns in at this moment (tracks / live detections, else results within ±2.5 s)
         const tc = T.redact && T.redact.camTime ? T.redact.camTime(cam, video) : T.player.time || 0;   // this camera's frame on screen (tag safari-feedback)
-        const boxes = video && video.videoWidth ? T.burnBoxes.at(cam, tc) : [];
+        let boxes = video && video.videoWidth ? T.burnBoxes.at(cam, tc) : [];
+        if (mir && boxes.length) boxes = boxes.map(T.layout.box.bind(null, cam));
         if (boxes.length) tile.tile.classList.add("find-on");
         // painted every frame while playing: skip the redraw when nothing moved by a pixel (saves compositing on phones)
         const q = (v, m) => Math.round(v * m);
-        const sig = w + "x" + h + "|" + boxes.map((b) => q(b.x, tw) + "," + q(b.y, th) + "," + q(b.w, tw) + "," + q(b.h, th) + "," + b.text + "," + (b.color || "")).join(";");
+        const sig = w + "x" + h + (mir ? "m" : "") + "|" + boxes.map((b) => q(b.x, tw) + "," + q(b.y, th) + "," + q(b.w, tw) + "," + q(b.h, th) + "," + b.text + "," + (b.color || "")).join(";");
         if (cv._sig === sig && !S.forcePaint) continue;
         cv._sig = sig;
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -318,14 +320,14 @@
       if (!near || !cams.has(cam) || !video || !video.videoWidth) continue;
       const hit = group.find((g) => g.cam === cam && g.box && !g.tracked);
       if (!hit) continue;
-      const item = T.burnBoxes && T.burnBoxes.forHit(hit);
+      const item0 = T.burnBoxes && T.burnBoxes.forHit(hit), item = item0 && mir ? T.layout.box(cam, item0) : item0;
       if (item) {   // same box + label text as "Burn detection boxes" in export; 12 px minimum on screen
         T.burnBoxes.draw(ctx, cam, S.anchor, { x: 0, y: 0, w: tw, h: th }, video.videoWidth, video.videoHeight, [item], 12);
         continue;
       }
       // fallback (burn-boxes.js missing): original plain box
       const fit = contain(video.videoWidth, video.videoHeight, { x: 0, y: 0, w: tw, h: th });
-      const box = hit.box;
+      const box = mir ? T.layout.box(cam, hit.box) : hit.box;
       ctx.strokeStyle = "#e6b450"; ctx.lineWidth = 3;
       ctx.strokeRect(fit.x + box.x * fit.w, fit.y + box.y * fit.h, box.w * fit.w, box.h * fit.h);
     }

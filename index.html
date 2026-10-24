@@ -11,7 +11,7 @@
   <title>Dashcam Studio — Tesla Sentry &amp; Dashcam viewer</title>
   <meta name="color-scheme" content="dark">
   <link rel="icon" href="data:,">
-  <link rel="stylesheet" href="css/app.css?v=ios-unlock-1">
+  <link rel="stylesheet" href="css/app.css?v=handoff-1">
 </head>
 <body class="simple">
   <header class="topbar">
@@ -161,6 +161,7 @@
         <span class="seg-info" id="segInfo"></span>
       </div>
       <div class="tp-spacer"></div>
+      <select id="layoutSel" class="select small tp-layout" aria-label="Camera layout" title="Camera layout: Auto uses Rear view for Sentry events and Current for Dashcam events. Mirrored bottom row also flips the three bottom videos like a mirror (labels and boxes stay readable). Export is not affected."></select>
       <select id="rateSelect" class="select small" title="Playback speed">
         <option value="0.25">0.25×</option><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="2">2×</option><option value="4">4×</option><option value="8">8×</option>
       </select>
@@ -338,62 +339,63 @@
   <!-- Cameras picker: a top-level layer on <body> (never inside the camera bar, whose backdrop-filter would make
        position:fixed relative to the bar); js/focus.js places it next to the Cameras button. -->
   <div class="cam-menu" id="camMenu" hidden></div>
-  <script src="vendor/mp4-muxer.js?v=ios-unlock-1"></script>
-  <script src="vendor/webm-muxer.js?v=ios-unlock-1"></script>
-  <script src="vendor/ort.wasm.min.js?v=ios-unlock-1"></script>
-  <script src="vendor/ocr-pack.js?v=ios-unlock-1"></script>
+  <script src="vendor/mp4-muxer.js?v=handoff-1"></script>
+  <script src="vendor/webm-muxer.js?v=handoff-1"></script>
+  <script src="vendor/ort.wasm.min.js?v=handoff-1"></script>
+  <script src="vendor/ocr-pack.js?v=handoff-1"></script>
   <!-- app (classic scripts: they work when opened from file://) -->
-  <script src="js/core.js?v=ios-unlock-1"></script>
-  <script src="js/mp4.js?v=ios-unlock-1"></script>
-  <script src="js/sei.js?v=ios-unlock-1"></script>
-  <script src="js/crypto.js?v=ios-unlock-1"></script>
-  <script src="js/teslacam.js?v=ios-unlock-1"></script>
-  <script src="js/telemetry.js?v=ios-unlock-1"></script>
-  <script src="js/batching.js?v=ios-unlock-1"></script>
-  <script src="js/library.js?v=ios-unlock-1"></script>
-  <script src="js/player.js?v=ios-unlock-1"></script>
-  <script src="js/draw.js?v=ios-unlock-1"></script>
-  <script src="js/hud.js?v=ios-unlock-1"></script>
-  <script src="js/map.js?v=ios-unlock-1"></script>
-  <script src="js/compositor.js?v=ios-unlock-1"></script>
-  <script src="js/overlays.js?v=ios-unlock-1"></script>
-  <script src="js/focus.js?v=ios-unlock-1"></script>
-  <script src="js/export.js?v=ios-unlock-1"></script>
-  <script src="js/search.js?v=ios-unlock-1"></script>
-  <script src="js/redact.js?v=ios-unlock-1"></script>
-  <script src="js/text-match.js?v=ios-unlock-1"></script>
-  <script src="js/text-search.js?v=ios-unlock-1"></script>
-  <script src="js/time-search.js?v=ios-unlock-1"></script>
-  <script src="js/burn-boxes.js?v=ios-unlock-1"></script>
-  <script src="js/worker-start.js?v=ios-unlock-1"></script>
-  <script src="js/color-lock.js?v=ios-unlock-1"></script>
-  <script src="js/detect.js?v=ios-unlock-1"></script>
-  <script src="js/plate-text.js?v=ios-unlock-1"></script>
-  <script src="js/plates.js?v=ios-unlock-1"></script>
-  <script src="js/prewarm.js?v=ios-unlock-1"></script>
-  <script src="js/vehicle-attrs.js?v=ios-unlock-1"></script>
-  <script src="js/vehicle.js?v=ios-unlock-1"></script>
-  <script src="js/cloud-boost.js?v=ios-unlock-1"></script>
-  <script src="js/recog-settings.js?v=ios-unlock-1"></script>
-  <script src="js/pano-toggle.js?v=ios-unlock-1"></script>
-  <script src="js/multi-search.js?v=ios-unlock-1"></script>
-  <script src="js/wb.js?v=ios-unlock-1"></script>
-  <script src="js/wb-debug.js?v=ios-unlock-1"></script>
-  <script src="js/det-debug.js?v=ios-unlock-1"></script>
-  <script src="js/colour-constancy.js?v=ios-unlock-1"></script>
-  <script src="js/search-ui.js?v=ios-unlock-1"></script>
-  <script src="js/search-strip.js?v=ios-unlock-1"></script>
-  <script src="js/mobile-bar.js?v=ios-unlock-1"></script>
-  <script src="js/connector-src.js?v=ios-unlock-1"></script>
-  <script src="js/ios-unlock-src.js?v=ios-unlock-1"></script>
-  <script src="js/ios-unlock.js?v=ios-unlock-1"></script>
-  <script src="js/tesla-auth.js?v=ios-unlock-1"></script>
-  <script src="js/key-import.js?v=ios-unlock-1"></script>
-  <script src="js/key-store.js?v=ios-unlock-1"></script>
-  <script src="js/ui.js?v=ios-unlock-1"></script>
-  <script src="js/lib-index.js?v=ios-unlock-1"></script>
-  <script src="js/lib-index-ui.js?v=ios-unlock-1"></script>
-  <script src="js/auto.js?v=ios-unlock-1"></script>
-  <script src="js/app.js?v=ios-unlock-1"></script>
+  <script src="js/core.js?v=handoff-1"></script>
+  <script src="js/mp4.js?v=handoff-1"></script>
+  <script src="js/sei.js?v=handoff-1"></script>
+  <script src="js/crypto.js?v=handoff-1"></script>
+  <script src="js/teslacam.js?v=handoff-1"></script>
+  <script src="js/telemetry.js?v=handoff-1"></script>
+  <script src="js/batching.js?v=handoff-1"></script>
+  <script src="js/library.js?v=handoff-1"></script>
+  <script src="js/player.js?v=handoff-1"></script>
+  <script src="js/layout.js?v=handoff-1"></script>
+  <script src="js/draw.js?v=handoff-1"></script>
+  <script src="js/hud.js?v=handoff-1"></script>
+  <script src="js/map.js?v=handoff-1"></script>
+  <script src="js/compositor.js?v=handoff-1"></script>
+  <script src="js/overlays.js?v=handoff-1"></script>
+  <script src="js/focus.js?v=handoff-1"></script>
+  <script src="js/export.js?v=handoff-1"></script>
+  <script src="js/search.js?v=handoff-1"></script>
+  <script src="js/redact.js?v=handoff-1"></script>
+  <script src="js/text-match.js?v=handoff-1"></script>
+  <script src="js/text-search.js?v=handoff-1"></script>
+  <script src="js/time-search.js?v=handoff-1"></script>
+  <script src="js/burn-boxes.js?v=handoff-1"></script>
+  <script src="js/worker-start.js?v=handoff-1"></script>
+  <script src="js/color-lock.js?v=handoff-1"></script>
+  <script src="js/detect.js?v=handoff-1"></script>
+  <script src="js/plate-text.js?v=handoff-1"></script>
+  <script src="js/plates.js?v=handoff-1"></script>
+  <script src="js/prewarm.js?v=handoff-1"></script>
+  <script src="js/vehicle-attrs.js?v=handoff-1"></script>
+  <script src="js/vehicle.js?v=handoff-1"></script>
+  <script src="js/cloud-boost.js?v=handoff-1"></script>
+  <script src="js/recog-settings.js?v=handoff-1"></script>
+  <script src="js/pano-toggle.js?v=handoff-1"></script>
+  <script src="js/multi-search.js?v=handoff-1"></script>
+  <script src="js/wb.js?v=handoff-1"></script>
+  <script src="js/wb-debug.js?v=handoff-1"></script>
+  <script src="js/det-debug.js?v=handoff-1"></script>
+  <script src="js/colour-constancy.js?v=handoff-1"></script>
+  <script src="js/search-ui.js?v=handoff-1"></script>
+  <script src="js/search-strip.js?v=handoff-1"></script>
+  <script src="js/mobile-bar.js?v=handoff-1"></script>
+  <script src="js/connector-src.js?v=handoff-1"></script>
+  <script src="js/ios-unlock-src.js?v=handoff-1"></script>
+  <script src="js/ios-unlock.js?v=handoff-1"></script>
+  <script src="js/tesla-auth.js?v=handoff-1"></script>
+  <script src="js/key-import.js?v=handoff-1"></script>
+  <script src="js/key-store.js?v=handoff-1"></script>
+  <script src="js/ui.js?v=handoff-1"></script>
+  <script src="js/lib-index.js?v=handoff-1"></script>
+  <script src="js/lib-index-ui.js?v=handoff-1"></script>
+  <script src="js/auto.js?v=handoff-1"></script>
+  <script src="js/app.js?v=handoff-1"></script>
 </body>
 </html>

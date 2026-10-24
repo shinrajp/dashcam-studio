@@ -817,3 +817,19 @@ body.mbar.us-open .transport > .us-btn, body.mbar.no-event .transport > .us-btn,
 .ios-unlock .btn.big.wide { width: 100%; min-height: 52px; font-size: 16px; }
 .ios-unlock details { font-size: 13px; }
 .ios-unlock summary { cursor: pointer; padding: 6px 0; }
+
+/* ── camera layout presets (js/layout.js, tag handoff-1) ── order only; nothing is re-parented, the videos keep decoding.
+   Landscape: top row stays LP | FRONT | RP (DOM order), bottom row RR | REAR | LR in Rear view and Mirrored bottom row. */
+.grid[data-layout="rear"] .tile[data-cam=right_repeater], .grid[data-layout="mirror"] .tile[data-cam=right_repeater] { order: 4; }
+.grid[data-layout="rear"] .tile[data-cam=back], .grid[data-layout="mirror"] .tile[data-cam=back] { order: 5; }
+.grid[data-layout="rear"] .tile[data-cam=left_repeater], .grid[data-layout="mirror"] .tile[data-cam=left_repeater] { order: 6; }
+/* phones in portrait: Front|Back, pillars, repeaters; Rear view puts RIGHT before LEFT in the repeater row */
+body.portrait .grid[data-layout="rear"] .tile[data-cam=front], body.portrait .grid[data-layout="mirror"] .tile[data-cam=front] { order: 1; }
+body.portrait .grid[data-layout="rear"] .tile[data-cam=back], body.portrait .grid[data-layout="mirror"] .tile[data-cam=back] { order: 2; }
+body.portrait .grid[data-layout="rear"] .tile[data-cam=left_pillar], body.portrait .grid[data-layout="mirror"] .tile[data-cam=left_pillar] { order: 3; }
+body.portrait .grid[data-layout="rear"] .tile[data-cam=right_pillar], body.portrait .grid[data-layout="mirror"] .tile[data-cam=right_pillar] { order: 4; }
+body.portrait .grid[data-layout="rear"] .tile[data-cam=right_repeater], body.portrait .grid[data-layout="mirror"] .tile[data-cam=right_repeater] { order: 5; }
+body.portrait .grid[data-layout="rear"] .tile[data-cam=left_repeater], body.portrait .grid[data-layout="mirror"] .tile[data-cam=left_repeater] { order: 6; }
+/* the mirror flips the VIDEO (and the canvases that copy picture pixels). `scale` composes before `transform`, which zoom uses. Labels, boxes, placeholders are never flipped. */
+.tile.mirrored > video, .tile.mirrored > .redact-layer, .tile.mirrored > .wb-mask-layer { scale: -1 1; }
+.tp-layout { max-width: 15.5em; text-overflow: ellipsis; }

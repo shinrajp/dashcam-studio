@@ -100,8 +100,8 @@
       const W = tile.clientWidth, H = tile.clientHeight;
       const mx = ((F.z - 1) * W) / 2, my = ((F.z - 1) * H) / 2;
       F.x = T.clamp(F.x, -mx, mx); F.y = T.clamp(F.y, -my, my);
-      const tf = F.z > 1.001 ? `translate(${F.x}px, ${F.y}px) scale(${F.z})` : "";
-      P().tiles[F.cam].vids.forEach((v) => (v.style.transform = tf));
+      const tf = T.layout ? T.layout.zoomTf(F.cam, F.x, F.y, F.z) : { video: F.z > 1.001 ? `translate(${F.x}px, ${F.y}px) scale(${F.z})` : "" };
+      P().tiles[F.cam].vids.forEach((v) => { v.style.transform = tf.video; v._zoomPlain = tf.plain != null ? tf.plain : tf.video; });
       tile.classList.toggle("zoomed", F.z > 1.001);
     }
     const lab = $("zoomLabel");
@@ -110,7 +110,7 @@
   }
   function resetZoom() {
     F.z = 1; F.x = 0; F.y = 0;
-    for (const cam of T.GRID) { const t = P().tiles[cam]; if (t) { t.vids.forEach((v) => (v.style.transform = "")); t.tile.classList.remove("zoomed"); } }
+    for (const cam of T.GRID) { const t = P().tiles[cam]; if (t) { t.vids.forEach((v) => { v.style.transform = ""; v._zoomPlain = ""; }); t.tile.classList.remove("zoomed"); } }
     applyZoom();
   }
   F.resetZoom = resetZoom;
