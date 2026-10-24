@@ -17,6 +17,7 @@ self.addEventListener("unhandledrejection", (e) => { try { postMessage({ type: "
 
 async function realGpu(prefer) {
   if (!prefer || typeof navigator === "undefined" || !navigator.gpu) return false;
+  if (prefer === "soft") { try { return !!(await navigator.gpu.requestAdapter()); } catch (_) { return false; } }   // test switch (detect.js gpuPref)
   try {   // skip software WebGPU (SwiftShader, llvmpipe): far slower than WASM
     const ad = await navigator.gpu.requestAdapter(); const inf = (ad && ad.info) || {};
     return !!ad && !ad.isFallbackAdapter && !inf.isFallbackAdapter && !/swiftshader|llvmpipe|software/i.test((inf.vendor || "") + " " + (inf.architecture || "") + " " + (inf.description || ""));
@@ -37,7 +38,7 @@ let rtGpu = false;
 async function loadOrt(msg) {
   if (RT) return;
   const bases = [].concat(msg.ortBases || msg.ortBase || []);
-  rtGpu = await realGpu(msg.preferGpu !== false);
+  rtGpu = await realGpu(msg.preferGpu === "soft" ? "soft" : msg.preferGpu !== false);
   const js = rtGpu ? "ort.webgpu.min.js" : "ort.wasm.min.js", core = rtGpu ? "ort-wasm-simd-threaded.jsep" : "ort-wasm-simd-threaded";
   try {
     stage("downloading the " + (rtGpu ? "WebGPU" : "WASM") + " runtime");
@@ -188,12 +189,54 @@ async function runOcr(msg) {
   return { probs: plate.data, slots: plate.dims[1], classes: plate.dims[2], ms: Date.now() - t0 };
 }
 
+// ── Hand-off milestone 4: person re-identification embedding (Intel OMZ person-reidentification-retail-0288, Apache-2.0, 0.18 M params).
+// Input: a person crop already resized to 128×256 RGBA on the main thread; output: a 256-d L2-normalised embedding. Own session in this worker
+// (WebGPU only when this worker's runtime really is WebGPU — see worker-start.js gpuOk and realGpu above — else WASM). The session is
+// self-tested at load (finite, non-zero output); a WebGPU session that fails the test is dropped for WASM.
+let reid = null, reidUrl = null;
+const reidInput = (px) => {   // RGBA → BGR, planar, 0..255 (the model normalises inside)
+  const n = 128 * 256, f = new Float32Array(3 * n);
+  for (let i = 0; i < n; i++) { f[i] = px[i * 4 + 2]; f[n + i] = px[i * 4 + 1]; f[2 * n + i] = px[i * 4]; }
+  return f;
+};
+const l2 = (v) => { let s = 0; for (let i = 0; i < v.length; i++) s += v[i] * v[i]; s = Math.sqrt(s) || 1; const o = new Float32Array(v.length); for (let i = 0; i < v.length; i++) o[i] = v[i] / s; return o; };
+async function loadReid(msg) {
+  await loadOrt(msg);
+  if (reid && reidUrl === msg.urls[0]) return { cached: true, backend: reid.backend, url: reidUrl, selfTestMs: reid.selfMs };
+  const got = await fetchModel(msg.urls, msg.useCache !== false, (p) => postMessage({ type: "progress", ...p, what: "reid" }));
+  const order = rtGpu && msg.gpu !== false ? ["webgpu", "wasm"] : ["wasm"];
+  let err = null, sess = null, be = null, selfMs = 0;
+  const probe = new Uint8ClampedArray(128 * 256 * 4); for (let y = 0; y < 256; y++) for (let x = 0; x < 128; x++) { const o = (y * 128 + x) * 4; probe[o] = (x * 2 + y) & 255; probe[o + 1] = (y * 3) & 255; probe[o + 2] = (x * 5) & 255; probe[o + 3] = 255; }
+  for (const ep of order) {
+    stage("starting the re-identification model on " + (ep === "webgpu" ? "WebGPU" : "WASM"));
+    try {
+      const s = await RT.InferenceSession.create(new Uint8Array(got.buf), { executionProviders: [ep], graphOptimizationLevel: "all" });
+      const t0 = Date.now(); const o = await s.run({ [s.inputNames[0]]: new RT.Tensor("float32", reidInput(probe), [1, 3, 256, 128]) }); selfMs = Date.now() - t0;
+      const d = o[s.outputNames[0]].data; let ok = d.length === 256, nrm = 0; for (let i = 0; i < d.length; i++) { if (!isFinite(d[i])) ok = false; nrm += d[i] * d[i]; }
+      if (!ok || nrm < 1e-6) throw new Error("self-test failed on " + ep);
+      sess = s; be = ep; break;
+    } catch (e) { err = e; sess = null; }
+  }
+  if (!sess) throw new Error("Could not start the re-identification model: " + ((err && err.message) || err));
+  reid = { session: sess, backend: be, selfMs }; reidUrl = msg.urls[0]; stage("ready");
+  return { backend: be, url: got.url, cached: got.cached, bytes: got.buf.byteLength, selfTestMs: selfMs, gpuRuntime: rtGpu, ...(order[0] === "webgpu" && be !== "webgpu" ? { gpuError: String((err && err.message) || err) } : {}) };
+}
+async function runEmbed(msg) {
+  if (!reid) throw new Error("re-identification model not loaded");
+  const t0 = Date.now();
+  const o = await reid.session.run({ [reid.session.inputNames[0]]: new RT.Tensor("float32", reidInput(new Uint8ClampedArray(msg.rgba)), [1, 3, 256, 128]) });
+  const e = l2(o[reid.session.outputNames[0]].data);
+  return { emb: e.buffer, ms: Date.now() - t0, backend: reid.backend };
+}
+
 self.onmessage = async (e) => {
   const msg = e.data || {};
   try {
     if (msg.type === "load") postMessage({ type: "loaded", id: msg.id, ...(await load(msg)) });
     else if (msg.type === "detect") postMessage({ type: "result", id: msg.id, ...(await detect(msg)) });
     else if (msg.type === "loadOcr") postMessage({ type: "loaded", id: msg.id, ...(await loadOcr(msg)) });
+    else if (msg.type === "loadReid") postMessage({ type: "loaded", id: msg.id, ...(await loadReid(msg)) });
+    else if (msg.type === "embed") { const r = await runEmbed(msg); postMessage({ type: "result", id: msg.id, ...r }, [r.emb]); }
     else if (msg.type === "ocr") postMessage({ type: "result", id: msg.id, ...(await runOcr(msg)) });
   } catch (err) { postMessage({ type: "error", id: msg.id, error: String((err && err.message) || err) || "unknown worker error" }); }
 };

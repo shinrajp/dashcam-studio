@@ -77,10 +77,11 @@
   Registry.prototype.update = function (tracks, now) {
     const o = this.o, key = (t) => t.cam + ":" + t.id;
     // refresh known tracks; collect new ones
-    const fresh = [];
+    const fresh = [], held = new Set();
     for (const t of tracks) {
       const k = key(t), gid = this.byTrack.get(k);
       if (gid != null && this.persons.has(gid)) { const p = this.persons.get(gid); p.last = Object.assign({}, t); p.seen = Math.max(p.seen, t.seen); p.trs.add(k); if (t.hist && !p.hist) p.hist = t.hist; }
+      else if (this.o.hold && this.o.hold(t, now)) held.add(k);   // wait a moment for its colour / appearance (reid.js), then decide
       else fresh.push(t);
     }
     // candidate links: new track B ↔ person P (by P's latest snapshot)
@@ -119,7 +120,7 @@
     }
     // forget persons that are long gone
     for (const [gid, p] of this.persons) if (now - p.seen > o.ttl + 20) { this.persons.delete(gid); for (const k of p.trs) this.byTrack.delete(k); }
-    return tracks.map((t) => { const p = this.persons.get(this.byTrack.get(key(t))); return Object.assign({}, t, p ? { gid: p.gid, color: p.color, bestGuess: p.bestGuess, linkConf: p.link ? p.link.conf : 1 } : {}); });
+    return tracks.map((t) => { const p = this.persons.get(this.byTrack.get(key(t))); return Object.assign({}, t, p ? { gid: p.gid, color: p.color, bestGuess: p.bestGuess, linkConf: p.link ? p.link.conf : 1 } : { pending: held.has(key(t)) }); });
   };
   Registry.prototype.reset = function () { this.persons.clear(); this.byTrack.clear(); this.next = 1; this.stats = { links: 0, news: 0 }; };
   Registry.prototype.list = function (now, within) { return [...this.persons.values()].filter((p) => now - p.seen <= (within == null ? this.o.ttl : within)); };
@@ -159,6 +160,7 @@
       return Object.assign({}, b, { color: m.color, hl: P.selected != null && P.selected === m.gid, text: b.text + " \u00b7 " + P.name(m) });
     });
   };
+  P.reg.o.hold = (t, now) => !!(T.reid && T.reid.pending && T.reid.pending(t, now));
   P.reset = () => { P.reg.reset(); P._solo = null; P._nums = null; P.selected = null; P.now = []; P._at = 0; };
   if (typeof T.on === "function") T.on("player-open", P.reset);
 })(typeof window !== "undefined" ? window : globalThis);

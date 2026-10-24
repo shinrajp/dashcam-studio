@@ -80,7 +80,7 @@
     V.el.hidden = !show; if (!show) return;
     const P = T.people, t = T.player.time || 0, D = T.detect, ppl = P && P.current ? P.current(t) : [];
     const cues = (T.handoff && T.handoff.cues) || [];
-    const items = ppl.map((m) => { const pos = position(m.cam, { x: m.x, y: m.y, w: m.w, h: m.h }); return pos ? Object.assign({ pos }, m, { x: pos.x, y: pos.y, name: P.name(m), box: { x: m.x, y: m.y, w: m.w, h: m.h } }) : null; }).filter(Boolean);
+    const items = ppl.filter((m) => m.gid != null).map((m) => { const pos = position(m.cam, { x: m.x, y: m.y, w: m.w, h: m.h }); return pos ? Object.assign({ pos }, m, { x: pos.x, y: pos.y, name: P.name(m), box: { x: m.x, y: m.y, w: m.w, h: m.h } }) : null; }).filter(Boolean);
     // one icon per person: when several cameras see the same person, use the most recently seen box
     const byG = new Map(); for (const it of items) { const o = byG.get(it.gid); if (!o || it.seen > o.seen) byG.set(it.gid, it); }
     const list = [...byG.values()].sort((a, b) => P.num(a.gid) - P.num(b.gid));

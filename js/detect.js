@@ -39,9 +39,9 @@
   D.handlesQuery = (q) => D.enabled() && (D.prefs().model === "gdino" ? String(q || "").trim().length >= 3 : !!D.classFor(q));
 
   // ── worker ──
-  let worker = null, wModel = null, seq = 0, loading = null;
+  let worker = null, wModel = null, seq = 0, loading = null, reidInfo = null, reidLoading = null;
   const pending = new Map();
-  D.unload = () => { fastInfo = null; fastLoading = null; try { worker && worker.terminate(); } catch (_) {} worker = null; wModel = null; loading = null; D.backend = null; D.info = null; for (const p of pending.values()) p.reject(new Error("detector stopped")); pending.clear(); };
+  D.unload = () => { fastInfo = null; fastLoading = null; reidInfo = null; reidLoading = null; try { worker && worker.terminate(); } catch (_) {} worker = null; wModel = null; loading = null; D.backend = null; D.info = null; for (const p of pending.values()) p.reject(new Error("detector stopped")); pending.clear(); };
   function call(msg, transfer) { return new Promise((resolve, reject) => { const id = ++seq; pending.set(id, { resolve, reject }); worker.postMessage({ ...msg, id }, transfer || []); }); }
   function setStatus(s) { D.status = s; const n = document.getElementById("detStatus"); if (n) n.textContent = s; T.emit && T.emit("detect-status", s); }
   D.setStatus = setStatus;
@@ -80,7 +80,7 @@
     const urls = (D.prefs().urls && D.prefs().urls[name] ? [D.prefs().urls[name]] : []).concat(m.urls || []);
     const abs = urls.map((u) => new URL(u, location.href).href);
     setStatus("Loading " + m.label + "…");
-    loading = started.then(() => { wire(); return call({ type: "load", urls: abs, model: m.model, ortBases: D.config.ortBases.map((u) => new URL(u, location.href).href), tfUrl: D.config.tfUrl, size: D.config.size, useCache: D.cacheOk(), preferGpu: T.workerStart ? T.workerStart.gpuOk() : true }); })
+    loading = started.then(() => { wire(); return call({ type: "load", urls: abs, model: m.model, ortBases: D.config.ortBases.map((u) => new URL(u, location.href).href), tfUrl: D.config.tfUrl, size: D.config.size, useCache: D.cacheOk(), preferGpu: gpuPref() }); })
       .then((info) => { D.backend = info.backend; D.info = info; setStatus("Ready · " + (info.backend === "webgpu" ? "WebGPU" : "WASM (CPU)") + (info.cached ? " · from this device" : info.saved ? " · saved on this device" : "")); return info; })
       .catch((e) => { setStatus("Detection unavailable: " + e.message); D.unload(); throw e; });
     return loading;
@@ -122,10 +122,25 @@
     await D.load();
     if (D._mock) return null;
     if (fastLoading) return fastLoading;
-    fastLoading = call({ type: "load", slot: "fast", urls: [new URL("models/yolo11n-320.onnx", location.href).href, BASE + "yolo11n-320.onnx"], ortBases: D.config.ortBases.map((u) => new URL(u, location.href).href), size: 320, useCache: D.cacheOk(), preferGpu: T.workerStart ? T.workerStart.gpuOk() : true })
+    fastLoading = call({ type: "load", slot: "fast", urls: [new URL("models/yolo11n-320.onnx", location.href).href, BASE + "yolo11n-320.onnx"], ortBases: D.config.ortBases.map((u) => new URL(u, location.href).href), size: 320, useCache: D.cacheOk(), preferGpu: gpuPref() })
       .then((info) => (fastInfo = info)).catch((e) => { console.warn("fast live model unavailable, using the main model", e); fastInfo = null; return null; });
     return fastLoading;
   };
+  /** Person re-identification model (models/reid, Apache-2.0) in the same worker. Resolves to { backend, selfTestMs, … } or null when it can't load
+   *  (the app then links cameras with the colour-histogram heuristic only). */
+  /** WebGPU wanted? (the WebKit / iOS gate lives in worker-start.js gpuOk). localStorage tdc.webgpu.soft = "1" is a TEST switch: also accept a software (SwiftShader) adapter, to check the WebGPU path's numbers on machines without a GPU. */
+  function gpuPref() { const ok = T.workerStart ? T.workerStart.gpuOk() : true; try { if (ok && localStorage.getItem("tdc.webgpu.soft") === "1") return "soft"; } catch (_) {} return ok; }
+  D.loadReid = async () => {
+    await D.load();
+    if (D._mock) return D._reidMock ? (reidInfo = { backend: "mock" }) : null;
+    if (reidLoading) return reidLoading;
+    reidLoading = call({ type: "loadReid", urls: [new URL("models/reid/person-reidentification-retail-0288.onnx", location.href).href], ortBases: D.config.ortBases.map((u) => new URL(u, location.href).href), useCache: D.cacheOk(), preferGpu: gpuPref() })
+      .then((info) => (reidInfo = info)).catch((e) => { console.warn("re-identification model unavailable, heuristic only", e); reidInfo = null; return null; });
+    return reidLoading;
+  };
+  D.reidInfo = () => reidInfo;
+  /** One embedding (Float32Array(256), L2-normalised) for a 128×256 RGBA crop (ArrayBuffer, transferred). */
+  D.embed = (rgbaBuf) => D._reidMock ? Promise.resolve(D._reidMock(rgbaBuf)) : call({ type: "embed", rgba: rgbaBuf }, [rgbaBuf]).then((r) => ({ emb: new Float32Array(r.emb), ms: r.ms, backend: r.backend }));
   let bitmapFails = 0, noBitmap = false;
   function letterbox(img, iw, ih, crop, S) {
     S = S || D.config.size;
@@ -671,6 +686,9 @@
     const lc = D.liveCamsMode(), sp = D.speed();
     row('<span>Cameras</span><select class="select" id="detLiveCams"><option value="focused"' + (lc === "focused" ? " selected" : "") + '>Focused camera' + (isMobile() ? " (default on phones)" : "") + '</option><option value="all"' + (lc === "all" ? " selected" : "") + '>All cameras, in turn' + (isMobile() ? "" : " (default on computers)") + "</option></select>");
     row('<span>Detection speed</span><select class="select" id="detSpeed">' + Object.entries(SPEEDS).map(([k, v]) => '<option value="' + k + '"' + (k === sp ? " selected" : "") + ">" + v.label + (k === "fast" ? " (as fast as it can, small 320 px model)" : k === "balanced" ? " (up to 5 a second, default)" : " (about 1 a second" + (lowPower ? ", default now: low power" : "") + ")") + "</option>").join("") + "</select>");
+    const cc = row('<label style="display:flex;gap:.5rem;align-items:center"><input type="checkbox" id="detCross"' + (T.people && T.people.linkOn && T.people.linkOn() ? " checked" : "") + "> Cross-camera matching (beta): the same person keeps one colour on every camera</label>");
+    const cs = document.createElement("span"); cs.className = "hint"; cs.id = "detCrossStatus"; cs.style.display = "block"; cs.textContent = T.reid && T.reid.statusText ? T.reid.statusText() : ""; cc.appendChild(cs);
+    const ch = document.createElement("span"); ch.className = "hint"; ch.style.display = "block"; ch.textContent = "Default: on when this device keeps up, off when it would slow playback. Uses a small appearance model (0.8 MB, Apache-2.0) stored with the app; nothing is uploaded."; cc.appendChild(ch);
     const st = row('<span class="hint" id="detStatus"></span>'); st.querySelector("#detStatus").textContent = D.status || (P.enabled ? "Model loads on first search." : "Off.");
     const note = document.createElement("p"); note.className = "hint";
     note.textContent = (P.model === "gdino" ? "Grounding DINO is experimental: a large download, slow without WebGPU, not recommended on phones. " : "") +
@@ -684,6 +702,7 @@
     box.querySelector("#detConf").oninput = (e) => { box.querySelector("#detConfV").textContent = Math.round(e.target.value * 100) + "%"; };
     box.querySelector("#detConf").onchange = (e) => D.setPref("conf", +e.target.value);
     box.querySelector("#detSmall").onchange = (e) => D.setPref("small", e.target.value);
+    box.querySelector("#detCross").onchange = (e) => { T.setPref("crossCam", e.target.checked ? "on" : "off"); if (T.people && T.people.reset) T.people.reset(); const c = box.querySelector("#detCrossStatus"); if (c && T.reid) c.textContent = T.reid.statusText(); };
     box.querySelector("#detLive").onchange = (e) => D.setPref("live", e.target.checked);
     box.querySelector("#detLiveCams").onchange = (e) => { D.setPref("liveCams", e.target.value); D.liveTracks = {}; };
     box.querySelector("#detSpeed").onchange = (e) => { D.setPref("speed", e.target.value); if (e.target.value === "fast" && D.enabled()) D.loadFast().catch(() => {}); };
