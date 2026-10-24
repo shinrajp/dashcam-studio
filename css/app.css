@@ -833,3 +833,15 @@ body.portrait .grid[data-layout="rear"] .tile[data-cam=left_repeater], body.port
 /* the mirror flips the VIDEO (and the canvases that copy picture pixels). `scale` composes before `transform`, which zoom uses. Labels, boxes, placeholders are never flipped. */
 .tile.mirrored > video, .tile.mirrored > .redact-layer, .tile.mirrored > .wb-mask-layer { scale: -1 1; }
 .tp-layout { max-width: 15.5em; text-overflow: ellipsis; }
+
+/* ── hand-off cue (js/handoff.js, tag handoff-m2): the neighbouring tile's ENTRY edge glows in the person's colour, with a small arrow */
+.ho-cue { position: absolute; inset: 0; pointer-events: none; z-index: 4; }
+.ho-cue[hidden] { display: none; }
+.ho-glow { position: absolute; top: 0; bottom: 0; width: 24%; background: var(--ho, #ffd23f); opacity: calc(0.5 * var(--ho-s, 1)); -webkit-mask-image: linear-gradient(90deg, #000, transparent); mask-image: linear-gradient(90deg, #000, transparent); animation: ho-pulse 1.1s ease-in-out infinite; }
+.ho-cue[data-side=left] .ho-glow { left: 0; box-shadow: inset 3px 0 0 var(--ho, #ffd23f); }
+.ho-cue[data-side=right] .ho-glow { right: 0; transform: scaleX(-1); box-shadow: inset 3px 0 0 var(--ho, #ffd23f); }
+.ho-arrow { position: absolute; top: 50%; transform: translateY(-50%); min-width: 22px; height: 22px; padding: 0 5px; box-sizing: border-box; border-radius: 11px; background: var(--ho, #ffd23f); color: #10131a; font: 800 14px/22px -apple-system, "SF Pro Text", Arial, sans-serif; text-align: center; box-shadow: 0 1px 4px rgba(0,0,0,.55); }
+.ho-cue[data-side=left] .ho-arrow { left: 6px; }
+.ho-cue[data-side=right] .ho-arrow { right: 6px; }
+@keyframes ho-pulse { 0%, 100% { filter: brightness(0.85); } 50% { filter: brightness(1.25); } }
+@media (prefers-reduced-motion: reduce) { .ho-glow { animation: none; } }

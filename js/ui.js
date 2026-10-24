@@ -640,7 +640,7 @@
 
   // ── quick toggles + settings drawer ──
   function syncChips() {
-    document.querySelectorAll("#chips .chip").forEach((c) => c.classList.toggle("on", !!T.prefs.show[c.dataset.show]));
+    document.querySelectorAll("#chips .chip[data-show]").forEach((c) => c.classList.toggle("on", !!T.prefs.show[c.dataset.show]));
   }
   function toggleShow(k) { T.setPref("show." + k, !T.prefs.show[k]); syncChips(); buildSettings(); }
 
@@ -890,7 +890,7 @@
     T.on("unlocked", async () => { if (U.current) { const t = P().time; U.current.prepared = false; await U.activate(U.current, t); } });
 
     // toggles
-    document.querySelectorAll("#chips .chip").forEach((c) => (c.onclick = () => toggleShow(c.dataset.show)));
+    document.querySelectorAll("#chips .chip[data-show]").forEach((c) => (c.onclick = () => toggleShow(c.dataset.show)));
     syncChips();
     buildSettings();
     $("btnSettings").onclick = () => { $("settings").hidden = !$("settings").hidden; };

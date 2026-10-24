@@ -141,18 +141,19 @@
   D.detectImage = async (img, iw, ih, opts) => {
     opts = opts || {};
     const conf = opts.conf || D.prefs().conf;
-    if (D._mock) { const r = await D._mock(img, iw, ih, opts); return (r || []).map(named).filter((b) => b.conf >= conf); }
+    if (D._mock) { const r = await D._mock(img, iw, ih, opts); return (r || []).map(named).filter((b) => b.conf >= (opts.crops && opts.cropConf ? opts.cropConf : conf)); }
     await D.load();
     let slot = "main";
     if (opts.slot === "fast" && D.prefs().model !== "gdino") { const fi = await D.loadFast(); if (fi) slot = "fast"; }
     const S = slotSize(slot);
-    const one = async (crop) => {
+    const one = async (crop, cf) => {
+      const conf0 = cf || conf;
       let r = null;
       // transferable ImageBitmap → the worker letterboxes it (no getImageData on the main thread); plain RGBA otherwise
       if (!noBitmap && typeof createImageBitmap === "function" && D.info && D.info.offscreen && !opts.prompt) {
         try {
           const bmp = await createImageBitmap(img), f = fitFor(S, iw, ih, crop);
-          r = await call({ type: "detect", bitmap: bmp, lb: f.lb, fit: f.fit, conf, slot }, [bmp]);
+          r = await call({ type: "detect", bitmap: bmp, lb: f.lb, fit: f.fit, conf: conf0, slot }, [bmp]);
           D.lastPath = "bitmap";
           bitmapFails = 0;
         } catch (e) {
@@ -164,7 +165,7 @@
       }
       if (!r) {
         const lb = letterbox(img, iw, ih, crop, S);
-        r = await call({ type: "detect", rgba: lb.rgba, fit: lb.fit, conf, size: S, prompt: opts.prompt, slot }, [lb.rgba]);
+        r = await call({ type: "detect", rgba: lb.rgba, fit: lb.fit, conf: conf0, size: S, prompt: opts.prompt, slot }, [lb.rgba]);
         D.lastPath = "rgba";
       }
       D.timings.push(r.ms); if (D.timings.length > 50) D.timings.shift();
@@ -172,6 +173,8 @@
     };
     let dets = opts.tilesOnly ? [] : await one(null);
     if (opts.tiles) { for (const c of D.TILES) dets = dets.concat(await one(c)); dets = D.nms(dets, 0.5); }
+    // opts.crops: zoomed second looks at given regions (hand-off cue: small or half-hidden people), own cut-off opts.cropConf
+    if (opts.crops && opts.crops.length) { for (const c of opts.crops) dets = dets.concat(await one(c, opts.cropConf)); dets = D.nms(dets, 0.5); }
     return dets.map(named);
   };
   /** 2×2 overlapping tiles (60% of the frame each): small things are about 1.7× bigger for the model. */
@@ -336,7 +339,7 @@
     } catch (_) {}
   })();
   D.speed = () => { const v = D.prefs().speed; return SPEEDS[v] ? v : lowPower && isMobile() ? "battery" : "balanced"; };
-  D.liveCamsMode = () => { const v = D.prefs().liveCams; return v === "all" || v === "focused" ? v : isMobile() ? "focused" : "all"; };
+  D.liveCamsMode = () => { const v = D.prefs().liveCams; if (v === "all" || v === "focused") return v; if (T.handoff && T.handoff.forceAll && T.handoff.forceAll()) return "all"; return isMobile() ? "focused" : "all"; };   // unset: Sentry events (hand-off cue) track people on every camera, weighted scheduling keeps the budget
   D.liveGap = () => SPEEDS[D.speed()].gap;
   D.liveEvery = () => Math.max(D.liveGap(), D.avgMs ? D.avgMs() : 300);   // ms between two detections (one camera)
   D.avgMs = () => { const a = D.liveStats.ms.slice(-10); return a.length ? a.reduce((x, y) => x + y, 0) / a.length : 0; };
@@ -385,6 +388,8 @@
     const list = (D.liveTracks[cam] = (D.liveTracks[cam] || []).filter((tr) => t - tr.seen <= expiry(cam) && tr.t <= t + 0.05));
     const gap = gapOf(cam);
     const pred = list.map((tr) => predictAt(tr, t, gap));
+    // a weak look that sits on a track we already trust adds nothing (a head-only box must not drag a good box around)
+    dets = dets.filter((d) => !d.weak || !list.some((tr, j) => !tr.weak && tr.label === d.label && iou(pred[j], d) > 0.15));
     const pairs = [];
     dets.forEach((d, i) => list.forEach((tr, j) => { if (tr.label === d.label && near2(pred[j], d)) pairs.push([iou(pred[j], d), i, j]); }));
     pairs.sort((a, b) => b[0] - a[0]);
@@ -418,10 +423,39 @@
       }
       tr.mcx = dcx; tr.mcy = dcy; tr.mt = t;
       tr.t = t; tr.seen = t; tr.conf = d.conf; tr.attr = d.attr; tr.clObs = d.clObs; tr.n = (tr.n || 1) + 1;
+      if (tr.weak) weakHit(tr, d, t);   // multi-frame score accumulation (zoomed person looks below the normal cut-off)
+      else if (d.zoom) tr.zoom = true;
     }
-    dets.forEach((d, i) => { if (!ud.has(i)) { const tr = { label: d.label, x: d.x, y: d.y, w: d.w, h: d.h, vx: 0, vy: 0, t, seen: t, conf: d.conf, attr: d.attr, clObs: d.clObs, mcx: d.x + d.w / 2, mcy: d.y + d.h / 2, mt: t }; list.push(tr); } });
+    dets.forEach((d, i) => { if (!ud.has(i)) { const tr = { id: newId(cam), first: t, weak: !!d.weak, acc: d.weak ? d.conf : 0, hits: 1, wt: t, zoom: !!d.zoom, label: d.label, x: d.x, y: d.y, w: d.w, h: d.h, vx: 0, vy: 0, t, seen: t, conf: d.conf, attr: d.attr, clObs: d.clObs, mcx: d.x + d.w / 2, mcy: d.y + d.h / 2, mt: t }; list.push(tr); } });
   }
   D._track = track;   // tests
+  // stable per-camera track ids ("RR3": right repeater, third track since the event opened) — the hand-off cue and the people registry key on them
+  const idN = {};
+  const newId = (cam) => ((T.handoff && T.handoff.SHORT && T.handoff.SHORT[cam]) || cam) + (idN[cam] = (idN[cam] || 0) + 1);
+  D.resetIds = () => { for (const k of Object.keys(idN)) delete idN[k]; };
+  // A weak person look (zoomed, score between PERSON_ZOOM_CONF and the normal cut-off) only becomes a real track once evidence adds up:
+  // score = decayed sum of the looks' confidences (x0.8 per look); 3 looks within 3 s and score >= 0.55 (3 looks at >= ~0.23), or one normal-strength look.
+  D.PERSON_ZOOM_CONF = 0.2;
+  D.WEAK = { hits: 3, score: 0.55, window: 3, decay: 0.8 };
+  function weakHit(tr, d, t) {
+    const W = D.WEAK;
+    if (t - (tr.wt || t) > W.window) { tr.acc = 0; tr.hits = 0; }
+    tr.wt = t; tr.hits = (tr.hits || 0) + 1; tr.acc = (tr.acc || 0) * W.decay + d.conf;
+    if (!d.weak || (tr.hits >= W.hits && tr.acc >= W.score)) { tr.weak = false; tr.confirmed = true; }
+  }
+  /** Confirmed, current person tracks as they are at event time t (predicted like the painted boxes). */
+  D.personTracks = (t) => {
+    const out = [], pr = D.predictOn();
+    for (const cam of Object.keys(D.liveTracks)) {
+      const list = D.liveTracks[cam] || [], ex = expiry(cam), gap = gapOf(cam);
+      for (const tr of list) {
+        if (tr.label !== "person" || tr.weak || t - tr.seen > ex || t < tr.t - 0.3) continue;
+        const b = pr ? predictAt(tr, t, gap) : tr;
+        out.push({ cam, id: tr.id, x: b.x, y: b.y, w: tr.w, h: tr.h, vx: tr.vx, vy: tr.vy, n: tr.n || 1, seen: tr.seen, t, conf: tr.conf, ex, hist: tr.hist, emb: tr.emb, zoom: !!tr.zoom, first: tr.first != null ? tr.first : (tr.first = tr.seen) });
+      }
+    }
+    return out;
+  };
   /** Box w or h changed by more than k (default 1.6) × between two looks at the same object. */
   const sizeJump = (a, b, k) => Math.max(a.w / b.w, b.w / a.w, a.h / b.h, b.h / a.h) > (k || 1.6);   // interpolation (liveAt) uses 2.5: a fast-approaching bus still slides
   /** Live / export box label. The colour word is the vehicle's LOCKED colour (js/color-lock.js: confidence-weighted
@@ -434,9 +468,9 @@
     const list = D.liveTracks[cam]; if (!list || !list.length) return null;
     const ex = expiry(cam), gap = gapOf(cam), pr = D.predictOn(), out = [];
     for (const tr of list) {
-      if (t - tr.seen > ex || t < tr.t - 0.3) continue;
+      if (t - tr.seen > ex || t < tr.t - 0.3 || tr.weak) continue;
       const b = pr ? predictAt(tr, t, gap) : tr;
-      out.push({ x: b.x, y: b.y, w: tr.w, h: tr.h, label: tr.label, conf: tr.conf, attr: tr.attr, clObs: tr.clObs });
+      out.push({ x: b.x, y: b.y, w: tr.w, h: tr.h, label: tr.label, conf: tr.conf, attr: tr.attr, clObs: tr.clObs, id: tr.id });
     }
     return out.length ? out : null;
   };
@@ -448,13 +482,24 @@
     const bc = (D.liveStats.byCam[cam] = D.liveStats.byCam[cam] || []); bc.push(t0); if (bc.length > 60) bc.shift();
     const fast = D.speed() === "fast" && D.prefs().model !== "gdino";
     let dets = await D.detectImage(v, v.videoWidth, v.videoHeight, { slot: fast ? "fast" : "main" });
+    let weakDets = [];
+    try {
+      const plan = T.handoff && T.handoff.zoomPlan ? T.handoff.zoomPlan(cam, dets, t) : null;
+      if (plan && plan.length) {
+        const pz = D.PERSON_ZOOM_CONF, cut = D.prefs().conf;
+        let zd = await D.detectImage(v, v.videoWidth, v.videoHeight, { slot: fast ? "fast" : "main", crops: plan, tilesOnly: true, cropConf: pz });
+        zd = zd.filter((d) => d.label === "person" && d.conf >= pz && !dets.some((o) => o.label === "person" && (iou(o, d) > 0.35 || contains(o, d))));
+        for (const d of zd) { d.zoom = true; if (d.conf >= cut) dets.push(d); else { d.weak = true; weakDets.push(d); } }   // strong zoomed people join the normal detections
+        D.liveStats.zoom = (D.liveStats.zoom || 0) + 1;
+      }
+    } catch (e) { if (/not loaded|stopped/.test(String(e && e.message))) throw e; }
     D.liveStats.ms.push(performance.now() - t0); if (D.liveStats.ms.length > 50) D.liveStats.ms.shift();
     if (T.vehicle && T.vehicle.decorateLive) dets = T.vehicle.decorateLive(v, v.videoWidth, v.videoHeight, dets, t, undefined, cam);   // "white car 91%" (colour after white balance when known)
     const n = Math.max(1, D.liveCams().length), hold = Math.max(0.6, 0.6 + (n * D.liveEvery()) / 1000);
     const prev = D.live[cam]; if (prev && t > prev.t && t - prev.t < 3) D.camGap[cam] = D.camGap[cam] ? 0.7 * D.camGap[cam] + 0.3 * (t - prev.t) : t - prev.t;
     D.live[cam] = { t, dets, hold, src: "live" };
     addSample(cam, D.live[cam]);
-    track(cam, t, dets);
+    track(cam, t, weakDets.length ? dets.concat(weakDets) : dets);
     // while playing the boxes are repainted on every frame ("time"); a "layout" here would also re-place the dock/bar
     if (!T.player || !T.player.playing) T.emit("layout");
   }
@@ -473,7 +518,7 @@
     let best = cams[rr++ % cams.length], bs = -1;
     for (const c of cams) {
       const age = lastLook[c] == null ? 1e9 : now - lastLook[c];
-      const sc = age * D.camMoving(c) * Math.max(0.4, Math.sqrt(area[c] / amax));
+      const sc = age * D.camMoving(c) * Math.max(0.4, Math.sqrt(area[c] / amax)) * (T.handoff && T.handoff.boost ? T.handoff.boost(c) : 1);   // ×(1..2.5): the neighbour of a camera someone is leaving
       if (sc > bs) { bs = sc; best = c; }
     }
     lastLook[best] = now;
@@ -482,7 +527,7 @@
   function onFrame(now, meta) {
     if (!loopOn) return;
     const P = D.prefs();
-    const boxesOff = T.search && (T.search.needBoxes ? !T.search.needBoxes() : T.search.goldShown && !T.search.goldShown());   // nothing outlined or blurred: save the power
+    const boxesOff = T.search && (T.search.needBoxes ? !T.search.needBoxes() : T.search.goldShown && !T.search.goldShown()) && !(T.handoff && T.handoff.wantsLive && T.handoff.wantsLive());   // nothing outlined or blurred: save the power
     if (!P.enabled || !P.live || !T.player || !T.player.playing || boxesOff) { loopOn = false; loopVid = null; return; }
     D.liveStats.frames++;
     const cams = D.liveCams();
@@ -524,11 +569,11 @@
   D.liveTick = () => {
     const P = D.prefs();
     if (!P.enabled || !P.live || !T.player || !T.player.playing || !T.player.tiles || loopOn) return;
-    if (T.search && (T.search.needBoxes ? !T.search.needBoxes() : T.search.goldShown && !T.search.goldShown())) return;   // Boxes off (and nothing to redact): live detection paused
+    if (T.search && (T.search.needBoxes ? !T.search.needBoxes() : T.search.goldShown && !T.search.goldShown()) && !(T.handoff && T.handoff.wantsLive && T.handoff.wantsLive())) return;   // Boxes off (and nothing to redact, no hand-off cue): live detection paused
     loopOn = true; arm();
   };
 
-  D.clear = () => { D.tracks = []; D.live = {}; D.liveSamples = {}; D.liveTracks = {}; D.camGap = {}; D.frameCache.clear(); if (T.colorLock) T.colorLock.clear(); };
+  D.clear = () => { D.resetIds && D.resetIds(); D.tracks = []; D.live = {}; D.liveSamples = {}; D.liveTracks = {}; D.camGap = {}; D.frameCache.clear(); if (T.colorLock) T.colorLock.clear(); };
   D.clearTracks = () => { D.tracks = []; };
   D.frameCache = new Map();   // "cam|t" → { conf, dets }: frames the search already ran (all classes), reused by the next search
   /** Live detections seen so far, as search rows for a class (same threshold as the search). */
