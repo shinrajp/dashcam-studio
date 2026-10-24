@@ -570,3 +570,13 @@ Rear camera: a person very close behind the car (legs / dark lower body only, wi
 - Applies inside `D.detectImage`, so live boxes, search, export, hand-off cue, car view (dot and chip) and the people list all see the same label. Search and export take the box as a person at once (they have no tracker). Off switch: `localStorage tdc.legsfix=0`.
 - Limits: the rule is about size and place, not about what the picture shows. A real cat or dog that fills 10% or more of the rear picture (very close to the lens) will be called a person; on weak looks a person-shaped box that disappears after 1-2 looks is dropped. A dark blob that the model labels as something outside the animal classes (bag, chair, bowl) is not fixed. A person who stands completely still right at the lens is a person for as long as the model says "cat" at that size, nothing more is known. Redact (text, plates, faces) does not use object classes and is unchanged.
 - Test: `test/legs-fix.js` (mock detector: rules, live track on REAR, people registry, car-view chip, off switch; plus a private-frame check that is skipped when the local file is absent). Run per browser: `BR=chromium|webkit DEV=desktop|phone node test/legs-fix.js`.
+
+## export-panel (branch feature/all-in-one)
+Rollback: `git checkout pre-export-panel` (tip before this change, `legs-fix`).
+
+Export dialog: **Map, HUD & car view** = On the picture / Fill black area / Add panel, with **Include HUD / map / car view** ticks, a **Camera order** choice (Match viewer / Standard fixed order) and a live **Output** size line.
+- `js/compositor.js`: `C.layout` (planner for fill / add-panel, strip below or at the side, even sizes), `C.arrange`, `C.drawPanels`, `C.cameraOrder`; `drawFrame` follows `geo.order` / `geo.mirror` (flipped bottom row for the mirror layout, boxes mirrored, text not).
+- `js/export.js`: `X.candidates` and `X.plan` (hardware-aware strip cap, `isConfigSupported` fallbacks with a note), map tiles are loaded per candidate for the panel map; the real-time recorder uses the same layout.
+- `js/ui.js`, `index.html`, `css/app.css`, `js/core.js` (prefs `export.extras`, `export.order`).
+- Defaults: Fill black area when the output has a black strip of at least 96 px, otherwise Add panel; Match viewer. `X.run` called without options keeps the old behaviour (overlay, standard order), so Export all and older tests are unchanged.
+- Test: `test/export-panel.js`.
