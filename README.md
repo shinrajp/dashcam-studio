@@ -350,6 +350,16 @@ The connector is a small userscript that runs only on `dashcam.tesla.com` and ha
 - **Dashcam Studio window link lost**: the sign-in redirect cut the link; when the keys are fetched, click **Copy keys for Dashcam Studio** and switch back to the app.
 A red **connector error** badge shows what went wrong.
 
+**iPhone & iPad (no extension needed): the Dashcam Unlock bookmark.** Safari on iOS only runs userscripts through a separate app, so the Unlock dialog on an iPhone or iPad shows its own card with a bookmark that does the same job:
+1. **Once:** in the Unlock dialog tap **Copy bookmarklet**. In Safari tap Share ▸ **Add Bookmark** (any page, name it *Dashcam Unlock*), open Bookmarks, touch and hold it ▸ **Edit**, replace the address with the copied code, tap Done.
+2. Tap **Sign in with Tesla**. Tesla opens in a new tab; sign in.
+3. On that Tesla tab open Safari's Bookmarks (or type *Dashcam Unlock* in the address bar) and tap **Dashcam Unlock**. A panel appears at the bottom and fetches the keys from Tesla's own page.
+4. Tap **Copy keys** in the panel, switch back to Dashcam Studio and tap **Paste keys from clipboard**. (If Safari kept the link between the two tabs, the keys also arrive by themselves.)
+- If you were already signed in, or the panel says "no clip list": in Dashcam Studio tap **Copy unlock request**, go back to the Tesla tab, tap **Dashcam Unlock** and then **Paste unlock request**. (Sign in with Tesla also puts the request on the clipboard.) Tesla's sign-in can drop the request from the address, so this second tap is sometimes needed.
+- Only the keys leave the Tesla page. The bookmark never copies, shows or sends your Tesla sign-in token, and it only posts back to this site, localhost or a home-network address. The unlock request lists key ids, not secrets. Source: [`connector/ios-unlock-bookmarklet.js`](connector/ios-unlock-bookmarklet.js) (about 4.6 KB as a bookmark; `node tools/build-bookmarklet.js` regenerates it, needs `terser`).
+- **Alternative:** install the free **Userscripts** app from the App Store, turn it on in Settings ▸ Apps ▸ Safari ▸ Extensions (allow `dashcam.tesla.com`), choose a folder in its app, and save the connector file there from **Download connector** in the dialog. Then Sign in with Tesla works as on the Mac, with the same *Copy keys* fallback.
+- Tests: `node test/ios-unlock-bookmarklet.test.js` (bookmarklet logic, mocked Tesla), `node test/ios-unlock.js` (the card at 430×932, iPad and desktop, WebKit + Chromium).
+
 ### 2. Unlock
 1. Open your folder. Locked events show 🔒, and the top button reads **Unlock N encrypted files**.
 2. Click it, then **Sign in with Tesla** (the button shows how many clips are waiting). Sign in on the Tesla page if asked. The keys come back and the clips unlock.
@@ -372,6 +382,7 @@ Tick **Remember keys on this device** in the dialog to store each clip's key in 
 ![Remembered events panel in the library sidebar](screenshots/photo-library-index.png)
 
 ### Troubleshooting
+- **iPhone: "No connector answered … normal on iPhone":** use the Dashcam Unlock bookmark above (or the Userscripts app). The panel's red messages say what is missing, for example "not signed in" (sign in on the Tesla tab, wait for the page, tap the bookmark again) or "no clip list" (Copy unlock request, then Paste unlock request).
 - **"Connector not detected"** after 20 s: there's no badge on the Tesla page, so the script isn't running. Recheck *Allow user scripts* (Chrome) or the Userscripts extension and site permission (Safari), and remove duplicate or old copies.
 - **Safari, no badge:** turn on Safari ▸ Settings ▸ Advanced ▸ **Show features for web developers**, then on the Tesla tab choose Develop ▸ **Show JavaScript Console**, reload, and look for lines starting with `[DashcamStudio]`. No `connector 1.4.4 starting` line means Userscripts isn't injecting it.
 - **"Connector detected, but no Tesla sign-in token yet":** sign in on the Tesla page, or use its **Paste token** box.
