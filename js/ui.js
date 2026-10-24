@@ -209,13 +209,13 @@
     try { r = await T.library.ingest(list, (n, total) => { moved(); $("busyText").textContent = `Reading files… ${n} of ${total}`; }); }
     catch (e) { console.warn("ingest failed", e); T.toast("Could not read these files: " + String((e && e.message) || e).slice(0, 160), "err", 8000); return; }
     finally { watchStall(false); busy(false); }
-    if (r && r.unreadable) T.toast(`${r.unreadable} file${r.unreadable === 1 ? "" : "s"} could not be read: ${String(r.firstReason || "").slice(0, 140)}`, "err", 9000);
-    if (!T.library.events.length) { T.toast("No Tesla camera files found there. Choose the TeslaCam folder (or its SavedClips / SentryClips / RecentClips).", "err", 6000); return; }
+    const bad = r && r.unreadable ? `${r.unreadable} file${r.unreadable === 1 ? "" : "s"} could not be read: ${String(r.firstReason || "").slice(0, 140)}` : "";
+    if (!T.library.events.length) { T.toast(bad || "No Tesla camera files found there. Choose the TeslaCam folder (or its SavedClips / SentryClips / RecentClips).", "err", bad ? 9000 : 6000); return; }
     const keep = U.current && T.library.events.find((e) => e.id === U.current.id);
     const playable = T.library.events.find((e) => e.locked < e.fileCount) || T.library.events[0];
     await U.activate(keep || playable, keep ? P().time : 0);
     const n = T.library.events.length;
-    T.toast(`${n} event${n === 1 ? "" : "s"} found${T.library.lockedCount() ? ` · ${T.library.lockedCount()} encrypted file(s) — click Unlock with Tesla` : ""}`, "ok");
+    T.toast(`${n} event${n === 1 ? "" : "s"} found${T.library.lockedCount() ? ` · ${T.library.lockedCount()} encrypted file(s) — click Unlock with Tesla` : ""}${bad ? " · " + bad : ""}`, bad ? "err" : "ok", bad ? 9000 : undefined);
   };
 
   // ── timeline: its own full-width row (like the Grid Player's multi-trim bar). Upper band = scrub (Self-Driving,

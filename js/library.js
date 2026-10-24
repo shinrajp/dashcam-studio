@@ -4,7 +4,7 @@
   const T = window.TDC;
   const TC = T.teslacam;
 
-  const lib = (T.library = { items: new Map(), jsonByDir: {}, looseJson: new Map(), events: [], keyCache: new Map(), keyErrors: new Map() });
+  const lib = (T.library = { readTimeout: 30000, items: new Map(), jsonByDir: {}, looseJson: new Map(), events: [], keyCache: new Map(), keyErrors: new Map() });
 
   // ── reading dropped folders ──
   async function walkEntry(entry, out, depth) {
@@ -66,7 +66,7 @@
         const it = todo.shift();
         try {
           // bounded read: a file the phone cannot deliver (cloud file not downloaded, network drive) fails with a message, never hangs
-          const head = await T.crypto.readSlice(it.file, 0, T.crypto.PROBE, 30000);
+          const head = await T.crypto.readSlice(it.file, 0, T.crypto.PROBE, lib.readTimeout);
           const c = T.crypto.classify(head, it.size);
           it.kind = c.kind; it.header = c.header || null; it.reason = c.reason || null;
           if (c.kind === "plain") it.blob = it.file;
