@@ -58,23 +58,26 @@
       lib.items.set(key, it);
       todo.push(it);
     }
-    let done = 0;
+    let done = 0, unreadable = 0, firstReason = "";
+    const total = todo.length;
+    if (onProgress) onProgress(0, total);
     const worker = async () => {
       while (todo.length) {
         const it = todo.shift();
         try {
-          const head = new Uint8Array(await it.file.slice(0, T.crypto.PROBE).arrayBuffer());
+          // bounded read: a file the phone cannot deliver (cloud file not downloaded, network drive) fails with a message, never hangs
+          const head = await T.crypto.readSlice(it.file, 0, T.crypto.PROBE, 30000);
           const c = T.crypto.classify(head, it.size);
           it.kind = c.kind; it.header = c.header || null; it.reason = c.reason || null;
           if (c.kind === "plain") it.blob = it.file;
-        } catch (e) { it.kind = "unknown"; it.reason = String(e.message || e); }
+        } catch (e) { it.kind = "unknown"; it.reason = String(e.message || e); unreadable++; if (!firstReason) firstReason = it.reason; }
         added++; done++;
-        if (onProgress && (done & 15) === 0) onProgress(done);
+        if (onProgress) onProgress(done, total);
       }
     };
     await Promise.all([worker(), worker(), worker(), worker()]);
     lib.regroup();
-    return { added, events: lib.events };
+    return { added, events: lib.events, unreadable, firstReason };
   };
 
   lib.regroup = () => {
@@ -235,20 +238,45 @@
     return out;
   };
 
-  /** Decrypt every encrypted file that now has a key. */
+  /** Decrypt every encrypted file that now has a key. Reports progress three ways: onProgress(done, total, info), the
+   *  "decrypt" bus event, and lib.decryptInfo. info = {done,total,bytes,totalBytes,mbps,eta,mode,fast,name}. Without Web Crypto
+   *  (plain http) the work runs in worker lanes when the device has spare cores, 2-3 files at once; otherwise one file at a
+   *  time with yields so the page keeps painting. */
   lib.decryptReady = async (onProgress) => {
     const todo = [...lib.items.values()].filter((it) => it.kind === "encrypted" && !it.blob && lib.keyCache.has(it.header.wrappedHex));
-    let done = 0, failed = 0;
-    for (const it of todo) {
-      try {
-        it.blob = await T.crypto.decryptFile(it.file, it.header.plaintext_size, lib.keyCache.get(it.header.wrappedHex), { name: it.name });
-        it.decrypted = true;
-      } catch (e) { it.decryptError = e.message; failed++; console.warn("decrypt failed", it.name, e); }
-      done++;
-      if (onProgress) onProgress(done, todo.length);
-      await new Promise((r) => setTimeout(r, 0)); // keep the UI responsive on big libraries
-    }
+    const total = todo.length, queue = todo.slice();
+    const totalBytes = todo.reduce((a, it) => a + (it.header.plaintext_size || 0), 0);
+    const got = new Map(); let done = 0, failed = 0, lastEmit = 0, mode = "";
+    const t0 = performance.now();
+    const info = (name, force) => {
+      const bytes = [...got.values()].reduce((a, v) => a + v, 0), sec = Math.max(0.001, (performance.now() - t0) / 1000), mbps = bytes / 1048576 / sec;
+      const i = { done, total, name: name || "", bytes, totalBytes, mbps, eta: mbps > 0.05 && bytes > 0 ? Math.max(0, (totalBytes - bytes) / 1048576 / mbps) : null, mode, fast: T.crypto.fast };
+      const t = performance.now();
+      if (force || t - lastEmit > 150) { lastEmit = t; lib.decryptInfo = i; T.emit("decrypt", i); }
+      return i;
+    };
+    if (total) info("", true);
+    const conc = Math.min(total, T.crypto.concurrency());
+    const run = async () => {
+      while (queue.length) {
+        const it = queue.shift();
+        try {
+          it.blob = await T.crypto.decryptFile(it.file, it.header.plaintext_size, lib.keyCache.get(it.header.wrappedHex), {
+            name: it.name,
+            onMode: (m) => { mode = m; },
+            onProgress: (f) => { got.set(it, f * (it.header.plaintext_size || 0)); info(it.name); },
+          });
+          it.decrypted = true; got.set(it, it.header.plaintext_size || 0);
+        } catch (e) { it.decryptError = e.message; failed++; console.warn("decrypt failed", it.name, e); }
+        done++;
+        const i = info(it.name, true);
+        if (onProgress) onProgress(done, total, i);
+        await new Promise((r) => setTimeout(r, 0)); // keep the UI responsive on big libraries
+      }
+    };
+    await Promise.all(Array.from({ length: Math.max(1, conc) }, run));
     for (const ev of lib.events) { summarizeEvent(ev); ev.prepared = false; }
+    if (total) T.emit("decrypt", { ...info("", true), finished: true });
     T.emit("library");
     return { done, failed };
   };

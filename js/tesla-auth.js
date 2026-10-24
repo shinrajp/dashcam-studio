@@ -103,11 +103,15 @@
       + "The console helper below always works.", "err");
   }
 
+  let applying = false;
+  T.on("decrypt", (i) => { if (applying && i && !i.finished && T.ui && T.ui.decryptLine) notice(T.ui.decryptLine(i), ""); });
   async function applyAndDecrypt(results, via) {
     const r = T.library.applyKeys(results);
     if (!r.applied) { notice(`No usable keys${r.errors ? ` — Tesla refused ${r.errors} clip(s)` : ""}${r.invalid ? `, ${r.invalid} invalid` : ""}.`, "err"); return r; }
     notice(`${via}: ${r.applied} key(s) received. Decrypting on this computer…`, "ok");
-    const d = await T.library.decryptReady((done, total) => notice(`Decrypting ${done}/${total} file(s) locally…`, ""));
+    applying = true;
+    let d;
+    try { d = await T.library.decryptReady((done, total) => notice(`Decrypting ${done}/${total} file(s) locally…`, "")); } finally { applying = false; }
     notice(`Unlocked ${d.done - d.failed} file(s)${d.failed ? `, ${d.failed} failed (wrong key?)` : ""}.`, d.failed ? "err" : "ok");
     T.emit("unlocked", d);
     return r;

@@ -179,12 +179,37 @@
   function busy(on, text) { $("busy").hidden = !on; if (text) $("busyText").textContent = text; }
   U.busy = busy;
 
+  const fmtEta = (s) => (s == null ? "" : s < 90 ? `about ${Math.max(5, Math.round(s / 5) * 5)} s left` : `about ${Math.round(s / 60)} min left`);
+  /** One plain line for the busy overlay while clips are decrypted (also used by the key dialogs). */
+  U.decryptLine = (i) => {
+    if (!i || !i.total) return "";
+    const pct = i.totalBytes ? Math.min(99, Math.floor((i.bytes / i.totalBytes) * 100)) : 0;
+    return `Decrypting file ${Math.min(i.total, i.done + 1)} of ${i.total} · ${pct}%${i.mbps > 0.05 ? ` · ${i.mbps.toFixed(i.mbps < 10 ? 1 : 0)} MB/s` : ""}${fmtEta(i.eta) ? " · " + fmtEta(i.eta) : ""}`;
+  };
+  T.on("decrypt", (i) => { if (i && !i.finished && !$("busy").hidden) $("busyText").textContent = U.decryptLine(i); });
+  // keeps "Reading…" honest: if nothing moves for 20 s the overlay says so instead of looking frozen
+  let lastMove = 0, stallTimer = 0;
+  const moved = () => { lastMove = performance.now(); };
+  T.on("decrypt", moved);
+  function watchStall(on) {
+    clearInterval(stallTimer);
+    if (!on) return;
+    moved();
+    stallTimer = setInterval(() => {
+      if ($("busy").hidden) { clearInterval(stallTimer); return; }
+      if (performance.now() - lastMove > 20000) $("busyText").textContent = "Still working… this phone is slow at reading these files. If nothing changes in a minute, reload the page and add fewer files.";
+    }, 5000);
+  }
+
   U.ingest = async (list) => {
     if (!list.length) return;
     busy(true, `Reading ${list.length} file${list.length === 1 ? "" : "s"}…`);
+    watchStall(true);
     let r;
-    try { r = await T.library.ingest(list, (n) => { $("busyText").textContent = `Indexing… ${n}`; }); }
-    finally { busy(false); }
+    try { r = await T.library.ingest(list, (n, total) => { moved(); $("busyText").textContent = `Reading files… ${n} of ${total}`; }); }
+    catch (e) { console.warn("ingest failed", e); T.toast("Could not read these files: " + String((e && e.message) || e).slice(0, 160), "err", 8000); return; }
+    finally { watchStall(false); busy(false); }
+    if (r && r.unreadable) T.toast(`${r.unreadable} file${r.unreadable === 1 ? "" : "s"} could not be read: ${String(r.firstReason || "").slice(0, 140)}`, "err", 9000);
     if (!T.library.events.length) { T.toast("No Tesla camera files found there. Choose the TeslaCam folder (or its SavedClips / SentryClips / RecentClips).", "err", 6000); return; }
     const keep = U.current && T.library.events.find((e) => e.id === U.current.id);
     const playable = T.library.events.find((e) => e.locked < e.fileCount) || T.library.events[0];
