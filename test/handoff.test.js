@@ -76,4 +76,23 @@ const reg = () => new PE.Registry();
   const o = R.update(tr8, 5); ok("8 simultaneous people get 8 distinct colours", new Set(o.map((x) => x.color)).size === 8);
 }
 ok("appearance: embedding cosine used when both sides have one, colour histogram otherwise, neutral when none", PE.appearance({ emb: [1, 0], hist: null }, { emb: [1, 0] }).kind === "embedding" && PE.appearance({ hist: hist(1) }, { hist: hist(1) }).kind === "colour" && PE.appearance({}, {}).kind === "none");
+
+// ── car view geometry ──
+const CV = require("../js/car-view.js");
+{
+  const near = (a, b, e) => Math.abs(a - b) <= e;
+  const f = CV.position("front", { x: 0.45, y: 0.3, w: 0.1, h: 0.3 }), b = CV.position("back", { x: 0.45, y: 0.3, w: 0.1, h: 0.3 });
+  ok("car view: a centred person on the front camera is straight ahead (top), on the rear camera straight behind (bottom)", near(f.x, 50, 0.5) && f.y < 50 && near(b.x, 50, 0.5) && b.y > 50, [f, b]);
+  const rr = CV.position("right_repeater", { x: 0.45, y: 0.3, w: 0.1, h: 0.3 }), lr = CV.position("left_repeater", { x: 0.45, y: 0.3, w: 0.1, h: 0.3 });
+  ok("car view: right cameras are on the right of the diagram, left cameras on the left", rr.x > 50 && lr.x < 50, [rr, lr]);
+  const left = CV.position("front", { x: 0.0, y: 0.3, w: 0.1, h: 0.3 }), right = CV.position("front", { x: 0.9, y: 0.3, w: 0.1, h: 0.3 });
+  ok("car view: box x moves the person around the car (left of the front picture = left of the nose)", left.x < right.x && left.bearing > 300, [left, right]);
+  const big = CV.position("front", { x: 0.4, y: 0.1, w: 0.2, h: 0.7 }), small = CV.position("front", { x: 0.4, y: 0.4, w: 0.03, h: 0.1 });
+  ok("car view: a big box is near the car, a small one far; both stay inside the diagram", big.r < small.r && big.r >= CV.R_IN - 0.01 && small.r <= CV.R_OUT + 0.01 && [big, small].every((q) => q.x > 0 && q.x < 100 && q.y > 0 && q.y < 100), [big, small]);
+  const gap = (c1, b1, c2, b2) => { const d = Math.abs(CV.position(c1, b1).bearing - CV.position(c2, b2).bearing); return Math.min(d, 360 - d); };
+  const E = (x) => ({ x, y: 0.3, w: 0.0, h: 0.3 });
+  ok("car view: leaving one camera at its right edge puts the icon where the neighbour's left edge is (all six hand-offs continuous, < 8°)", [["front", "right_pillar"], ["right_pillar", "right_repeater"], ["right_repeater", "back"], ["back", "left_repeater"], ["left_repeater", "left_pillar"], ["left_pillar", "front"]].every(([a, b]) => gap(a, E(1), b, E(0)) < 8));
+  ok("car view: wedges tile the whole circle (no gap, no overlap)", (() => { const ks = Object.keys(CV.CAMS).map((k) => CV.CAMS[k]).sort((a, b) => a.lo - b.lo); return ks.every((c, i) => c.hi === (ks[i + 1] ? ks[i + 1].lo : ks[0].lo + 360)); })());
+  ok("car view: six wedges", Object.keys(CV.CAMS).length === 6 && Object.keys(CV.CAMS).every((c) => /^M/.test(CV.wedgePath(c, 48))));
+}
 console.log(fails ? "FAILED " + fails + " of " + n : "ALL PASS (" + n + ")"); process.exit(fails ? 1 : 0);

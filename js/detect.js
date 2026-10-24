@@ -241,7 +241,7 @@
         return out;
       }
       const tl = T.player && T.player.playing && D.prefs().live ? D.trackedLive(cam, t) : null;
-      if (tl) return tl.map((b) => ({ x: b.x, y: b.y, w: b.w, h: b.h, text: liveText(b), label: b.label, live: true }));
+      if (tl) return tl.map((b) => ({ x: b.x, y: b.y, w: b.w, h: b.h, text: liveText(b), label: b.label, live: true, pid: b.id }));
       const lv = D.liveAt(cam, t);
       if (lv) return lv.dets.map((b) => ({ x: b.x, y: b.y, w: b.w, h: b.h, text: liveText(b), label: b.label, live: true }));
       return null;

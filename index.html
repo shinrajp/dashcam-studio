@@ -172,6 +172,7 @@
         <button class="chip" data-show="fsd" title="Self-driving status (D)">Self-Driving</button>
         <button class="chip" data-show="time" title="Date &amp; time">Time</button>
         <button class="chip" id="chipCue" type="button" aria-pressed="true" title="Hand-off cue: when someone walks out of one camera, the neighbouring camera's entry edge glows in their colour. Needs object detection + Detect while playing (Settings → Recognition). Sentry events track people on every camera.">Hand-off</button>
+        <button class="chip" id="chipCar" type="button" aria-pressed="false" title="Car view: a top-down car with the six cameras and a tiny person for everyone tracked, each in their own colour (the same colour as their boxes). Tap a person to highlight them on every camera. Needs object detection + Detect while playing (Settings → Recognition).">Car view</button>
         <button class="chip chip-wb" id="chipWb" type="button" aria-pressed="false" title="White balance (live, viewer only): uses the white paint seen by the mirror cameras as the colour of the light and corrects the videos about 70% toward neutral. The export is not changed.">White balance</button>
       </div>
       <button class="chip chip-switch" id="chipCamBar" aria-pressed="true" title="Camera bar is ON. Click to hide it (C)"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="6" width="13" height="12" rx="2"/><path d="M16 10l5-3v10l-5-3"/></svg><span>Camera bar</span><span class="mini-switch" aria-hidden="true"><span></span></span></button>
@@ -357,6 +358,7 @@
   <script src="js/layout.js?v=handoff-1"></script>
   <script src="js/handoff.js?v=handoff-1"></script>
   <script src="js/people.js?v=handoff-1"></script>
+  <script src="js/car-view.js?v=handoff-1"></script>
   <script src="js/draw.js?v=handoff-1"></script>
   <script src="js/hud.js?v=handoff-1"></script>
   <script src="js/map.js?v=handoff-1"></script>

@@ -161,8 +161,10 @@
       for (const b of boxes) {
         const x = fx + b.x * fw, y = fy + b.y * fh, w = b.w * fw, h = b.h * fh;
         ctx.lineJoin = "round";
-        ctx.strokeStyle = "rgba(0,0,0,0.75)"; ctx.lineWidth = lw + 2; ctx.strokeRect(x, y, w, h);
-        ctx.strokeStyle = b.color || "#e6b450"; ctx.lineWidth = lw; ctx.strokeRect(x, y, w, h);
+        const bw = b.hl ? lw * 2 : lw;   // b.hl: the person tapped in the car view (viewer only)
+        ctx.strokeStyle = "rgba(0,0,0,0.75)"; ctx.lineWidth = bw + 2; ctx.strokeRect(x, y, w, h);
+        ctx.strokeStyle = b.color || "#e6b450"; ctx.lineWidth = bw; ctx.strokeRect(x, y, w, h);
+        if (b.hl) { ctx.strokeStyle = "#fff"; ctx.lineWidth = 1; ctx.strokeRect(x - bw, y - bw, w + 2 * bw, h + 2 * bw); }
         if (!b.text) continue;
         const pad = Math.round(fs * 0.35), th = fs + pad * 2;
         const tw = Math.min(fw, ctx.measureText(b.text).width + pad * 2);

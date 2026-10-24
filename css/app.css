@@ -845,3 +845,32 @@ body.portrait .grid[data-layout="rear"] .tile[data-cam=left_repeater], body.port
 .ho-cue[data-side=right] .ho-arrow { right: 6px; }
 @keyframes ho-pulse { 0%, 100% { filter: brightness(0.85); } 50% { filter: brightness(1.25); } }
 @media (prefers-reduced-motion: reduce) { .ho-glow { animation: none; } }
+
+/* ── Car view (hand-off, milestone 3): top-down car, camera wedges, a tiny person per tracked person ── */
+.car-view { position: absolute; z-index: 6; left: 8px; bottom: 8px; width: 150px; padding: 6px 6px 5px; border-radius: 12px; background: rgba(10,12,18,0.74); border: 1px solid rgba(255,255,255,0.14); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); color: #e8ecf3; pointer-events: auto; user-select: none; -webkit-user-select: none; }
+.car-view[hidden] { display: none; }
+.cv-svg { display: block; width: 100%; height: auto; overflow: visible; }
+.cv-wedge { fill: rgba(255,255,255,0.07); stroke: rgba(255,255,255,0.22); stroke-width: 0.5; transition: fill-opacity .2s; }
+.cv-wedge.on { fill-opacity: 0.38; stroke: rgba(255,255,255,0.55); }
+.cv-wedge.cue { stroke: #fff; stroke-width: 1.2; stroke-dasharray: 2.4 1.8; animation: cv-dash 1s linear infinite; }
+@keyframes cv-dash { to { stroke-dashoffset: -8.4; } }
+.cv-car rect:first-child { fill: #c9d1e0; stroke: #0b0d12; stroke-width: 0.9; }
+.cv-glass { fill: #3a4357; }
+.cv-lamp { fill: #fff6c2; }
+.cv-person { cursor: pointer; outline: none; }
+.cv-person .cv-head, .cv-person .cv-body { stroke: #0b0d12; stroke-width: 0.9; paint-order: stroke; }
+.cv-person:focus-visible .cv-ring, .cv-ring { fill: none; stroke: #fff; stroke-width: 0.9; stroke-dasharray: 2 1.4; }
+.cv-hit { fill: transparent; }
+.cv-legend { display: flex; flex-flow: row wrap; align-items: flex-start; gap: 4px; min-height: 0; margin-bottom: 3px; }
+.cv-legend:empty { display: none; }
+.cv-chip { display: inline-flex; align-items: center; gap: 4px; padding: 3px 7px; min-height: 24px; border-radius: 99px; border: 1px solid rgba(255,255,255,0.25); background: rgba(255,255,255,0.08); color: inherit; font: 700 11px system-ui, sans-serif; cursor: pointer; }
+.cv-chip i { width: 9px; height: 9px; border-radius: 50%; border: 1px solid rgba(0,0,0,0.6); }
+.cv-chip.sel { background: rgba(255,255,255,0.28); border-color: #fff; }
+.cv-hint { font: 600 10px system-ui, sans-serif; opacity: 0.75; text-align: center; padding: 1px 2px; }
+.cv-hint:empty { display: none; }
+body.portrait .car-view { width: 100px; left: 6px; bottom: 6px; padding: 4px; border-radius: 10px; }
+body.portrait .cv-hint { font-size: 9px; }
+body.portrait .cv-chip { min-height: 28px; padding: 3px 5px; gap: 3px; font-size: 10px; }   /* a finger, not a mouse */
+body.fs .car-view { bottom: calc(var(--tp-h, 62px) + 8px); transition: bottom .25s; }
+body.fs.idle .car-view { bottom: 8px; }
+@media (prefers-reduced-motion: reduce) { .cv-wedge.cue { animation: none; } }

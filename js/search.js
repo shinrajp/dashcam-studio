@@ -302,11 +302,12 @@
         // the SAME box set the export burns in at this moment (tracks / live detections, else results within ±2.5 s)
         const tc = T.redact && T.redact.camTime ? T.redact.camTime(cam, video) : T.player.time || 0;   // this camera's frame on screen (tag safari-feedback)
         let boxes = video && video.videoWidth ? T.burnBoxes.at(cam, tc) : [];
+        if (T.people && T.people.styleBoxes && boxes.length) boxes = T.people.styleBoxes(cam, boxes);   // person colours / tapped person (viewer only)
         if (mir && boxes.length) boxes = boxes.map(T.layout.box.bind(null, cam));
         if (boxes.length) tile.tile.classList.add("find-on");
         // painted every frame while playing: skip the redraw when nothing moved by a pixel (saves compositing on phones)
         const q = (v, m) => Math.round(v * m);
-        const sig = w + "x" + h + (mir ? "m" : "") + "|" + boxes.map((b) => q(b.x, tw) + "," + q(b.y, th) + "," + q(b.w, tw) + "," + q(b.h, th) + "," + b.text + "," + (b.color || "")).join(";");
+        const sig = w + "x" + h + (mir ? "m" : "") + "|" + boxes.map((b) => q(b.x, tw) + "," + q(b.y, th) + "," + q(b.w, tw) + "," + q(b.h, th) + "," + b.text + "," + (b.color || "") + (b.hl ? "!" : "")).join(";");
         if (cv._sig === sig && !S.forcePaint) continue;
         cv._sig = sig;
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0);

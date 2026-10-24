@@ -133,14 +133,32 @@
   P.linkOn = () => { const v = T.prefs && T.prefs.crossCam; if (v === "on") return true; if (v === "off") return false; return !(T.reid && T.reid.autoOff && T.reid.autoOff()); };
   /** Current person tracks with their global id and colour (linking only when Cross-camera matching is on: else one person per track). */
   P.current = (t) => {
+    const nowMs = performance.now();
+    if (P._at && nowMs - P._at < 40 && Math.abs((P._t || 0) - t) < 0.2) return P.now;   // one pass per frame, shared by the cue, the car view and the box colours
     const D = T.detect; if (!D || !D.personTracks) return [];
     const tracks = D.personTracks(t);
     const hist = T.reid && T.reid.annotate ? T.reid.annotate(tracks, t) : tracks;
+    let out;
     if (!P.linkOn()) { // no linking: each track is its own person, colour by track
-      return hist.map((x) => { const k = x.cam + ":" + x.id; if (!P._solo) P._solo = new Map(); if (!P._solo.has(k)) P._solo.set(k, PALETTE[P._solo.size % PALETTE.length]); return Object.assign({}, x, { gid: k, color: P._solo.get(k), bestGuess: false, linkConf: 1 }); });
-    }
-    return P.reg.update(hist, t);
+      out = hist.map((x) => { const k = x.cam + ":" + x.id; if (!P._solo) P._solo = new Map(); if (!P._solo.has(k)) P._solo.set(k, PALETTE[P._solo.size % PALETTE.length]); return Object.assign({}, x, { gid: k, color: P._solo.get(k), bestGuess: false, linkConf: 1 }); });
+    } else out = P.reg.update(hist, t);
+    P.now = out; P._at = nowMs; P._t = t;
+    return out;
   };
-  P.reset = () => { P.reg.reset(); P._solo = null; };
+  /** Short name for a person (P1, P2, …) — "?" when the identity came from linking cameras (a best guess). */
+  P.num = (gid) => { if (!P._nums) P._nums = new Map(); if (!P._nums.has(gid)) P._nums.set(gid, P._nums.size + 1); return P._nums.get(gid); };
+  P.name = (m) => "P" + P.num(m.gid) + (m.bestGuess ? "?" : "");
+  P.selected = null;
+  P.select = (gid) => { P.selected = P.selected === gid ? null : gid; if (T.emit) T.emit("people-select", P.selected); if (T.search && T.search.paintBoxes) T.search.paintBoxes(); };
+  /** Viewer only: person boxes get their person's colour (same on every camera) and the tapped person is drawn heavier. */
+  P.styleBoxes = (cam, boxes) => {
+    if (!P.now || !P.now.length || performance.now() - (P._at || 0) > 700) return boxes;
+    return boxes.map((b) => {
+      if (!b.pid || b.label !== "person") return b;
+      const m = P.now.find((x) => x.cam === cam && x.id === b.pid); if (!m) return b;
+      return Object.assign({}, b, { color: m.color, hl: P.selected != null && P.selected === m.gid, text: b.text + " \u00b7 " + P.name(m) });
+    });
+  };
+  P.reset = () => { P.reg.reset(); P._solo = null; P._nums = null; P.selected = null; P.now = []; P._at = 0; };
   if (typeof T.on === "function") T.on("player-open", P.reset);
 })(typeof window !== "undefined" ? window : globalThis);
