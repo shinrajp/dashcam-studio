@@ -24,6 +24,21 @@
   };
   const notice = (text, kind) => { const n = T.$("unlockNotice"); if (n) { n.textContent = text || ""; n.className = "notice" + (kind ? " " + kind : ""); n.hidden = !text; } };
 
+  A.newNonce = () => { const b = new Uint8Array(16); crypto.getRandomValues(b); return T.crypto.toHex(b); };
+  /** https://dashcam.tesla.com/#gridplayer=<nonce>&gpo=<our origin>&gpi=<key requests>. The key requests are not
+   * secret (VIN, key ids, wrapped keys) and a hash is never sent to a server; skipped when too long for a URL. */
+  A.unlockUrl = (items, nonce) => {
+    let url = `${ORIGIN}/#gridplayer=${nonce}&gpo=${encodeURIComponent(SELF_ORIGIN || "*")}`;
+    // Also pass the key requests in the hash for browsers where the connector can't use the opener link (Safari +
+    // Userscripts, the iPhone bookmarklet).
+    try {
+      const raw = JSON.stringify({ items, batches: A.batches() });
+      const gpi = btoa(unescape(encodeURIComponent(raw))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+      if (gpi.length < 60000) url += "&gpi=" + gpi;
+    } catch (_) {}
+    return url;
+  };
+
   /** Must be called from a click handler (popup blockers). */
   A.start = () => {
     const items = A.items();
@@ -41,16 +56,11 @@
     }
     if (A.job) clearTimeout(A.job.timer);
     try { if (A.popup && !A.popup.closed) A.popup.close(); } catch (_) {}
-    const b = new Uint8Array(16); crypto.getRandomValues(b);
-    const nonce = T.crypto.toHex(b);
-    let url = `${ORIGIN}/#gridplayer=${nonce}&gpo=${encodeURIComponent(SELF_ORIGIN || "*")}`;
-    // Also pass the key requests in the hash (not secret; hashes are never sent to servers) for browsers where the
-    // connector can't use the opener link (Safari + Userscripts). Skipped when too long for a URL.
-    try {
-      const raw = JSON.stringify({ items, batches: A.batches() });
-      const gpi = btoa(unescape(encodeURIComponent(raw))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-      if (gpi.length < 60000) url += "&gpi=" + gpi;
-    } catch (_) {}
+    const nonce = A.newNonce();
+    const url = A.unlockUrl(items, nonce);
+    // iPhone / iPad: there is no userscript, so also leave the unlock request on the clipboard (a tap just happened) —
+    // the Dashcam Unlock bookmark reads it when Tesla's sign-in redirects dropped the address hash.
+    try { if (T.iosUnlock && T.iosUnlock.isIOS() && navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(url).catch(() => {}); } catch (_) {}
     let w = null;
     try { w = window.open(url, "tdcUnlock_" + nonce, "width=980,height=800"); } catch (_) {}
     if (!w) { notice("Popup blocked — allow pop-ups for this page, then click Unlock with Tesla again.", "err"); return false; }
@@ -63,15 +73,24 @@
       const j = A.job; if (!j || j.done) { clearInterval(A.watch); return; }
       let closed = false; try { closed = j.popup.closed; } catch (_) {}
       if (closed) { clearInterval(A.watch); j.done = true; clearTimeout(j.timer);
+        if (ios()) { notice(T.iosUnlock.closedText(), "err"); return; }
         notice(j.hello ? "The Tesla window was closed before keys came back. If it said “Keys copied”, they will apply when you return here; otherwise click Sign in with Tesla again or use the console helper." : "The Tesla window was closed and the connector never answered. See the setup steps, or use the console helper.", "err"); }
     }, 1000);
     T.$("connectorSetup").hidden = true;
-    notice("Tesla opened in a new window — sign in there if asked. Waiting for the connector…", "");
+    notice(ios() ? T.iosUnlock.openedText() : "Tesla opened in a new window — sign in there if asked. Waiting for the connector…", "");
     return true;
   };
 
+  const ios = () => !!(T.iosUnlock && T.iosUnlock.isIOS());
+
   function notDetected() {
     if (!A.job || A.job.hello || A.job.done) return;
+    if (ios()) { // iPhone / iPad: no userscript unless the user installed one — point at the bookmark (and Userscripts)
+      T.$("connectorSetup").hidden = true;
+      T.iosUnlock.show();
+      notice(T.iosUnlock.notDetectedText(), "err");
+      return;
+    }
     T.$("connectorSetup").hidden = false;
     let seen = false; try { seen = localStorage.getItem(SEEN_KEY) === "1"; } catch (_) {}
     T.$("connectorSetupTitle").textContent = seen ? "The connector didn't answer" : "One-time setup: install the Tesla connector";

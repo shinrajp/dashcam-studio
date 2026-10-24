@@ -11,7 +11,7 @@
   <title>Dashcam Studio — Tesla Sentry &amp; Dashcam viewer</title>
   <meta name="color-scheme" content="dark">
   <link rel="icon" href="data:,">
-  <link rel="stylesheet" href="css/app.css?v=mobile-bar-1">
+  <link rel="stylesheet" href="css/app.css?v=ios-unlock-1">
 </head>
 <body class="simple">
   <header class="topbar">
@@ -263,6 +263,32 @@
         <p>Some clips are encrypted by your Tesla. Sign in with your Tesla account to unlock them. Only each clip's key request (VIN, key id, wrapped key) is sent to Tesla. <b>The video never leaves this computer</b>, and decryption happens here.</p>
         <button class="btn tesla big wide" id="btnUnlockGo"><svg viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg><span>Sign in with Tesla</span></button>
         <div class="notice" id="unlockNotice" hidden></div>
+        <div class="setup ios-unlock" id="iosUnlock" hidden>
+          <h3>iPhone &amp; iPad: unlock with a bookmark (no app or extension needed)</h3>
+          <p class="fine">Safari on iPhone can't run the Tesla connector userscript by itself. A bookmark can do the same job: it runs on the Tesla tab, fetches the keys there, and only the keys come back. Your Tesla sign-in token is never copied or sent anywhere.</p>
+          <ol>
+            <li><b>One time:</b> tap <i>Copy bookmarklet</i>. In Safari tap Share ▸ <i>Add Bookmark</i> (any page, name it <i>Dashcam Unlock</i>), open Bookmarks, touch and hold it ▸ <i>Edit</i>, replace the address with the copied code, tap Done.</li>
+            <li>Tap <i>Sign in with Tesla</i> above. Tesla opens in a new tab: sign in there.</li>
+            <li>On that Tesla tab, open Safari's Bookmarks (or type <i>Dashcam Unlock</i> in the address bar) and tap <i>Dashcam Unlock</i>. A panel appears at the bottom.</li>
+            <li>Tap <i>Copy keys</i> in the panel, switch back to this tab, and tap <i>Paste keys from clipboard</i> below. (If the panel says the keys were sent to Dashcam Studio, this tab may already have unlocked.)</li>
+          </ol>
+          <div class="btn-row"><button class="btn" id="btnCopyBookmarklet" type="button">Copy bookmarklet</button><button class="btn ghost" id="btnCopyUnlockRequest" type="button">Copy unlock request</button></div>
+          <textarea id="iosBookmarkText" rows="3" hidden readonly style="width:100%;font-family:ui-monospace,monospace;font-size:16px;margin-top:0.4rem"></textarea>
+          <button class="btn primary big wide" id="btnPasteKeysClip" type="button" style="margin-top:0.7rem">Paste keys from clipboard</button>
+          <div class="notice" id="iosNotice" hidden></div>
+          <details style="margin-top:0.6rem"><summary>Already signed in, or the panel says “no clip list”?</summary>
+            <p class="fine">Tesla's sign-in can drop the clip list from the address. Tap <i>Copy unlock request</i> here, go to the Tesla tab, tap <i>Dashcam Unlock</i>, then <i>Paste unlock request</i> in the panel. The unlock request only lists the clips' key ids, never your token.</p>
+          </details>
+          <details style="margin-top:0.4rem"><summary>Alternative: install the free “Userscripts” Safari extension</summary>
+            <ol>
+              <li>Install <i>Userscripts</i> (free) from the App Store and open it once. Tap <i>Set Userscripts Directory</i> and choose a folder in Files.</li>
+              <li>Settings ▸ Apps ▸ Safari ▸ Extensions ▸ <i>Userscripts</i>: turn it on and set <code>dashcam.tesla.com</code> to <i>Allow</i> (or All Websites).</li>
+              <li>Tap <i>Download connector</i> here and save the file into that same folder in Files.</li>
+              <li>Tap <i>Sign in with Tesla</i>. On the Tesla tab a blue “Dashcam Studio connector v1.4.4 active” badge should appear, and it fetches the keys by itself. If Safari says the tab was cut off from this one, tap <i>Copy keys</i> on that tab and then <i>Paste keys from clipboard</i> here.</li>
+            </ol>
+            <div class="btn-row"><button class="btn ghost" id="btnIosDownloadConnector" type="button">Download connector</button></div>
+          </details>
+        </div>
         <div class="setup" id="connectorSetup" hidden>
           <h3 id="connectorSetupTitle">One-time setup: install the Tesla connector</h3>
           <p>A tiny userscript lets the Tesla page hand the keys back to this window.</p>
@@ -312,60 +338,62 @@
   <!-- Cameras picker: a top-level layer on <body> (never inside the camera bar, whose backdrop-filter would make
        position:fixed relative to the bar); js/focus.js places it next to the Cameras button. -->
   <div class="cam-menu" id="camMenu" hidden></div>
-  <script src="vendor/mp4-muxer.js?v=mobile-bar-1"></script>
-  <script src="vendor/webm-muxer.js?v=mobile-bar-1"></script>
-  <script src="vendor/ort.wasm.min.js?v=mobile-bar-1"></script>
-  <script src="vendor/ocr-pack.js?v=mobile-bar-1"></script>
+  <script src="vendor/mp4-muxer.js?v=ios-unlock-1"></script>
+  <script src="vendor/webm-muxer.js?v=ios-unlock-1"></script>
+  <script src="vendor/ort.wasm.min.js?v=ios-unlock-1"></script>
+  <script src="vendor/ocr-pack.js?v=ios-unlock-1"></script>
   <!-- app (classic scripts: they work when opened from file://) -->
-  <script src="js/core.js?v=mobile-bar-1"></script>
-  <script src="js/mp4.js?v=mobile-bar-1"></script>
-  <script src="js/sei.js?v=mobile-bar-1"></script>
-  <script src="js/crypto.js?v=mobile-bar-1"></script>
-  <script src="js/teslacam.js?v=mobile-bar-1"></script>
-  <script src="js/telemetry.js?v=mobile-bar-1"></script>
-  <script src="js/batching.js?v=mobile-bar-1"></script>
-  <script src="js/library.js?v=mobile-bar-1"></script>
-  <script src="js/player.js?v=mobile-bar-1"></script>
-  <script src="js/draw.js?v=mobile-bar-1"></script>
-  <script src="js/hud.js?v=mobile-bar-1"></script>
-  <script src="js/map.js?v=mobile-bar-1"></script>
-  <script src="js/compositor.js?v=mobile-bar-1"></script>
-  <script src="js/overlays.js?v=mobile-bar-1"></script>
-  <script src="js/focus.js?v=mobile-bar-1"></script>
-  <script src="js/export.js?v=mobile-bar-1"></script>
-  <script src="js/search.js?v=mobile-bar-1"></script>
-  <script src="js/redact.js?v=mobile-bar-1"></script>
-  <script src="js/text-match.js?v=mobile-bar-1"></script>
-  <script src="js/text-search.js?v=mobile-bar-1"></script>
-  <script src="js/time-search.js?v=mobile-bar-1"></script>
-  <script src="js/burn-boxes.js?v=mobile-bar-1"></script>
-  <script src="js/worker-start.js?v=mobile-bar-1"></script>
-  <script src="js/color-lock.js?v=mobile-bar-1"></script>
-  <script src="js/detect.js?v=mobile-bar-1"></script>
-  <script src="js/plate-text.js?v=mobile-bar-1"></script>
-  <script src="js/plates.js?v=mobile-bar-1"></script>
-  <script src="js/prewarm.js?v=mobile-bar-1"></script>
-  <script src="js/vehicle-attrs.js?v=mobile-bar-1"></script>
-  <script src="js/vehicle.js?v=mobile-bar-1"></script>
-  <script src="js/cloud-boost.js?v=mobile-bar-1"></script>
-  <script src="js/recog-settings.js?v=mobile-bar-1"></script>
-  <script src="js/pano-toggle.js?v=mobile-bar-1"></script>
-  <script src="js/multi-search.js?v=mobile-bar-1"></script>
-  <script src="js/wb.js?v=mobile-bar-1"></script>
-  <script src="js/wb-debug.js?v=mobile-bar-1"></script>
-  <script src="js/det-debug.js?v=mobile-bar-1"></script>
-  <script src="js/colour-constancy.js?v=mobile-bar-1"></script>
-  <script src="js/search-ui.js?v=mobile-bar-1"></script>
-  <script src="js/search-strip.js?v=mobile-bar-1"></script>
-  <script src="js/mobile-bar.js?v=mobile-bar-1"></script>
-  <script src="js/connector-src.js?v=mobile-bar-1"></script>
-  <script src="js/tesla-auth.js?v=mobile-bar-1"></script>
-  <script src="js/key-import.js?v=mobile-bar-1"></script>
-  <script src="js/key-store.js?v=mobile-bar-1"></script>
-  <script src="js/ui.js?v=mobile-bar-1"></script>
-  <script src="js/lib-index.js?v=mobile-bar-1"></script>
-  <script src="js/lib-index-ui.js?v=mobile-bar-1"></script>
-  <script src="js/auto.js?v=mobile-bar-1"></script>
-  <script src="js/app.js?v=mobile-bar-1"></script>
+  <script src="js/core.js?v=ios-unlock-1"></script>
+  <script src="js/mp4.js?v=ios-unlock-1"></script>
+  <script src="js/sei.js?v=ios-unlock-1"></script>
+  <script src="js/crypto.js?v=ios-unlock-1"></script>
+  <script src="js/teslacam.js?v=ios-unlock-1"></script>
+  <script src="js/telemetry.js?v=ios-unlock-1"></script>
+  <script src="js/batching.js?v=ios-unlock-1"></script>
+  <script src="js/library.js?v=ios-unlock-1"></script>
+  <script src="js/player.js?v=ios-unlock-1"></script>
+  <script src="js/draw.js?v=ios-unlock-1"></script>
+  <script src="js/hud.js?v=ios-unlock-1"></script>
+  <script src="js/map.js?v=ios-unlock-1"></script>
+  <script src="js/compositor.js?v=ios-unlock-1"></script>
+  <script src="js/overlays.js?v=ios-unlock-1"></script>
+  <script src="js/focus.js?v=ios-unlock-1"></script>
+  <script src="js/export.js?v=ios-unlock-1"></script>
+  <script src="js/search.js?v=ios-unlock-1"></script>
+  <script src="js/redact.js?v=ios-unlock-1"></script>
+  <script src="js/text-match.js?v=ios-unlock-1"></script>
+  <script src="js/text-search.js?v=ios-unlock-1"></script>
+  <script src="js/time-search.js?v=ios-unlock-1"></script>
+  <script src="js/burn-boxes.js?v=ios-unlock-1"></script>
+  <script src="js/worker-start.js?v=ios-unlock-1"></script>
+  <script src="js/color-lock.js?v=ios-unlock-1"></script>
+  <script src="js/detect.js?v=ios-unlock-1"></script>
+  <script src="js/plate-text.js?v=ios-unlock-1"></script>
+  <script src="js/plates.js?v=ios-unlock-1"></script>
+  <script src="js/prewarm.js?v=ios-unlock-1"></script>
+  <script src="js/vehicle-attrs.js?v=ios-unlock-1"></script>
+  <script src="js/vehicle.js?v=ios-unlock-1"></script>
+  <script src="js/cloud-boost.js?v=ios-unlock-1"></script>
+  <script src="js/recog-settings.js?v=ios-unlock-1"></script>
+  <script src="js/pano-toggle.js?v=ios-unlock-1"></script>
+  <script src="js/multi-search.js?v=ios-unlock-1"></script>
+  <script src="js/wb.js?v=ios-unlock-1"></script>
+  <script src="js/wb-debug.js?v=ios-unlock-1"></script>
+  <script src="js/det-debug.js?v=ios-unlock-1"></script>
+  <script src="js/colour-constancy.js?v=ios-unlock-1"></script>
+  <script src="js/search-ui.js?v=ios-unlock-1"></script>
+  <script src="js/search-strip.js?v=ios-unlock-1"></script>
+  <script src="js/mobile-bar.js?v=ios-unlock-1"></script>
+  <script src="js/connector-src.js?v=ios-unlock-1"></script>
+  <script src="js/ios-unlock-src.js?v=ios-unlock-1"></script>
+  <script src="js/ios-unlock.js?v=ios-unlock-1"></script>
+  <script src="js/tesla-auth.js?v=ios-unlock-1"></script>
+  <script src="js/key-import.js?v=ios-unlock-1"></script>
+  <script src="js/key-store.js?v=ios-unlock-1"></script>
+  <script src="js/ui.js?v=ios-unlock-1"></script>
+  <script src="js/lib-index.js?v=ios-unlock-1"></script>
+  <script src="js/lib-index-ui.js?v=ios-unlock-1"></script>
+  <script src="js/auto.js?v=ios-unlock-1"></script>
+  <script src="js/app.js?v=ios-unlock-1"></script>
 </body>
 </html>

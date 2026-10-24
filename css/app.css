@@ -811,3 +811,9 @@ body.mbar .transport > .us-btn svg { width: 20px; height: 20px; }
 body.mbar .transport > .us-btn .us-lbl { display: none; }
 body.mbar .transport > .us-btn .us-count { position: absolute; top: -4px; right: -4px; }
 body.mbar.us-open .transport > .us-btn, body.mbar.no-event .transport > .us-btn, body.mbar.us-docked .transport > .us-btn, body.mbar .transport.mb-open > .us-btn { display: none; }
+/* iPhone unlock card (js/ios-unlock.js) */
+.ios-unlock { margin: 10px 0; }
+.ios-unlock ol { color: var(--text, inherit); }
+.ios-unlock .btn.big.wide { width: 100%; min-height: 52px; font-size: 16px; }
+.ios-unlock details { font-size: 13px; }
+.ios-unlock summary { cursor: pointer; padding: 6px 0; }
