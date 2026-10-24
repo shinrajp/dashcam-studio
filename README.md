@@ -327,6 +327,11 @@ The new file is `front-redacted.mp4` next to the original. Add `-o` to choose an
 
 This does not remove an arbitrary object such as "the yellow truck" or "a person in a hoodie." It only tracks plates, faces, and text.
 
+## Install / use offline, and decrypt speed
+- **Fastest way on iPhone:** open `https://shinrajp.github.io/dashcam-studio/` in Safari (https gives the browser crypto, so decrypting is fast), tap Share > Add to Home Screen, then open it once while online. After that it opens like an app and works with no connection. Your footage is never saved by the app, only the app itself and its models (about 57 MB, downloaded in the background).
+- Opening the app from `http://<your computer's address>:8770` has no browser crypto, so decrypting uses the built-in slower code (now about 100x faster than before, in background workers, with progress and time left). A one-line note says so, with a **How** button that opens the install steps.
+- Details, tests and limits: `CHANGES-v2.md`, section *decrypt-speed*.
+
 ## Browser support
 - **Chrome or Edge (desktop): best.** You get fast hardware-accelerated export, and *Export all* can save straight into a folder you pick.
 - **Safari (Mac):** playback, overlays and trimming work. Export may be slower, and *Export all* saves each video to Downloads one at a time.
