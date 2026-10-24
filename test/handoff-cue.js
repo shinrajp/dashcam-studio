@@ -89,6 +89,7 @@ let fails = 0; const ok = (n, c, x) => { console.log((c ? "PASS " : "FAIL ") + n
       await p.evaluate(() => TDC.layout.set("mirror")); await W(300);
       let c1 = await cueNow();
       ok(tag + "Mirrored bottom row: the cue edge flips with the picture (REAR's entry edge is on the screen's right), arrow points left", c1.mirrored && c1.side === "right" && /←/.test(c1.arrow), c1);
+      ok(tag + "Mirrored bottom row (LEFT REPEATER | REAR | RIGHT REPEATER): the glowing REAR edge touches the RIGHT REPEATER tile", c1.backL === c1.rrL /* portrait phone: repeaters sit under the rear tile */ || (Math.abs(c1.backR - c1.rrL) < 12 && c1.lrL < c1.backL), c1);
       await p.evaluate(() => TDC.layout.set("current")); await W(300);
       c1 = await cueNow();
       ok(tag + "Current layout: still REAR's left edge (the neighbour table does not depend on the layout)", c1.side === "left" && !c1.mirrored, c1);

@@ -17,7 +17,7 @@ let fails = 0; const ok = (n, c, x) => { console.log((c ? "PASS " : "FAIL ") + n
 // ── part 1 ──
 ok("Auto: sentry → rear; user/safety/recent/files/none → current", L.autoPreset({ trigger: { kind: "sentry" } }) === "rear" && ["user", "safety", "recent", "files"].every((k) => L.autoPreset({ trigger: { kind: k } }) === "current") && L.autoPreset(null) === "current" && L.autoPreset({}) === "current");
 ok("resolve: explicit choice wins, junk → auto", L.resolve("current", { trigger: { kind: "sentry" } }) === "current" && L.resolve("mirror", { trigger: { kind: "user" } }) === "mirror" && L.resolve("zzz", { trigger: { kind: "sentry" } }) === "rear");
-ok("order: Current bottom LR|REAR|RR, Rear/Mirror bottom RR|REAR|LR, top row unchanged", L.gridOrder("current").join() === "left_pillar,front,right_pillar,left_repeater,back,right_repeater" && L.gridOrder("rear").join() === "left_pillar,front,right_pillar,right_repeater,back,left_repeater" && L.gridOrder("mirror").join() === L.gridOrder("rear").join());
+ok("order: Current bottom LR|REAR|RR, Rear bottom RR|REAR|LR, Mirrored bottom LR|REAR|RR, top row unchanged", L.gridOrder("current").join() === "left_pillar,front,right_pillar,left_repeater,back,right_repeater" && L.gridOrder("rear").join() === "left_pillar,front,right_pillar,right_repeater,back,left_repeater" && L.gridOrder("mirror").join() === L.gridOrder("current").join() && L.PRESETS.mirror.bottom.join() === "left_repeater,back,right_repeater");
 ok("mirror: only the three bottom cameras, only in Mirrored bottom row", ["left_repeater", "back", "right_repeater"].every((c) => L.isMirrored("mirror", c) && !L.isMirrored("rear", c) && !L.isMirrored("current", c)) && ["front", "left_pillar", "right_pillar"].every((c) => !L.isMirrored("mirror", c)));
 ok("mirrorBox flips x about the centre, keeps y/w/h and extra fields", JSON.stringify(L.mirrorBox({ x: 0.1, y: 0.2, w: 0.2, h: 0.3, text: "p" })) === JSON.stringify({ x: 0.7, y: 0.2, w: 0.2, h: 0.3, text: "p" }) && L.screenSide(true, "left") === "right" && L.screenSide(false, "left") === "left");
 
@@ -66,7 +66,7 @@ ok("mirrorBox flips x about the centre, keeps y/w/h and extra fields", JSON.stri
       ok(tag + "Auto + Saved (Dashcam) event → Current", I.layout === "current" && rowsOk(I, ["left_repeater", "back", "right_repeater"]), I);
       await choose("mirror"); I = await info();
       const mir = I.tiles.filter((t) => t.mirrored).map((t) => t.cam).sort().join();
-      ok(tag + "Mirrored bottom row on a Dashcam event: order Rear view", I.layout === "mirror" && I.pref === "mirror" && rowsOk(I, ["right_repeater", "back", "left_repeater"]), I);
+      ok(tag + "Mirrored bottom row on a Dashcam event: bottom row LEFT REPEATER | REAR | RIGHT REPEATER (videos flipped)", I.layout === "mirror" && I.pref === "mirror" && rowsOk(I, ["left_repeater", "back", "right_repeater"]), I);
       ok(tag + "only the 3 bottom videos are flipped (scale -1 1)", mir === "back,left_repeater,right_repeater" && I.tiles.filter((t) => t.mirrored).every((t) => t.vScale === "-1 1") && I.tiles.filter((t) => !t.mirrored).every((t) => t.vScale === "none"), I.tiles.map((t) => [t.cam, t.vScale]));
       ok(tag + "labels are NOT flipped", I.tiles.every((t) => t.labScale === "none" && (t.labTf === "none" || /^matrix\(1, 0, 0, 1/.test(t.labTf))), I.tiles.map((t) => [t.cam, t.labScale, t.labTf]));
       ok(tag + "export order (T.GRID) untouched", I.grid === GRID0);
@@ -84,7 +84,7 @@ ok("mirrorBox flips x about the centre, keeps y/w/h and extra fields", JSON.stri
       });
       ok(tag + "zoom on a flipped camera: video pan x negated (so dragging stays natural), plain transform kept for un-flipped layers", z.mirrored && z.F[2] > 1.5 && z.vid.includes("translate(" + -z.F[0] + "px") && z.plain.includes("translate(" + z.F[0] + "px") && (z.find === null || z.find === z.plain), z);
       await p.evaluate(() => TDC.focus.focus(null)); await W(300); await p.evaluate(() => TDC.focus.resetZoom && TDC.focus.resetZoom());
-      I = await info(); ok(tag + "back to the grid: preset kept", I.layout === "mirror" && rowsOk(I, ["right_repeater", "back", "left_repeater"]), I);
+      I = await info(); ok(tag + "back to the grid: preset kept", I.layout === "mirror" && rowsOk(I, ["left_repeater", "back", "right_repeater"]), I);
       await p.reload({ waitUntil: "load" }); await W(500);
       ok(tag + "choice is remembered after a reload", (await p.evaluate(() => [TDC.prefs.layout, document.getElementById("layoutSel").value])).join() === "mirror,mirror");
       await choose("auto"); await choose("rear"); I = await info();

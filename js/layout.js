@@ -1,7 +1,8 @@
 /* layout.js — camera layout presets (tag handoff-1).
  *   Current                 top: LEFT PILLAR | FRONT | RIGHT PILLAR   bottom: LEFT REPEATER | REAR | RIGHT REPEATER
  *   Rear view               top row unchanged; bottom: RIGHT REPEATER | REAR | LEFT REPEATER (the view you get looking back at the car)
- *   Mirrored bottom row     Rear view order, and the three bottom VIDEOS are flipped (like a mirror). Labels, detection boxes, redaction
+ *   Mirrored bottom row     bottom: LEFT REPEATER | REAR | RIGHT REPEATER (ui-v3: left and right swapped vs. the first version, which used the
+ *                           Rear view order), and the three bottom VIDEOS are flipped (like a mirror). Labels, detection boxes, redaction
  *                           and white balance overlays are NOT flipped: their positions follow the flipped picture, their text stays readable.
  *   Auto (default)          Sentry events: Rear view. Dashcam / saved / recent / anything else: Current.
  * The order is CSS `order` on `.tile[data-cam]` (rules in app.css keyed on `.grid[data-layout]`), so nothing is re-parented and the
@@ -14,7 +15,7 @@
   const PRESETS = {
     current: { label: "Current", bottom: ["left_repeater", "back", "right_repeater"], mirror: [] },
     rear: { label: "Rear view", bottom: ["right_repeater", "back", "left_repeater"], mirror: [] },
-    mirror: { label: "Mirrored bottom row", bottom: ["right_repeater", "back", "left_repeater"], mirror: ["right_repeater", "back", "left_repeater"] },
+    mirror: { label: "Mirrored bottom row", bottom: ["left_repeater", "back", "right_repeater"], mirror: ["left_repeater", "back", "right_repeater"] },
   };
   const AUTO_LABEL = "Auto (Sentry: Rear view, Dashcam: Current)";
   const CHOICES = ["auto", "current", "rear", "mirror"];
