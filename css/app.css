@@ -933,3 +933,7 @@ body.portrait .cv-chip { min-height: 28px; padding: 3px 5px; gap: 3px; font-size
 .slow-note .btn { flex: none; }
 .slow-note b { color: #ffd23f; }
 .slow-note.upd b { color: #fff; }
+.export-size-line { margin: 4px 0 2px; line-height: 1.4; }
+.export-size-line.warn { color: var(--warn, #e6b450); }
+.export-extras { display: block; }
+.seg button:disabled { opacity: 0.4; cursor: not-allowed; }

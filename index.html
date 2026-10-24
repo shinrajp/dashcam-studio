@@ -245,7 +245,14 @@
           <div class="row wrap"><span>Burn in</span><div id="exportShow" class="mini-toggles"></div></div>
         </div>
         <label class="row burn-boxes-row" id="exportBoxesWrap" title="Draw the gold search boxes and their labels (name + confidence) into the exported video. Nothing is drawn where there is no box."><span>Burn detection boxes</span><input type="checkbox" id="exportBoxes"></label>
+        <div class="export-extras" id="exportExtras">
+          <div class="row wrap" id="orderRow" title="Which camera goes where in the exported picture. Match viewer follows the layout you chose in the viewer (Rear view, Mirrored bottom row…); Standard fixed order is always left pillar · front · right pillar / left repeater · rear · right repeater."><span>Camera order</span><div class="seg" id="segOrder"><button data-v="viewer">Match viewer</button><button data-v="standard">Standard fixed order</button></div></div>
+          <div class="row wrap" id="extrasRow" title="Where the map, HUD and car view go. On the picture: floating over the cameras where they sit in the viewer. Fill black area: into the black strip of the 1920×1080 picture. Add panel: the picture grows by an extra strip, the cameras keep their full size."><span>Map, HUD &amp; car view</span><div class="seg" id="segExtras"><button data-v="overlay">On the picture</button><button data-v="fill" id="segExtrasFill">Fill black area</button><button data-v="panel">Add panel</button></div></div>
+          <label class="row burn-boxes-row" id="exportHudWrap" hidden title="Draw the speed / gear / steering / pedals HUD into the exported video."><span>Include HUD</span><input type="checkbox" id="exportHud"></label>
+          <label class="row burn-boxes-row" id="exportMapWrap" hidden title="Draw the route map with the car's position into the exported video."><span>Include map</span><input type="checkbox" id="exportMap"></label>
+        </div>
         <label class="row burn-boxes-row" id="exportCarWrap" hidden title="Draw the car view (car, camera wedges and the coloured people) into the exported video, where you put it on screen. If it sits outside the picture it is moved to the nearest edge or corner."><span>Include car view</span><input type="checkbox" id="exportCar" checked></label>
+        <p class="hint export-size-line" id="exportSizeLine"></p>
         <p class="hint export-style-note" id="exportStyleNote" hidden></p>
         <label class="row burn-boxes-row" id="exportPlatesWrap" hidden title="Blur licence plates found by the plate reader (Settings ▸ Plates & text). The first export of an event scans it for plates first."><span>Blur licence plates</span><input type="checkbox" id="exportPlates"></label>
         <p class="hint" id="exportHint"></p>

@@ -35,7 +35,7 @@
       map: { fx: 0.985, fy: 0.975, wu: 400, hu: 300 },
       fsd: { fx: 0.5, fy: 0.035 },
     },
-    export: { preset: "compat", codec: "h264", res: "native", range: "full" },
+    export: { preset: "compat", codec: "h264", res: "native", range: "full", extras: "auto", order: "viewer" },   // extras: auto | overlay | fill | panel (auto = Fill black area when the picture has one, else Add panel); order: viewer | standard
     rate: 1,
     cameraBar: { on: true, hintSeen: false, dock: "over", side: "top", grid: { fx: -1, fy: -1 }, focus: { fx: -1, fy: -1 } },
     cue: true,   // hand-off cue (js/handoff.js)

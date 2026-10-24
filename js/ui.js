@@ -726,12 +726,14 @@
     const box = $("exportShow"); box.innerHTML = "";
     U.exportShow = { ...T.prefs.show };
     for (const [k, l] of SHOW_LABELS) {
+      if (k === "hud" || k === "map") continue;   // export-panel: "Include HUD" / "Include map" ticks below
       const c = T.el("button", "chip" + (U.exportShow[k] ? " on" : ""), l.replace("Telemetry ", "").replace("Self-driving status", "Self-Driving"));
       c.onclick = () => { U.exportShow[k] = !U.exportShow[k]; c.classList.toggle("on", U.exportShow[k]); };
       box.appendChild(c);
     }
     const cvOn = !!(T.carView && T.carView.on && T.carView.on() && T.player.ev), cw = $("exportCarWrap");   // "Include car view": only when the car view is on screen; ticked by default
     if (cw) { cw.hidden = !cvOn; $("exportCar").checked = true; $("exportCar").disabled = !cvOn; }
+    initExportExtras(ev, cvOn);
     const bx = $("exportBoxes");
     const styleNote = () => {   // what the search switches mean for this export
       const n = $("exportStyleNote"), S = T.search; if (!n || !S || !S.anyRd) return;
@@ -753,6 +755,67 @@
       [...sel.options].forEach((o) => { if (sup[o.value] === false) o.textContent = T.exporter.CODECS[o.value].label + " — not available here"; });
     });
   }
+  // ── export-panel: camera order, where the map / HUD / car view go, and the final size ──
+  /** The saved choice, or the default: Fill black area when the 1920×1080 picture has a black strip worth using, else Add panel. */
+  U.extrasDefault = (ev, preset) => {
+    if (preset === "equirect") return "overlay";
+    if (preset === "compat" && ev && ev.tile) { const g = T.compositor.geometry(1920, 1080, ev.tile, false); if (g.band && g.band.h >= T.compositor.USABLE_BAND) return "fill"; }
+    return "panel";
+  };
+  U.extrasMode = (ev, preset) => { const c = T.prefs.export.extras; return T.compositor.EXTRA_MODES.includes(c) ? c : U.extrasDefault(ev, preset); };
+  const curPreset = () => (T.prefs.advanced ? document.querySelector("input[name=preset]:checked").value : "compat");
+  /** What the dialog currently asks for, in the shape X.run / X.plan take. */
+  U.exportRequest = () => {
+    const ev = P().ev, preset = curPreset(), eq = preset === "equirect";
+    const wrap = (id) => $(id) && !$(id).hidden;
+    const base = T.prefs.advanced && U.exportShow ? U.exportShow : T.prefs.show;
+    const show = { ...base, hud: wrap("exportHudWrap") && $("exportHud").checked, map: wrap("exportMapWrap") && $("exportMap").checked, carview: !!($("exportCarWrap") && !$("exportCarWrap").hidden && $("exportCar").checked) };
+    return { preset, codec: $("exportCodec").value, sizeId: $("exportSize").value, show, order: T.prefs.export.order === "standard" ? "standard" : "viewer", extras: { mode: eq ? "overlay" : U.extrasMode(ev, preset) } };
+  };
+  let sizeTick = 0;
+  /** Final output size (and any warning) for the current choices; re-run after any change. */
+  async function refreshExportSize() {
+    const my = ++sizeTick, ev = P().ev, line = $("exportSizeLine");
+    if (!line || !ev) return;
+    const rq = U.exportRequest();
+    if (rq.preset === "equirect") { line.textContent = "Output: 2048×1024 (360 panorama)."; line.classList.remove("warn"); return; }
+    let txt = "";
+    try {
+      const plan = await T.exporter.plan(rq, ev);
+      if (my !== sizeTick) return;
+      const c = (plan.pick && plan.pick.cand) || plan.cands[0], g = c.geo;
+      txt = "Output: " + c.W + "×" + c.H;
+      if (g.mode === "panel") txt += " — camera grid " + g.grid.w + "×" + g.grid.h + (g.grid.w === ev.tile.w * 3 && g.grid.h === ev.tile.h * 2 ? " (native, unscaled)" : "") + " + " + (g.strip.h < g.grid.h || g.strip.w >= g.grid.w ? g.strip.h + " px panel strip below" : g.strip.w + " px panel strip at the side") + " for " + g.panels.map((p) => ({ hud: "HUD", map: "map", car: "car view" }[p.k])).join(", ");
+      else if (g.mode === "fill") txt += " — " + (g.panels.length ? g.panels.map((p) => ({ hud: "HUD", map: "map", car: "car view" }[p.k])).join(", ") + " in the black area below the cameras" : "nothing ticked for the black area");
+      else if (g.mode === "overlay") txt += " — map, HUD and car view float over the cameras";
+      txt += plan.pick ? " · " + T.exporter.CODECS[plan.pick.k].label + (plan.pick.cfg.hardwareAcceleration === "prefer-hardware" ? " (hardware)" : " (software)") + "." : ".";
+      const notes = [plan.note, g.note].filter(Boolean);
+      line.classList.toggle("warn", !!notes.length);
+      if (notes.length) txt += " ⚠ " + notes.join(" ");
+    } catch (e) { txt = ""; console.warn("size preview", e); }
+    if (my === sizeTick) line.textContent = txt;
+  }
+  U.refreshExportSize = refreshExportSize;
+  function syncExtrasUi() {
+    const ev = P().ev, preset = curPreset(), eq = preset === "equirect", av = T.compositor.extrasAvailable();
+    $("extrasRow").hidden = eq; $("orderRow").hidden = eq;
+    $("exportHudWrap").hidden = eq || !av.hud; $("exportMapWrap").hidden = eq || !av.map;
+    const mode = U.extrasMode(ev, preset);
+    seg($("segExtras"), mode, (v) => { T.setPref("export.extras", v); syncExtrasUi(); });
+    const fillOk = preset === "compat" ? U.extrasDefault(ev, "compat") === "fill" : false;
+    $("segExtrasFill").disabled = !fillOk;
+    $("segExtrasFill").title = fillOk ? "" : "This output has no black area (it is the cameras' own shape). Add panel grows the picture instead.";
+    seg($("segOrder"), T.prefs.export.order === "standard" ? "standard" : "viewer", (v) => { T.setPref("export.order", v); syncExtrasUi(); });
+    const L = T.layout, lbl = L && L.PRESETS && L.PRESETS[L.preset] ? L.PRESETS[L.preset].label : "";
+    $("segOrder").querySelector('[data-v="viewer"]').textContent = "Match viewer" + (lbl ? " (" + lbl + ")" : "");
+    refreshExportSize();
+  }
+  function initExportExtras(ev, cvOn) {
+    $("exportHud").checked = !!T.prefs.show.hud; $("exportMap").checked = !!T.prefs.show.map;
+    for (const id of ["exportHud", "exportMap", "exportCar", "exportCodec", "exportSize"]) $(id).onchange = refreshExportSize;
+    syncExtrasUi();
+  }
+
   function updateExportHint() {
     const ev = P().ev;
     const preset = document.querySelector('input[name=preset]:checked').value;
@@ -820,8 +883,7 @@
         catch (e) { console.warn("plate blur skipped", e); T.toast("Plates could not be found (" + (e.message || e) + "). Exporting without plate blur.", "err", 7000); }
       }
       const res = await T.exporter.run({
-        preset, codec: $("exportCodec").value, sizeId: $("exportSize").value, ranges: U.ranges(),
-        show: { ...(T.prefs.advanced ? U.exportShow : T.prefs.show), carview: !!($("exportCarWrap") && !$("exportCarWrap").hidden && $("exportCar").checked) },
+        ...(({ preset: _p, codec: _c, sizeId: _s, ...rest }) => rest)(U.exportRequest()), preset, codec: $("exportCodec").value, sizeId: $("exportSize").value, ranges: U.ranges(),
         onStatus: (s) => U.progress(0, s),
         onProgress: (d, tot) => {
           const el = (performance.now() - t0) / 1000, pct = (d / tot) * 100;
@@ -934,7 +996,7 @@
 
     // export
     $("btnExport").onclick = openExport;
-    document.querySelectorAll('input[name=preset]').forEach((r) => (r.onchange = updateExportHint));
+    document.querySelectorAll('input[name=preset]').forEach((r) => (r.onchange = () => { updateExportHint(); if ($("extrasRow")) syncExtrasUi(); }));
     $("btnExportGo").onclick = runSingleExport;
     $("btnExportCancel").onclick = () => { if (T.exporter.running) T.exporter.cancel(); else $("exportModal").hidden = true; };
     $("btnExportAll").onclick = () => T.auto.exportAllInteractive();

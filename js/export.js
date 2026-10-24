@@ -236,12 +236,79 @@
   }
   X.frameMap = frameMap;
 
+  // ── export-panel: layout options, candidate sizes, hardware-aware strip cap ──────────────────────────────
+  /** Layout options shared by the dialog's size read-out and the run. opts: { extras:{mode}, order:"viewer"|"standard", show }. */
+  X.layoutBase = (opts) => {
+    const C = T.compositor, show = opts.show || {}, ex = opts.extras || {};
+    const mode = C.EXTRA_MODES.includes(ex.mode) ? ex.mode : "overlay";
+    const co = C.cameraOrder(opts.order === "viewer" ? "viewer" : "standard");
+    return { mode, want: { hud: !!show.hud, map: !!show.map, car: !!show.carview }, time: !!show.time, order: co.order, mirror: co.mirror };
+  };
+  /** Candidate outputs, best first: the layout the user asked for at its full size, a thinner strip, 75%, 50%, then a plain 1920×1080. */
+  X.candidates = (opts, ev) => {
+    const C = T.compositor, base = X.layoutBase(opts), compat = opts.preset !== "original", out = [], seen = new Set();
+    const add = (W, H, exact, frac, mode, tag) => {
+      const lay = C.layout({ ...base, mode, W, H, tile: ev.tile, exact, frac });
+      const id = lay.W + "x" + lay.H + (lay.mode === base.mode ? "" : ":" + lay.mode) + ":" + lay.panels.length;
+      if (seen.has(id)) return; seen.add(id);
+      out.push({ W: lay.W, H: lay.H, exact: !!exact, geo: lay, tag });
+    };
+    if (compat) {
+      add(1920, 1080, false, null, base.mode, "full");
+      if (base.mode === "panel") add(1920, 1080, false, null, "fill", "fill");   // no encoder for the taller picture: back to exactly 1920×1080
+      if (base.mode !== "overlay") add(1920, 1080, false, null, "overlay", "plain");
+    } else {
+      const so = X.sizeOptions(ev), pk = so.find((z) => z.id === opts.sizeId) || so[0];
+      add(pk.W, pk.H, true, null, base.mode, "full");
+      if (base.mode === "panel") add(pk.W, pk.H, true, 0.14, base.mode, "thin");
+      for (const f of [0.75, 0.5]) add(even(pk.W * f), even(pk.H * f), true, null, base.mode, "p" + f * 100);
+      add(1920, 1080, false, null, base.mode === "overlay" ? "overlay" : "fill", "compat");
+    }
+    return out;
+  };
+  X.codecKeys = (opts) => { const compat = opts.preset !== "original", key = compat ? "h264" : opts.codec || "h264"; return { key, keys: compat ? ["h264", "vp9", "av1"] : [key, ...["h264", "hevc", "vp9", "av1"].filter((k) => k !== key)] }; };
+  /** Plan an export: ordered candidates + the first one this browser can encode. A strip that would push the picture past what the
+   *  HARDWARE encoder takes (while the plain grid fits) is thinned first; the result says what changed (note) so the dialog can warn. */
+  X.plan = async (opts, ev) => {
+    const compat = opts.preset !== "original", fps = compat ? 30 : ev.fps || 36, { key, keys } = X.codecKeys(opts);
+    let cands = X.candidates(opts, ev);
+    const hwOf = async (W, H) => { const c = await encoderConfig(key, W, H, fps); return c ? c.hardwareAcceleration === "prefer-hardware" : null; };
+    let note = null;
+    if (!X.webcodecs()) return { cands, fps, key, keys, pick: null, note: "This browser records in real time (no WebCodecs encoder).", realtime: true };
+    const c0 = cands[0];
+    if (c0.geo.mode === "panel" && cands[1] && cands[1].tag === "thin") {
+      const hw0 = await hwOf(c0.W, c0.H);
+      if (hw0 === false && (await hwOf(c0.geo.gridW, c0.geo.gridH)) === true && (await hwOf(cands[1].W, cands[1].H)) === true) {
+        cands = [cands[1], c0, ...cands.slice(2)];
+        note = "The full panel strip would not fit this device's hardware encoder, so the strip is thinner (" + cands[0].W + "×" + cands[0].H + ") to keep the export fast.";
+      }
+    }
+    let pick = null;
+    outer: for (const c of cands) for (const k of keys) {
+      const cfg = await encoderConfig(k, c.W, c.H, fps);
+      if (cfg) { pick = { cand: c, k, cfg }; break outer; }
+    }
+    if (pick && pick.cand !== cands[0] && !note) {
+      const a = cands[0], b = pick.cand;
+      note = a.W + "×" + a.H + " can't be encoded here — " + (pick.cand.geo.panels.length || a.geo.panels.length ? "using " : "using ") + b.W + "×" + b.H + (b.geo.mode !== a.geo.mode ? " (" + (b.geo.mode === "overlay" ? "panels float on the picture" : b.geo.mode === "fill" ? "panels fill the black area" : "with a panel strip") + ")" : "") + ".";
+    } else if (pick && pick.k !== key && !note) note = X.CODECS[key].label + " isn't available at this size — using " + X.CODECS[pick.k].label + ".";
+    if (!pick) note = "No encoder in this browser can make " + cands[0].W + "×" + cands[0].H + ".";
+    return { cands, fps, key, keys, pick, note };
+  };
+  /** Pre-load the map tiles the export will draw (overlay map or the panel map) for this candidate. */
+  async function prefetchMap(geo, show, ranges, status) {
+    const times = []; for (const r of ranges) { for (let t = r[0]; t < r[1]; t += 1) times.push(t); times.push(r[1]); }
+    const mp = geo.panels && geo.panels.find((p) => p.k === "map");
+    if (mp) { status("Loading map tiles…"); await T.map.prefetch(mp.wu, mp.hu, mp.su, times, 8000); }
+    else if (show.map && geo.mode !== "fill" && geo.mode !== "panel") { status("Loading map tiles…"); await T.map.prefetch(T.prefs.panels.map.wu, T.prefs.panels.map.hu, T.compositor.unitScale(geo.grid.h), times, 8000); }
+  }
+
   async function encodeOnce(cand, ev, ranges, fps, show, onProgress) {
     const { W, H } = cand;
     const canvas = document.createElement("canvas");
     canvas.width = W; canvas.height = H;
     const ctx = canvas.getContext("2d", { alpha: false });
-    const geo = T.compositor.geometry(W, H, ev.tile, cand.exact);
+    const geo = cand.geo || T.compositor.geometry(W, H, ev.tile, cand.exact);
     const { muxer, target, type } = makeMuxer(cand.key, W, H, fps);
     let encErr = null;
     const waiters = [];
@@ -282,11 +349,11 @@
   }
 
   /** Real-time fallback for browsers without WebCodecs encoding. */
-  async function recordRealtime(ev, ranges, W, H, show, onProgress) {
+  async function recordRealtime(ev, ranges, W, H, show, onProgress, geo0) {
     const canvas = document.createElement("canvas");
     canvas.width = W; canvas.height = H;
     const ctx = canvas.getContext("2d");
-    const geo = T.compositor.geometry(W, H, ev.tile, false);
+    const geo = geo0 || T.compositor.geometry(W, H, ev.tile, false);
     const mime = ["video/mp4;codecs=avc1", "video/mp4", "video/webm;codecs=vp9", "video/webm"].find((m) => window.MediaRecorder && MediaRecorder.isTypeSupported(m));
     if (!mime) throw new Error("This browser can't record video (no WebCodecs or MediaRecorder).");
     const rec = new MediaRecorder(canvas.captureStream(30), { mimeType: mime, videoBitsPerSecond: 10e6 });
@@ -409,45 +476,37 @@
       }
       const compat = opts.preset !== "original";
       const fps = compat ? 30 : ev.fps || 36;
-      let target, key = compat ? "h264" : opts.codec || "h264";
-      if (compat) target = { W: 1920, H: 1080, exact: false };
-      else { const so = X.sizeOptions(ev); const pickd = so.find((s) => s.id === opts.sizeId) || so[0]; target = { W: pickd.W, H: pickd.H, exact: true }; }
-      // map tiles for the burned-in map
-      if (show.map) {
-        status("Loading map tiles…");
-        const geo = T.compositor.geometry(target.W, target.H, ev.tile, target.exact);
-        const s = T.compositor.unitScale(geo.grid.h);
-        const times = []; for (const r of ranges) { for (let t = r[0]; t < r[1]; t += 1) times.push(t); times.push(r[1]); }
-        await T.map.prefetch(T.prefs.panels.map.wu, T.prefs.panels.map.hu, s, times, 8000);
-      }
-      const name = fileName(ev, compat ? "compatible" : "original", target, key);
+      const { key, keys } = X.codecKeys(opts);
+      const kind = compat ? "compatible" : "original";
+      const nameFor = (sz, k) => fileName(ev, kind, sz, k);
       if (!X.webcodecs()) {
+        const c = X.candidates({ ...opts, preset: "compat" }, ev)[0];   // the real-time recorder is always 1920-wide
+        await prefetchMap(c.geo, show, ranges, status);
         status("Recording in real time (this browser has no WebCodecs encoder)…");
-        const r = await recordRealtime(ev, ranges, 1920, 1080, show, opts.onProgress || (() => {}));
+        const r = await recordRealtime(ev, ranges, c.W, c.H, show, opts.onProgress || (() => {}), c.geo);
         const ext = r.type === "video/mp4" ? "mp4" : "webm";
-        return { ...r, name: name.replace(/\.\w+$/, "." + ext), W: 1920, H: 1080, codec: r.type, note: "real-time capture" };
+        return { ...r, name: nameFor(c, key).replace(/\.\w+$/, "." + ext), W: c.W, H: c.H, codec: r.type, note: "real-time capture", layout: c.geo.mode };
       }
-      // candidate chain: requested codec/size first, then fall back (never upscale)
-      const sizes = [target];
-      if (!compat) for (const f of [0.75, 0.5]) sizes.push({ W: even(target.W * f), H: even(target.H * f), exact: true });
-      if (!compat) sizes.push({ W: 1920, H: 1080, exact: false });
-      const keys = compat ? ["h264", "vp9", "av1"] : [key, ...["h264", "hevc", "vp9", "av1"].filter((k) => k !== key)];
+      // candidate chain: requested layout/codec/size first, then fall back (never upscale)
+      const plan = await X.plan(opts, ev), target = plan.cands[0];
       const tried = [];
-      for (const sz of sizes) for (const k of keys) {
+      for (const sz of plan.cands) for (const k of keys) {
         if (X.cancelled) throw new Error("cancelled");
         const cfg = await encoderConfig(k, sz.W, sz.H, fps);
         if (!cfg) { tried.push(`${X.CODECS[k].label} ${sz.W}×${sz.H}: not supported`); continue; }
         const label = `${X.CODECS[k].label} · ${cfg.hardwareAcceleration === "prefer-hardware" ? "hardware" : "software"} · ${sz.W}×${sz.H} · ${fps} fps`;
+        await prefetchMap(sz.geo, show, ranges, status);
         status("Exporting · " + label);
         try {
-          const r = await encodeOnce({ key: k, W: sz.W, H: sz.H, exact: sz.exact, cfg }, ev, ranges, fps, show, opts.onProgress || (() => {}));
+          const r = await encodeOnce({ key: k, W: sz.W, H: sz.H, exact: sz.exact, cfg, geo: sz.geo }, ev, ranges, fps, show, opts.onProgress || (() => {}));
           let note = null;
-          if (k !== key || sz.W !== target.W) note = `${X.CODECS[key].label} at ${target.W}×${target.H} wasn't available here — used ${X.CODECS[k].label} at ${sz.W}×${sz.H}` + (tried.length ? ` (tried: ${tried.join("; ")})` : "");
-          const n = fileName(ev, compat ? "compatible" : "original", sz, k);
-          return { ...r, name: n, W: sz.W, H: sz.H, codec: cfg.codec, key: k, hw: cfg.hardwareAcceleration === "prefer-hardware", fps, label, note };
+          if (k !== key || sz.W !== target.W || sz.H !== target.H || sz.geo.mode !== target.geo.mode) note = `${X.CODECS[key].label} at ${target.W}×${target.H} wasn't available here — used ${X.CODECS[k].label} at ${sz.W}×${sz.H}` + (tried.length ? ` (tried: ${tried.join("; ")})` : "");
+          else if (plan.note) note = plan.note;
+          if (sz.geo.note) note = (note ? note + " " : "") + sz.geo.note;
+          return { ...r, name: nameFor(sz, k), W: sz.W, H: sz.H, codec: cfg.codec, key: k, hw: cfg.hardwareAcceleration === "prefer-hardware", fps, label, note, layout: sz.geo.mode, grid: sz.geo.grid, panels: sz.geo.panels };
         } catch (e) {
           if (X.cancelled || String(e && e.message) === "cancelled") throw new Error("cancelled");
-          console.warn("encode attempt failed", k, sz, e);
+          console.warn("encode attempt failed", k, sz.W + "x" + sz.H, e);
           tried.push(`${label}: ${e.message || e}`);
         }
       }
