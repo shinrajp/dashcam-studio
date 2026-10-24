@@ -196,7 +196,7 @@
   // ── legs-fix (tag legs-fix): a person walking right behind the car (REAR camera, fisheye) fills the frame with a dark, headless
   // shape that COCO models call "cat" (measured on a real frame: cat 0.87, person 0.003, in yolo11n, yolo11s and yolo11n-320), so a
   // score cut-off can't help. A cat that fills a big part of a car camera is not plausible, so a big animal box is a person candidate:
-  //   "extreme" (rear: >= 20 % of the frame, other cameras: >= 30 %)  → person at once;
+  //   "extreme" (rear: >= 20 % of the frame, other cameras: >= 30 %, and there only cat / dog / teddy bear; the rear camera takes every animal class)  → person at once;
   //   "large"   (rear: >= 10 %, or >= 5 % and 30 % tall touching an edge; other cameras 18 % / 10 % and 40 % tall) → a WEAK person that the
   //             tracker confirms over 3 looks (js/detect.js weakHit), unless a zoomed second look on the legs finds a person >= 25 %.
   // Small or distant animals are not touched. Also on the rear camera a low-scoring person box that touches the frame edge (legs only) is
@@ -204,10 +204,11 @@
   const ANIMALS = new Set(["cat", "dog", "horse", "sheep", "cow", "elephant", "bear", "zebra", "giraffe", "teddy bear"]);
   D.LEGS = { rear: { area: 0.10, edgeArea: 0.05, extreme: 0.20 }, other: { area: 0.18, edgeArea: 0.10, extreme: 0.30 }, weakConf: 0.3, lowCut: 0.2, lookGap: 1500, lookConf: 0.25 };
   D.legsOn = () => { try { return localStorage.getItem("tdc.legsfix") !== "0"; } catch (_) { return true; } };
+  const HOUSEHOLD = new Set(["cat", "dog", "teddy bear"]);   // on the side and front cameras only these: a horse or cow in a field next to the road can really fill a big part of the frame
   const edgeTouch = (d) => d.y + d.h > 0.94 || d.x < 0.02 || d.x + d.w > 0.98 || d.y < 0.02;
   /** null (leave as is), "large" or "extreme" for an animal-class box. */
   D.legsLevel = (d, cam) => {
-    if (!d || !ANIMALS.has(d.label)) return null;
+    if (!d || !ANIMALS.has(d.label) || (cam !== "back" && !HOUSEHOLD.has(d.label))) return null;
     const L = cam === "back" ? D.LEGS.rear : D.LEGS.other, a = d.w * d.h;
     if (a >= L.extreme) return "extreme";
     if (a >= L.area || (edgeTouch(d) && a >= L.edgeArea && d.h >= (cam === "back" ? 0.3 : 0.4))) return "large";
