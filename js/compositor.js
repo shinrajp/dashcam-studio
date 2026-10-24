@@ -31,6 +31,103 @@
     return { W, H, grid, band: band >= 40 ? { x: 0, y: gh, w: W, h: band } : null };
   };
 
+  // ── export-panel: where the car view, map and HUD go in the exported picture ──────────────────────────────
+  //  "overlay"  (the old behaviour): panels float on the camera grid where they sit in the viewer.
+  //  "fill"     the black letterbox strip of a fixed-size output (Most Compatible 1920×1080) holds the panels; nothing is added.
+  //  "panel"    the output grows: a strip below the camera grid (a strip at the side if the grid is taller than wide). The grid keeps its own
+  //             size, unscaled (Original resolution: native pixels; Most Compatible: its 1920-wide grid).
+  C.EXTRA_MODES = ["overlay", "fill", "panel"];
+  C.USABLE_BAND = 96;         // a letterbox thinner than this (px) is not worth filling
+  C.STRIP_FRAC = 0.26;        // default strip size as a share of the grid's height (width for a side strip)
+  C.STRIP_MIN = 120;          // never thinner than this (px) unless the grid itself is smaller
+  const even = (v) => Math.max(2, Math.round(v / 2) * 2);
+
+  /** Which of HUD / map exist for the open event (the car view is judged by the dialog: it is on screen). */
+  C.extrasAvailable = () => {
+    const tel = T.telemetry, ev = T.player && T.player.ev;
+    let hud = false;
+    try { const lay = T.hud.layout(tel.status); hud = lay.mode === "full" || (lay.mode === "message" && tel.status !== "none"); } catch (_) {}
+    const map = !!((tel.route && tel.route().length > 0) || (ev && ev.location && ev.location.lat != null));
+    return { hud, map };
+  };
+  /** Aspect (w/h) of each panel; only the wanted + available ones. want = { hud, map, car }. */
+  C.extraItems = (want, avail) => {
+    avail = avail || C.extrasAvailable();
+    const out = [];
+    if (want.hud && avail.hud) { let a = 5; try { const l = T.hud.layout(T.telemetry.status); if (l.w && l.h) a = l.w / l.h; } catch (_) {} out.push({ k: "hud", a }); }
+    if (want.map && avail.map) { const mp = T.prefs.panels.map; out.push({ k: "map", a: mp.wu / mp.hu }); }
+    if (want.car && avail.car !== false) out.push({ k: "car", a: 1 });
+    return out;
+  };
+  /** Pack panels into rect r (row, or column when vert), each as large as fits, centred. */
+  C.arrange = (r, items, vert) => {
+    if (!items.length || r.w < 8 || r.h < 8) return [];
+    const pad = Math.max(6, Math.round(Math.min(r.w, r.h) * 0.05)), gap = pad, n = items.length;
+    let out;
+    if (!vert) {
+      const sumA = items.reduce((a, i) => a + i.a, 0);
+      const h = Math.max(4, Math.min(r.h - 2 * pad, (r.w - 2 * pad - gap * (n - 1)) / sumA));
+      const tot = sumA * h + gap * (n - 1);
+      let x = r.x + (r.w - tot) / 2; const y = r.y + (r.h - h) / 2;
+      out = items.map((i) => { const o = { k: i.k, x, y, w: i.a * h, h }; x += i.a * h + gap; return o; });
+    } else {
+      const sumI = items.reduce((a, i) => a + 1 / i.a, 0);
+      const w = Math.max(4, Math.min(r.w - 2 * pad, (r.h - 2 * pad - gap * (n - 1)) / sumI));
+      const tot = sumI * w + gap * (n - 1);
+      let y = r.y + (r.h - tot) / 2; const x = r.x + (r.w - w) / 2;
+      out = items.map((i) => { const o = { k: i.k, x, y, w, h: w / i.a }; y += w / i.a + gap; return o; });
+    }
+    return out.map((o) => {
+      const q = { k: o.k, x: Math.round(o.x), y: Math.round(o.y), w: Math.round(o.w), h: Math.round(o.h) };
+      if (o.k === "map") { const mp = T.prefs.panels.map; q.su = q.h / mp.hu; q.hu = mp.hu; q.wu = q.w / q.su; }   // drawing units + scale for T.map.draw / prefetch
+      return q;
+    });
+  };
+  /** Strip size (px) for a base grid gw × gh: the share of the long side's partner, capped so the strip never needs more than the panels fit. */
+  C.stripSize = (gw, gh, items, frac) => {
+    frac = frac || C.STRIP_FRAC;
+    const vert = gh > gw;
+    const base = vert ? gw : gh;
+    let sz = Math.max(Math.min(C.STRIP_MIN, base), Math.round(base * frac));
+    if (items.length) {   // no taller than the panels can use
+      const pad = 12, n = items.length;
+      if (!vert) { const sumA = items.reduce((a, i) => a + i.a, 0); sz = Math.min(sz, (gw - 2 * pad - pad * (n - 1)) / sumA + 2 * pad); }
+      else { const sumI = items.reduce((a, i) => a + 1 / i.a, 0); sz = Math.min(sz, (gh - 2 * pad - pad * (n - 1)) / sumI + 2 * pad); }
+    }
+    return even(Math.max(sz, 2 * 12 + 24));
+  };
+  /** Full output layout. o = { mode, W, H, tile, exact, want:{hud,map,car}, avail, time, frac, order, mirror }.
+   *  Returns { W, H, grid, band, mode, panels, strip, order, mirror, note } — geo for drawFrame. mode is what was really used. */
+  C.layout = (o) => {
+    const items = o.mode === "overlay" ? [] : C.extraItems(o.want || {}, o.avail);
+    const mk = (geo, mode, extra) => Object.assign(geo, { mode, order: o.order || null, mirror: o.mirror || [], panels: [], strip: null, note: null }, extra || {});
+    if (o.mode !== "fill" && o.mode !== "panel") return mk(C.geometry(o.W, o.H, o.tile, o.exact), "overlay");
+    if (!items.length) return mk(C.geometry(o.W, o.H, o.tile, o.exact), o.mode, { extrasOnly: true });   // nothing ticked: plain picture, overlays stay off
+    let mode = o.mode, note = null;
+    const g0 = C.geometry(o.W, o.H, o.tile, o.exact);
+    if (mode === "fill") {
+      if (o.exact || !g0.band || g0.band.h < C.USABLE_BAND || g0.grid.w < o.W - 8) { mode = "panel"; note = "This size has no black area to fill, so the panels get an added strip instead."; }
+      else {
+        const b = g0.band, tr = o.time === false ? 0 : Math.max(28, Math.min(56, Math.round(b.h * 0.2)));
+        const reg = { x: 0, y: b.y + tr, w: o.W, h: b.h - tr };
+        return mk({ W: o.W, H: o.H, grid: g0.grid, band: tr ? { x: 0, y: b.y, w: o.W, h: tr } : null }, "fill", { panels: C.arrange(reg, items, false), strip: { x: 0, y: b.y, w: o.W, h: b.h } });
+      }
+    }
+    // add a strip: the base grid is native (exact) or the compatible preset's own 1920-wide grid
+    let gw, gh;
+    if (o.exact) { gw = o.W; gh = o.H; } else { const aspect = (3 * o.tile.w) / (2 * o.tile.h); gw = o.W; gh = even(o.W / aspect); }
+    const vert = gh > gw, sz = C.stripSize(gw, gh, items, o.frac);
+    const W = vert ? gw + sz : gw, H = vert ? gh : gh + sz;
+    const strip = vert ? { x: gw, y: 0, w: sz, h: gh } : { x: 0, y: gh, w: gw, h: sz };
+    return mk({ W, H, grid: { x: 0, y: 0, w: gw, h: gh }, band: null }, "panel", { panels: C.arrange(strip, items, vert), strip, note, gridW: gw, gridH: gh, stripSize: sz });
+  };
+  /** Camera order and flipped cameras for "Match viewer" (the viewer's layout preset) or "Standard fixed order". */
+  C.cameraOrder = (how) => {
+    const L = T.layout;
+    if (how === "viewer" && L && L.gridOrder) return { order: L.gridOrder(L.preset), mirror: T.GRID.filter((c) => L.mirrored(c)) };
+    return { order: T.GRID.slice(), mirror: [] };
+  };
+
   function drawContain(ctx, img, iw, ih, r) {
     const s = Math.min(r.w / iw, r.h / ih);
     const w = iw * s, h = ih * s;
@@ -57,6 +154,31 @@
   /** Format the wall-clock time. */
   C.stamp = (d) => (d ? `${T.fmtDate(d)}  ${T.fmtClock(d)}` : "");
 
+  /** Draw the HUD / map / car view into their own rectangles (export "Fill black area" and "Add panel"). */
+  C.drawPanels = (ctx, panels, t) => {
+    const tel = T.telemetry, st = tel.at(t);
+    for (const p of panels) {
+      try {
+        ctx.save(); ctx.beginPath(); ctx.rect(p.x, p.y, p.w, p.h); ctx.clip();
+        if (p.k === "hud") {
+          const lay = T.hud.layout(tel.status);
+          if (lay.w && lay.h) {
+            const s = Math.min(p.w / lay.w, p.h / lay.h);
+            ctx.translate(p.x + (p.w - lay.w * s) / 2, p.y + (p.h - lay.h * s) / 2); ctx.scale(s, s);
+            T.hud.draw(ctx, lay, st, tel.status);
+          }
+        } else if (p.k === "map") {
+          ctx.translate(p.x, p.y); ctx.scale(p.su, p.su);
+          T.map.draw(ctx, p.wu, p.hu, p.su, t, { load: false });
+        } else if (p.k === "car" && T.carView && T.carView.drawCanvas) {
+          const S = Math.min(p.w, p.h);
+          T.carView.drawCanvas(ctx, p.x + (p.w - S) / 2, p.y + (p.h - S) / 2, S, T.carView.itemsAt ? T.carView.itemsAt(t) : []);
+        }
+        ctx.restore();
+      } catch (e) { try { ctx.restore(); } catch (_) {} console.warn("export panel", p.k, e); }
+    }
+  };
+
   /**
    * Draw a frame. geo from C.geometry; frames: { cam: { img, w, h } | null }; t = event time.
    * show = which overlays to burn in (defaults to the user's current toggles).
@@ -68,19 +190,26 @@
     const ev = T.player.ev;
     const clip = ev ? ev.clips[T.player.clipIndexAt(t)] : null;
     const s = C.unitScale(grid.h);
-    T.GRID.forEach((cam, i) => {
+    const xm = geo.mode === "fill" || geo.mode === "panel";   // panels live outside the grid: the floating overlays are off
+    (geo.order || T.GRID).forEach((cam, i) => {
       const r = C.cellRect(grid, i, 0);
       const f = frames[cam];
       if (f && f.img) {
+        const flip = !!(geo.mirror && geo.mirror.includes(cam)), wantBoxes = T.burnBoxes && (show.boxes !== undefined ? show.boxes : T.burnBoxes.enabled());
+        if (flip) { ctx.save(); ctx.translate(r.x * 2 + r.w, 0); ctx.scale(-1, 1); }   // the viewer's mirrored bottom row: picture (and redaction patches) flipped
         drawContain(ctx, f.img, f.w, f.h, r);
         if (T.redact && T.redact.burn) T.redact.burn(ctx, cam, t, r, f.w, f.h, f.img);
-        if (T.burnBoxes && (show.boxes !== undefined ? show.boxes : T.burnBoxes.enabled())) T.burnBoxes.draw(ctx, cam, t, r, f.w, f.h);
+        if (flip) ctx.restore();
+        if (wantBoxes) {
+          if (flip && T.burnBoxes.at && T.layout) T.burnBoxes.draw(ctx, cam, t, r, f.w, f.h, T.burnBoxes.at(cam, t).map(T.layout.mirrorBox));   // boxes follow the flipped picture, their text stays readable
+          else T.burnBoxes.draw(ctx, cam, t, r, f.w, f.h);
+        }
       } else placeholder(ctx, r, cam, s, clip);
       if (show.labels) label(ctx, T.CAM_LABEL[cam], r, s * 0.9);
     });
     const tel = T.telemetry;
     const st = tel.at(t);
-    if (show.hud) {
+    if (show.hud && !xm) {
       const lay = T.hud.layout(tel.status);
       if (lay.mode === "full" || (lay.mode === "message" && tel.status !== "none")) {
         const p = C.place(grid, lay.w * s, lay.h * s, T.prefs.panels.hud);
@@ -90,7 +219,7 @@
       }
     }
     const hasRoute = tel.route().length > 0 || (ev && ev.location && ev.location.lat != null);
-    if (show.map && hasRoute) {
+    if (show.map && hasRoute && !xm) {
       const mp = T.prefs.panels.map;
       const p = C.place(grid, mp.wu * s, mp.hu * s, mp);
       ctx.save(); ctx.translate(p.x, p.y); ctx.scale(s, s);
@@ -123,6 +252,7 @@
         D.text(ctx, text, x + tw / 2, y + 14.5 * s, 17 * s, "#fff", "center", 700, true);
       }
     }
-    if (show.carview && T.carView && T.carView.drawExport) { try { T.carView.drawExport(ctx, grid, t); } catch (e) { console.warn("car view export", e); } }   // ui-v3: "Include car view"
+    if (xm && geo.panels && geo.panels.length) C.drawPanels(ctx, geo.panels, t);
+    if (show.carview && !xm && T.carView && T.carView.drawExport) { try { T.carView.drawExport(ctx, grid, t); } catch (e) { console.warn("car view export", e); } }   // ui-v3: "Include car view"
   };
 })();
