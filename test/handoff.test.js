@@ -95,4 +95,38 @@ const CV = require("../js/car-view.js");
   ok("car view: wedges tile the whole circle (no gap, no overlap)", (() => { const ks = Object.keys(CV.CAMS).map((k) => CV.CAMS[k]).sort((a, b) => a.lo - b.lo); return ks.every((c, i) => c.hi === (ks[i + 1] ? ks[i + 1].lo : ks[0].lo + 360)); })());
   ok("car view: six wedges", Object.keys(CV.CAMS).length === 6 && Object.keys(CV.CAMS).every((c) => /^M/.test(CV.wedgePath(c, 48))));
 }
+
+// ── re-identification helpers (reid.js, tag handoff-m4) ──
+const RE = require("../js/reid.js");
+{
+  const img = (w, h, shirt, pants, k) => { const px = new Uint8ClampedArray(w * h * 4); for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) { const i = (y * w + x) * 4, c = y < h * 0.5 ? shirt : pants; px[i] = Math.min(255, c[0] * k); px[i + 1] = Math.min(255, c[1] * k); px[i + 2] = Math.min(255, c[2] * k); px[i + 3] = 255; } return px; };
+  const sum = (a) => a.reduce((x, y) => x + y, 0), RED = [200, 30, 30], BLUE = [30, 60, 200], BLK = [20, 20, 20];
+  const h1 = RE.histFromRGBA(img(48, 96, RED, BLK, 1), 48, 96), h2 = RE.histFromRGBA(img(48, 96, RED, BLK, 0.7), 48, 96), h3 = RE.histFromRGBA(img(48, 96, BLUE, BLK, 1), 48, 96);
+  ok("colour descriptor: 32 bins summing to 1", h1.length === RE.BINS && Math.abs(sum(h1) - 1) < 0.02, sum(h1));
+  ok("colour descriptor: the same clothes under dimmer light are closer than different clothes (Bhattacharyya)", PE.bhat(h1, h2) > PE.bhat(h1, h3) + 0.2, [PE.bhat(h1, h2), PE.bhat(h1, h3)]);
+  const u = (a) => { const n = Math.hypot(...a); return a.map((v) => v / n); };
+  const m = RE.mergeEmb(u([1, 0, 0]), 1, u([0, 1, 0]), 0.5); ok("embedding running average stays a unit vector between the two", Math.abs(Math.hypot(...m) - 1) < 1e-6 && m[0] > 0.6 && m[1] > 0.6, m);
+  ok("budget: WebGPU embeds often, WASM only at hand-off moments (slower on phones), each with a give-up limit", RE.budget("webgpu", false).every < RE.budget("wasm", false).every && RE.budget("wasm", false).every < RE.budget("wasm", true).every && RE.budget("wasm", true).priorityOnly && !RE.budget("webgpu", true).priorityOnly);
+  const pr = (o) => RE.priority(Object.assign({ x: 0.4, w: 0.1, vx: 0, first: 0 }, o), 10);
+  ok("embedding priority: leaving through an edge or just appeared beats a steady track", pr({ x: 0.85, vx: 0.1 }) > pr({}) && pr({ first: 9.5 }) > pr({}));
+}
+{ // Registry: appearance decides between two candidates, and a held new track waits for its descriptor
+  const R = () => new PE.Registry(); const E = (a) => { const v = new Array(8).fill(0); v[a] = 1; v[7] = 0.1; return v; };
+  const tk = (o) => Object.assign({ x: 0.5, y: 0.4, w: 0.09, h: 0.34, vx: 0, n: 5, seen: 1, first: 0 }, o);
+  const run = (embA, embB) => {
+    const r = R(); // two people leave the right repeater at the same moment; two new tracks appear on the rear: who is who is only visible in the clothes
+    const a1 = tk({ cam: "right_repeater", id: "RR1", x: 0.9, vx: 0.2, seen: 3, first: 1, emb: embA[0] }), a2 = tk({ cam: "right_repeater", id: "RR2", x: 0.88, vx: 0.2, seen: 3, first: 1.1, emb: embA[1] });
+    const A = r.update([a1, a2], 3);
+    const b1 = tk({ cam: "back", id: "B1", x: 0.02, vx: 0.2, seen: 3.6, first: 3.5, emb: embB[0] }), b2 = tk({ cam: "back", id: "B2", x: 0.05, vx: 0.2, seen: 3.6, first: 3.55, emb: embB[1] });
+    const B = r.update([b1, b2], 3.6); return { g: A.map((x) => x.gid), h: B.map((x) => x.gid) };
+  };
+  const same = run([E(0), E(1)], [E(1), E(0)]);
+  ok("registry: with appearance embeddings the swapped order is resolved (B1 looks like RR2, B2 like RR1)", same.h[0] === same.g[1] && same.h[1] === same.g[0], same);
+  const none = run([null, null], [null, null]);
+  ok("registry: with no appearance at all two equally likely candidates are NOT guessed (new people instead of a wrong link)", none.h.every((g) => !none.g.includes(g)), none);
+  const held = new PE.Registry({ hold: (t) => !t.hist }); const t1 = tk({ cam: "front", id: "F1", seen: 1, first: 0 });
+  const o1 = held.update([t1], 1); const o2 = held.update([Object.assign({}, t1, { hist: [1] })], 1.2);
+  ok("registry: a new track without its descriptor is held (no id yet, flagged pending), then registered once it has one", o1[0].gid == null && o1[0].pending === true && o2[0].gid === 1 && held.persons.size === 1, [o1, o2]);
+}
+
 console.log(fails ? "FAILED " + fails + " of " + n : "ALL PASS (" + n + ")"); process.exit(fails ? 1 : 0);

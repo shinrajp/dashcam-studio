@@ -12,7 +12,7 @@ let fails = 0; const ok = (n, c, x) => { console.log((c ? "PASS " : "FAIL ") + n
   const UA = "Mozilla/5.0 (iPhone; CPU iPhone OS 26_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Mobile/15E148 Safari/604.1";
   for (const BR of (process.env.BR ? [process.env.BR] : ["chromium", "webkit"])) {
     const b = BR === "webkit" ? await pw.webkit.launch() : await pw.chromium.launch({ executablePath: process.env.CHROME || "/usr/bin/google-chrome", args: ["--no-sandbox", "--autoplay-policy=no-user-gesture-required"] });
-    for (const dev of [{ name: "desktop", viewport: { width: 1440, height: 900 } }, { name: "phone", viewport: { width: 430, height: 932 }, isMobile: true, hasTouch: true, userAgent: UA, deviceScaleFactor: 2 }]) {
+    for (const dev of [{ name: "desktop", viewport: { width: 1440, height: 900 } }, { name: "phone", viewport: { width: 430, height: 932 }, isMobile: true, hasTouch: true, userAgent: UA, deviceScaleFactor: 2 }].filter((d) => !process.env.DEV || d.name === process.env.DEV)) {
       const tag = BR + " " + dev.name + ": ";
       const ctx = await b.newContext(dev); const p = await ctx.newPage(); const errs = []; p.on("pageerror", (e) => errs.push(e.message));
       await p.goto(URL_, { waitUntil: "load" });
@@ -22,6 +22,7 @@ let fails = 0; const ok = (n, c, x) => { console.log((c ? "PASS " : "FAIL ") + n
       await p.evaluate(() => [...document.querySelectorAll("button")].filter((x) => /Got it/.test(x.textContent)).forEach((x) => x.click()));
       await p.evaluate(() => TDC.ui.activate(TDC.library.events.find((e) => /Sentry/.test(e.source)))); await W(900);
       await p.evaluate(() => { TDC.player.pause(); });
+      await p.evaluate(() => { TDC.reid.maybeEmbed = () => {}; TDC.reid.pending = () => false; });   // appearance is tested in test/reid-*.js; here only the diagram
       ok(tag + "Car view is off by default (no panel visible)", await p.evaluate(() => { const e = document.getElementById("carView"); return !!e && e.hidden && TDC.prefs.carView === false; }));
       if (dev.isMobile) { await p.evaluate(() => TDC.mobileBar && TDC.mobileBar.setOpen && TDC.mobileBar.setOpen(true)); await W(500); }
       const chipBox = await p.evaluate(() => { const r = document.getElementById("chipCar").getBoundingClientRect(); return { w: r.width, h: r.height }; });

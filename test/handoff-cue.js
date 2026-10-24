@@ -19,7 +19,7 @@ let fails = 0; const ok = (n, c, x) => { console.log((c ? "PASS " : "FAIL ") + n
   const UA = "Mozilla/5.0 (iPhone; CPU iPhone OS 26_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Mobile/15E148 Safari/604.1";
   for (const BR of (process.env.BR ? [process.env.BR] : ["chromium", "webkit"])) {
     const b = BR === "webkit" ? await pw.webkit.launch() : await pw.chromium.launch({ executablePath: process.env.CHROME || "/usr/bin/google-chrome", args: ["--no-sandbox", "--autoplay-policy=no-user-gesture-required"] });
-    for (const dev of [{ name: "desktop", viewport: { width: 1440, height: 900 } }, { name: "phone", viewport: { width: 430, height: 932 }, isMobile: true, hasTouch: true, userAgent: UA, deviceScaleFactor: 2 }]) {
+    for (const dev of [{ name: "desktop", viewport: { width: 1440, height: 900 } }, { name: "phone", viewport: { width: 430, height: 932 }, isMobile: true, hasTouch: true, userAgent: UA, deviceScaleFactor: 2 }].filter((d) => !process.env.DEV || d.name === process.env.DEV)) {
       const tag = BR + " " + dev.name + ": ";
       const ctx = await b.newContext(dev); const p = await ctx.newPage(); const errs = []; p.on("pageerror", (e) => errs.push(e.message));
       await p.goto(URL_, { waitUntil: "load" });
@@ -28,7 +28,8 @@ let fails = 0; const ok = (n, c, x) => { console.log((c ? "PASS " : "FAIL ") + n
       await p.setInputFiles("#folderInput", MOCK + "/TeslaCam");
       for (let i = 0; i < 120 && (await p.evaluate(() => TDC.library.events.length)) < 2; i++) await W(250);
       await p.evaluate(() => [...document.querySelectorAll("button")].filter((x) => /Got it/.test(x.textContent)).forEach((x) => x.click()));
-      const open = async (re) => { await p.evaluate((re) => TDC.ui.activate(TDC.library.events.find((e) => new RegExp(re).test(e.source))), re); await W(800); };
+      const open = async (re) => { await p.evaluate(() => { if (TDC.reid) TDC.reid.maybeEmbed = () => {}; });   // appearance (models, crops) is tested in test/reid-*.js; here only where / when / which way
+        await p.evaluate((re) => TDC.ui.activate(TDC.library.events.find((e) => new RegExp(re).test(e.source))), re); await W(800); };
       // ── scheduling defaults ──
       await open("Sentry");
       ok(tag + "Sentry event: person tracking on every camera by default" + (dev.name === "phone" ? " (phone too)" : ""), (await p.evaluate(() => TDC.detect.liveCamsMode())) === "all");
@@ -56,6 +57,7 @@ let fails = 0; const ok = (n, c, x) => { console.log((c ? "PASS " : "FAIL ") + n
       await open("Sentry");
       await p.evaluate(() => {
         const D = TDC.detect; window.__calls = { full: 0, crop: 0 };
+        if (TDC.reid) { TDC.reid.annotate = (tr) => tr; TDC.reid.pending = () => false; }   // this test is about where / when / which way; the mock video's pixels say nothing about clothes (appearance: test/reid-*.js)
         const box = (x) => ({ x, y: 0.42, w: 0.08, h: 0.3, cls: 0, conf: 0.8 });
         D._mock = async (img, iw, ih, opts) => {
           const P = TDC.player, cam = Object.keys(P.tiles).find((c) => P.tiles[c].vids.includes(img)), t = P.time;
@@ -70,6 +72,7 @@ let fails = 0; const ok = (n, c, x) => { console.log((c ? "PASS " : "FAIL ") + n
       });
       let seen = null;
       for (let i = 0; i < 70 && !seen; i++) { await W(100); seen = await p.evaluate(() => { const e = document.querySelector('.tile[data-cam="back"] > .ho-cue'); if (!e || e.hidden || !e.dataset.on) return null; const r = document.querySelector('.tile[data-cam="right_repeater"]').getBoundingClientRect(), q = document.querySelector('.tile[data-cam="back"]').getBoundingClientRect(); return { side: e.dataset.side, from: e.dataset.from, color: e.style.getPropertyValue("--ho"), t: TDC.player.time, rrRight: Math.round(r.right), backLeft: Math.round(q.left), arrow: e.querySelector(".ho-arrow").textContent, layout: TDC.layout.preset }; }); }
+      if (!seen) console.log("   diag", JSON.stringify(await p.evaluate(() => ({ t: TDC.player.time, linkOn: TDC.people.linkOn(), reid: TDC.reid && { auto: TDC.reid.autoOff(), desc: TDC.reid.stats.descMs.length }, cur: TDC.people.current(TDC.player.time).map((x) => x.cam + ":" + x.id), live: Object.keys(TDC.detect.liveTracks || {}), cue: [...document.querySelectorAll(".ho-cue")].map((e) => e.parentNode.dataset.cam + ":" + e.hidden + ":" + (e.dataset.on || "")) }))));
       ok(tag + "cue appears on the REAR tile (entry edge: left) while the person is still on the right repeater", !!seen && seen.side === "left" && seen.from === "right_repeater" && seen.t < 3.6, seen);
       ok(tag + "Rear view: the glowing REAR edge touches the RIGHT REPEATER tile, arrow points right", !!seen && seen.layout === "rear" && Math.abs(seen.rrRight - seen.backLeft) <= 3 && /→/.test(seen.arrow), seen);
       // one person, one colour
