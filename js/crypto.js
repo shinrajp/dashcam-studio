@@ -14,7 +14,9 @@
   "use strict";
   const PAGE = 4096, KEY_AREA = 0x1000, DATA = 0x2000, MAGIC = 0x3c81b7f5, VERSION_FLAGS = 0x03000002;
   const VIN_RE = /^[A-HJ-NPR-Z0-9]{17}$/;
-  const subtle = typeof crypto !== "undefined" && crypto && crypto.subtle ? crypto.subtle : null;
+  let subtle = typeof crypto !== "undefined" && crypto && crypto.subtle ? crypto.subtle : null;
+  // URL of this script (so the decrypt worker can be found next to it, with the same ?v= cache key)
+  const SELF_SRC = (typeof document !== "undefined" && document.currentScript && document.currentScript.src) || "";
   const PAD_BLOCK = new Uint8Array(16).fill(0x10);
   function md5bytes(input) {
     const msg = input instanceof Uint8Array ? input : new Uint8Array(input);
@@ -155,72 +157,61 @@
     return p;
   }
 
-  function aesExpandKey128(key) {
-    const w = new Uint8Array(176);
-    w.set(key.subarray(0, 16), 0);
-    for (let i = 4; i < 44; i++) {
-      let t0 = w[(i - 1) * 4], t1 = w[(i - 1) * 4 + 1], t2 = w[(i - 1) * 4 + 2], t3 = w[(i - 1) * 4 + 3];
-      if (i % 4 === 0) {
-        const old0 = t0;
-        t0 = SBOX[t1] ^ RCON[i / 4];
-        t1 = SBOX[t2];
-        t2 = SBOX[t3];
-        t3 = SBOX[old0];
-      }
-      w[i * 4] = w[(i - 4) * 4] ^ t0;
-      w[i * 4 + 1] = w[(i - 4) * 4 + 1] ^ t1;
-      w[i * 4 + 2] = w[(i - 4) * 4 + 2] ^ t2;
-      w[i * 4 + 3] = w[(i - 4) * 4 + 3] ^ t3;
-    }
-    return w;
+  // ── AES-128 decrypt, T-table form (Td0-3 + inverse key schedule, Uint32 based). ~200x faster than the textbook
+  // byte-wise version this replaced; used only when Web Crypto is missing (plain http pages are not a secure context). ──
+  const TD0 = new Uint32Array(256), TD1 = new Uint32Array(256), TD2 = new Uint32Array(256), TD3 = new Uint32Array(256);
+  for (let i = 0; i < 256; i++) {
+    const s = INV_SBOX[i];
+    const w = ((aesMul(s, 14) << 24) | (aesMul(s, 9) << 16) | (aesMul(s, 13) << 8) | aesMul(s, 11)) >>> 0;
+    TD0[i] = w; TD1[i] = ((w >>> 8) | (w << 24)) >>> 0; TD2[i] = ((w >>> 16) | (w << 16)) >>> 0; TD3[i] = ((w >>> 24) | (w << 8)) >>> 0;
   }
-
-  function aesDecryptBlock(input, off, out, oOff, rk) {
-    const s = new Uint8Array(16);
-    for (let i = 0; i < 16; i++) s[i] = input[off + i] ^ rk[160 + i];
-    for (let round = 9; round >= 1; round--) {
-      // InvShiftRows
-      let t = s[13]; s[13] = s[9]; s[9] = s[5]; s[5] = s[1]; s[1] = t;
-      t = s[2]; s[2] = s[10]; s[10] = t; t = s[6]; s[6] = s[14]; s[14] = t;
-      t = s[3]; s[3] = s[7]; s[7] = s[11]; s[11] = s[15]; s[15] = t;
-      // InvSubBytes
-      for (let i = 0; i < 16; i++) s[i] = INV_SBOX[s[i]];
-      // AddRoundKey
-      const rko = round * 16;
-      for (let i = 0; i < 16; i++) s[i] ^= rk[rko + i];
-      // InvMixColumns
-      for (let c = 0; c < 4; c++) {
-        const i = c * 4;
-        const a0 = s[i], a1 = s[i + 1], a2 = s[i + 2], a3 = s[i + 3];
-        s[i] = aesMul(a0, 0x0e) ^ aesMul(a1, 0x0b) ^ aesMul(a2, 0x0d) ^ aesMul(a3, 0x09);
-        s[i + 1] = aesMul(a0, 0x09) ^ aesMul(a1, 0x0e) ^ aesMul(a2, 0x0b) ^ aesMul(a3, 0x0d);
-        s[i + 2] = aesMul(a0, 0x0d) ^ aesMul(a1, 0x09) ^ aesMul(a2, 0x0e) ^ aesMul(a3, 0x0b);
-        s[i + 3] = aesMul(a0, 0x0b) ^ aesMul(a1, 0x0d) ^ aesMul(a2, 0x09) ^ aesMul(a3, 0x0e);
-      }
+  /** 16-byte key → 44 round-key words for the equivalent inverse cipher. */
+  function aesDecKeys128(key) {
+    const w = new Uint32Array(44);
+    for (let i = 0; i < 4; i++) w[i] = ((key[i * 4] << 24) | (key[i * 4 + 1] << 16) | (key[i * 4 + 2] << 8) | key[i * 4 + 3]) >>> 0;
+    for (let i = 4; i < 44; i++) {
+      let t = w[i - 1];
+      if (i % 4 === 0) t = ((((SBOX[(t >>> 16) & 255] << 24) | (SBOX[(t >>> 8) & 255] << 16) | (SBOX[t & 255] << 8) | SBOX[t >>> 24]) >>> 0) ^ (RCON[i / 4] << 24)) >>> 0;
+      w[i] = (w[i - 4] ^ t) >>> 0;
     }
-    // Final round
-    let t = s[13]; s[13] = s[9]; s[9] = s[5]; s[5] = s[1]; s[1] = t;
-    t = s[2]; s[2] = s[10]; s[10] = t; t = s[6]; s[6] = s[14]; s[14] = t;
-    t = s[3]; s[3] = s[7]; s[7] = s[11]; s[11] = s[15]; s[15] = t;
-    for (let i = 0; i < 16; i++) out[oOff + i] = INV_SBOX[s[i]] ^ rk[i];
+    const d = new Uint32Array(44);
+    for (let r = 0; r <= 10; r++) for (let c = 0; c < 4; c++) {
+      let v = w[(10 - r) * 4 + c];
+      if (r > 0 && r < 10) v = (TD0[SBOX[v >>> 24]] ^ TD1[SBOX[(v >>> 16) & 255]] ^ TD2[SBOX[(v >>> 8) & 255]] ^ TD3[SBOX[v & 255]]) >>> 0;
+      d[r * 4 + c] = v;
+    }
+    return d;
+  }
+  /** CBC-decrypt `len` bytes of ct (from ctOff) into out (at outOff); iv is 16 bytes. No padding handling. */
+  function cbcDecryptInto(dk, iv, ct, ctOff, len, out, outOff) {
+    const dv = new DataView(ct.buffer, ct.byteOffset + ctOff, len), ov = new DataView(out.buffer, out.byteOffset + outOff, len), iv_ = new DataView(iv.buffer, iv.byteOffset, 16);
+    let p0 = iv_.getUint32(0), p1 = iv_.getUint32(4), p2 = iv_.getUint32(8), p3 = iv_.getUint32(12);
+    for (let o = 0; o < len; o += 16) {
+      const c0 = dv.getUint32(o), c1 = dv.getUint32(o + 4), c2 = dv.getUint32(o + 8), c3 = dv.getUint32(o + 12);
+      let s0 = c0 ^ dk[0], s1 = c1 ^ dk[1], s2 = c2 ^ dk[2], s3 = c3 ^ dk[3], t0, t1, t2, t3;
+      for (let r = 1; r < 10; r++) {
+        const k = r * 4;
+        t0 = TD0[s0 >>> 24] ^ TD1[(s3 >>> 16) & 255] ^ TD2[(s2 >>> 8) & 255] ^ TD3[s1 & 255] ^ dk[k];
+        t1 = TD0[s1 >>> 24] ^ TD1[(s0 >>> 16) & 255] ^ TD2[(s3 >>> 8) & 255] ^ TD3[s2 & 255] ^ dk[k + 1];
+        t2 = TD0[s2 >>> 24] ^ TD1[(s1 >>> 16) & 255] ^ TD2[(s0 >>> 8) & 255] ^ TD3[s3 & 255] ^ dk[k + 2];
+        t3 = TD0[s3 >>> 24] ^ TD1[(s2 >>> 16) & 255] ^ TD2[(s1 >>> 8) & 255] ^ TD3[s0 & 255] ^ dk[k + 3];
+        s0 = t0; s1 = t1; s2 = t2; s3 = t3;
+      }
+      const o0 = ((INV_SBOX[s0 >>> 24] << 24) | (INV_SBOX[(s3 >>> 16) & 255] << 16) | (INV_SBOX[(s2 >>> 8) & 255] << 8) | INV_SBOX[s1 & 255]) ^ dk[40];
+      const o1 = ((INV_SBOX[s1 >>> 24] << 24) | (INV_SBOX[(s0 >>> 16) & 255] << 16) | (INV_SBOX[(s3 >>> 8) & 255] << 8) | INV_SBOX[s2 & 255]) ^ dk[41];
+      const o2 = ((INV_SBOX[s2 >>> 24] << 24) | (INV_SBOX[(s1 >>> 16) & 255] << 16) | (INV_SBOX[(s0 >>> 8) & 255] << 8) | INV_SBOX[s3 & 255]) ^ dk[42];
+      const o3 = ((INV_SBOX[s3 >>> 24] << 24) | (INV_SBOX[(s2 >>> 16) & 255] << 16) | (INV_SBOX[(s1 >>> 8) & 255] << 8) | INV_SBOX[s0 & 255]) ^ dk[43];
+      ov.setUint32(o, o0 ^ p0); ov.setUint32(o + 4, o1 ^ p1); ov.setUint32(o + 8, o2 ^ p2); ov.setUint32(o + 12, o3 ^ p3);
+      p0 = c0; p1 = c1; p2 = c2; p3 = c3;
+    }
   }
 
   function aes128CbcDecryptRaw(keyBytes, iv, ciphertext) {
     if (keyBytes.length !== 16) throw new Error("AES-128 key required");
     if (iv.length !== 16) throw new Error("IV must be 16 bytes");
     if (ciphertext.length % 16 !== 0) throw new Error("Ciphertext must be block-aligned");
-    const rk = aesExpandKey128(keyBytes);
     const out = new Uint8Array(ciphertext.length);
-    const prev = new Uint8Array(16);
-    prev.set(iv);
-    const block = new Uint8Array(16);
-    for (let i = 0; i < ciphertext.length; i += 16) {
-      aesDecryptBlock(ciphertext, i, block, 0, rk);
-      for (let j = 0; j < 16; j++) {
-        out[i + j] = block[j] ^ prev[j];
-        prev[j] = ciphertext[i + j];
-      }
-    }
+    cbcDecryptInto(aesDecKeys128(keyBytes), iv, ciphertext, 0, ciphertext.length, out, 0);
     return out;
   }
   const beU32 = (u8, o) => ((u8[o] << 24) | (u8[o + 1] << 16) | (u8[o + 2] << 8) | u8[o + 3]) >>> 0;
@@ -309,38 +300,138 @@
   }
   return plain;
   }
-  function decryptPagesJs(keyBytes, rootIv, ct, firstPage) {
-  const out = new Uint8Array(ct.length);
-  for (let k = 0; k * PAGE < ct.length; k++) out.set(aes128CbcDecryptRaw(keyBytes, pageIv(rootIv, firstPage + k), ct.subarray(k * PAGE, (k + 1) * PAGE)), k * PAGE);
-  return out;
+  function decryptPagesJs(keyBytes, rootIv, ct, firstPage, dk) {
+    dk = dk || aesDecKeys128(keyBytes);
+    const out = new Uint8Array(ct.length);
+    for (let k = 0; k * PAGE < ct.length; k++) cbcDecryptInto(dk, pageIv(rootIv, firstPage + k), ct, k * PAGE, Math.min(PAGE, ct.length - k * PAGE), out, k * PAGE);
+    return out;
+  }
+  const now = () => (typeof performance !== "undefined" && performance.now ? performance.now() : Date.now());
+  const tick = () => new Promise((r) => setTimeout(r, 0));
+  /** Same, on the main thread, but gives the event loop a turn about every 12 ms so the page keeps painting. */
+  async function decryptPagesJsYield(keyBytes, rootIv, ct, firstPage, dk) {
+    dk = dk || aesDecKeys128(keyBytes);
+    const out = new Uint8Array(ct.length);
+    let last = now();
+    for (let k = 0; k * PAGE < ct.length; k++) {
+      cbcDecryptInto(dk, pageIv(rootIv, firstPage + k), ct, k * PAGE, Math.min(PAGE, ct.length - k * PAGE), out, k * PAGE);
+      if (now() - last > 12) { await tick(); last = now(); }
+    }
+    return out;
   }
 
-  /** Decrypt a Blob/File → File (video/mp4). Verifies the 'ftyp' box after the first page (wrong key → WRONG_KEY). */
+  const err = (msg, code) => Object.assign(new Error(msg), { code });
+  function withTimeout(p, ms, msg, code) {
+    let t;
+    return Promise.race([p, new Promise((_, rej) => { t = setTimeout(() => rej(err(msg, code)), ms); })]).finally(() => clearTimeout(t));
+  }
+  /** Read bytes [start,end) of a File/Blob. Never waits forever: a file the phone cannot read (for example a cloud file that
+   *  has not been downloaded yet) fails with READ_TIMEOUT and a plain message. */
+  function readSlice(file, start, end, ms) {
+    const b = file.slice(start, end);
+    const p = b.arrayBuffer ? b.arrayBuffer() : new Promise((res, rej) => { const fr = new FileReader(); fr.onload = () => res(fr.result); fr.onerror = () => rej(fr.error || new Error("read failed")); fr.readAsArrayBuffer(b); });
+    return withTimeout(p, ms || 45000, "The browser did not deliver this file in time. If it lives in iCloud Drive or on a network drive, download it to the phone first (Files app) and add it again.", "READ_TIMEOUT").then((ab) => new Uint8Array(ab));
+  }
+
+  // ── decrypt worker lanes (JS fallback only). Each lane is one Web Worker running the same T-table code off the main thread. ──
+  const lanes = { all: [], free: [], dead: false, max: 0 };
+  const workerUrl = () => (SELF_SRC ? SELF_SRC.replace(/crypto\.js(\?|$)/, "crypto-worker.js$1") : "");
+  function makeLane() {
+    if (lanes.dead || typeof Worker === "undefined" || !workerUrl()) return Promise.resolve(null);
+    return new Promise((resolve) => {
+      let w; try { w = new Worker(workerUrl()); } catch (_) { lanes.dead = true; resolve(null); return; }
+      const lane = { w, seq: 0, pending: new Map() };
+      const t = setTimeout(() => { lanes.dead = true; try { w.terminate(); } catch (_) {} resolve(null); }, 8000);
+      w.onmessage = (e) => {
+        const d = e.data || {};
+        if ("ready" in d) { clearTimeout(t); if (d.ready) resolve(lane); else { lanes.dead = true; try { w.terminate(); } catch (_) {} resolve(null); } return; }
+        const p = lane.pending.get(d.id); if (!p) return;
+        lane.pending.delete(d.id);
+        d.error ? p.rej(new Error(d.error)) : p.res(new Uint8Array(d.plain));
+      };
+      w.onerror = () => { clearTimeout(t); lanes.dead = true; for (const p of lane.pending.values()) p.rej(new Error("worker failed")); lane.pending.clear(); resolve(null); };
+    });
+  }
+  async function acquireLane() {
+    if (lanes.dead) return null;
+    if (lanes.free.length) return lanes.free.pop();
+    const lane = await makeLane();
+    if (lane) lanes.all.push(lane);
+    return lane;
+  }
+  function releaseLane(lane, bad) {
+    if (!lane) return;
+    if (bad || lanes.dead) { try { lane.w.terminate(); } catch (_) {} lanes.all = lanes.all.filter((l) => l !== lane); return; }
+    lanes.free.push(lane);
+  }
+  function laneDecrypt(lane, keyBytes, rootIv, ct, firstPage) {
+    return withTimeout(new Promise((res, rej) => {
+      const id = ++lane.seq; lane.pending.set(id, { res, rej });
+      try { lane.w.postMessage({ id, keyBytes, rootIv, ct, firstPage }, [ct.buffer]); } catch (e) { lane.pending.delete(id); rej(e); }
+    }), 60000, "The decrypt worker stopped answering.", "WORKER_TIMEOUT");
+  }
+
+  /** How many files the caller may decrypt at once: only in the JS fallback, only with workers and spare cores. */
+  function concurrency() {
+    if (subtle || lanes.dead || typeof Worker === "undefined" || !workerUrl()) return 1;
+    const cores = (typeof navigator !== "undefined" && navigator.hardwareConcurrency) || 2;
+    return Math.max(1, Math.min(3, cores - 1));
+  }
+
+  /** Decrypt a Blob/File → File (video/mp4). Verifies the 'ftyp' box after the first page (wrong key → WRONG_KEY).
+   *  opts: name, onProgress(frac), cancelled(), readTimeout (ms), noWorker (force main thread) */
   async function decryptFile(file, plaintextSize, keyBytes, opts) {
-  opts = opts || {};
-  if (!(keyBytes instanceof Uint8Array) || keyBytes.length !== 16) throw Object.assign(new Error("Key is not 16 bytes"), { code: "BAD_KEY" });
-  const pages = Math.ceil(plaintextSize / PAGE);
-  if (DATA + pages * PAGE > file.size) throw Object.assign(new Error("Ciphertext truncated"), { code: "CORRUPT" });
-  const rootIv = md5bytes(keyBytes);
-  let key = null;
-  if (subtle) { try { key = await subtle.importKey("raw", keyBytes, { name: "AES-CBC" }, false, ["encrypt", "decrypt"]); } catch (_) { key = null; } }
-  const parts = [];
-  let page = 0, written = 0;
-  while (page < pages) {
-    if (opts.cancelled && opts.cancelled()) throw Object.assign(new Error("cancelled"), { code: "ABORTED" });
-    const n = page === 0 ? 1 : Math.min(256, pages - page);
-    const start = DATA + page * PAGE;
-    const ct = new Uint8Array(await file.slice(start, start + n * PAGE).arrayBuffer());
-    let plain = key ? await decryptPagesWebCrypto(key, rootIv, ct, page) : decryptPagesJs(keyBytes, rootIv, ct, page);
-    if (page === 0 && !isMp4(plain)) throw Object.assign(new Error("Wrong key — the decrypted data is not an MP4"), { code: "WRONG_KEY" });
-    if (plain.length > plaintextSize - written) plain = plain.subarray(0, plaintextSize - written);
-    parts.push(new Blob([plain]));
-    written += plain.length; page += n;
-    if (opts.onProgress) opts.onProgress(written / plaintextSize);
-    if (!key) await new Promise((r) => setTimeout(r, 0));
-  }
-  return new File(parts, opts.name || "decrypted.mp4", { type: "video/mp4" });
+    opts = opts || {};
+    if (!(keyBytes instanceof Uint8Array) || keyBytes.length !== 16) throw err("Key is not 16 bytes", "BAD_KEY");
+    const pages = Math.ceil(plaintextSize / PAGE);
+    if (DATA + pages * PAGE > file.size) throw err("Ciphertext truncated", "CORRUPT");
+    const rootIv = md5bytes(keyBytes);
+    let key = null;
+    if (subtle) { try { key = await subtle.importKey("raw", keyBytes, { name: "AES-CBC" }, false, ["encrypt", "decrypt"]); } catch (_) { key = null; } }
+    let lane = null;
+    if (!key && !opts.noWorker) lane = await acquireLane();
+    const dk = key ? null : aesDecKeys128(keyBytes);
+    const mode = key ? "webcrypto" : lane ? "worker" : "main";
+    api.lastMode = mode;
+    if (opts.onMode) opts.onMode(mode);
+    const parts = [];
+    let page = 0, written = 0, bad = false;
+    try {
+      while (page < pages) {
+        if (opts.cancelled && opts.cancelled()) throw err("cancelled", "ABORTED");
+        const n = page === 0 ? 1 : Math.min(256, pages - page);
+        const start = DATA + page * PAGE;
+        const ct = await readSlice(file, start, start + n * PAGE, opts.readTimeout);
+        let plain;
+        if (key) plain = await decryptPagesWebCrypto(key, rootIv, ct, page);
+        else if (lane) {
+          try { plain = await laneDecrypt(lane, keyBytes, rootIv, ct, page); }
+          catch (e) { // worker trouble: finish this file on the main thread
+            if (e && e.code === "ABORTED") throw e;
+            bad = true; releaseLane(lane, true); lane = null; api.lastMode = "main";
+            plain = await decryptPagesJsYield(keyBytes, rootIv, await readSlice(file, start, start + n * PAGE, opts.readTimeout), page, dk);
+          }
+        } else plain = await decryptPagesJsYield(keyBytes, rootIv, ct, page, dk);
+        if (page === 0 && !isMp4(plain)) throw err("Wrong key — the decrypted data is not an MP4", "WRONG_KEY");
+        if (plain.length > plaintextSize - written) plain = plain.subarray(0, plaintextSize - written);
+        parts.push(new Blob([plain]));
+        written += plain.length; page += n;
+        if (opts.onProgress) opts.onProgress(written / plaintextSize);
+        if (key) await tick();   // a turn for the UI between 1 MB chunks
+      }
+    } catch (e) { if (lane) { releaseLane(lane, true); lane = null; } throw e; }
+    if (lane) releaseLane(lane, false);
+    return new File(parts, opts.name || "decrypted.mp4", { type: "video/mp4" });
   }
 
-  return { classify, parseKeyArea, decryptFile, md5bytes, pageIv, b64, unb64, toHex, isMp4, PAGE, DATA, PROBE: DATA };
+  const api = {
+    classify, parseKeyArea, decryptFile, md5bytes, pageIv, b64, unb64, toHex, isMp4, PAGE, DATA, PROBE: DATA,
+    aes128CbcDecryptRaw, aesDecKeys128, cbcDecryptInto, decryptPagesJs, readSlice, withTimeout, concurrency,
+    lastMode: "",
+    /** true when Web Crypto (fast, native) is available: https or localhost. false on plain http://LAN-address pages. */
+    get fast() { return !!subtle; },
+    /** test hook: pretend Web Crypto is missing (or restore it) */
+    _forceNoSubtle(on) { subtle = on ? null : (typeof crypto !== "undefined" && crypto && crypto.subtle ? crypto.subtle : null); },
+  };
+  return api;
 });
