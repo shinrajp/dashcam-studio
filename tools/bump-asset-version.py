@@ -7,3 +7,4 @@ v = sys.argv[1]; p = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".
 s = open(p).read()
 s = re.sub(r'((?:src|href)="(?:js|vendor|css)/[^"?]+\.(?:js|css))(?:\?v=[^"]*)?"', lambda m: m.group(1) + "?v=" + v + '"', s)
 open(p, "w").write(s); print("index.html assets → ?v=" + v)
+import subprocess; subprocess.check_call([sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), "gen-precache.py"), v])
