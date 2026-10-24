@@ -555,3 +555,18 @@ Fixes "stuck at Reading files" on a phone and makes it installable offline.
 - Decrypted files are still held in memory as Blobs (a 6-camera clip is a few hundred MB). At most 3 files decrypt at once.
 - Not in the offline pack: `yolo11s`, the WebGPU wasm, `yolo11n-320`, the 640 plates detector, and anything from other origins (CDN files).
 - GitHub Pages serves `main`. This branch is not on the live site until it is merged to `main`.
+
+
+## legs-fix (tag `legs-fix`, backup tag `pre-legs-fix`)
+Rear camera: a person very close behind the car (legs / dark lower body only, wide-angle picture) was labelled "cat".
+
+**What I measured** (the real frame, kept out of the repo; same pre-processing as the app): yolo11n, yolo11s and the 320 px yolo11n all say *cat* 70-87% for the whole dark shape and *person* 0.1-0.9%. The person is not "just below the cut-off", the model has no idea. A tight crop of the legs alone gives person about 50% (nano), but only for some crops (bigger crops give cat again, and yolo11s stays at cat), so a second look alone is not reliable.
+
+**Fix** (`js/detect.js`, section "legs-fix")
+- Big animal boxes are person candidates (sizes in the README, "Person right behind the car"). Extreme size: person at once. Large: weak person, confirmed over 3 looks by the existing tracker rule (`D.WEAK`), or at once if the zoomed second look on the legs finds a person of 25% or more. The second look runs at most every 1.5 s per camera and only when such a box exists.
+- Rear camera only: a person box under the cut-off (down to 20%) that touches the frame edge and is at least 25% tall is kept as a weak look. Other cameras are unchanged.
+- Side and front cameras: only cat, dog and teddy bear are re-labelled (a horse or cow in a field can fill the frame). The rear camera takes any animal class.
+- If a real person box overlaps the animal box, the animal box is dropped.
+- Applies inside `D.detectImage`, so live boxes, search, export, hand-off cue, car view (dot and chip) and the people list all see the same label. Search and export take the box as a person at once (they have no tracker). Off switch: `localStorage tdc.legsfix=0`.
+- Limits: the rule is about size and place, not about what the picture shows. A real cat or dog that fills 10% or more of the rear picture (very close to the lens) will be called a person; on weak looks a person-shaped box that disappears after 1-2 looks is dropped. A dark blob that the model labels as something outside the animal classes (bag, chair, bowl) is not fixed. A person who stands completely still right at the lens is a person for as long as the model says "cat" at that size, nothing more is known. Redact (text, plates, faces) does not use object classes and is unchanged.
+- Test: `test/legs-fix.js` (mock detector: rules, live track on REAR, people registry, car-view chip, off switch; plus a private-frame check that is skipped when the local file is absent). Run per browser: `BR=chromium|webkit DEV=desktop|phone node test/legs-fix.js`.
