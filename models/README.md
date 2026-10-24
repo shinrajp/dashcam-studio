@@ -65,3 +65,15 @@ Misses: minibus → tour bus, ambulance (van-based) → delivery van, yellow tax
 
 Type prompts for buses were picked by comparing four prompt sets on the 17 bus photos (the chosen set got 15/17), so the bus numbers are tuned on the same photos and will be lower on new footage. Colour truth is only scored where the photo has one clear body colour (23 photos).
 
+## Hand-off milestone 4: person re-identification (`models/reid/`)
+
+| File | Model | Size | License | Source |
+|---|---|---|---|---|
+| `reid/person-reidentification-retail-0288.onnx` | Intel Open Model Zoo **person-reidentification-retail-0288**: a small OSNet-style network, input BGR `[1, 3, 256, 128]` (0–255, the model normalises inside), output a 256-d appearance vector. 0.18 M parameters, 0.17 GFLOPs. Market-1501 rank-1 86.1 %, mAP 58.9 % (Intel's figures; "standing upright" pedestrians, not seen from a car at night) | 0.77 MB | **Apache-2.0** (Open Model Zoo; `model.yml` of the model names the Apache licence file of the repository, the repository README says the pre-trained models are Apache-2.0 too) | `https://storage.openvinotoolkit.org/repositories/open_model_zoo/2023.0/models_bin/1/person-reidentification-retail-0288/FP32/person-reidentification-retail-0288.{xml,bin}` (sha256 of `.xml` 30f452b2…, of `.bin` 6496b8d5…) |
+
+* **Modified:** converted from OpenVINO IR to ONNX (opset 18) with `tools/ir2onnx-reid.py` (a small converter written for this model; MVN is written out as mean / variance ops, grouped convolutions keep their weights). Checked against OpenVINO in f32: cosine 1.0 on test crops. sha256 of the stored file `238587228c513e797278006320a2c24ac047d8fb808eee86571a5068b7622d91`.
+* `reid/LICENSE-Apache-2.0.txt` is the licence text. This notice is the "modified" statement the licence asks for. This is a note, not legal advice: Intel trained the weights on person re-identification data; check that this is acceptable for your use.
+* **Where it runs:** in the detection worker (`js/detect-worker.js`, messages `loadReid` / `embed`). WebGPU only when that worker's runtime really is WebGPU (a real GPU adapter, not SwiftShader / llvmpipe, and the app's gate is open: Safari and every iOS browser stay on WASM unless `?webgpu=on`); otherwise WASM, throttled (`js/reid.js`, `budget()`). On load it runs a self-test (256 finite, non-zero numbers) and falls through WebGPU → WASM → colour descriptor only.
+* **Another model:** put an ONNX with input `[1, 3, 256, 128]` (BGR, 0–255) and a single 256-d output in this folder and change the file name in `D.loadReid` (`js/detect.js`). Anything else needs `reidInput` / the output size in `js/detect-worker.js` and `BINS`-independent code in `js/people.js` (`cosine` works for any length).
+* **Considered and not shipped:** larger OSNet / FastReID models (several MB, licences that need a closer look), CLIP crops (150 MB, already used for search but far too slow per person).
+
