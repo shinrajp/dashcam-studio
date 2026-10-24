@@ -143,7 +143,7 @@
     try {
       const a = await lib.autoUnlock();
       r.autoUnlocked = a.decrypted;
-      if (a.decrypted || a.failed) setTimeout(() => T.toast(`Unlocked ${a.decrypted} clip(s) with ${a.fromStore ? "keys saved on this device" : "keys already used in this tab"}${a.failed ? `, ${a.failed} failed` : ""}.`, a.failed ? "err" : "ok", 6000), 300);
+      if ((a.decrypted || a.failed) && !r.unreadable) setTimeout(() => T.toast(`Unlocked ${a.decrypted} clip(s) with ${a.fromStore ? "keys saved on this device" : "keys already used in this tab"}${a.failed ? `, ${a.failed} failed` : ""}.`, a.failed ? "err" : "ok", 6000), 300);
     } catch (e) { console.warn("auto-apply saved keys failed", e); }
     return r;
   };
