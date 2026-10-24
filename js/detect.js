@@ -153,7 +153,7 @@
   }
   /** Detect objects in a video/canvas/image. Returns [{x,y,w,h,cls,conf,label}] (0..1), or [] on any problem. */
   D.pathInfo = () => ({ last: D.lastPath || null, bitmap: !noBitmap, fails: bitmapFails });
-  D.detectImage = async (img, iw, ih, opts) => {
+  const detectRaw = async (img, iw, ih, opts) => {
     opts = opts || {};
     const conf = opts.conf || D.prefs().conf;
     if (D._mock) { const r = await D._mock(img, iw, ih, opts); return (r || []).map(named).filter((b) => b.conf >= (opts.crops && opts.cropConf ? opts.cropConf : conf)); }
@@ -191,6 +191,61 @@
     // opts.crops: zoomed second looks at given regions (hand-off cue: small or half-hidden people), own cut-off opts.cropConf
     if (opts.crops && opts.crops.length) { for (const c of opts.crops) dets = dets.concat(await one(c, opts.cropConf)); dets = D.nms(dets, 0.5); }
     return dets.map(named);
+  };
+
+  // ── legs-fix (tag legs-fix): a person walking right behind the car (REAR camera, fisheye) fills the frame with a dark, headless
+  // shape that COCO models call "cat" (measured on a real frame: cat 0.87, person 0.003, in yolo11n, yolo11s and yolo11n-320), so a
+  // score cut-off can't help. A cat that fills a big part of a car camera is not plausible, so a big animal box is a person candidate:
+  //   "extreme" (rear: >= 20 % of the frame, other cameras: >= 30 %)  → person at once;
+  //   "large"   (rear: >= 10 %, or >= 5 % and 30 % tall touching an edge; other cameras 18 % / 10 % and 40 % tall) → a WEAK person that the
+  //             tracker confirms over 3 looks (js/detect.js weakHit), unless a zoomed second look on the legs finds a person >= 25 %.
+  // Small or distant animals are not touched. Also on the rear camera a low-scoring person box that touches the frame edge (legs only) is
+  // kept as a weak look from 20 % up. localStorage tdc.legsfix=0 turns all of it off.
+  const ANIMALS = new Set(["cat", "dog", "horse", "sheep", "cow", "elephant", "bear", "zebra", "giraffe", "teddy bear"]);
+  D.LEGS = { rear: { area: 0.10, edgeArea: 0.05, extreme: 0.20 }, other: { area: 0.18, edgeArea: 0.10, extreme: 0.30 }, weakConf: 0.3, lowCut: 0.2, lookGap: 1500, lookConf: 0.25 };
+  D.legsOn = () => { try { return localStorage.getItem("tdc.legsfix") !== "0"; } catch (_) { return true; } };
+  const edgeTouch = (d) => d.y + d.h > 0.94 || d.x < 0.02 || d.x + d.w > 0.98 || d.y < 0.02;
+  /** null (leave as is), "large" or "extreme" for an animal-class box. */
+  D.legsLevel = (d, cam) => {
+    if (!d || !ANIMALS.has(d.label)) return null;
+    const L = cam === "back" ? D.LEGS.rear : D.LEGS.other, a = d.w * d.h;
+    if (a >= L.extreme) return "extreme";
+    if (a >= L.area || (edgeTouch(d) && a >= L.edgeArea && d.h >= (cam === "back" ? 0.3 : 0.4))) return "large";
+    return null;
+  };
+  /** The zoomed second look: lower part of the box, padded, and the leg area. Returns the best person score found (0 if none). */
+  async function legsLook(img, iw, ih, d, opts) {
+    const cl = (c) => { c.w = Math.min(1, c.w); c.h = Math.min(1, c.h); c.x = Math.max(0, Math.min(1 - c.w, c.x)); c.y = Math.max(0, Math.min(1 - c.h, c.y)); return c; };
+    const crops = [cl({ x: d.x - 0.3 * d.w, y: d.y + 0.4 * d.h, w: 1.6 * d.w, h: 0.7 * d.h }), cl({ x: d.x + 0.15 * d.w, y: d.y + 0.55 * d.h, w: 0.9 * d.w, h: 0.5 * d.h })];
+    const r = await detectRaw(img, iw, ih, { slot: "main", crops, tilesOnly: true, cropConf: 0.15 });
+    return r.filter((x) => x.label === "person").reduce((m, x) => Math.max(m, x.conf), 0);
+  }
+  D.detectImage = async (img, iw, ih, opts) => {
+    opts = opts || {};
+    if (opts.noFix || opts.crops || opts.tilesOnly || opts.prompt || !D.legsOn()) return detectRaw(img, iw, ih, opts);
+    const cam = opts.cam, rear = cam === "back" && !!opts.look, cut = opts.conf || D.prefs().conf;
+    let dets = await detectRaw(img, iw, ih, rear ? { ...opts, conf: Math.min(cut, D.LEGS.lowCut) } : opts);
+    if (rear) dets = dets.filter((d) => d.conf >= cut || (d.label === "person" && edgeTouch(d) && d.h >= 0.25)).map((d) => (d.conf < cut ? { ...d, weak: true, legs: true } : d));
+    return D.fixAnimals ? await D.fixAnimals(dets, cam, cut, async (d) => {
+      const now = performance.now(); D._legsLast = D._legsLast || {};
+      if (!opts.look || now - (D._legsLast[cam] || 0) < D.LEGS.lookGap) return 0;
+      D._legsLast[cam] = now;
+      try { return await legsLook(img, iw, ih, d, opts); } catch (e) { if (/not loaded|stopped/.test(String(e && e.message))) throw e; return 0; }
+    }, !!opts.look) : dets;
+  };
+  /** Pure part (tests): relabel big animal boxes as people. look(d) → person score of a second look (optional); live = the weak/confirm rule applies (search and export have no tracker, so they take the box as a person). */
+  D.fixAnimals = async (dets, cam, cut, look, live) => {
+    cut = cut || D.prefs().conf;
+    const out = [], fixed = [];
+    for (const d of dets) {
+      const lv = D.legsLevel(d, cam);
+      if (!lv) { out.push(d); continue; }
+      if (dets.some((o) => o !== d && o.label === "person" && !o.weak && (iou(o, d) > 0.3 || contains(o, d)))) continue;   // a real person box is already there: drop the animal
+      let ev = 0; if (look && lv === "large") ev = await look(d);
+      const strong = lv === "extreme" || !live || ev >= D.LEGS.lookConf;   // live: a "large" one is weak until the tracker confirms it (3 looks)
+      fixed.push({ x: d.x, y: d.y, w: d.w, h: d.h, cls: 0, label: "person", conf: strong ? Math.max(ev, Math.max(cut, 0.45)) : D.LEGS.weakConf, weak: !strong, legs: true, from: d.label, fromConf: d.conf, look: ev || undefined });
+    }
+    return out.concat(D.nms(fixed, 0.5));
   };
   /** 2×2 overlapping tiles (60% of the frame each): small things are about 1.7× bigger for the model. */
   D.TILES = [{ x: 0, y: 0, w: 0.6, h: 0.6 }, { x: 0.4, y: 0, w: 0.6, h: 0.6 }, { x: 0, y: 0.4, w: 0.6, h: 0.6 }, { x: 0.4, y: 0.4, w: 0.6, h: 0.6 }];
@@ -317,7 +372,7 @@
       if (!v && !(cached && cached.conf <= conf)) continue;
       try {
         if (cached && cached.conf <= conf) dets = cached.dets.filter((d) => d.conf >= conf);
-        else { dets = await D.detectImage(v, v.videoWidth, v.videoHeight, { prompt: gd ? q : undefined, conf }); if (!gd) D.frameCache.set(key, { conf, dets }); }
+        else { dets = await D.detectImage(v, v.videoWidth, v.videoHeight, { prompt: gd ? q : undefined, conf, cam: s.cam }); if (!gd) D.frameCache.set(key, { conf, dets }); }
         mine = gd ? dets : dets.filter((d) => d.label === cls);
         // small things: if the whole frame found none, look again at 2×2 zoomed tiles
         if (!mine.length && !gd && D.useTiles(cls) && v) { dets = await D.detectImage(v, v.videoWidth, v.videoHeight, { conf, tiles: true, tilesOnly: true }); mine = dets.filter((d) => d.label === cls); }
@@ -496,8 +551,8 @@
     D.liveStats.starts.push(t0); if (D.liveStats.starts.length > 200) D.liveStats.starts.shift();
     const bc = (D.liveStats.byCam[cam] = D.liveStats.byCam[cam] || []); bc.push(t0); if (bc.length > 60) bc.shift();
     const fast = D.speed() === "fast" && D.prefs().model !== "gdino";
-    let dets = await D.detectImage(v, v.videoWidth, v.videoHeight, { slot: fast ? "fast" : "main" });
-    let weakDets = [];
+    let dets = await D.detectImage(v, v.videoWidth, v.videoHeight, { slot: fast ? "fast" : "main", cam, look: true });
+    let weakDets = dets.filter((d) => d.weak); if (weakDets.length) dets = dets.filter((d) => !d.weak);   // legs-fix: weak person looks wait for 3-look confirmation
     try {
       const plan = T.handoff && T.handoff.zoomPlan ? T.handoff.zoomPlan(cam, dets, t) : null;
       if (plan && plan.length) {

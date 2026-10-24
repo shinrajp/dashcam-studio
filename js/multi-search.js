@@ -143,7 +143,7 @@
         const cached = D.frameCache.get(key);
         if (cached && cached.conf <= minConf) return (all = cached.dets);
         if (!(await getFrame())) return null;
-        try { all = await D.detectImage(v, v.videoWidth, v.videoHeight, { conf: minConf }); detRuns++; D.frameCache.set(key, { conf: minConf, dets: all }); }
+        try { all = await D.detectImage(v, v.videoWidth, v.videoHeight, { conf: minConf, cam: s.cam }); detRuns++; D.frameCache.set(key, { conf: minConf, dets: all }); }
         catch (e) { if (!rows.length && i === 0) throw e; console.warn("frame skipped", e); return null; }
         return all;
       };
