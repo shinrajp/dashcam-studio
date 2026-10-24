@@ -505,3 +505,14 @@ Rollback: `git checkout pre-handoff`. Export, redaction, white balance, the 360 
 - **Perf gate** (`test/reid-perf.js`, iPhone-emulated Chromium, CPU throttle, real model, mock detector answering after 150 ms, 3 walkers on 3 cameras): at 4× throttle p95 frame gap is unchanged with matching on (18.1 vs 18.1 ms), the descriptor cost is under the Auto limit, matching stays on. At 6× throttle the descriptor cost (about 18–26 ms) is over the limit, so Auto switches matching off by itself on such a device.
 - **Known limits:** see README. Existing known failures are unchanged (phase4-search 1 check, flaky WB Chromium car-shape, WebKit grid live-lag headless hang, WB-grid time limit).
 
+## ui-v3 (tag `ui-v3`)
+
+### 1. Mirrored bottom row order
+- Mirrored bottom row is now LEFT REPEATER | REAR | RIGHT REPEATER (videos still flipped like a mirror). Rear view is unchanged (RIGHT REPEATER | REAR | LEFT REPEATER). Before this change both presets had the same order. To revert: `PRESETS.mirror.bottom` in `js/layout.js` and the `mirror` selectors in `css/app.css` (the landscape and portrait repeater reorder rules).
+- The hand-off cue follows the picture: with Mirrored, the glowing REAR edge touches the RIGHT REPEATER tile (checked in `test/handoff-cue.js`). Test: `test/layout-presets.js`.
+
+### 2. Compact bottom bar (desktop browsers only)
+- Applies to a mouse (`pointer: fine`) in a window at least 1000 px wide and 501 px high. Phones, tablets and landscape phones keep their own rules.
+- Tighter padding, timeline 44 -> 30 px (Advanced 70 -> 52 px), smaller buttons and chips. From 1640 px wide (default mode) the timeline and the controls share one row. Advanced on a window under 1440 px wraps its controls instead of running off the right edge (they used to be clipped).
+- Every control is still there and reachable. Test: `test/desktop-bottom.js` (measures the grid and footer, checks controls are on screen and focusable).
+
