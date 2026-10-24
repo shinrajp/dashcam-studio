@@ -40,6 +40,7 @@
     cameraBar: { on: true, hintSeen: false, dock: "over", side: "top", grid: { fx: -1, fy: -1 }, focus: { fx: -1, fy: -1 } },
     cue: true,   // hand-off cue (js/handoff.js)
     carView: false,   // top-down car with tracked people (js/car-view.js)
+    carPanel: { pinned: false, collapsed: false, w: 0, fx: -1, fy: -1 },   // floating car view: pinned = locked, w = width px (0 = default), fx/fy = left/top as fractions of the window (-1 = default corner)
     crossCam: "auto",   // cross-camera matching (beta): auto | on | off (js/people.js)
     layout: "auto",   // camera layout preset: auto | current | rear | mirror (js/layout.js)
     camsHidden: { left_pillar: false, front: false, right_pillar: false, left_repeater: false, back: false, right_repeater: false },

@@ -239,6 +239,7 @@
           <div class="row wrap"><span>Burn in</span><div id="exportShow" class="mini-toggles"></div></div>
         </div>
         <label class="row burn-boxes-row" id="exportBoxesWrap" title="Draw the gold search boxes and their labels (name + confidence) into the exported video. Nothing is drawn where there is no box."><span>Burn detection boxes</span><input type="checkbox" id="exportBoxes"></label>
+        <label class="row burn-boxes-row" id="exportCarWrap" hidden title="Draw the car view (car, camera wedges and the coloured people) into the exported video, where you put it on screen. If it sits outside the picture it is moved to the nearest edge or corner."><span>Include car view</span><input type="checkbox" id="exportCar" checked></label>
         <p class="hint export-style-note" id="exportStyleNote" hidden></p>
         <label class="row burn-boxes-row" id="exportPlatesWrap" hidden title="Blur licence plates found by the plate reader (Settings ▸ Plates & text). The first export of an event scans it for plates first."><span>Blur licence plates</span><input type="checkbox" id="exportPlates"></label>
         <p class="hint" id="exportHint"></p>

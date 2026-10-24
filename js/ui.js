@@ -705,6 +705,8 @@
       c.onclick = () => { U.exportShow[k] = !U.exportShow[k]; c.classList.toggle("on", U.exportShow[k]); };
       box.appendChild(c);
     }
+    const cvOn = !!(T.carView && T.carView.on && T.carView.on() && T.player.ev), cw = $("exportCarWrap");   // "Include car view": only when the car view is on screen; ticked by default
+    if (cw) { cw.hidden = !cvOn; $("exportCar").checked = true; $("exportCar").disabled = !cvOn; }
     const bx = $("exportBoxes");
     const styleNote = () => {   // what the search switches mean for this export
       const n = $("exportStyleNote"), S = T.search; if (!n || !S || !S.anyRd) return;
@@ -794,7 +796,7 @@
       }
       const res = await T.exporter.run({
         preset, codec: $("exportCodec").value, sizeId: $("exportSize").value, ranges: U.ranges(),
-        show: T.prefs.advanced ? U.exportShow : { ...T.prefs.show },
+        show: { ...(T.prefs.advanced ? U.exportShow : T.prefs.show), carview: !!($("exportCarWrap") && !$("exportCarWrap").hidden && $("exportCar").checked) },
         onStatus: (s) => U.progress(0, s),
         onProgress: (d, tot) => {
           const el = (performance.now() - t0) / 1000, pct = (d / tot) * 100;

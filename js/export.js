@@ -259,7 +259,7 @@
         if (encErr) throw encErr;
         const { t, seg } = fm.at(k); // t = SOURCE time of this output frame
         const frames = await sources.frames(t);
-        if (cand.equirect) T.pano.drawEquirect(ctx, W, H, frames);   // 360 (beta): 2:1 equirectangular
+        if (cand.equirect) { T.pano.drawEquirect(ctx, W, H, frames); if (show && show.carview && T.carView && T.carView.drawExport) { try { T.carView.drawExport(ctx, { x: 0, y: 0, w: W, h: H }, t); } catch (e) { console.warn("car view export", e); } } }   // 360 (beta): 2:1 equirectangular
         else T.compositor.drawFrame(ctx, geo, t, frames, show);
         const vf = new VideoFrame(canvas, { timestamp: Math.round(k * fd), duration: Math.round(fd) });
         const key = seg !== lastSeg || sinceKey >= gop; // key frame at every cut (clean seeking) and every 2 s
@@ -390,6 +390,7 @@
       // burned-in boxes: make sure every frame's boxes exist before encoding (tracking finished, live detections for these ranges)
       const redacting = !!(T.search && T.search.anyRd && T.search.anyRd() && T.search.needBoxes && T.search.needBoxes());   // redacted matches are always burned in
       if (T.burnBoxes && T.burnBoxes.prepare && (redacting || (show.boxes !== undefined ? show.boxes : T.burnBoxes.enabled()))) await T.burnBoxes.prepare(ranges, status, () => X.cancelled);
+      if (show.carview && T.carView && T.carView.prepareExport) { try { await T.carView.prepareExport(ranges, status, () => X.cancelled); } catch (e) { console.warn("car view export prep", e); } }   // ui-v3: where the card sits, people for the moments never played
       if (X.cancelled) throw new Error("cancelled");
       const equi = opts.preset === "equirect";
       if (equi) {   // 360 (beta): equirectangular 2:1 from the pano renderer; needs WebCodecs

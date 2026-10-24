@@ -123,5 +123,6 @@
         D.text(ctx, text, x + tw / 2, y + 14.5 * s, 17 * s, "#fff", "center", 700, true);
       }
     }
+    if (show.carview && T.carView && T.carView.drawExport) { try { T.carView.drawExport(ctx, grid, t); } catch (e) { console.warn("car view export", e); } }   // ui-v3: "Include car view"
   };
 })();

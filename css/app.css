@@ -843,7 +843,23 @@ body.portrait .grid[data-layout="rear"] .tile[data-cam=left_repeater] { order: 6
 @media (prefers-reduced-motion: reduce) { .ho-glow { animation: none; } }
 
 /* ── Car view (hand-off, milestone 3): top-down car, camera wedges, a tiny person per tracked person ── */
-.car-view { position: absolute; z-index: 6; left: 8px; bottom: 8px; width: 150px; padding: 6px 6px 5px; border-radius: 12px; background: rgba(10,12,18,0.74); border: 1px solid rgba(255,255,255,0.14); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); color: #e8ecf3; pointer-events: auto; user-select: none; -webkit-user-select: none; }
+.car-view { position: fixed; z-index: 45; left: 8px; top: 8px; width: 150px; box-sizing: border-box; padding: 0 6px 6px; border-radius: 12px; background: rgba(10,12,18,0.74); border: 1px solid rgba(255,255,255,0.14); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); color: #e8ecf3; pointer-events: auto; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+/* ui-v3: floating panel. Fixed on the page (never changes the grid's layout). Header = drag handle; corner = resize; pin locks both. */
+.cv-bar { display: flex; align-items: center; gap: 2px; min-height: 26px; margin: 0 -2px; padding: 2px 0; cursor: grab; touch-action: none; outline: none; }
+.car-view.pinned .cv-bar, .car-view.pinned .cv-resize { cursor: default; }
+.car-view.dragging .cv-bar { cursor: grabbing; }
+.cv-bar:focus-visible, .cv-resize:focus-visible, .cv-btn:focus-visible { outline: 2px solid #fff; outline-offset: 1px; border-radius: 6px; }
+.cv-grip { display: inline-flex; opacity: 0.55; }
+.cv-title { flex: 1; font: 700 11px system-ui, sans-serif; opacity: 0.85; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cv-btn { display: inline-grid; place-items: center; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 6px; background: transparent; color: inherit; cursor: pointer; }
+.cv-btn:hover:not(:disabled) { background: rgba(255,255,255,0.14); }
+.cv-btn:disabled { display: none; }
+#cvPin[aria-pressed=true] { color: #ffd23f; background: rgba(255,210,63,0.16); }
+.cv-resize { position: absolute; right: 0; bottom: 0; width: 22px; height: 22px; cursor: nwse-resize; touch-action: none; outline: none; border-radius: 0 0 12px 0; background: linear-gradient(135deg, transparent 0 58%, rgba(255,255,255,0.55) 58% 64%, transparent 64% 74%, rgba(255,255,255,0.55) 74% 80%, transparent 80%); }
+.car-view.pinned .cv-resize, .car-view.collapsed .cv-resize { display: none; }
+.car-view.collapsed .cv-body { display: none; }
+.car-view.collapsed { padding-bottom: 0; }
+.car-view.collapsed .cv-bar { padding-bottom: 2px; }
 .car-view[hidden] { display: none; }
 .cv-svg { display: block; width: 100%; height: auto; overflow: visible; }
 .cv-wedge { fill: rgba(255,255,255,0.07); stroke: rgba(255,255,255,0.22); stroke-width: 0.5; transition: fill-opacity .2s; }
@@ -864,11 +880,13 @@ body.portrait .grid[data-layout="rear"] .tile[data-cam=left_repeater] { order: 6
 .cv-chip.sel { background: rgba(255,255,255,0.28); border-color: #fff; }
 .cv-hint { font: 600 10px system-ui, sans-serif; opacity: 0.75; text-align: center; padding: 1px 2px; }
 .cv-hint:empty { display: none; }
-body.portrait .car-view { width: 100px; left: 6px; bottom: 6px; padding: 4px; border-radius: 10px; }
+body.portrait .car-view { padding: 0 4px 4px; border-radius: 10px; }
+body.portrait .cv-btn { width: 28px; height: 28px; }   /* a finger */
+body.portrait .cv-bar { min-height: 30px; }
+body.portrait .cv-resize { width: 30px; height: 30px; }
+@media (pointer: coarse) { .cv-btn { width: 28px; height: 28px; } .cv-bar { min-height: 30px; } .cv-resize { width: 30px; height: 30px; } }
 body.portrait .cv-hint { font-size: 9px; }
 body.portrait .cv-chip { min-height: 28px; padding: 3px 5px; gap: 3px; font-size: 10px; }   /* a finger, not a mouse */
-body.fs .car-view { bottom: calc(var(--tp-h, 62px) + 8px); transition: bottom .25s; }
-body.fs.idle .car-view { bottom: 8px; }
 @media (prefers-reduced-motion: reduce) { .cv-wedge.cue { animation: none; } }
 
 /* ── desktop bottom bar, compact (ui-v3): mouse + a real desktop window only; phones, tablets (coarse pointer) and landscape phones keep their own rules above.

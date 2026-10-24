@@ -26,12 +26,12 @@ let fails = 0; const ok = (n, c, x) => { console.log((c ? "PASS " : "FAIL ") + n
       ok(tag + "Car view is off by default (no panel visible)", await p.evaluate(() => { const e = document.getElementById("carView"); return !!e && e.hidden && TDC.prefs.carView === false; }));
       if (dev.isMobile) { await p.evaluate(() => TDC.mobileBar && TDC.mobileBar.setOpen && TDC.mobileBar.setOpen(true)); await W(500); }
       const chipBox = await p.evaluate(() => { const r = document.getElementById("chipCar").getBoundingClientRect(); return { w: r.width, h: r.height }; });
-      ok(tag + "the Car view chip is tappable (>= 28 px)", chipBox.h >= 28 && chipBox.w >= 28, chipBox);
+      ok(tag + (dev.isMobile ? "the Car view chip is tappable (>= 28 px)" : "the Car view chip is a usable target (>= 24 px; the compact desktop bar, ui-v3)"), dev.isMobile ? chipBox.h >= 28 && chipBox.w >= 28 : chipBox.h >= 24 && chipBox.w >= 28, chipBox);
       await p.click("#chipCar"); await W(300);
       if (dev.isMobile) { await p.evaluate(() => TDC.mobileBar.setOpen(false)); await W(400); }
       const s0 = await p.evaluate(() => { const e = document.getElementById("carView"), st = document.getElementById("stage").getBoundingClientRect(), r = e.getBoundingClientRect(); return { shown: !e.hidden, pref: TDC.prefs.carView, wedges: e.querySelectorAll(".cv-wedge").length, people: e.querySelectorAll(".cv-person").length, w: r.width, h: r.height, inStage: r.left >= st.left - 1 && r.right <= st.right + 1 && r.top >= st.top - 1 && r.bottom <= st.bottom + 1, areaPct: Math.round(100 * r.width * r.height / (st.width * st.height)), hint: e.querySelector(".cv-hint").textContent }; });
       ok(tag + "chip shows the panel (six wedges, nobody tracked yet, says what it needs), inside the stage", s0.shown && s0.pref === true && s0.wedges === 6 && s0.people <= 1 && (s0.people > 0 || /Nobody tracked|detection/i.test(s0.hint)) && s0.inStage, s0);
-      ok(tag + (dev.isMobile ? "compact on the phone: <= 105 px wide, < 12% of the picture" : "desktop panel: <= 160 px wide, < 6% of the picture"), dev.isMobile ? s0.w <= 105 && s0.areaPct < 12 : s0.w <= 160 && s0.areaPct < 6, s0);
+      ok(tag + (dev.isMobile ? "compact on the phone: <= 105 px wide, < 16% of the picture (ui-v3: includes the drag header)" : "desktop panel: <= 160 px wide, < 6% of the picture"), dev.isMobile ? s0.w <= 105 && s0.areaPct < 16 : s0.w <= 160 && s0.areaPct < 6, s0);
       // three people: two on different cameras, one more on a third; positions from camera + box
       const st = await p.evaluate(() => {
         const D = TDC.detect, t = TDC.player.time || 0; D.clear(); TDC.people.reset();
