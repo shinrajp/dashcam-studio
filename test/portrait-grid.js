@@ -39,6 +39,7 @@ async function open(p, re) { await p.evaluate((re) => { const e = TDC.library.ev
     await (await p.$("#fileInput")).uploadFile(...files);
     for (let i = 0; i < 80 && (await p.evaluate(() => TDC.library.events.length)) < 3; i++) await W(250);
     await p.evaluate(() => [...document.querySelectorAll("button")].filter((x) => /Got it/.test(x.textContent)).forEach((x) => x.click()));
+    await p.evaluate(() => TDC.layout && TDC.layout.set("current"));   // hand-off layouts (M1): this test is about the classic order, not the Sentry Auto = Rear view preset
     const tag = d.name + " portrait";
     // 6-angle
     await open(p, "2026-10-07_18-2"); let L = await layout(p);

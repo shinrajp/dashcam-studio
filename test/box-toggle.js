@@ -27,6 +27,7 @@ const viewBoxes = (p) => p.evaluate(async () => { await new Promise((r) => setTi
     await ctx.addInitScript(() => { if (!sessionStorage.getItem("bt")) { sessionStorage.setItem("bt", "1"); localStorage.setItem("tdc.detect.v1", JSON.stringify({ enabled: true, live: true, model: "nano", conf: 0.35, speed: "balanced", liveCams: "all" })); localStorage.setItem("tdc.export.burnBoxes", "1"); localStorage.removeItem("tdc.boxes.v1"); } });
     const p = await ctx.newPage(); const errs = []; p.on("pageerror", (e) => errs.push(e.message));
     await load(p); const tag = bn;
+    await p.evaluate(() => TDC.setPref("cue", false));   // hand-off cue (M2) keeps live detection running with Boxes off while the cue is on; this test is about Boxes alone
     let s = await state(p);
     ok(tag + ": Boxes button is in the camera bar, on by default (aria-pressed=true, no strike)", s.visible && s.pressed === "true" && s.strike === "none" && s.gold, s);
     await p.evaluate(() => TDC.detect.load());
