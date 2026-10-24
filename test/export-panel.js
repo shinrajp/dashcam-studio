@@ -204,8 +204,9 @@ let fails = 0; const ok = (n, c, x) => { console.log((c ? "PASS " : "FAIL ") + n
           const m = await measure(0.5, rects);
           ok(tag + "export Fill: the car view (car body + the coloured person) is drawn in the black area", m && m.rects && m.rects[car].car > 40 && m.rects[car].pink > 5, m);
           ok(tag + "export Fill: HUD and map are drawn in their rectangles (not black)", m && m.rects && m.rects[hud].lit > m.rects[hud].n * 0.05 && m.rects[map].lit > m.rects[map].n * 0.03, m);
-          const strip = { x: 0, y: r.grid.h + 4, w: 1920, h: 1080 - r.grid.h - 4 }, over = await measure(0.5, [{ x: r.grid.x, y: r.grid.y, w: r.grid.w, h: r.grid.h }]);
-          ok(tag + "export Fill: nothing floats on the camera grid (car colour absent in the grid)", over && over.rects && over.rects[0].pink === 0 && over.rects[0].car < 40, over);
+          const over = await measure(0.5, [{ x: r.grid.x, y: r.grid.y, w: r.grid.w, h: r.grid.h }]);
+          const base0 = await runExp({ preset: "compat", extras: { mode: "fill" }, order: "standard", show: {} }), baseM = base0.ok && await measure(0.5, [{ x: r.grid.x, y: r.grid.y, w: r.grid.w, h: r.grid.h }]);
+          ok(tag + "export Fill: nothing floats on the camera grid (no person colour; the grid matches an export with nothing ticked)", over && over.rects && baseM && baseM.rects && over.rects[0].pink === 0 && Math.abs(over.rects[0].car - baseM.rects[0].car) < 300 && Math.abs(over.rects[0].lit - baseM.rects[0].lit) < 3000, { over, baseM });
         }
         // ticks off
         r = await runExp({ preset: "compat", extras: { mode: "fill" }, order: "standard", show: { hud: false, map: true, carview: false } });
