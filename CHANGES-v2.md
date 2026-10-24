@@ -516,3 +516,10 @@ Rollback: `git checkout pre-handoff`. Export, redaction, white balance, the 360 
 - Tighter padding, timeline 44 -> 30 px (Advanced 70 -> 52 px), smaller buttons and chips. From 1640 px wide (default mode) the timeline and the controls share one row. Advanced on a window under 1440 px wraps its controls instead of running off the right edge (they used to be clipped).
 - Every control is still there and reachable. Test: `test/desktop-bottom.js` (measures the grid and footer, checks controls are on screen and focusable).
 
+
+### ui-v3 task 3: floating car view, pinnable, in the export
+- Car view is now a fixed floating card (header with pin / collapse / close, corner resize handle). Drag anywhere in the window (clamped to the viewport only); pointer events, so touch works on iPhone / Safari. Pin locks position and size; pin, position, size and collapse are remembered per device (`carPanel` pref).
+- Export dialog: **Include car view** tick (default on when the car view is visible; hidden when it is off). The wedges, car and coloured person icons are drawn by the compositor at the card's relative position and size; a card outside the grid is clamped to the nearest edge or corner of the picture. All export paths (WebCodecs, MediaRecorder fallback, 360 equirect) use it.
+- People in the export: what the viewer showed (recorded history) when available, else a simple tracker over the stored person detections (no cross-camera linking).
+- Limits: applies to the open-event export; the exported card is square with no legend chips; the phone card is scaled with the panel; headless WebKit cannot paint decoded video, so the pixel check decodes WebKit's exported file in Chrome.
+- Tests: `test/car-float.js` (new, chromium + webkit, desktop + 430x932, includes decoded-frame pixel checks), `test/car-view.js` thresholds adjusted for the compact bar / header.
