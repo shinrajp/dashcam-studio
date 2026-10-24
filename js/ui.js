@@ -778,6 +778,7 @@
     const my = ++sizeTick, ev = P().ev, line = $("exportSizeLine");
     if (!line || !ev) return;
     const rq = U.exportRequest();
+    line.classList.remove("warn"); if (rq.preset !== "equirect") line.textContent = "Output: working out the size…";
     if (rq.preset === "equirect") { line.textContent = "Output: 2048×1024 (360 panorama)."; line.classList.remove("warn"); return; }
     let txt = "";
     try {
