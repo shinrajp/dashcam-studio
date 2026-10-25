@@ -590,3 +590,13 @@ Report: a black-shirt person with a brown backpack walking behind a parked Model
 - `js/people.js`: forward-heading prior for same-camera re-linking (`DEF.fwd`). `js/det-debug.js`: motion / second-look overlay. `index.html`: `motion.js` script. `.gitignore`: `models/yolo11m.onnx`.
 - Test: `test/occluded-people.js` (synthetic, pixel-based mock). Tool: `tools/clip-eval.js` (private frames only).
 - Real-clip replay (private screen recording, 46 s, six tiles at 5 looks/s, small model): seconds with a person tracked 29 → 32 of 46, identities 4 → 3. The close-range miss at 18–23 s was **not** reproduced in the replay (the model sees him at 0.8–0.93 and the old pipeline tracks him), so the real miss is likely look rate or scheduling on the device. Seeded looks did not change coverage at 1.5 looks/s.
+
+## unlock-ux (branch feature/all-in-one)
+Rollback: `git checkout pre-unlock-ux` (tip before this change, `occluded-people`).
+
+The "Manual console method (fallback)" in the Unlock dialog is now usable by regular people. Decrypt, the connector and its postMessage protocol, the console helper snippet and its output format, the iOS bookmark, `js/key-import.js` (`K.parse`), `js/tesla-auth.js`, saved keys and Forget are unchanged in behaviour.
+- `index.html` / `css/app.css`: numbered step cards (copy helper, open Tesla in a new tab with `rel=noopener`, console, paste result), device-aware text (Mac incl. Safari's "Show features for web developers", Windows / Linux, iPhone / iPad = no console, use the bookmark) with "Show steps for another device", a privacy line, and an **Advanced** section (collapsed) holding the CORS explanation, token hint, the "undocumented" note and `#pendingItemsJson` (same id). Ids `btnCopyHelper`, `pasteKeys`, `btnApplyKeys`, `pendingItemsJson`, `details.manual` are kept.
+- `js/unlock-ux.js` (new): device detection, paste → auto-apply (debounced; typing stays quiet until the text is complete keys), plain-English results next to the box (`aria-live`): "N of M clips unlocked", which clips still need keys, none matched, not keys / token / unlock request / wrong shape / empty. Applies through the same `T.library.applyKeys` + decrypt as before.
+- `js/key-import.js`: new `K.parseLoose` (wraps `K.parse`; adds fence / quote / `< ` / `undefined` / log-line tolerance by scanning for the keys JSON). `K.parse` is untouched.
+- `js/tesla-auth.js`: the Apply keys click hands over to `T.unlockUx.onApplyClick()` (inline messages instead of `alert()`); the original code remains as fallback.
+- Test: `test/unlock-ux.js` (Playwright, chromium + webkit separately, synthetic encrypted clips).

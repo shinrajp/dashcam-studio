@@ -63,6 +63,7 @@
   "js/ios-unlock.js",
   "js/tesla-auth.js",
   "js/key-import.js",
+  "js/unlock-ux.js",
   "js/key-store.js",
   "js/ui.js",
   "js/lib-index.js",
