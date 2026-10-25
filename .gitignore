@@ -9,3 +9,4 @@ __pycache__/
 *.log
 tools/mock-stills-raw/
 backups/
+models/yolo11m.onnx

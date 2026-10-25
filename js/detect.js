@@ -14,6 +14,7 @@
   const MODELS = {
     nano: { label: "YOLO11 nano (fast, ~10 MB)", urls: ["models/yolo11n.onnx", BASE + "yolo11n.onnx"], worker: "js/detect-worker.js" },
     small: { label: "YOLO11 small (more accurate, ~38 MB)", urls: ["models/yolo11s.onnx", BASE + "yolo11s.onnx"], worker: "js/detect-worker.js" },
+    medium: { label: "YOLO11 medium (most accurate, ~80 MB, computers only: you add models/yolo11m.onnx or a URL, see models/README.md)", urls: ["models/yolo11m.onnx"], worker: "js/detect-worker.js", desktopOnly: true },
     gdino: { label: "Grounding DINO tiny (any words, experimental, ~150–200 MB)", model: "onnx-community/grounding-dino-tiny-ONNX", worker: "js/gdino-worker.js", module: true },
   };
   const D = (T.detect = { COCO, MODELS, tracks: [], live: {}, status: "", backend: null, info: null, busy: false, timings: [] });
@@ -21,7 +22,7 @@
   const isMobile = () => { try { return /iPhone|iPad|iPod|Android/i.test(navigator.userAgent) || (matchMedia("(pointer: coarse)").matches && Math.min(screen.width, screen.height) < 820); } catch (_) { return false; } };
   D.isMobile = isMobile;
   D.defaults = () => ({ enabled: false, model: isMobile() ? "nano" : "small", conf: 0.35, live: false, small: "auto", seed: "auto", occl: 3.5, urls: {} });
-  D.prefs = () => { const d = D.defaults(); try { const v = JSON.parse(localStorage.getItem(KEY) || "null"); if (v && typeof v === "object") { if (!MODELS[v.model]) delete v.model; const c = +v.conf; if (!(c >= 0.05 && c <= 0.95)) delete v.conf; return { ...d, ...v }; } } catch (_) {} return d; };
+  D.prefs = () => { const d = D.defaults(); try { const v = JSON.parse(localStorage.getItem(KEY) || "null"); if (v && typeof v === "object") { if (!MODELS[v.model] || (MODELS[v.model].desktopOnly && isMobile())) delete v.model; const c = +v.conf; if (!(c >= 0.05 && c <= 0.95)) delete v.conf; return { ...d, ...v }; } } catch (_) {} return d; };
   D.setPref = (k, v) => { const p = D.prefs(); p[k] = v; try { localStorage.setItem(KEY, JSON.stringify(p)); } catch (_) {} if (k === "model") D.unload(); D.renderSettings(); };
   D.enabled = () => D.prefs().enabled === true;
 
@@ -848,13 +849,16 @@
     box.innerHTML = "";
     const row = (html) => { const d = document.createElement("div"); d.className = "row"; d.innerHTML = html; box.appendChild(d); return d; };
     row('<label style="display:flex;gap:.5rem;align-items:center"><input type="checkbox" id="detEnabled"' + (P.enabled ? " checked" : "") + "> Use object detection for search (car, person, truck…)</label>");
-    row('<span>Model</span><select class="select" id="detModel">' + Object.entries(MODELS).map(([k, m]) => '<option value="' + k + '"' + (k === P.model ? " selected" : "") + ">" + m.label + "</option>").join("") + "</select>");
+    row('<span>Model</span><select class="select" id="detModel">' + Object.entries(MODELS).filter(([, m]) => !(m.desktopOnly && isMobile())).map(([k, m]) => '<option value="' + k + '"' + (k === P.model ? " selected" : "") + ">" + m.label + "</option>").join("") + "</select>");
     row('<span>Confidence</span><input type="range" id="detConf" min="0.1" max="0.9" step="0.05" value="' + P.conf + '"><b id="detConfV">' + Math.round(P.conf * 100) + "%</b>");
     row('<span>Small objects</span><select class="select" id="detSmall"><option value="auto"' + (P.small === "auto" ? " selected" : "") + '>Auto (umbrella, bag, sign…: zoomed second look)</option><option value="on"' + (P.small === "on" ? " selected" : "") + '>Always zoom (5× slower)</option><option value="off"' + (P.small === "off" ? " selected" : "") + ">Off</option></select>");
     row('<label style="display:flex;gap:.5rem;align-items:center"><input type="checkbox" id="detLive"' + (P.live ? " checked" : "") + "> Detect while playing (boxes follow objects every frame)</label>");
     const lc = D.liveCamsMode(), sp = D.speed();
     row('<span>Cameras</span><select class="select" id="detLiveCams"><option value="focused"' + (lc === "focused" ? " selected" : "") + '>Focused camera' + (isMobile() ? " (default on phones)" : "") + '</option><option value="all"' + (lc === "all" ? " selected" : "") + '>All cameras, in turn' + (isMobile() ? "" : " (default on computers)") + "</option></select>");
     row('<span>Detection speed</span><select class="select" id="detSpeed">' + Object.entries(SPEEDS).map(([k, v]) => '<option value="' + k + '"' + (k === sp ? " selected" : "") + ">" + v.label + (k === "fast" ? " (as fast as it can, small 320 px model)" : k === "balanced" ? " (up to 5 a second, default)" : " (about 1 a second" + (lowPower ? ", default now: low power" : "") + ")") + "</option>").join("") + "</select>");
+    const sm = SD.mode(), oc = D.occlKeep();
+    row('<span>Hard-to-see people</span><select class="select" id="detSeed"><option value="auto"' + (P.seed === "auto" || !P.seed ? " selected" : "") + '>Auto (zoomed, brightened second looks at moving things; Balanced speed)</option><option value="on"' + (P.seed === "on" ? " selected" : "") + '>Always (any speed)</option><option value="off"' + (P.seed === "off" ? " selected" : "") + ">Off</option></select>");
+    row('<span>Keep a hidden person</span><select class="select" id="detOccl">' + [[0, "Off"], [2, "2 seconds"], [3.5, "3.5 seconds (default)"], [6, "6 seconds"]].map(([v, l]) => '<option value="' + v + '"' + (oc === v ? " selected" : "") + ">" + l + "</option>").join("") + "</select>");
     const cc = row('<label style="display:flex;gap:.5rem;align-items:center"><input type="checkbox" id="detCross"' + (T.people && T.people.linkOn && T.people.linkOn() ? " checked" : "") + "> Cross-camera matching (beta): the same person keeps one colour on every camera</label>");
     const cs = document.createElement("span"); cs.className = "hint"; cs.id = "detCrossStatus"; cs.style.display = "block"; cs.textContent = T.reid && T.reid.statusText ? T.reid.statusText() : ""; cc.appendChild(cs);
     const ch = document.createElement("span"); ch.className = "hint"; ch.style.display = "block"; ch.textContent = "Default: on when this device keeps up, off when it would slow playback. Uses a small appearance model (0.8 MB, Apache-2.0) stored with the app; nothing is uploaded."; cc.appendChild(ch);
@@ -870,6 +874,8 @@
     box.querySelector("#detModel").onchange = (e) => D.setPref("model", e.target.value);
     box.querySelector("#detConf").oninput = (e) => { box.querySelector("#detConfV").textContent = Math.round(e.target.value * 100) + "%"; };
     box.querySelector("#detConf").onchange = (e) => D.setPref("conf", +e.target.value);
+    box.querySelector("#detSeed").onchange = (e) => D.setPref("seed", e.target.value);
+    box.querySelector("#detOccl").onchange = (e) => D.setPref("occl", +e.target.value);
     box.querySelector("#detSmall").onchange = (e) => D.setPref("small", e.target.value);
     box.querySelector("#detCross").onchange = (e) => { T.setPref("crossCam", e.target.checked ? "on" : "off"); if (T.people && T.people.reset) T.people.reset(); const c = box.querySelector("#detCrossStatus"); if (c && T.reid) c.textContent = T.reid.statusText(); };
     box.querySelector("#detLive").onchange = (e) => D.setPref("live", e.target.checked);
