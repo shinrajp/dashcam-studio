@@ -67,7 +67,7 @@ const URL_ = E.URL || "http://127.0.0.1:8770/index.html", CAMS = ["left_pillar",
         const withH = tr.map((x) => { const k = x.cam + ":" + x.id, h = hist(x); if (h) S.mem[k] = S.mem[k] ? S.mem[k].map((v, i) => 0.6 * v + 0.4 * h[i]) : h; return Object.assign({}, x, { hist: S.mem[k] }); });
         const reg = S.reg.update(withH, t);
         const sec = Math.floor(t); const row = (S.perSec[sec] = S.perSec[sec] || { looks: 0, tracked: 0, cams: {}, gids: [], ghost: 0, ms: 0, seed: 0 });
-        row.looks++; row.ms += ms;
+        row.looks++; row.ms += ms; row.tr = reg.map((r) => [r.cam.slice(0, 8) + (r.cam === 'right_repeater' ? 'R' : ''), r.id, r.gid, +(+r.x || 0).toFixed(2), +(+r.y || 0).toFixed(2), +(+r.w || 0).toFixed(2), +(+r.h || 0).toFixed(2), +(+r.conf || 0).toFixed(2), !!r.zoom]);
         for (const r of reg) { row.tracked = Math.max(row.tracked, reg.length); row.cams[r.cam] = 1; if (!row.gids.includes(r.gid)) row.gids.push(r.gid); }
         row.ghost = Math.max(row.ghost, D.liveCams().reduce((a, c) => a + D.ghostsAt(c, t).length, 0));
         const dbg = D.seed.dbg[cam]; if (dbg && dbg.wins && dbg.wins.length && dbg.wall === S.wall) row.seed++;

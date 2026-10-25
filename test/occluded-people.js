@@ -106,6 +106,17 @@ let fails = 0; const ok = (n, c, x) => { console.log((c ? "PASS " : "FAIL ") + n
       ok(tag + "walker, seeding ON: one identity through the pillar (hidden person kept, then revived), never two", on.ids.length === 1 && on.maxTracks === 1 && ((on.ghostSeen > 0 && on.revived > 0) || !/10+1/.test(on.tracksPerLook)), on);   // computers: hidden for a while → ghost → revived; phones: the track simply outlives the gap between second looks
       ok(tag + "static headrest-like object: no person track, no motion windows", st.ids.length === 0 && st.stats.windows === 0, st);
       ok(tag + "light flashes: no person track", fl.ids.length === 0, fl);
+      // ── 6. a still, low-score "person" (headrest through a window) stops counting after STATIC.secs, also when it flickers out and back; a sure one never does ──
+      const SF = await p.evaluate(() => {
+        const D = TDC.detect; D.clear(); D.resetIds(); const bx = (x, c) => [{ x, y: 0.3, w: 0.1, h: 0.2, label: "person", conf: c }], r = {};
+        for (let t = 0; t <= 5.4; t += 0.3) { D._track("right_pillar", t, bx(0.56, 0.4).concat(bx(0.1, 0.85))); if (Math.abs(t - 3.9) < 0.01) r.early = D.personTracks(t).map((q) => q.x.toFixed(2)).join(); }
+        for (let t = 6; t <= 7.2; t += 0.3) D._track("right_pillar", t, bx(0.56, 0.4).concat(bx(0.1, 0.85)));
+        r.late = D.personTracks(7.2).map((q) => q.x.toFixed(2)).join();
+        for (let t = 7.5; t <= 9; t += 0.3) D._track("right_pillar", t, bx(0.1, 0.85)); for (let t = 9.3; t <= 9.9; t += 0.3) D._track("right_pillar", t, bx(0.56, 0.4).concat(bx(0.1, 0.85)));   // gone for a moment, back at the same place
+        r.back = D.personTracks(9.9).map((q) => q.x.toFixed(2)).join();
+        D.clear(); D.resetIds(); return r;
+      });
+      ok(tag + "still low-score box: counted at first, dropped after ~5 s, stays dropped when it flickers back; the sure person stays", /0\.56/.test(SF.early) && /0\.10/.test(SF.early) && !/0\.56/.test(SF.late) && /0\.10/.test(SF.late) && !/0\.56/.test(SF.back) && /0\.10/.test(SF.back), SF);
       // ── 5. budget + settings ──
       const B = await p.evaluate(() => { const D = TDC.detect, bud = D.seed.budget(); localStorage.setItem("tdc.detect.v1", JSON.stringify({ enabled: true, live: true, model: "medium", speed: "balanced" })); return { bud, mob: D.isMobile(), model: D.prefs().model, hasMedium: !!D.MODELS && !!D.MODELS.medium }; });
       const s10 = on.stats.looks;

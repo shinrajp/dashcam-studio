@@ -508,19 +508,20 @@
       }
       tr.mcx = dcx; tr.mcy = dcy; tr.mt = t;
       if (tr.c0x == null) { tr.c0x = dcx; tr.c0y = dcy; tr.mc = 0; tr.disp = 0; } tr.mc = Math.max(tr.mc, d.conf); tr.disp = Math.max(tr.disp, Math.hypot(dcx - tr.c0x, dcy - tr.c0y));
+      if (tr.label === "person" && !d.seeded && tr.disp < D.STATIC.disp && tr.mc < D.STATIC.conf && (tr.n || 1) >= 2) stillZoneNote(cam, tr, t);
       tr.t = t; tr.seen = t; tr.ls = !!d.seeded; tr.conf = d.conf; tr.attr = d.attr; tr.clObs = d.clObs; tr.n = (tr.n || 1) + 1;
       if (d.seeded && tr.seeded !== false) { tr.seeded = true; seedPath(tr, d, t); } else if (!d.seeded && tr.weak) tr.seeded = false;
       if (tr.weak) weakHit(tr, d, t);   // multi-frame score accumulation (zoomed person looks below the normal cut-off)
       else if (d.zoom) tr.zoom = true;
     }
-    dets.forEach((d, i) => { if (!ud.has(i)) { const tr = { id: newId(cam), cam, first: t, seeded: d.seeded ? true : undefined, path: d.seeded ? [{ t, x: d.x, y: d.y, w: d.w, h: d.h }] : undefined, weakLooks: d.seeded ? [{ t, d }] : undefined, weak: !!d.weak, acc: d.weak ? d.conf : 0, hits: 1, wt: t, zoom: !!d.zoom, label: d.label, x: d.x, y: d.y, w: d.w, h: d.h, vx: 0, vy: 0, t, seen: t, conf: d.conf, attr: d.attr, clObs: d.clObs, mcx: d.x + d.w / 2, mcy: d.y + d.h / 2, mt: t }; list.push(tr); } });
+    dets.forEach((d, i) => { if (!ud.has(i)) { const tr = { id: newId(cam), cam, first: t, seeded: d.seeded ? true : undefined, path: d.seeded ? [{ t, x: d.x, y: d.y, w: d.w, h: d.h }] : undefined, weakLooks: d.seeded ? [{ t, d }] : undefined, weak: !!d.weak, acc: d.weak ? d.conf : 0, hits: 1, wt: t, zoom: !!d.zoom, label: d.label, x: d.x, y: d.y, w: d.w, h: d.h, vx: 0, vy: 0, t, seen: t, conf: d.conf, attr: d.attr, clObs: d.clObs, mcx: d.x + d.w / 2, mcy: d.y + d.h / 2, mt: t }; if (d.label === "person" && !d.seeded) { const z = stillZoneAt(cam, d, t); if (z) { tr.first = z.first; tr.n = z.n; tr.c0x = z.cx; tr.c0y = z.cy; tr.mc = z.mc; tr.disp = 0; } } list.push(tr); } });
   }
   D._track = track;   // tests
   D._detectLive = (cam, src, t) => detectLive(cam, src, { testT: t });
   // stable per-camera track ids ("RR3": right repeater, third track since the event opened) — the hand-off cue and the people registry key on them
   const idN = {};
   const newId = (cam) => ((T.handoff && T.handoff.SHORT && T.handoff.SHORT[cam]) || cam) + (idN[cam] = (idN[cam] || 0) + 1);
-  D.resetIds = () => { for (const k of Object.keys(idN)) delete idN[k]; };
+  D.resetIds = () => { for (const k of Object.keys(idN)) delete idN[k]; D.stillZones = {}; };
   // A weak person look (zoomed, score between PERSON_ZOOM_CONF and the normal cut-off) only becomes a real track once evidence adds up:
   // score = decayed sum of the looks' confidences (x0.8 per look); 3 looks within 3 s and score >= 0.55 (3 looks at >= ~0.23), or one normal-strength look.
   D.PERSON_ZOOM_CONF = 0.2;
@@ -548,7 +549,16 @@
   // A "person" that has not moved for STATIC.secs, never scored above STATIC.conf and was not found by motion: a headrest seen through
   // a car window, a fender, a coat on a hook (measured on a real garage clip: two such boxes sat at 0.2-0.47 for 40 s and made a second
   // "person" next to the real one). It stays in the list (it can start to move) but is neither drawn nor counted.
-  D.STATIC = { secs: 10, conf: 0.5, disp: 0.03, n: 6 };
+  D.STATIC = { secs: 5, conf: 0.5, disp: 0.03, n: 5 };
+  // where such boxes were seen per camera (a box that flickers out and back re-creates its track: the zone hands the age back)
+  D.stillZones = {};
+  const stillZoneAt = (cam, d, t) => { const zs = D.stillZones[cam]; if (!zs) return null; for (const z of zs) if (t - z.t < 40 && t >= z.t - 0.3 && iou(z, d) > 0.5) return z; return null; };
+  const stillZoneNote = (cam, tr, t) => {
+    const zs = (D.stillZones[cam] = (D.stillZones[cam] || []).filter((z) => t - z.t < 40 && t >= z.t - 0.3)); let z = zs.find((q) => iou(q, tr) > 0.5);
+    if (!z) { z = { first: tr.first != null ? tr.first : t, n: 0, mc: 0 }; zs.push(z); }
+    z.x = tr.x; z.y = tr.y; z.w = tr.w; z.h = tr.h; z.cx = tr.c0x; z.cy = tr.c0y; z.t = t; z.n = Math.max(z.n, tr.n || 1); z.mc = Math.max(z.mc, tr.mc || 0);
+    if (zs.length > 8) zs.shift();
+  };
   const stillFalse = (tr, t) => tr.label === "person" && !tr.seeded && (tr.n || 1) >= D.STATIC.n && tr.c0x != null && tr.disp < D.STATIC.disp && (tr.mc || 0) < D.STATIC.conf && t - (tr.first != null ? tr.first : tr.seen) >= D.STATIC.secs;
   /** Confirmed, current person tracks as they are at event time t (predicted like the painted boxes). */
   D.personTracks = (t) => {
