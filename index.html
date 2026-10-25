@@ -14,7 +14,7 @@
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
   <link rel="icon" href="icons/icon-192.png" type="image/png">
-  <link rel="stylesheet" href="css/app.css?v=export-panel">
+  <link rel="stylesheet" href="css/app.css?v=occluded-people">
 </head>
 <body class="simple">
   <div class="slow-note" id="slowNote" role="status" hidden><span class="sn-text"><b>Slow mode:</b> this page is on plain http, so decrypting your clips takes longer. The https / installed version is much faster.</span><button class="btn small" id="slowNoteHow" type="button">How</button><button class="btn icon sm" id="slowNoteX" type="button" title="Dismiss" aria-label="Dismiss"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
@@ -371,69 +371,69 @@
   <!-- Cameras picker: a top-level layer on <body> (never inside the camera bar, whose backdrop-filter would make
        position:fixed relative to the bar); js/focus.js places it next to the Cameras button. -->
   <div class="cam-menu" id="camMenu" hidden></div>
-  <script src="vendor/mp4-muxer.js?v=export-panel"></script>
-  <script src="vendor/webm-muxer.js?v=export-panel"></script>
-  <script src="vendor/ort.wasm.min.js?v=export-panel"></script>
-  <script src="vendor/ocr-pack.js?v=export-panel"></script>
+  <script src="vendor/mp4-muxer.js?v=occluded-people"></script>
+  <script src="vendor/webm-muxer.js?v=occluded-people"></script>
+  <script src="vendor/ort.wasm.min.js?v=occluded-people"></script>
+  <script src="vendor/ocr-pack.js?v=occluded-people"></script>
   <!-- app (classic scripts: they work when opened from file://) -->
-  <script src="js/core.js?v=export-panel"></script>
-  <script src="js/mp4.js?v=export-panel"></script>
-  <script src="js/sei.js?v=export-panel"></script>
-  <script src="js/crypto.js?v=export-panel"></script>
-  <script src="js/teslacam.js?v=export-panel"></script>
-  <script src="js/telemetry.js?v=export-panel"></script>
-  <script src="js/batching.js?v=export-panel"></script>
-  <script src="js/library.js?v=export-panel"></script>
-  <script src="js/player.js?v=export-panel"></script>
-  <script src="js/layout.js?v=export-panel"></script>
-  <script src="js/handoff.js?v=export-panel"></script>
-  <script src="js/reid.js?v=export-panel"></script>
-  <script src="js/people.js?v=export-panel"></script>
-  <script src="js/car-view.js?v=export-panel"></script>
-  <script src="js/draw.js?v=export-panel"></script>
-  <script src="js/hud.js?v=export-panel"></script>
-  <script src="js/map.js?v=export-panel"></script>
-  <script src="js/compositor.js?v=export-panel"></script>
-  <script src="js/overlays.js?v=export-panel"></script>
-  <script src="js/focus.js?v=export-panel"></script>
-  <script src="js/export.js?v=export-panel"></script>
-  <script src="js/search.js?v=export-panel"></script>
-  <script src="js/redact.js?v=export-panel"></script>
-  <script src="js/text-match.js?v=export-panel"></script>
-  <script src="js/text-search.js?v=export-panel"></script>
-  <script src="js/time-search.js?v=export-panel"></script>
-  <script src="js/burn-boxes.js?v=export-panel"></script>
-  <script src="js/worker-start.js?v=export-panel"></script>
-  <script src="js/color-lock.js?v=export-panel"></script>
-  <script src="js/motion.js?v=export-panel"></script>
-  <script src="js/detect.js?v=export-panel"></script>
-  <script src="js/plate-text.js?v=export-panel"></script>
-  <script src="js/plates.js?v=export-panel"></script>
-  <script src="js/prewarm.js?v=export-panel"></script>
-  <script src="js/vehicle-attrs.js?v=export-panel"></script>
-  <script src="js/vehicle.js?v=export-panel"></script>
-  <script src="js/cloud-boost.js?v=export-panel"></script>
-  <script src="js/recog-settings.js?v=export-panel"></script>
-  <script src="js/pano-toggle.js?v=export-panel"></script>
-  <script src="js/multi-search.js?v=export-panel"></script>
-  <script src="js/wb.js?v=export-panel"></script>
-  <script src="js/wb-debug.js?v=export-panel"></script>
-  <script src="js/det-debug.js?v=export-panel"></script>
-  <script src="js/colour-constancy.js?v=export-panel"></script>
-  <script src="js/search-ui.js?v=export-panel"></script>
-  <script src="js/search-strip.js?v=export-panel"></script>
-  <script src="js/mobile-bar.js?v=export-panel"></script>
-  <script src="js/connector-src.js?v=export-panel"></script>
-  <script src="js/ios-unlock-src.js?v=export-panel"></script>
-  <script src="js/ios-unlock.js?v=export-panel"></script>
-  <script src="js/tesla-auth.js?v=export-panel"></script>
-  <script src="js/key-import.js?v=export-panel"></script>
-  <script src="js/key-store.js?v=export-panel"></script>
-  <script src="js/ui.js?v=export-panel"></script>
-  <script src="js/lib-index.js?v=export-panel"></script>
-  <script src="js/lib-index-ui.js?v=export-panel"></script>
-  <script src="js/auto.js?v=export-panel"></script>
-  <script src="js/app.js?v=export-panel"></script>
-  <script src="js/pwa.js?v=export-panel"></script>
+  <script src="js/core.js?v=occluded-people"></script>
+  <script src="js/mp4.js?v=occluded-people"></script>
+  <script src="js/sei.js?v=occluded-people"></script>
+  <script src="js/crypto.js?v=occluded-people"></script>
+  <script src="js/teslacam.js?v=occluded-people"></script>
+  <script src="js/telemetry.js?v=occluded-people"></script>
+  <script src="js/batching.js?v=occluded-people"></script>
+  <script src="js/library.js?v=occluded-people"></script>
+  <script src="js/player.js?v=occluded-people"></script>
+  <script src="js/layout.js?v=occluded-people"></script>
+  <script src="js/handoff.js?v=occluded-people"></script>
+  <script src="js/reid.js?v=occluded-people"></script>
+  <script src="js/people.js?v=occluded-people"></script>
+  <script src="js/car-view.js?v=occluded-people"></script>
+  <script src="js/draw.js?v=occluded-people"></script>
+  <script src="js/hud.js?v=occluded-people"></script>
+  <script src="js/map.js?v=occluded-people"></script>
+  <script src="js/compositor.js?v=occluded-people"></script>
+  <script src="js/overlays.js?v=occluded-people"></script>
+  <script src="js/focus.js?v=occluded-people"></script>
+  <script src="js/export.js?v=occluded-people"></script>
+  <script src="js/search.js?v=occluded-people"></script>
+  <script src="js/redact.js?v=occluded-people"></script>
+  <script src="js/text-match.js?v=occluded-people"></script>
+  <script src="js/text-search.js?v=occluded-people"></script>
+  <script src="js/time-search.js?v=occluded-people"></script>
+  <script src="js/burn-boxes.js?v=occluded-people"></script>
+  <script src="js/worker-start.js?v=occluded-people"></script>
+  <script src="js/color-lock.js?v=occluded-people"></script>
+  <script src="js/motion.js?v=occluded-people"></script>
+  <script src="js/detect.js?v=occluded-people"></script>
+  <script src="js/plate-text.js?v=occluded-people"></script>
+  <script src="js/plates.js?v=occluded-people"></script>
+  <script src="js/prewarm.js?v=occluded-people"></script>
+  <script src="js/vehicle-attrs.js?v=occluded-people"></script>
+  <script src="js/vehicle.js?v=occluded-people"></script>
+  <script src="js/cloud-boost.js?v=occluded-people"></script>
+  <script src="js/recog-settings.js?v=occluded-people"></script>
+  <script src="js/pano-toggle.js?v=occluded-people"></script>
+  <script src="js/multi-search.js?v=occluded-people"></script>
+  <script src="js/wb.js?v=occluded-people"></script>
+  <script src="js/wb-debug.js?v=occluded-people"></script>
+  <script src="js/det-debug.js?v=occluded-people"></script>
+  <script src="js/colour-constancy.js?v=occluded-people"></script>
+  <script src="js/search-ui.js?v=occluded-people"></script>
+  <script src="js/search-strip.js?v=occluded-people"></script>
+  <script src="js/mobile-bar.js?v=occluded-people"></script>
+  <script src="js/connector-src.js?v=occluded-people"></script>
+  <script src="js/ios-unlock-src.js?v=occluded-people"></script>
+  <script src="js/ios-unlock.js?v=occluded-people"></script>
+  <script src="js/tesla-auth.js?v=occluded-people"></script>
+  <script src="js/key-import.js?v=occluded-people"></script>
+  <script src="js/key-store.js?v=occluded-people"></script>
+  <script src="js/ui.js?v=occluded-people"></script>
+  <script src="js/lib-index.js?v=occluded-people"></script>
+  <script src="js/lib-index-ui.js?v=occluded-people"></script>
+  <script src="js/auto.js?v=occluded-people"></script>
+  <script src="js/app.js?v=occluded-people"></script>
+  <script src="js/pwa.js?v=occluded-people"></script>
 </body>
 </html>

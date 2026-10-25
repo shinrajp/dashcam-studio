@@ -40,6 +40,7 @@
   "js/burn-boxes.js",
   "js/worker-start.js",
   "js/color-lock.js",
+  "js/motion.js",
   "js/detect.js",
   "js/plate-text.js",
   "js/plates.js",
