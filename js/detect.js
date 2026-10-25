@@ -444,6 +444,8 @@
   D.camGap = {};   // seconds between two looks at a camera (event time, smoothed)
   const gapOf = (cam) => { const n = Math.max(1, D.liveCams().length); return Math.max(D.camGap[cam] || 0, Math.min(3, n * D.liveEvery() / 1000)); };
   const expiry = (cam) => Math.max(0.5, 1.5 * gapOf(cam) + 0.15);
+  // a track whose latest looks were SECOND looks (zoomed windows, 0.5-2 s apart) must outlive the gap between them, or it flickers and every look starts a new track
+  const exOf = (tr, ex) => ((tr.ls != null ? tr.ls : tr.seeded === true) ? Math.max(ex, Math.min(3, 1.5 * 10 / Math.max(1, D.seed.budget().per10) + 0.3)) : ex);
   /** Prediction on (default) or off (?pred=0 or localStorage "tdc.livePredict" = "off": boxes stay where the detector saw them). */
   D.predictOn = () => { try { if (/(?:[?&#])pred=0\b/.test(location.search + location.hash)) return false; return localStorage.getItem("tdc.livePredict") !== "off"; } catch (_) { return true; } };
   const clampV = (v) => Math.max(-VMAX, Math.min(VMAX, v));
@@ -462,10 +464,10 @@
     // in the list as a GHOST for D.occlKeep() seconds — not drawn, not counted — and takes its identity back when a person shows up
     // near where it should be. A person who walked out through the picture's edge is not kept (the hand-off cue links the next camera).
     const ex0 = expiry(cam), keep = D.occlKeep();
-    const list = (D.liveTracks[cam] = (D.liveTracks[cam] || []).filter((tr) => tr.t <= t + 0.05 && (t - tr.seen <= ex0 || ghostOk(tr, t, keep))));
+    const list = (D.liveTracks[cam] = (D.liveTracks[cam] || []).filter((tr) => tr.t <= t + 0.05 && (t - tr.seen <= exOf(tr, ex0) || ghostOk(tr, t, keep))));
     const gap = gapOf(cam);
     const pred = list.map((tr) => predictAt(tr, t, gap));
-    const isGhost = list.map((tr) => t - tr.seen > ex0);
+    const isGhost = list.map((tr) => t - tr.seen > exOf(tr, ex0));
     // a weak look that sits on a track we already trust adds nothing (a head-only box must not drag a good box around)
     dets = dets.filter((d) => !d.weak || !list.some((tr, j) => !tr.weak && !isGhost[j] && tr.label === d.label && iou(pred[j], d) > 0.15));
     const pairs = [];
@@ -506,7 +508,7 @@
       }
       tr.mcx = dcx; tr.mcy = dcy; tr.mt = t;
       if (tr.c0x == null) { tr.c0x = dcx; tr.c0y = dcy; tr.mc = 0; tr.disp = 0; } tr.mc = Math.max(tr.mc, d.conf); tr.disp = Math.max(tr.disp, Math.hypot(dcx - tr.c0x, dcy - tr.c0y));
-      tr.t = t; tr.seen = t; tr.conf = d.conf; tr.attr = d.attr; tr.clObs = d.clObs; tr.n = (tr.n || 1) + 1;
+      tr.t = t; tr.seen = t; tr.ls = !!d.seeded; tr.conf = d.conf; tr.attr = d.attr; tr.clObs = d.clObs; tr.n = (tr.n || 1) + 1;
       if (d.seeded && tr.seeded !== false) { tr.seeded = true; seedPath(tr, d, t); } else if (!d.seeded && tr.weak) tr.seeded = false;
       if (tr.weak) weakHit(tr, d, t);   // multi-frame score accumulation (zoomed person looks below the normal cut-off)
       else if (d.zoom) tr.zoom = true;
@@ -554,9 +556,9 @@
     for (const cam of Object.keys(D.liveTracks)) {
       const list = D.liveTracks[cam] || [], ex = expiry(cam), gap = gapOf(cam);
       for (const tr of list) {
-        if (tr.label !== "person" || tr.weak || t - tr.seen > ex || t < tr.t - 0.3 || stillFalse(tr, t)) continue;
+        if (tr.label !== "person" || tr.weak || t - tr.seen > exOf(tr, ex) || t < tr.t - 0.3 || stillFalse(tr, t)) continue;
         const b = pr ? predictAt(tr, t, gap) : tr;
-        out.push({ cam, id: tr.id, x: b.x, y: b.y, w: tr.w, h: tr.h, vx: tr.vx, vy: tr.vy, n: tr.n || 1, seen: tr.seen, t, conf: tr.conf, ex, hist: tr.hist, emb: tr.emb, zoom: !!tr.zoom, first: tr.first != null ? tr.first : (tr.first = tr.seen) });
+        out.push({ cam, id: tr.id, x: b.x, y: b.y, w: tr.w, h: tr.h, vx: tr.vx, vy: tr.vy, n: tr.n || 1, seen: tr.seen, t, conf: tr.conf, ex: exOf(tr, ex), hist: tr.hist, emb: tr.emb, zoom: !!tr.zoom, first: tr.first != null ? tr.first : (tr.first = tr.seen) });
       }
     }
     return out;
@@ -573,7 +575,7 @@
     const list = D.liveTracks[cam]; if (!list || !list.length) return null;
     const ex = expiry(cam), gap = gapOf(cam), pr = D.predictOn(), out = [];
     for (const tr of list) {
-      if (t - tr.seen > ex || t < tr.t - 0.3 || tr.weak || stillFalse(tr, t)) continue;
+      if (t - tr.seen > exOf(tr, ex) || t < tr.t - 0.3 || tr.weak || stillFalse(tr, t)) continue;
       const b = pr ? predictAt(tr, t, gap) : tr;
       out.push({ x: b.x, y: b.y, w: tr.w, h: tr.h, label: tr.label, conf: tr.conf, attr: tr.attr, clObs: tr.clObs, id: tr.id });
     }
@@ -615,7 +617,7 @@
   /** Hidden (ghost) people of a camera at event time t, as boxes where they should be now. */
   D.ghostsAt = (cam, t) => {
     const ex = expiry(cam), keep = D.occlKeep(), gap = gapOf(cam);
-    return (D.liveTracks[cam] || []).filter((tr) => t - tr.seen > ex && ghostOk(tr, t, keep)).map((tr) => Object.assign(predictAt(tr, t, gap), { id: tr.id, age: t - tr.seen }));
+    return (D.liveTracks[cam] || []).filter((tr) => t - tr.seen > exOf(tr, ex) && ghostOk(tr, t, keep)).map((tr) => Object.assign(predictAt(tr, t, gap), { id: tr.id, age: t - tr.seen }));
   };
   const frameSize = (v) => ({ iw: v.videoWidth || v.width, ih: v.videoHeight || v.height });
   /** Motion step + (when the budget allows) zoomed, enhanced second looks. dets: this look's normal detections. Returns weak seeded person looks. */
