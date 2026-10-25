@@ -42,6 +42,7 @@
   "js/color-lock.js",
   "js/motion.js",
   "js/detect.js",
+  "js/model-picker.js",
   "js/plate-text.js",
   "js/plates.js",
   "js/prewarm.js",

@@ -14,7 +14,7 @@
   const MODELS = {
     nano: { label: "YOLO11 nano (fast, ~10 MB)", urls: ["models/yolo11n.onnx", BASE + "yolo11n.onnx"], worker: "js/detect-worker.js" },
     small: { label: "YOLO11 small (more accurate, ~38 MB)", urls: ["models/yolo11s.onnx", BASE + "yolo11s.onnx"], worker: "js/detect-worker.js" },
-    medium: { label: "YOLO11 medium (most accurate, ~80 MB, computers only: you add models/yolo11m.onnx or a URL, see models/README.md)", urls: ["models/yolo11m.onnx"], worker: "js/detect-worker.js", desktopOnly: true },
+    medium: { label: "YOLO11 medium (most accurate, ~80 MB, computers only: you choose the file once)", urls: ["models/yolo11m.onnx"], worker: "js/detect-worker.js", desktopOnly: true },
     gdino: { label: "Grounding DINO tiny (any words, experimental, ~150–200 MB)", model: "onnx-community/grounding-dino-tiny-ONNX", worker: "js/gdino-worker.js", module: true },
   };
   const D = (T.detect = { COCO, MODELS, tracks: [], live: {}, status: "", backend: null, info: null, busy: false, timings: [] });
@@ -23,7 +23,7 @@
   D.isMobile = isMobile;
   D.defaults = () => ({ enabled: false, model: isMobile() ? "nano" : "small", conf: 0.35, live: false, small: "auto", seed: "auto", occl: 3.5, urls: {} });
   D.prefs = () => { const d = D.defaults(); try { const v = JSON.parse(localStorage.getItem(KEY) || "null"); if (v && typeof v === "object") { if (!MODELS[v.model] || (MODELS[v.model].desktopOnly && isMobile())) delete v.model; const c = +v.conf; if (!(c >= 0.05 && c <= 0.95)) delete v.conf; return { ...d, ...v }; } } catch (_) {} return d; };
-  D.setPref = (k, v) => { const p = D.prefs(); p[k] = v; try { localStorage.setItem(KEY, JSON.stringify(p)); } catch (_) {} if (k === "model") D.unload(); D.renderSettings(); };
+  D.setPref = (k, v) => { const p = D.prefs(); p[k] = v; try { localStorage.setItem(KEY, JSON.stringify(p)); } catch (_) {} if (k === "model") { D.unload(); if (T.modelStore) T.modelStore.noteFailure(false); } D.renderSettings(); };
   D.enabled = () => D.prefs().enabled === true;
 
   /** Map a search phrase to a COCO class, or null (free text → CLIP search as before). */
@@ -64,7 +64,7 @@
       const d = e.data || {};
       if (d.type === "stage") { stage = d.stage; return; }
       if (d.type === "fatal") { const err = new Error(d.error); for (const p of pending.values()) p.reject(err); pending.clear(); return; }
-      if (d.type === "progress") { const mb = (x) => (x / 1048576).toFixed(1); setStatus(d.phase === "cache" ? "Model loaded from this device." : "Downloading model… " + mb(d.loaded) + (d.total ? " / " + mb(d.total) : "") + " MB"); return; }
+      if (d.type === "progress") { const mb = (x) => (x / 1048576).toFixed(1); setStatus(d.phase === "cache" || d.phase === "stored" ? "Model loaded from this device." : "Downloading model… " + mb(d.loaded) + (d.total ? " / " + mb(d.total) : "") + " MB"); return; }
       const p = pending.get(d.id); if (!p) return; pending.delete(d.id);
       d.type === "error" ? p.reject(new Error(d.error)) : p.resolve(d);
     };
@@ -78,12 +78,22 @@
         if (!msg && D.info) D.unload();   // killed by the browser: start afresh next time
       }, msg ? 0 : 400);
     }; };
-    const urls = (D.prefs().urls && D.prefs().urls[name] ? [D.prefs().urls[name]] : []).concat(m.urls || []);
+    const pu = D.prefs().urls && D.prefs().urls[name] ? [D.prefs().urls[name]] : [];
+    // YOLO11 medium (optional AGPL file): the file the user chose on this device → models/ next to the app → the urls pref
+    const urls = name === "medium" ? (m.urls || []).concat(pu) : pu.concat(m.urls || []);
     const abs = urls.map((u) => new URL(u, location.href).href);
     setStatus("Loading " + m.label + "…");
-    loading = started.then(() => { wire(); return call({ type: "load", urls: abs, model: m.model, ortBases: D.config.ortBases.map((u) => new URL(u, location.href).href), tfUrl: D.config.tfUrl, size: D.config.size, useCache: D.cacheOk(), preferGpu: gpuPref() }); })
+    loading = started.then(async () => {
+      wire();
+      let userBlob = null, ids = abs;
+      if (name === "medium" && T.modelStore) { try { const meta = await T.modelStore.meta("medium"); userBlob = meta ? await T.modelStore.blob("medium") : null; if (userBlob) ids = ["user:medium#" + (meta.added || 0)].concat(abs); } catch (_) { userBlob = null; } }
+      return call({ type: "load", urls: ids, userBlob, model: m.model, ortBases: D.config.ortBases.map((u) => new URL(u, location.href).href), tfUrl: D.config.tfUrl, size: D.config.size, useCache: D.cacheOk(), preferGpu: gpuPref() }, userBlob instanceof ArrayBuffer ? [userBlob] : []); })
       .then((info) => { D.backend = info.backend; D.info = info; setStatus("Ready · " + (info.backend === "webgpu" ? "WebGPU" : "WASM (CPU)") + (info.cached ? " · from this device" : info.saved ? " · saved on this device" : "")); return info; })
-      .catch((e) => { setStatus("Detection unavailable: " + e.message); D.unload(); throw e; });
+      .catch((e) => {
+        const MS = T.modelStore;
+        if (name === "medium" && MS && MS.isMissing(e)) { MS.noteFailure(true); setStatus(MS.MSG); const n = document.getElementById("detMedPanel"); if (n) MS.render(n); }   // friendly text instead of a bare 404
+        else setStatus("Detection unavailable: " + e.message);
+        D.unload(); throw e; });
     return loading;
   };
 
@@ -892,6 +902,7 @@
     const row = (html) => { const d = document.createElement("div"); d.className = "row"; d.innerHTML = html; box.appendChild(d); return d; };
     row('<label style="display:flex;gap:.5rem;align-items:center"><input type="checkbox" id="detEnabled"' + (P.enabled ? " checked" : "") + "> Use object detection for search (car, person, truck…)</label>");
     row('<span>Model</span><select class="select" id="detModel">' + Object.entries(MODELS).filter(([, m]) => !(m.desktopOnly && isMobile())).map(([k, m]) => '<option value="' + k + '"' + (k === P.model ? " selected" : "") + ">" + m.label + "</option>").join("") + "</select>");
+    if (P.model === "medium" && T.modelStore && !isMobile()) { const mp = document.createElement("div"); mp.id = "detMedPanel"; box.appendChild(mp); T.modelStore.render(mp); }   // js/model-picker.js
     row('<span>Confidence</span><input type="range" id="detConf" min="0.1" max="0.9" step="0.05" value="' + P.conf + '"><b id="detConfV">' + Math.round(P.conf * 100) + "%</b>");
     row('<span>Small objects</span><select class="select" id="detSmall"><option value="auto"' + (P.small === "auto" ? " selected" : "") + '>Auto (umbrella, bag, sign…: zoomed second look)</option><option value="on"' + (P.small === "on" ? " selected" : "") + '>Always zoom (5× slower)</option><option value="off"' + (P.small === "off" ? " selected" : "") + ">Off</option></select>");
     row('<label style="display:flex;gap:.5rem;align-items:center"><input type="checkbox" id="detLive"' + (P.live ? " checked" : "") + "> Detect while playing (boxes follow objects every frame)</label>");

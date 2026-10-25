@@ -65,9 +65,13 @@ function idb() {
 async function cacheGet(key) { try { const db = await idb(); return await new Promise((res) => { const q = db.transaction("m").objectStore("m").get(key); q.onsuccess = () => res(q.result || null); q.onerror = () => res(null); }); } catch (_) { return null; } }
 async function cachePut(key, buf) { try { const db = await idb(); await new Promise((res) => { const tx = db.transaction("m", "readwrite"); tx.objectStore("m").put(buf, key); tx.oncomplete = res; tx.onerror = res; tx.onabort = res; }); return true; } catch (_) { return false; } }
 
-async function fetchModel(urls, useCache, progress) {
+async function fetchModel(urls, useCache, progress, userBlob) {
   let lastErr = null;
   for (const url of urls) {
+    if (url.startsWith("user:")) {   // a file the user chose on this device (js/model-picker.js): a Blob handle, read once here
+      try { if (!userBlob) throw new Error("not stored"); const buf = userBlob.arrayBuffer ? await userBlob.arrayBuffer() : userBlob; if (buf.byteLength < 1000) throw new Error("stored file is empty"); progress({ phase: "stored", url, loaded: buf.byteLength, total: buf.byteLength }); return { buf, url, cached: true, stored: true }; }
+      catch (e) { lastErr = e; continue; }
+    }
     if (useCache) { const hit = await cacheGet(url); if (hit && hit.byteLength > 1000) { progress({ phase: "cache", url, loaded: hit.byteLength, total: hit.byteLength }); return { buf: hit, url, cached: true }; } }
     try {
       const r = await fetch(url);
@@ -96,7 +100,7 @@ async function load(msg) {
   if (cur && cur.url === msg.urls[0]) return { backend: cur.backend, url: cur.url, cached: true, size: cur.size, offscreen: typeof OffscreenCanvas !== "undefined", slot: key, threads: cur.backend === "wasm" && RT ? RT.env.wasm.numThreads : null };
   if (cur) { try { await cur.session.release(); } catch (_) {} delete slots[key]; }
   const t0 = Date.now();
-  const got = await fetchModel(msg.urls, msg.useCache !== false, (p) => postMessage({ type: "progress", ...p }));
+  const got = await fetchModel(msg.urls, msg.useCache !== false, (p) => postMessage({ type: "progress", ...p }), msg.userBlob || null);
   const tDl = Date.now() - t0;
   const wantGpu = rtGpu;
   const order = wantGpu ? ["webgpu", "wasm"] : ["wasm"];
@@ -112,7 +116,8 @@ async function load(msg) {
   const sz = meta && meta.shape && +meta.shape[2] > 0 ? +meta.shape[2] : msg.size || 640;
   slots[key] = { session: sess, backend: be, url: msg.urls[0], inputName: sess.inputNames[0], outputName: sess.outputNames[0], size: sz };
   if (key === "main") { session = sess; backend = be; modelUrl = msg.urls[0]; inputName = sess.inputNames[0]; outputName = sess.outputNames[0]; size = sz; }
-  return { backend: be, url: got.url, cached: got.cached, saved: got.saved, bytes: got.buf.byteLength, downloadMs: tDl, loadMs: Date.now() - t0 - tDl, size: sz, offscreen: typeof OffscreenCanvas !== "undefined", slot: key , threads: be === "wasm" ? RT.env.wasm.numThreads : null };
+  let outShape = null; try { const om = sess.outputMetadata && sess.outputMetadata[0]; outShape = om && om.shape ? Array.from(om.shape, (x) => (typeof x === "number" ? x : 0)) : null; } catch (_) {}
+  return { backend: be, url: got.url, cached: got.cached, saved: got.saved, stored: !!got.stored, outShape, bytes: got.buf.byteLength, downloadMs: tDl, loadMs: Date.now() - t0 - tDl, size: sz, offscreen: typeof OffscreenCanvas !== "undefined", slot: key , threads: be === "wasm" ? RT.env.wasm.numThreads : null };
 }
 
 // A transferred ImageBitmap (whole video frame, read on the GPU side, no main-thread getImageData) → letterboxed RGBA here.
