@@ -14,7 +14,7 @@
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
   <link rel="icon" href="icons/icon-192.png" type="image/png">
-  <link rel="stylesheet" href="css/app.css?v=occluded-people">
+  <link rel="stylesheet" href="css/app.css?v=unlock-ux">
 </head>
 <body class="simple">
   <div class="slow-note" id="slowNote" role="status" hidden><span class="sn-text"><b>Slow mode:</b> this page is on plain http, so decrypting your clips takes longer. The https / installed version is much faster.</span><button class="btn small" id="slowNoteHow" type="button">How</button><button class="btn icon sm" id="slowNoteX" type="button" title="Dismiss" aria-label="Dismiss"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
@@ -343,22 +343,70 @@
           <div class="btn-row"><button class="btn primary" id="btnInAppApply" type="button">Unlock with pasted keys / token</button></div>
           <div class="notice" id="inAppNotice" hidden></div>
         </div>
-        <details class="manual" open><summary>Manual console method (fallback) — Key fetch blocked (CORS)</summary>
-          <p>If the connector can't run, use this Tesla-origin helper instead. It runs on <code>dashcam.tesla.com</code> itself so there is no CORS problem.</p>
-          <ol class="howto">
-            <li>Click <strong>Copy key helper</strong> below.</li>
-            <li>Open <a href="https://dashcam.tesla.com/" target="_blank" rel="noopener">dashcam.tesla.com</a> in a new tab and sign in.</li>
-            <li>Open the browser console (Develop → Show JavaScript Console, or Option-Command-C) and paste the helper. Press Enter.</li>
-            <li>It will print (and try to copy) the keys JSON. Paste that JSON into the box below and click <strong>Apply keys</strong>.</li>
+        <details class="manual ux-manual" id="uxManual" data-dev="mac" open><summary>Manual console method (fallback)</summary>
+          <p class="ux-lead">No connector? You can still unlock your clips with a short helper script. It takes about a minute.</p>
+          <p class="ux-privacy"><span aria-hidden="true">🔒</span> Your Tesla sign-in token and the keys stay on this device and are never uploaded. Only Tesla's own server is contacted.</p>
+          <div class="ux-device">
+            <span class="ux-device-label">Steps for <b id="uxDeviceName">your Mac</b></span>
+            <button class="ux-link" id="uxDeviceToggle" type="button" aria-expanded="false" aria-controls="uxDevicePick">Show steps for another device</button>
+          </div>
+          <div class="ux-pick" id="uxDevicePick" role="group" aria-label="Choose a device" hidden>
+            <button class="btn small ghost" type="button" data-pick="mac" aria-pressed="false">Mac</button>
+            <button class="btn small ghost" type="button" data-pick="pc" aria-pressed="false">Windows / Linux PC</button>
+            <button class="btn small ghost" type="button" data-pick="phone" aria-pressed="false">iPhone / iPad</button>
+          </div>
+          <div class="ux-phone ux-only-phone" id="uxPhoneNote">
+            <p><b>iPhone and iPad have no developer console</b> (and neither do Android phones), so this method can't run on the phone itself.</p>
+            <ul>
+              <li id="uxPhoneBookmark">On an iPhone or iPad, use the <b>Dashcam Unlock bookmark</b> instead. It needs no console. <button class="ux-link" id="uxGoBookmark" type="button">Show the bookmark steps</button></li>
+              <li>Or use a Mac or a PC that has the same clips open, and unlock them there. Saved keys stay in the browser that unlocked the clips, so they don't move to your phone.</li>
+            </ul>
+            <div class="btn-row"><button class="btn small" id="uxShowMac" type="button">Show steps for a Mac or PC</button></div>
+          </div>
+          <ol class="ux-steps" id="uxSteps">
+            <li class="ux-card">
+              <div class="ux-card-body">
+                <h4>Copy the helper</h4>
+                <p><span id="uxNeed">The helper asks Tesla for the keys of your locked clips.</span></p>
+                <div class="btn-row"><button class="btn primary" id="btnCopyHelper" type="button">Copy key helper</button></div>
+                <p class="ux-note" id="uxCopyNote" role="status" aria-live="polite"></p>
+              </div>
+            </li>
+            <li class="ux-card">
+              <div class="ux-card-body">
+                <h4>Open Tesla and sign in</h4>
+                <p>It opens in a new tab. Sign in there as usual and leave that tab open.</p>
+                <div class="btn-row"><a class="btn" id="uxOpenTesla" href="https://dashcam.tesla.com/" target="_blank" rel="noopener">Open dashcam.tesla.com</a></div>
+              </div>
+            </li>
+            <li class="ux-card">
+              <div class="ux-card-body">
+                <h4>Open the console and paste</h4>
+                <p class="ux-only-mac">On the Tesla tab, open the console: in <b>Safari</b> choose <b>Develop ▸ Show JavaScript Console</b> (⌥⌘C); in <b>Chrome or Edge</b> press <b>⌥⌘J</b>. Paste the helper (<b>⌘V</b>) and press <b>Enter</b>.</p>
+                <p class="ux-only-mac ux-hint">No Develop menu in Safari? Open Safari ▸ Settings ▸ Advanced and tick <b>Show features for web developers</b>. You only do this once.</p>
+                <p class="ux-only-pc">On the Tesla tab, open the console: in <b>Chrome or Edge</b> press <b>Ctrl+Shift+J</b>; in <b>Firefox</b> press <b>Ctrl+Shift+K</b>. Paste the helper (<b>Ctrl+V</b>) and press <b>Enter</b>.</p>
+                <p class="ux-hint ux-only-pc ux-only-mac">If the browser says pasting is blocked, type <code>allow pasting</code>, press Enter, then paste the helper again.</p>
+              </div>
+            </li>
+            <li class="ux-card">
+              <div class="ux-card-body">
+                <h4><label for="pasteKeys">Paste the result here</label></h4>
+                <p>The helper prints the keys and copies them for you. Paste them below. They apply on their own.</p>
+                <textarea id="pasteKeys" class="ux-paste" rows="4" placeholder='{"results":[{"id":"…","key":"base64…"}]}' aria-describedby="uxResult" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false"></textarea>
+                <div class="btn-row"><button class="btn" id="btnApplyKeys" type="button">Apply keys</button></div>
+                <div class="notice ux-result" id="uxResult" role="status" aria-live="polite" hidden></div>
+                <ul class="ux-still" id="uxStill" hidden></ul>
+              </div>
+            </li>
           </ol>
-          <label class="block" style="font-size:0.78rem;color:var(--muted,#8b95a8);margin:0.6rem 0 0.25rem">Pending key requests (for reference)</label>
-          <textarea id="pendingItemsJson" rows="3" readonly style="width:100%;font-family:ui-monospace,monospace;font-size:0.75rem"></textarea>
-          <div class="btn-row"><button class="btn ghost" id="btnCopyHelper">Copy key helper</button></div>
-          <label class="block" style="font-size:0.78rem;color:var(--muted,#8b95a8);margin:0.6rem 0 0.25rem">Paste keys JSON</label>
-          <textarea id="pasteKeys" rows="4" placeholder='{"results":[{"id":"…","key":"base64…"}]}' style="width:100%;font-family:ui-monospace,monospace;font-size:0.75rem"></textarea>
-          <div class="btn-row"><button class="btn" id="btnApplyKeys">Apply keys</button></div>
+          <details class="ux-adv" id="uxAdvanced"><summary>Advanced</summary>
+            <p><b>Why a helper?</b> Browsers stop one website from asking another for secrets (CORS), so this page can't ask Tesla for keys directly. The helper runs on dashcam.tesla.com itself, where that is allowed.</p>
+            <p><b>If the helper asks for a token:</b> it couldn't find your sign-in on the page. Paste the Bearer token from DevTools ▸ Network (the <code>Authorization</code> header of a request to <code>/api/1/decrypt/batch</code>).</p>
+            <label class="block" for="pendingItemsJson" style="font-size:0.78rem;color:var(--muted,#8b95a8);margin:0.6rem 0 0.25rem">Pending key requests (for reference)</label>
+            <textarea id="pendingItemsJson" rows="3" readonly style="width:100%;font-family:ui-monospace,monospace;font-size:0.75rem"></textarea>
+            <p class="fine">Tesla's key service is undocumented. This flow is untested against real encrypted clips — if it fails, plain (unencrypted) clips still work without signing in.</p>
+          </details>
         </details>
-        <p class="fine">Tesla's key service is undocumented. This flow is untested against real encrypted clips — if it fails, plain (unencrypted) clips still work without signing in.</p>
       </div>
     </div>
   </div>
@@ -371,69 +419,70 @@
   <!-- Cameras picker: a top-level layer on <body> (never inside the camera bar, whose backdrop-filter would make
        position:fixed relative to the bar); js/focus.js places it next to the Cameras button. -->
   <div class="cam-menu" id="camMenu" hidden></div>
-  <script src="vendor/mp4-muxer.js?v=occluded-people"></script>
-  <script src="vendor/webm-muxer.js?v=occluded-people"></script>
-  <script src="vendor/ort.wasm.min.js?v=occluded-people"></script>
-  <script src="vendor/ocr-pack.js?v=occluded-people"></script>
+  <script src="vendor/mp4-muxer.js?v=unlock-ux"></script>
+  <script src="vendor/webm-muxer.js?v=unlock-ux"></script>
+  <script src="vendor/ort.wasm.min.js?v=unlock-ux"></script>
+  <script src="vendor/ocr-pack.js?v=unlock-ux"></script>
   <!-- app (classic scripts: they work when opened from file://) -->
-  <script src="js/core.js?v=occluded-people"></script>
-  <script src="js/mp4.js?v=occluded-people"></script>
-  <script src="js/sei.js?v=occluded-people"></script>
-  <script src="js/crypto.js?v=occluded-people"></script>
-  <script src="js/teslacam.js?v=occluded-people"></script>
-  <script src="js/telemetry.js?v=occluded-people"></script>
-  <script src="js/batching.js?v=occluded-people"></script>
-  <script src="js/library.js?v=occluded-people"></script>
-  <script src="js/player.js?v=occluded-people"></script>
-  <script src="js/layout.js?v=occluded-people"></script>
-  <script src="js/handoff.js?v=occluded-people"></script>
-  <script src="js/reid.js?v=occluded-people"></script>
-  <script src="js/people.js?v=occluded-people"></script>
-  <script src="js/car-view.js?v=occluded-people"></script>
-  <script src="js/draw.js?v=occluded-people"></script>
-  <script src="js/hud.js?v=occluded-people"></script>
-  <script src="js/map.js?v=occluded-people"></script>
-  <script src="js/compositor.js?v=occluded-people"></script>
-  <script src="js/overlays.js?v=occluded-people"></script>
-  <script src="js/focus.js?v=occluded-people"></script>
-  <script src="js/export.js?v=occluded-people"></script>
-  <script src="js/search.js?v=occluded-people"></script>
-  <script src="js/redact.js?v=occluded-people"></script>
-  <script src="js/text-match.js?v=occluded-people"></script>
-  <script src="js/text-search.js?v=occluded-people"></script>
-  <script src="js/time-search.js?v=occluded-people"></script>
-  <script src="js/burn-boxes.js?v=occluded-people"></script>
-  <script src="js/worker-start.js?v=occluded-people"></script>
-  <script src="js/color-lock.js?v=occluded-people"></script>
-  <script src="js/motion.js?v=occluded-people"></script>
-  <script src="js/detect.js?v=occluded-people"></script>
-  <script src="js/plate-text.js?v=occluded-people"></script>
-  <script src="js/plates.js?v=occluded-people"></script>
-  <script src="js/prewarm.js?v=occluded-people"></script>
-  <script src="js/vehicle-attrs.js?v=occluded-people"></script>
-  <script src="js/vehicle.js?v=occluded-people"></script>
-  <script src="js/cloud-boost.js?v=occluded-people"></script>
-  <script src="js/recog-settings.js?v=occluded-people"></script>
-  <script src="js/pano-toggle.js?v=occluded-people"></script>
-  <script src="js/multi-search.js?v=occluded-people"></script>
-  <script src="js/wb.js?v=occluded-people"></script>
-  <script src="js/wb-debug.js?v=occluded-people"></script>
-  <script src="js/det-debug.js?v=occluded-people"></script>
-  <script src="js/colour-constancy.js?v=occluded-people"></script>
-  <script src="js/search-ui.js?v=occluded-people"></script>
-  <script src="js/search-strip.js?v=occluded-people"></script>
-  <script src="js/mobile-bar.js?v=occluded-people"></script>
-  <script src="js/connector-src.js?v=occluded-people"></script>
-  <script src="js/ios-unlock-src.js?v=occluded-people"></script>
-  <script src="js/ios-unlock.js?v=occluded-people"></script>
-  <script src="js/tesla-auth.js?v=occluded-people"></script>
-  <script src="js/key-import.js?v=occluded-people"></script>
-  <script src="js/key-store.js?v=occluded-people"></script>
-  <script src="js/ui.js?v=occluded-people"></script>
-  <script src="js/lib-index.js?v=occluded-people"></script>
-  <script src="js/lib-index-ui.js?v=occluded-people"></script>
-  <script src="js/auto.js?v=occluded-people"></script>
-  <script src="js/app.js?v=occluded-people"></script>
-  <script src="js/pwa.js?v=occluded-people"></script>
+  <script src="js/core.js?v=unlock-ux"></script>
+  <script src="js/mp4.js?v=unlock-ux"></script>
+  <script src="js/sei.js?v=unlock-ux"></script>
+  <script src="js/crypto.js?v=unlock-ux"></script>
+  <script src="js/teslacam.js?v=unlock-ux"></script>
+  <script src="js/telemetry.js?v=unlock-ux"></script>
+  <script src="js/batching.js?v=unlock-ux"></script>
+  <script src="js/library.js?v=unlock-ux"></script>
+  <script src="js/player.js?v=unlock-ux"></script>
+  <script src="js/layout.js?v=unlock-ux"></script>
+  <script src="js/handoff.js?v=unlock-ux"></script>
+  <script src="js/reid.js?v=unlock-ux"></script>
+  <script src="js/people.js?v=unlock-ux"></script>
+  <script src="js/car-view.js?v=unlock-ux"></script>
+  <script src="js/draw.js?v=unlock-ux"></script>
+  <script src="js/hud.js?v=unlock-ux"></script>
+  <script src="js/map.js?v=unlock-ux"></script>
+  <script src="js/compositor.js?v=unlock-ux"></script>
+  <script src="js/overlays.js?v=unlock-ux"></script>
+  <script src="js/focus.js?v=unlock-ux"></script>
+  <script src="js/export.js?v=unlock-ux"></script>
+  <script src="js/search.js?v=unlock-ux"></script>
+  <script src="js/redact.js?v=unlock-ux"></script>
+  <script src="js/text-match.js?v=unlock-ux"></script>
+  <script src="js/text-search.js?v=unlock-ux"></script>
+  <script src="js/time-search.js?v=unlock-ux"></script>
+  <script src="js/burn-boxes.js?v=unlock-ux"></script>
+  <script src="js/worker-start.js?v=unlock-ux"></script>
+  <script src="js/color-lock.js?v=unlock-ux"></script>
+  <script src="js/motion.js?v=unlock-ux"></script>
+  <script src="js/detect.js?v=unlock-ux"></script>
+  <script src="js/plate-text.js?v=unlock-ux"></script>
+  <script src="js/plates.js?v=unlock-ux"></script>
+  <script src="js/prewarm.js?v=unlock-ux"></script>
+  <script src="js/vehicle-attrs.js?v=unlock-ux"></script>
+  <script src="js/vehicle.js?v=unlock-ux"></script>
+  <script src="js/cloud-boost.js?v=unlock-ux"></script>
+  <script src="js/recog-settings.js?v=unlock-ux"></script>
+  <script src="js/pano-toggle.js?v=unlock-ux"></script>
+  <script src="js/multi-search.js?v=unlock-ux"></script>
+  <script src="js/wb.js?v=unlock-ux"></script>
+  <script src="js/wb-debug.js?v=unlock-ux"></script>
+  <script src="js/det-debug.js?v=unlock-ux"></script>
+  <script src="js/colour-constancy.js?v=unlock-ux"></script>
+  <script src="js/search-ui.js?v=unlock-ux"></script>
+  <script src="js/search-strip.js?v=unlock-ux"></script>
+  <script src="js/mobile-bar.js?v=unlock-ux"></script>
+  <script src="js/connector-src.js?v=unlock-ux"></script>
+  <script src="js/ios-unlock-src.js?v=unlock-ux"></script>
+  <script src="js/ios-unlock.js?v=unlock-ux"></script>
+  <script src="js/tesla-auth.js?v=unlock-ux"></script>
+  <script src="js/key-import.js?v=unlock-ux"></script>
+  <script src="js/unlock-ux.js?v=unlock-ux"></script>
+  <script src="js/key-store.js?v=unlock-ux"></script>
+  <script src="js/ui.js?v=unlock-ux"></script>
+  <script src="js/lib-index.js?v=unlock-ux"></script>
+  <script src="js/lib-index-ui.js?v=unlock-ux"></script>
+  <script src="js/auto.js?v=unlock-ux"></script>
+  <script src="js/app.js?v=unlock-ux"></script>
+  <script src="js/pwa.js?v=unlock-ux"></script>
 </body>
 </html>

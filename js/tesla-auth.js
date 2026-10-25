@@ -273,6 +273,8 @@
         catch (_) { notice("Copy failed — select and copy the helper manually.", "err"); }
       });
       T.$("btnApplyKeys")?.addEventListener("click", async () => {
+        // The polished flow (js/unlock-ux.js) shows plain-English results next to the box; the original code below is the fallback.
+        if (T.unlockUx && T.unlockUx.onApplyClick) { try { await T.unlockUx.onApplyClick(); return; } catch (e) { console.warn("unlock-ux apply failed, using the original path", e); } }
         A.suppressClipboard = false; try { localStorage.removeItem("tdc.noClipboardApply"); } catch (_) {}
         let raw = (T.$("pasteKeys")?.value || "").trim();
         raw = raw.replace(/^HTTP\s*\d+\s*/i, "").replace(/^["']|["']$/g, "").trim();

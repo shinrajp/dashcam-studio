@@ -937,3 +937,48 @@ body.portrait .cv-chip { min-height: 28px; padding: 3px 5px; gap: 3px; font-size
 .export-size-line.warn { color: var(--warn, #e6b450); }
 .export-extras { display: block; }
 .seg button:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* ── Unlock dialog: manual console method as numbered cards (js/unlock-ux.js) ── */
+.ux-manual > summary { font-size: 14px; }
+.ux-manual .ux-lead { font-size: 13px; color: var(--text); margin: 8px 0 4px; }
+.ux-manual .ux-privacy { font-size: 12px; color: var(--dim); margin: 0 0 8px; }
+.ux-device { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 12px; margin: 6px 0; font-size: 13px; color: var(--dim); }
+.ux-device b { color: var(--text); }
+.ux-link { background: none; border: 0; padding: 8px 0; min-height: 36px; color: var(--blue2); font: inherit; font-size: 13px; cursor: pointer; text-decoration: underline; }
+.ux-link:hover { color: #8aa6ff; }
+.ux-pick { display: flex; flex-wrap: wrap; gap: 6px; margin: 2px 0 8px; }
+.ux-pick .btn { height: 36px; }
+.ux-pick .btn[aria-pressed="true"] { background: rgba(62,106,225,0.18); border-color: var(--blue); color: var(--text); }
+.ux-only-mac, .ux-only-pc, .ux-only-phone { display: none; }
+.ux-manual[data-dev="mac"] .ux-only-mac, .ux-manual[data-dev="pc"] .ux-only-pc, .ux-manual[data-dev="phone"] .ux-only-phone { display: block; }
+.ux-manual[data-dev="phone"] .ux-steps { display: none; }
+.ux-steps { list-style: none; counter-reset: ux; margin: 8px 0; padding: 0; display: flex; flex-direction: column; gap: 8px; color: var(--text); font-size: 13px; }
+.ux-card { counter-increment: ux; position: relative; display: block; padding: 10px 12px 12px 52px; border: 1px solid var(--line); border-radius: 12px; background: var(--bg2); }
+.ux-card::before { content: counter(ux); position: absolute; left: 12px; top: 10px; width: 28px; height: 28px; border-radius: 50%; background: var(--blue); color: #fff; font-weight: 700; font-size: 14px; display: grid; place-items: center; }
+.ux-card h4 { margin: 2px 0 4px; font-size: 14px; }
+.ux-card h4 label { cursor: default; }
+.ux-card p { margin: 4px 0 8px; font-size: 13px; color: var(--dim); }
+.ux-card p b { color: var(--text); }
+.ux-card .ux-hint { font-size: 12px; color: var(--faint); }
+.ux-card .btn, .ux-phone .btn { min-height: 44px; }
+.ux-card a.btn { text-decoration: none; color: inherit; }
+.ux-card .ux-note { min-height: 0; margin: 6px 0 0; font-size: 12px; }
+.ux-card .ux-note:empty { display: none; }
+.ux-card .ux-note.ok { color: #9ff5c0; }
+.ux-card .ux-note.err { color: #ffb3ad; }
+.ux-paste { font-size: 13px; min-height: 84px; margin: 4px 0 8px; resize: vertical; }
+.ux-result { margin-top: 8px; font-size: 13px; line-height: 1.4; }
+.ux-still { margin: 6px 0 0; padding-left: 18px; font-size: 12px; color: #ffb3ad; }
+.ux-phone { border: 1px solid var(--line); border-radius: 12px; padding: 10px 14px; background: var(--bg2); margin: 8px 0; font-size: 13px; }
+.ux-manual .ux-phone p { font-size: 13px; margin: 0 0 6px; color: var(--text); }
+.ux-phone ul { margin: 6px 0 10px; padding-left: 18px; color: var(--dim); }
+.ux-phone li { margin: 4px 0; }
+.ux-adv { margin-top: 8px; border: 1px solid var(--line); border-radius: 12px; padding: 8px 12px; }
+.ux-adv > summary { font-size: 13px; }
+.ux-adv p { font-size: 12px; color: var(--dim); }
+@media (max-width: 600px) {
+  .ux-card { padding-left: 46px; }
+  .ux-card::before { left: 10px; }
+  .ux-paste { font-size: 16px; } /* 16px stops iOS Safari zooming in on focus */
+}
+.ux-phone .ux-link { display: inline; padding: 4px 0; min-height: 0; line-height: 1.6; }

@@ -29,6 +29,50 @@
     return { kind: "bad" };
   };
 
+  /** Tolerant version of K.parse for text copied out of a browser console (Unlock dialog "Paste the result here").
+   * Reuses K.parse; only adds clean-up and a scan for the keys JSON inside surrounding console noise (a "< " prefix,
+   * "undefined", "Promise {…}", log lines, code fences, smart quotes, a string printed with \" escapes).
+   * → { kind: "keys", results } | { kind: "token", token } | { kind: "bad", why: "empty"|"notjson"|"shape"|"request" } */
+  K.parseLoose = (raw) => {
+    let s = String(raw == null ? "" : raw);
+    if (s.length > 4e6) return { kind: "bad", why: "notjson" };
+    s = s.replace(/[\u200b\ufeff]/g, "").replace(/[\u201c\u201d]/g, '"').replace(/[\u2018\u2019]/g, "'").replace(/```[a-zA-Z]*/g, "").trim();
+    if (!s) return { kind: "bad", why: "empty" };
+    const noPrefix = (t) => t.replace(/^(?:[<>←→]\s*)+/, "").replace(/^(?:undefined|null)\s*$/gm, "").trim();
+    const variants = [s, s.replace(/\\"/g, '"')];
+    let sawJson = false;
+    for (const v of variants) {
+      const t = noPrefix(v);
+      const direct = K.parse(t);
+      if (direct.kind === "keys") { if (direct.results.length) return direct; sawJson = true; }
+      // scan for a balanced {...} / [...] that parses to keys
+      let tried = 0;
+      for (let i = 0; i < t.length && tried < 60; i++) {
+        const c = t[i]; if (c !== "{" && c !== "[") continue;
+        let depth = 0, inStr = false, esc = false, end = -1;
+        for (let j = i; j < t.length; j++) {
+          const d = t[j];
+          if (inStr) { if (esc) esc = false; else if (d === "\\") esc = true; else if (d === '"') inStr = false; continue; }
+          if (d === '"') inStr = true; else if (d === "{" || d === "[") depth++; else if (d === "}" || d === "]") { depth--; if (depth === 0) { end = j; break; } }
+        }
+        if (end < 0) continue;
+        tried++;
+        try {
+          const j = JSON.parse(t.slice(i, end + 1));
+          const results = Array.isArray(j) ? j : j && (j.results || j.keys);
+          if (Array.isArray(results)) { if (results.length) return { kind: "keys", results }; sawJson = true; }
+          else if (j && typeof j === "object") sawJson = true;
+        } catch (_) {}
+        i = end; // continue after this block
+      }
+    }
+    if (sawJson) return { kind: "bad", why: "shape" };
+    if (/gridplayer=/.test(s)) return { kind: "bad", why: "request" };
+    const d = K.parse(noPrefix(s));
+    if (d.kind === "token") return d;
+    return { kind: "bad", why: "notjson" };
+  };
+
   K.applyKeys = async (results, via) => {
     if (!T.auth || !T.auth.applyAndDecrypt) throw new Error("Unlock module not loaded");
     return T.auth.applyAndDecrypt(results, via);
