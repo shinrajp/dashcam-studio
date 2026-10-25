@@ -12,7 +12,7 @@
   const H = typeof module !== "undefined" && module.exports ? require("./handoff.js") : (root.TDC && root.TDC.handoff);
   // colours readable on the dark video and on the light page: saturated mid-tones, each also carries a dark outline when drawn
   const PALETTE = ["#ffd23f", "#2ee6d6", "#ff6b9a", "#7ddc5a", "#ff9f43", "#b388ff", "#4aa3ff", "#ff5252"];
-  const DEF = { ttl: 10, minScore: 0.22, margin: 0.06, win: [-3, 10], edgeNear: 0.3 };
+  const DEF = { ttl: 10, minScore: 0.22, margin: 0.06, win: [-3, 10], edgeNear: 0.3, fwd: true };
 
   const clamp01 = (x) => Math.max(0, Math.min(1, x));
   /** Bhattacharyya coefficient of two L1-normalised histograms (1 = identical). */
@@ -34,11 +34,14 @@
     return Math.max(0.15, 1 - 0.85 * ((dt - 3) / (win[1] - 3)));
   }
   /** Spatial prior for "B is the continuation of A". A: last snapshot (raw picture coords), B: first snapshot. */
-  function spatial(A, B, edgeNear) {
+  function spatial(A, B, edgeNear, fwdOn) {
     const ax = A.x + A.w / 2, bx = B.x + B.w / 2;
     if (A.cam === B.cam) { // the same camera again (hidden for a moment, track lost): close to where A vanished
       const d = Math.hypot(ax - bx, (A.y + A.h / 2) - (B.y + B.h / 2));
-      return d < 0.2 ? 0.6 : d < 0.45 ? 0.35 : 0.08;
+      if (d < 0.2) return 0.6;
+      // walked behind a car / pillar and came out further along: ahead of where A was heading (not backwards), same side of the frame
+      const fwd = fwdOn !== false && Math.abs(A.vx || 0) > 0.02 && Math.sign(bx - ax) === Math.sign(A.vx) && d < 0.95;
+      return d < 0.45 ? 0.35 : fwd ? 0.4 : 0.08;
     }
     const sides = [];
     if (A.vx > 0.02) sides.push("right"); else if (A.vx < -0.02) sides.push("left"); else { if (A.x + A.w > 1 - edgeNear) sides.push("right"); if (A.x < edgeNear) sides.push("left"); }
@@ -59,7 +62,7 @@
   function score(A, B, opt) {
     const o = Object.assign({}, DEF, opt || {});
     const dt = (B.first != null ? B.first : B.seen) - A.seen;
-    const sp = spatial(A, B, o.edgeNear), tm = timing(dt, o.win), dr = direction(A, B), ap = appearance(A, B);
+    const sp = spatial(A, B, o.edgeNear, o.fwd), tm = timing(dt, o.win), dr = direction(A, B), ap = appearance(A, B);
     const total = sp * tm * (0.5 + 0.5 * dr) * (0.1 + 0.9 * ap.s);
     return { score: total, sp, tm, dr, ap: ap.s, kind: ap.kind, raw: ap.raw, dt };
   }

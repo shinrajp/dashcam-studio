@@ -505,6 +505,7 @@
         tr.w += EMA_SIZE * (d.w - tr.w); tr.h += EMA_SIZE * (d.h - tr.h); tr.x = ncx - tr.w / 2; tr.y = ncy - tr.h / 2;
       }
       tr.mcx = dcx; tr.mcy = dcy; tr.mt = t;
+      if (tr.c0x == null) { tr.c0x = dcx; tr.c0y = dcy; tr.mc = 0; tr.disp = 0; } tr.mc = Math.max(tr.mc, d.conf); tr.disp = Math.max(tr.disp, Math.hypot(dcx - tr.c0x, dcy - tr.c0y));
       tr.t = t; tr.seen = t; tr.conf = d.conf; tr.attr = d.attr; tr.clObs = d.clObs; tr.n = (tr.n || 1) + 1;
       if (d.seeded && tr.seeded !== false) { tr.seeded = true; seedPath(tr, d, t); } else if (!d.seeded && tr.weak) tr.seeded = false;
       if (tr.weak) weakHit(tr, d, t);   // multi-frame score accumulation (zoomed person looks below the normal cut-off)
@@ -542,13 +543,18 @@
     }
     tr.weakLooks = undefined;
   }
+  // A "person" that has not moved for STATIC.secs, never scored above STATIC.conf and was not found by motion: a headrest seen through
+  // a car window, a fender, a coat on a hook (measured on a real garage clip: two such boxes sat at 0.2-0.47 for 40 s and made a second
+  // "person" next to the real one). It stays in the list (it can start to move) but is neither drawn nor counted.
+  D.STATIC = { secs: 10, conf: 0.5, disp: 0.03, n: 6 };
+  const stillFalse = (tr, t) => tr.label === "person" && !tr.seeded && (tr.n || 1) >= D.STATIC.n && tr.c0x != null && tr.disp < D.STATIC.disp && (tr.mc || 0) < D.STATIC.conf && t - (tr.first != null ? tr.first : tr.seen) >= D.STATIC.secs;
   /** Confirmed, current person tracks as they are at event time t (predicted like the painted boxes). */
   D.personTracks = (t) => {
     const out = [], pr = D.predictOn();
     for (const cam of Object.keys(D.liveTracks)) {
       const list = D.liveTracks[cam] || [], ex = expiry(cam), gap = gapOf(cam);
       for (const tr of list) {
-        if (tr.label !== "person" || tr.weak || t - tr.seen > ex || t < tr.t - 0.3) continue;
+        if (tr.label !== "person" || tr.weak || t - tr.seen > ex || t < tr.t - 0.3 || stillFalse(tr, t)) continue;
         const b = pr ? predictAt(tr, t, gap) : tr;
         out.push({ cam, id: tr.id, x: b.x, y: b.y, w: tr.w, h: tr.h, vx: tr.vx, vy: tr.vy, n: tr.n || 1, seen: tr.seen, t, conf: tr.conf, ex, hist: tr.hist, emb: tr.emb, zoom: !!tr.zoom, first: tr.first != null ? tr.first : (tr.first = tr.seen) });
       }
@@ -567,7 +573,7 @@
     const list = D.liveTracks[cam]; if (!list || !list.length) return null;
     const ex = expiry(cam), gap = gapOf(cam), pr = D.predictOn(), out = [];
     for (const tr of list) {
-      if (t - tr.seen > ex || t < tr.t - 0.3 || tr.weak) continue;
+      if (t - tr.seen > ex || t < tr.t - 0.3 || tr.weak || stillFalse(tr, t)) continue;
       const b = pr ? predictAt(tr, t, gap) : tr;
       out.push({ x: b.x, y: b.y, w: tr.w, h: tr.h, label: tr.label, conf: tr.conf, attr: tr.attr, clObs: tr.clObs, id: tr.id });
     }
@@ -585,7 +591,7 @@
   // The budget: a look every ≥ 1.2 s per camera on phones (0.5 s on computers), ≤ 5 (14) seeded looks per 10 s, one window (two) per look,
   // none while the normal looks are slow (the same limits as the hand-off zoom). Off in "Battery saver" and "Fast" speed (Auto), or
   // Settings ▸ Object detection ▸ Hard-to-see people, or ?seed=off / localStorage tdc.seed = "off".
-  const SD = (D.seed = { st: {}, dbg: {}, lastAt: {}, hot: {}, flip: {}, CONF: 0.18, HINT: 0.25, HINT_CLASSES: new Set(["backpack", "handbag"]), stats: { looks: [], motionMs: [], seedMs: [], enhMs: [], throttled: 0, windows: 0, confirmed: 0, revived: 0, found: 0 } });
+  const SD = (D.seed = { st: {}, dbg: {}, lastAt: {}, hot: {}, last: {}, pollAt: {}, flip: {}, CONF: 0.18, HINT: 0.25, HINT_CLASSES: new Set(["backpack", "handbag"]), stats: { looks: [], motionMs: [], seedMs: [], enhMs: [], throttled: 0, windows: 0, confirmed: 0, revived: 0, found: 0, polls: 0 } });
   SD.now = () => (D._clock ? D._clock() : performance.now());
   SD.mode = () => { try { const m = /(?:[?&#])seed=(off|on)\b/.exec(location.search + location.hash); if (m) return m[1]; const v = localStorage.getItem("tdc.seed"); if (v === "off" || v === "on") return v; } catch (_) {} const v = D.prefs().seed; return v === "off" || v === "on" ? v : "auto"; };
   SD.enabled = () => { const m = SD.mode(); if (m === "off" || !T.motion) return false; if (m === "on") return true; const sp = D.speed(); return sp === "balanced"; };
@@ -599,7 +605,7 @@
   };
   /** Camera has fresh motion windows (looked at more often: see camMoving). */
   SD.isHot = (cam) => (SD.hot[cam] || -1e9) > SD.now() - 2500;
-  SD.reset = () => { SD.st = {}; SD.dbg = {}; SD.lastAt = {}; SD.hot = {}; SD.flip = {}; SD.stats = { looks: [], motionMs: [], seedMs: [], enhMs: [], throttled: 0, windows: 0, confirmed: 0, revived: 0, found: 0 }; };
+  SD.reset = () => { SD.st = {}; SD.dbg = {}; SD.last = {}; SD.pollAt = {}; SD.lastAt = {}; SD.hot = {}; SD.flip = {}; SD.stats = { looks: [], motionMs: [], seedMs: [], enhMs: [], throttled: 0, windows: 0, confirmed: 0, revived: 0, found: 0, polls: 0 }; };
   const push50 = (a, v) => { a.push(v); if (a.length > 50) a.shift(); };
   /** Hidden-person keep time in seconds (Settings, or ?occl=N): 0 = off. */
   D.occlKeep = () => { try { const m = /(?:[?&#])occl=([\d.]+)/.exec(location.search + location.hash); if (m) return Math.max(0, Math.min(8, +m[1])); } catch (_) {} const v = +D.prefs().occl; return v >= 0 && v <= 8 ? v : 3.5; };
@@ -613,14 +619,26 @@
   };
   const frameSize = (v) => ({ iw: v.videoWidth || v.width, ih: v.videoHeight || v.height });
   /** Motion step + (when the budget allows) zoomed, enhanced second looks. dets: this look's normal detections. Returns weak seeded person looks. */
+  /** Cheap motion check of a camera that is not being looked at (about 0.3 ms): a camera with motion that no known person explains is looked at more often (camMoving). */
+  SD.pollGap = () => (isMobile() ? 400 : 250);
+  SD.poll = (cam, v, t) => {
+    const M = T.motion; if (!M || !SD.enabled() || !v) return;
+    const now = SD.now(); if (now - (SD.pollAt[cam] || -1e9) < SD.pollGap()) return; SD.pollAt[cam] = now;
+    const { iw, ih } = frameSize(v), t0 = performance.now(), g = M.grab(v, iw, ih); if (!g) return;
+    const r = M.step(SD.st[cam] || (SD.st[cam] = M.newState()), g.gray, g.w, g.h, t); SD.last[cam] = { wall: now, r }; push50(SD.stats.motionMs, performance.now() - t0); SD.stats.polls++;
+    const lv = D.live[cam], wins = M.windows(r.blobs, (lv && lv.dets) || [], D.ghostsAt(cam, t).slice(0, 2));
+    if (wins.length) SD.hot[cam] = now;
+  };
+  D.pollMotion = (t) => { for (const c of D.liveCams()) { const v = visible(c); if (v) SD.poll(c, v, t == null ? v.currentTime : t); } };
+  D._poll = (cam, src, t) => SD.poll(cam, src, t);
   async function seedLooks(cam, v, t, dets, fast) {
     const M = T.motion, out = [];
     if (!M || !SD.enabled()) return out;
     const { iw, ih } = frameSize(v), now = SD.now(), dbg = (SD.dbg[cam] = { t, wall: now, blobs: [], wins: [], note: "", global: false });
-    const t0 = performance.now(), g = M.grab(v, iw, ih);
-    if (!g) { dbg.note = "no pixels"; return out; }
-    const r = M.step(SD.st[cam] || (SD.st[cam] = M.newState()), g.gray, g.w, g.h, t);
-    push50(SD.stats.motionMs, performance.now() - t0);
+    const t0 = performance.now(), lm = SD.last[cam];
+    let r;
+    if (lm && now - lm.wall < 100) r = lm.r;   // the background poll just did this
+    else { const g = M.grab(v, iw, ih); if (!g) { dbg.note = "no pixels"; return out; } r = M.step(SD.st[cam] || (SD.st[cam] = M.newState()), g.gray, g.w, g.h, t); SD.last[cam] = { wall: now, r }; push50(SD.stats.motionMs, performance.now() - t0); }
     dbg.blobs = r.blobs.slice(0, 6).map((b) => ({ x: b.x, y: b.y, w: b.w, h: b.h })); dbg.global = !!r.global; dbg.thr = r.thr;
     const ghosts = D.ghostsAt(cam, t).slice(0, 2), wins = M.windows(r.blobs, dets, ghosts);
     if (!wins.length) return out;
@@ -715,6 +733,7 @@
     const boxesOff = T.search && (T.search.needBoxes ? !T.search.needBoxes() : T.search.goldShown && !T.search.goldShown()) && !(T.handoff && T.handoff.wantsLive && T.handoff.wantsLive());   // nothing outlined or blurred: save the power
     if (!P.enabled || !P.live || !T.player || !T.player.playing || boxesOff) { loopOn = false; loopVid = null; return; }
     D.liveStats.frames++;
+    try { D.pollMotion(); } catch (_) {}
     const cams = D.liveCams();
     if (liveBusy || !cams.length || performance.now() - liveLast < D.liveGap()) { if (liveBusy) D.liveStats.skipped++; return arm(); }
     const cam = pickCam(cams), v = visible(cam);
@@ -737,6 +756,17 @@
     const v = visible(cam); if (!v || liveBusy || v.readyState < 2) return false;
     liveBusy = true;
     try { await detectLive(cam, v, null); return true; } finally { liveBusy = false; }
+  };
+  /** ?debug=det: what the second-look machinery sees now (js/det-debug.js draws it on the tiles). Boxes are fractions of the picture. */
+  D.debugSeed = (t) => {
+    const now = SD.now(), cams = {}, st = SD.stats;
+    for (const c of D.liveCams()) {
+      const lm = SD.last[c], dbg = SD.dbg[c], fresh = lm && now - lm.wall < 1500;
+      cams[c] = { motion: fresh ? lm.r.blobs.slice(0, 6).map((b) => ({ x: b.x, y: b.y, w: b.w, h: b.h })) : [], global: !!(fresh && lm.r.global), hot: SD.isHot(c), ghosts: D.ghostsAt(c, t == null ? 0 : t).map((g) => ({ x: g.x, y: g.y, w: g.w, h: g.h, hidden: +g.age.toFixed(1) })),
+        wins: dbg && now - dbg.wall < 2500 ? dbg.wins.map((w) => ({ kind: w.kind, box: w.box, skipped: !!w.skipped, glass: !!w.glass, person: w.person || 0, hint: w.hint || 0, crops: (w.crops || []).map((k) => ({ scale: k.scale, crop: k.crop, person: k.person, hint: k.hint, enh: k.enh })) })) : [], note: dbg && now - dbg.wall < 2500 ? dbg.note : "" };
+    }
+    const avg = (a) => (a.length ? +(a.reduce((x, y) => x + y, 0) / a.length).toFixed(1) : null);
+    return { on: SD.enabled(), mode: SD.mode(), occl: D.occlKeep(), rate: +SD.rate().toFixed(2), budget: SD.budget(), polls: st.polls, looks: st.looks.length, windows: st.windows, throttled: st.throttled, found: st.found, confirmed: st.confirmed, revived: st.revived, motionMs: avg(st.motionMs), enhMs: avg(st.enhMs), seedMs: avg(st.seedMs), cams };
   };
   /** ?debug=det readout (js/det-debug.js): backend, frame path, threads, per-camera looks per second, inference time, prediction. */
   D.debugInfo = () => {

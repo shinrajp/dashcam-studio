@@ -28,6 +28,38 @@
         `looks ${s.totalHz}/s · look ${s.lookMs != null ? s.lookMs + " ms" : "-"} · model ${s.inferMs != null ? s.inferMs + " ms" : "-"} · skipped ${s.skipped}\n` +
         Object.entries(s.cams).map(([c, x]) => `${c.padEnd(15)} ${String(x.hz).padStart(4)}/s  gap ${x.gap != null ? x.gap + " ms" : "-"}  boxes ${x.tracks}${x.moving ? " moving" : ""}  tile ${x.px}`).join("\n");
     };
-    setInterval(draw, 500); draw();
+    const seedPre = document.createElement("div"); seedPre.style.cssText = "margin-top:4px;color:#9fe8ff;white-space:pre"; box.appendChild(seedPre);
+    const tick = () => { draw(); drawSeed(); };
+    // second-look layer: motion blobs (cyan), second-look windows (orange motion, magenta through glass, white hidden-person spot) with the zoomed crops'
+    // person / bag scores, and the hidden people the tracker keeps (dashed white). Coordinates as search.js .find-layer: contain-fit, mirror, zoom.
+    const fit = (vw, vh, tw, th) => { const k = Math.min(tw / vw, th / vh), w = vw * k, h = vh * k; return { x: (tw - w) / 2, y: (th - h) / 2, w, h }; };
+    function drawSeed() {
+      let d; try { d = T.detect.debugSeed(T.player && T.player.time); } catch (e) { seedPre.textContent = "seed: " + e.message; return; }
+      seedPre.textContent = `second looks ${d.on ? "on" : "off"} (${d.mode}) · keep hidden ${d.occl}s · ${d.rate}/s of ${d.budget.per10 / 10}/s · motion ${d.motionMs != null ? d.motionMs + " ms" : "-"} · zoom+enhance ${d.enhMs != null ? d.enhMs + " ms" : "-"} · looks ${d.looks} windows ${d.windows} throttled ${d.throttled}\nfound ${d.found} confirmed ${d.confirmed} revived ${d.revived} · polls ${d.polls}` +
+        Object.entries(d.cams).filter(([, x]) => x.wins.length || x.ghosts.length).map(([c, x]) => "\n" + c.padEnd(15) + x.wins.map((w) => w.kind + (w.skipped ? " skipped" : "") + w.crops.map((k) => ` x${k.scale}:${k.person}${k.hint ? "+bag" + k.hint : ""}`).join("")).join(" | ") + x.ghosts.map((g) => ` hidden ${g.hidden}s`).join(""));
+      if (!T.player || !T.player.tiles) return;
+      for (const cam of T.GRID) {
+        const tile = T.player.tiles[cam]; if (!tile) continue;
+        let cv = tile.tile.querySelector(".det-layer");
+        if (!cv) { cv = document.createElement("canvas"); cv.className = "det-layer"; cv.style.cssText = "position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:5;transform-origin:50% 50%"; tile.tile.appendChild(cv); }
+        const video = tile.vids && tile.vids[T.player.active], tw = tile.tile.clientWidth, th = tile.tile.clientHeight, dpr = Math.min(2, window.devicePixelRatio || 1);
+        cv.style.transform = video ? (video._zoomPlain != null ? video._zoomPlain : video.style.transform) : "";
+        const w = Math.max(1, Math.round(tw * dpr)), h = Math.max(1, Math.round(th * dpr)); if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; }
+        const ctx = cv.getContext("2d"); ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, tw, th);
+        const x = d.cams[cam]; if (!x || !video || !video.videoWidth) continue;
+        const f = fit(video.videoWidth, video.videoHeight, tw, th), mir = T.layout && T.layout.mirrored(cam);
+        const R = (b) => { let bx = b.x; if (mir) bx = 1 - b.x - b.w; return [f.x + bx * f.w, f.y + b.y * f.h, b.w * f.w, b.h * f.h]; };
+        const rect = (b, col, dash, label) => { const r = R(b); ctx.setLineDash(dash || []); ctx.strokeStyle = col; ctx.lineWidth = 1.5; ctx.strokeRect(r[0], r[1], r[2], r[3]); ctx.setLineDash([]); if (label) { ctx.fillStyle = col; ctx.font = "10px ui-monospace,Menlo,monospace"; ctx.fillText(label, r[0] + 2, Math.max(10, r[1] - 2)); } };
+        if (x.global) { ctx.fillStyle = "rgba(255,200,0,.9)"; ctx.font = "10px ui-monospace,Menlo,monospace"; ctx.fillText("light change: motion ignored", 6, 12); }
+        for (const b of x.motion) rect(b, "#00e5ff", [3, 2]);
+        for (const g of x.ghosts) rect(g, "#ffffff", [5, 4], "hidden " + g.hidden + "s");
+        for (const wn of x.wins) {
+          const col = wn.kind === "ghost" ? "#ffffff" : wn.glass || wn.kind === "glass" ? "#ff4dff" : "#ff9f1a";
+          rect(wn.box, col, wn.skipped ? [2, 3] : [], wn.kind + (wn.skipped ? " (throttled)" : "") + (wn.person ? " " + wn.person : ""));
+          for (const k of wn.crops) rect(k.crop, col, [1, 4], "x" + k.scale + " " + k.person + (k.hint ? " bag " + k.hint : ""));
+        }
+      }
+    }
+    setInterval(tick, 500); tick();
   };
 })();

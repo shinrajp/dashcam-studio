@@ -41,6 +41,7 @@ const URL_ = E.URL || "http://127.0.0.1:8770/index.html", CAMS = ["left_pillar",
   } else {
     await p.evaluate(([seed, occl, looks, reid]) => {
       const D = TDC.detect; D._clock = null; D.setPref("occl", +occl);
+      if (seed === "off" && occl === "0") { D.STATIC.secs = 1e9; TDC.people.DEF.fwd = false; }   // BASE = the app as it was before this work
       window.__sim = { wall: 0, last: {}, reg: new TDC.people.Registry(), perSec: {}, ids: new Map(), raw: [] };
       D._clock = () => window.__sim.wall;
       if (seed === "off") localStorage.setItem("tdc.seed", "off"); else localStorage.removeItem("tdc.seed");
@@ -54,6 +55,7 @@ const URL_ = E.URL || "http://127.0.0.1:8770/index.html", CAMS = ["left_pillar",
       // camera that waited longest × motion weight (as pickCam)
       const cam = await p.evaluate((t) => { const S = window.__sim, D = TDC.detect; S.wall = t * 1000; let best = null, bs = -1; for (const c of D.liveCams()) { const age = S.last[c] == null ? 1e9 : S.wall - S.last[c], sc = age * D.camMoving(c); if (sc > bs) { bs = sc; best = c; } } S.last[best] = S.wall; return best; }, t);
       const b64 = frame(cam, t); if (!b64) continue;
+      if ((E.SEED || "on") !== "off") { const others = CAMS.filter((c) => c !== cam).map((c) => [c, frame(c, t)]).filter((x) => x[1]); await p.evaluate(async ([list, t]) => { for (const [c, b] of list) { const im = new Image(); im.src = "data:image/jpeg;base64," + b; await im.decode(); const cv = document.createElement("canvas"); cv.width = im.naturalWidth; cv.height = im.naturalHeight; cv.getContext("2d").drawImage(im, 0, 0); TDC.detect._poll(c, cv, t); } }, [others, t]); }
       const out = await p.evaluate(async ([b64, cam, t, reid]) => {
         const D = TDC.detect, S = window.__sim, img = new Image(); img.src = "data:image/jpeg;base64," + b64; await img.decode();
         const cv = document.createElement("canvas"); cv.width = img.naturalWidth; cv.height = img.naturalHeight; cv.getContext("2d").drawImage(img, 0, 0);
