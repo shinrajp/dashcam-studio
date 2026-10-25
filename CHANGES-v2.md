@@ -580,3 +580,13 @@ Export dialog: **Map, HUD & car view** = On the picture / Fill black area / Add 
 - `js/ui.js`, `index.html`, `css/app.css`, `js/core.js` (prefs `export.extras`, `export.order`).
 - Defaults: Fill black area when the output has a black strip of at least 96 px, otherwise Add panel; Match viewer. `X.run` called without options keeps the old behaviour (overlay, standard order), so Export all and older tests are unchanged.
 - Test: `test/export-panel.js`.
+
+## occluded-people (branch feature/all-in-one)
+Rollback: `git checkout pre-occluded-people` (tip before this change, `export-panel`).
+
+Report: a black-shirt person with a brown backpack walking behind a parked Model Y's driver-side window (Right Pillar, dark garage) was "Nobody tracked".
+- `js/motion.js` (new, pure): motion map per camera (`step`), windows that skip covered people and moving cars and mark glass (`windows`), crop planner, walker test, and `enhance` (stretch, gamma, glare knee, CLAHE-lite).
+- `js/detect.js`: motion-seeded second looks (`D.seed`, budget per device, auto-throttle, `?seed=`), weak-look confirmation (`D.SEEDW`), ghost tracks and revive (`?occl=`, default 3.5 s), a cheap motion poll of cameras that get no model look (`SD.poll`), still-false filter with per-camera zones (`D.STATIC`, `D.stillZones`), optional YOLO11 medium (computers only, user-supplied file), two new Settings rows, `D.debugSeed`.
+- `js/people.js`: forward-heading prior for same-camera re-linking (`DEF.fwd`). `js/det-debug.js`: motion / second-look overlay. `index.html`: `motion.js` script. `.gitignore`: `models/yolo11m.onnx`.
+- Test: `test/occluded-people.js` (synthetic, pixel-based mock). Tool: `tools/clip-eval.js` (private frames only).
+- Real-clip replay (private screen recording, 46 s, six tiles at 5 looks/s, small model): seconds with a person tracked 29 → 32 of 46, identities 4 → 3. The close-range miss at 18–23 s was **not** reproduced in the replay (the model sees him at 0.8–0.93 and the old pipeline tracks him), so the real miss is likely look rate or scheduling on the device. Seeded looks did not change coverage at 1.5 looks/s.
