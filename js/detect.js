@@ -20,7 +20,7 @@
   D.config = { ortBases: ["vendor/ort/", "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.22.0/dist/"], tfUrl: "https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.8.1", size: 640 };
   const isMobile = () => { try { return /iPhone|iPad|iPod|Android/i.test(navigator.userAgent) || (matchMedia("(pointer: coarse)").matches && Math.min(screen.width, screen.height) < 820); } catch (_) { return false; } };
   D.isMobile = isMobile;
-  D.defaults = () => ({ enabled: false, model: isMobile() ? "nano" : "small", conf: 0.35, live: false, small: "auto", urls: {} });
+  D.defaults = () => ({ enabled: false, model: isMobile() ? "nano" : "small", conf: 0.35, live: false, small: "auto", seed: "auto", occl: 3.5, urls: {} });
   D.prefs = () => { const d = D.defaults(); try { const v = JSON.parse(localStorage.getItem(KEY) || "null"); if (v && typeof v === "object") { if (!MODELS[v.model]) delete v.model; const c = +v.conf; if (!(c >= 0.05 && c <= 0.95)) delete v.conf; return { ...d, ...v }; } } catch (_) {} return d; };
   D.setPref = (k, v) => { const p = D.prefs(); p[k] = v; try { localStorage.setItem(KEY, JSON.stringify(p)); } catch (_) {} if (k === "model") D.unload(); D.renderSettings(); };
   D.enabled = () => D.prefs().enabled === true;
@@ -424,6 +424,7 @@
     return T.GRID.filter((c) => visible(c));
   };
   const frameTime = (v, meta) => {   // event time of the frame on screen: clip start + the video's own time
+    if (meta && meta.testT != null) return meta.testT;
     let t = T.player.time;
     try { const ci = T.player.clipIndexAt(t), c = T.player.ev && T.player.ev.clips[ci]; const mt = meta && isFinite(meta.mediaTime) ? meta.mediaTime : v.currentTime; if (c && isFinite(mt)) { const vt = c.start + mt; if (Math.abs(vt - t) < 1) t = vt; } } catch (_) {}
     return t;
@@ -456,18 +457,28 @@
   };
   D._predictAt = predictAt;   // tests
   function track(cam, t, dets) {
-    const list = (D.liveTracks[cam] = (D.liveTracks[cam] || []).filter((tr) => t - tr.seen <= expiry(cam) && tr.t <= t + 0.05));
+    // occluded-people: a person who was tracked for a few looks and vanished (behind a car window, a pillar, another car) stays
+    // in the list as a GHOST for D.occlKeep() seconds — not drawn, not counted — and takes its identity back when a person shows up
+    // near where it should be. A person who walked out through the picture's edge is not kept (the hand-off cue links the next camera).
+    const ex0 = expiry(cam), keep = D.occlKeep();
+    const list = (D.liveTracks[cam] = (D.liveTracks[cam] || []).filter((tr) => tr.t <= t + 0.05 && (t - tr.seen <= ex0 || ghostOk(tr, t, keep))));
     const gap = gapOf(cam);
     const pred = list.map((tr) => predictAt(tr, t, gap));
+    const isGhost = list.map((tr) => t - tr.seen > ex0);
     // a weak look that sits on a track we already trust adds nothing (a head-only box must not drag a good box around)
-    dets = dets.filter((d) => !d.weak || !list.some((tr, j) => !tr.weak && tr.label === d.label && iou(pred[j], d) > 0.15));
+    dets = dets.filter((d) => !d.weak || !list.some((tr, j) => !tr.weak && !isGhost[j] && tr.label === d.label && iou(pred[j], d) > 0.15));
     const pairs = [];
-    dets.forEach((d, i) => list.forEach((tr, j) => { if (tr.label === d.label && near2(pred[j], d)) pairs.push([iou(pred[j], d), i, j]); }));
+    dets.forEach((d, i) => list.forEach((tr, j) => { if (tr.label === d.label && (near2(pred[j], d) || (isGhost[j] && ghostNear(pred[j], d, t - tr.seen)))) pairs.push([iou(pred[j], d) + (isGhost[j] ? 0 : 0.05), i, j]); }));
     pairs.sort((a, b) => b[0] - a[0]);
     const ud = new Set(), ut = new Set();
     for (const [, i, j] of pairs) {
       if (ud.has(i) || ut.has(j)) continue; ud.add(i); ut.add(j);
-      const d = dets[i], tr = list[j], p = pred[j], dt = Math.max(1e-3, t - tr.t);
+      let d = dets[i]; const tr = list[j], p = pred[j], dt = Math.max(1e-3, t - tr.t);
+      if (isGhost[j]) {   // a hidden person: a strong look brings it back at once, weak looks need two (they are not turned into a second person meanwhile)
+        if (d.weak) { if (t - (tr.rct == null ? -99 : tr.rct) > 3) tr.rc = 0; tr.rct = t; tr.rc = (tr.rc || 0) + 1; if (tr.rc < 2) continue; }
+        tr.revived = (tr.revived || 0) + 1; tr.hidden = t - tr.seen; tr.rc = 0; D.seed.stats.revived++;
+        if (d.weak) { d = Object.assign({}, d, { weak: false, conf: Math.max(d.conf, 0.35) }); }
+      }
       const dcx = d.x + d.w / 2, dcy = d.y + d.h / 2, mdt = t - (tr.mt != null ? tr.mt : tr.t);
       // speed measured between the last two looks (raw detections, not the smoothed box)
       const vmx = mdt > 0.02 ? clampV((dcx - (tr.mcx != null ? tr.mcx : tr.x + tr.w / 2)) / mdt) : tr.vx, vmy = mdt > 0.02 ? clampV((dcy - (tr.mcy != null ? tr.mcy : tr.y + tr.h / 2)) / mdt) : tr.vy;
@@ -494,12 +505,14 @@
       }
       tr.mcx = dcx; tr.mcy = dcy; tr.mt = t;
       tr.t = t; tr.seen = t; tr.conf = d.conf; tr.attr = d.attr; tr.clObs = d.clObs; tr.n = (tr.n || 1) + 1;
+      if (d.seeded && tr.seeded !== false) { tr.seeded = true; seedPath(tr, d, t); } else if (!d.seeded && tr.weak) tr.seeded = false;
       if (tr.weak) weakHit(tr, d, t);   // multi-frame score accumulation (zoomed person looks below the normal cut-off)
       else if (d.zoom) tr.zoom = true;
     }
-    dets.forEach((d, i) => { if (!ud.has(i)) { const tr = { id: newId(cam), first: t, weak: !!d.weak, acc: d.weak ? d.conf : 0, hits: 1, wt: t, zoom: !!d.zoom, label: d.label, x: d.x, y: d.y, w: d.w, h: d.h, vx: 0, vy: 0, t, seen: t, conf: d.conf, attr: d.attr, clObs: d.clObs, mcx: d.x + d.w / 2, mcy: d.y + d.h / 2, mt: t }; list.push(tr); } });
+    dets.forEach((d, i) => { if (!ud.has(i)) { const tr = { id: newId(cam), cam, first: t, seeded: d.seeded ? true : undefined, path: d.seeded ? [{ t, x: d.x, y: d.y, w: d.w, h: d.h }] : undefined, weakLooks: d.seeded ? [{ t, d }] : undefined, weak: !!d.weak, acc: d.weak ? d.conf : 0, hits: 1, wt: t, zoom: !!d.zoom, label: d.label, x: d.x, y: d.y, w: d.w, h: d.h, vx: 0, vy: 0, t, seen: t, conf: d.conf, attr: d.attr, clObs: d.clObs, mcx: d.x + d.w / 2, mcy: d.y + d.h / 2, mt: t }; list.push(tr); } });
   }
   D._track = track;   // tests
+  D._detectLive = (cam, src, t) => detectLive(cam, src, { testT: t });
   // stable per-camera track ids ("RR3": right repeater, third track since the event opened) — the hand-off cue and the people registry key on them
   const idN = {};
   const newId = (cam) => ((T.handoff && T.handoff.SHORT && T.handoff.SHORT[cam]) || cam) + (idN[cam] = (idN[cam] || 0) + 1);
@@ -508,11 +521,25 @@
   // score = decayed sum of the looks' confidences (x0.8 per look); 3 looks within 3 s and score >= 0.55 (3 looks at >= ~0.23), or one normal-strength look.
   D.PERSON_ZOOM_CONF = 0.2;
   D.WEAK = { hits: 3, score: 0.55, window: 3, decay: 0.8 };
+  // seeded looks (motion windows, js/motion.js): own thresholds (3 looks at ~0.17 add up to ~0.4) plus a walker-like path
+  D.SEEDW = { hits: 3, score: 0.4, window: 3.5, decay: 0.85 };
+  function seedPath(tr, d, t) { (tr.path = tr.path || []).push({ t, x: d.x, y: d.y, w: d.w, h: d.h }); if (tr.path.length > 12) tr.path.shift(); (tr.weakLooks = tr.weakLooks || []).push({ t, d }); if (tr.weakLooks.length > 12) tr.weakLooks.shift(); }
   function weakHit(tr, d, t) {
-    const W = D.WEAK;
-    if (t - (tr.wt || t) > W.window) { tr.acc = 0; tr.hits = 0; }
-    tr.wt = t; tr.hits = (tr.hits || 0) + 1; tr.acc = (tr.acc || 0) * W.decay + d.conf;
-    if (!d.weak || (tr.hits >= W.hits && tr.acc >= W.score)) { tr.weak = false; tr.confirmed = true; }
+    const sd = tr.seeded === true, W = sd ? D.SEEDW : D.WEAK;
+    if (t - (tr.wt || t) > W.window) { tr.acc = 0; tr.hits = 0; if (sd) { tr.path = tr.path.slice(-1); tr.weakLooks = tr.weakLooks.slice(-1); } }
+    tr.wt = t; tr.hits = (tr.hits || 0) + 1; tr.acc = (tr.acc || 0) * W.decay + d.conf + (d.hint ? 0.06 : 0);
+    const walks = !sd || (T.motion && T.motion.walker(tr.path));
+    if (!d.weak || (tr.hits >= W.hits && tr.acc >= W.score && walks)) { tr.weak = false; tr.confirmed = true; if (sd) { D.seed.stats.confirmed++; backfill(tr); } }
+  }
+  /** A confirmed seeded track: the looks that built it become normal detections too, so the export and search see the person from the first look. */
+  function backfill(tr) {
+    const cam = tr.cam; if (!cam) return;
+    for (const w of tr.weakLooks || []) {
+      const smp = (D.liveSamples[cam] || []).find((x) => Math.abs(x.t - w.t) < 0.05); if (!smp) continue;
+      if (smp.dets.some((o) => o.label === "person" && iou(o, w.d) > 0.3)) continue;
+      smp.dets = smp.dets.concat([{ x: w.d.x, y: w.d.y, w: w.d.w, h: w.d.h, cls: 0, label: "person", conf: Math.max(w.d.conf, 0.3), zoom: true, seeded: true }]);
+    }
+    tr.weakLooks = undefined;
   }
   /** Confirmed, current person tracks as they are at event time t (predicted like the painted boxes). */
   D.personTracks = (t) => {
@@ -546,26 +573,112 @@
     return out.length ? out : null;
   };
 
+
+  // ── occluded-people (tag occluded-people): people behind a car window, a pillar or another car; dark garages ──
+  // 1. Motion-seeded second looks. Per look at a camera a 96-px grey copy of the frame is compared with that camera's running
+  //    background (js/motion.js); moving blobs (not the whole frame, not a moving car) become crop windows. A window is zoomed,
+  //    contrast-enhanced (CLAHE-style, glare compressed for windows of parked cars) and shown to the person detector with a LOW cut-off
+  //    (D.seed.CONF) — only there. Such a look is weak: it becomes a person after 3 looks whose score adds up and whose path looks like
+  //    a walking person (moved, steady direction, upright). Backpack / handbag next to the window add a little evidence.
+  // 2. Ghost tracks (see track()): a person who disappears is kept hidden for a few seconds and takes the same id back.
+  // The budget: a look every ≥ 1.2 s per camera on phones (0.5 s on computers), ≤ 5 (14) seeded looks per 10 s, one window (two) per look,
+  // none while the normal looks are slow (the same limits as the hand-off zoom). Off in "Battery saver" and "Fast" speed (Auto), or
+  // Settings ▸ Object detection ▸ Hard-to-see people, or ?seed=off / localStorage tdc.seed = "off".
+  const SD = (D.seed = { st: {}, dbg: {}, lastAt: {}, hot: {}, flip: {}, CONF: 0.18, HINT: 0.25, HINT_CLASSES: new Set(["backpack", "handbag"]), stats: { looks: [], motionMs: [], seedMs: [], enhMs: [], throttled: 0, windows: 0, confirmed: 0, revived: 0, found: 0 } });
+  SD.now = () => (D._clock ? D._clock() : performance.now());
+  SD.mode = () => { try { const m = /(?:[?&#])seed=(off|on)\b/.exec(location.search + location.hash); if (m) return m[1]; const v = localStorage.getItem("tdc.seed"); if (v === "off" || v === "on") return v; } catch (_) {} const v = D.prefs().seed; return v === "off" || v === "on" ? v : "auto"; };
+  SD.enabled = () => { const m = SD.mode(); if (m === "off" || !T.motion) return false; if (m === "on") return true; const sp = D.speed(); return sp === "balanced"; };
+  SD.budget = () => { const mob = isMobile(); return mob ? { gap: 1200, per10: 5, maxWin: 1, both: false, size: 352, maxAvg: 260 } : { gap: 500, per10: 14, maxWin: 2, both: true, size: 512, maxAvg: 450 }; };
+  SD.rate = () => { const now = SD.now(); return SD.stats.looks.filter((x) => now - x <= 10000).length / 10; };
+  SD.allow = (cam, now) => {
+    const B = SD.budget();
+    if (D.avgMs && D.avgMs() > B.maxAvg) return false;   // auto-throttle: the normal looks are already slow
+    if (now - (SD.lastAt[cam] || -1e9) < B.gap) return false;
+    return SD.stats.looks.filter((x) => now - x <= 10000).length < B.per10;
+  };
+  /** Camera has fresh motion windows (looked at more often: see camMoving). */
+  SD.isHot = (cam) => (SD.hot[cam] || -1e9) > SD.now() - 2500;
+  SD.reset = () => { SD.st = {}; SD.dbg = {}; SD.lastAt = {}; SD.hot = {}; SD.flip = {}; SD.stats = { looks: [], motionMs: [], seedMs: [], enhMs: [], throttled: 0, windows: 0, confirmed: 0, revived: 0, found: 0 }; };
+  const push50 = (a, v) => { a.push(v); if (a.length > 50) a.shift(); };
+  /** Hidden-person keep time in seconds (Settings, or ?occl=N): 0 = off. */
+  D.occlKeep = () => { try { const m = /(?:[?&#])occl=([\d.]+)/.exec(location.search + location.hash); if (m) return Math.max(0, Math.min(8, +m[1])); } catch (_) {} const v = +D.prefs().occl; return v >= 0 && v <= 8 ? v : 3.5; };
+  const leftEdge = (tr) => (tr.x + tr.w > 0.96 && tr.vx > 0.01) || (tr.x < 0.04 && tr.vx < -0.01) || (tr.y + tr.h > 0.97 && tr.vy > 0.02);
+  const ghostOk = (tr, t, keep) => keep > 0 && tr.label === "person" && !tr.weak && (tr.n || 1) >= 3 && t - tr.seen <= keep && !leftEdge(tr);
+  const ghostNear = (p, d, hid) => Math.hypot(p.x + p.w / 2 - d.x - d.w / 2, p.y + p.h / 2 - d.y - d.h / 2) < 0.75 * Math.max(p.w, p.h, d.w, d.h) + 0.06 * Math.min(hid, 6) && !sizeJump(p, d, 2.2);
+  /** Hidden (ghost) people of a camera at event time t, as boxes where they should be now. */
+  D.ghostsAt = (cam, t) => {
+    const ex = expiry(cam), keep = D.occlKeep(), gap = gapOf(cam);
+    return (D.liveTracks[cam] || []).filter((tr) => t - tr.seen > ex && ghostOk(tr, t, keep)).map((tr) => Object.assign(predictAt(tr, t, gap), { id: tr.id, age: t - tr.seen }));
+  };
+  const frameSize = (v) => ({ iw: v.videoWidth || v.width, ih: v.videoHeight || v.height });
+  /** Motion step + (when the budget allows) zoomed, enhanced second looks. dets: this look's normal detections. Returns weak seeded person looks. */
+  async function seedLooks(cam, v, t, dets, fast) {
+    const M = T.motion, out = [];
+    if (!M || !SD.enabled()) return out;
+    const { iw, ih } = frameSize(v), now = SD.now(), dbg = (SD.dbg[cam] = { t, wall: now, blobs: [], wins: [], note: "", global: false });
+    const t0 = performance.now(), g = M.grab(v, iw, ih);
+    if (!g) { dbg.note = "no pixels"; return out; }
+    const r = M.step(SD.st[cam] || (SD.st[cam] = M.newState()), g.gray, g.w, g.h, t);
+    push50(SD.stats.motionMs, performance.now() - t0);
+    dbg.blobs = r.blobs.slice(0, 6).map((b) => ({ x: b.x, y: b.y, w: b.w, h: b.h })); dbg.global = !!r.global; dbg.thr = r.thr;
+    const ghosts = D.ghostsAt(cam, t).slice(0, 2), wins = M.windows(r.blobs, dets, ghosts);
+    if (!wins.length) return out;
+    SD.hot[cam] = now; SD.stats.windows += wins.length;
+    if (!SD.allow(cam, now)) { dbg.note = "throttled"; SD.stats.throttled++; dbg.wins = wins.map((w) => ({ kind: w.kind, box: w.box, skipped: true })); return out; }
+    SD.lastAt[cam] = now; SD.stats.looks.push(now); if (SD.stats.looks.length > 200) SD.stats.looks.shift();
+    const B = SD.budget(), t1 = performance.now();
+    const blobWins = wins.filter((w) => w.kind !== "ghost"), ghostWins = wins.filter((w) => w.kind === "ghost");
+    // one window per look on phones: a ghost's expected spot and a motion blob take turns
+    let pick = blobWins.concat(ghostWins);
+    if (B.maxWin === 1 && blobWins.length && ghostWins.length && (SD.flip[cam + "g"] = !SD.flip[cam + "g"])) pick = ghostWins;
+    pick = pick.slice(0, B.maxWin);
+    for (const w of pick) {
+      const rec = { kind: w.kind, box: w.box, glass: w.glass, crops: [] }; dbg.wins.push(rec);
+      const scales = B.both ? [1, 2] : [(SD.flip[cam] = !SD.flip[cam]) ? 1 : 2];
+      let bestP = null, bestH = null;
+      for (const sc of scales) {
+        const crop = M.cropFor(w.box, sc, 1.2), te = performance.now();
+        const cc = M.cropCanvas(v, iw, ih, crop, B.size, { glare: !!w.glass });
+        if (!cc) continue; push50(SD.stats.enhMs, performance.now() - te);
+        let rd = []; try { rd = await detectRaw(cc.canvas, cc.w, cc.h, { slot: fast ? "fast" : "main", conf: 0.12 }); } catch (e) { if (/not loaded|stopped/.test(String(e && e.message))) throw e; }
+        const map = (b) => ({ ...b, x: crop.x + b.x * crop.w, y: crop.y + b.y * crop.h, w: b.w * crop.w, h: b.h * crop.h });
+        const ppl = rd.filter((b) => b.label === "person").map(map), hints = rd.filter((b) => SD.HINT_CLASSES.has(b.label) && b.conf >= SD.HINT).map(map);
+        const near = (b) => { const bx = b.x + b.w / 2, by = b.y + b.h / 2, e = 0.5 * sc; return bx >= w.box.x - e * w.box.w - 0.03 && bx <= w.box.x + w.box.w * (1 + e) + 0.03 && by >= w.box.y - e * w.box.h - 0.03 && by <= w.box.y + w.box.h * (1 + e) + 0.03; };
+        const okP = ppl.filter((b) => b.conf >= SD.CONF && b.h >= 0.04 && (w.kind === "ghost" || near(b)) && !dets.some((o) => o.label === "person" && !o.weak && (iou(o, b) > 0.3 || contains(o, b))));
+        rec.crops.push({ scale: sc, crop, enh: !cc.stats.skipped, person: ppl.length ? +Math.max(...ppl.map((b) => b.conf)).toFixed(2) : 0, hint: hints.length ? +Math.max(...hints.map((b) => b.conf)).toFixed(2) : 0, kept: okP.length });
+        for (const b of okP) if (!bestP || b.conf > bestP.conf) bestP = b;
+        for (const b of hints) if (near(b) && (!bestH || b.conf > bestH.conf)) bestH = b;
+      }
+      if (bestP) { out.push({ x: bestP.x, y: bestP.y, w: bestP.w, h: bestP.h, cls: 0, label: "person", conf: bestP.conf, weak: true, seeded: true, zoom: true, hint: !!bestH, win: w.kind }); SD.stats.found++; rec.person = +bestP.conf.toFixed(2); }
+      else if (bestH && w.kind !== "ghost" && w.box.h >= 0.08) { out.push({ x: w.box.x, y: w.box.y, w: w.box.w, h: w.box.h, cls: 0, label: "person", conf: 0.2, weak: true, seeded: true, zoom: true, hint: true, win: "hint" }); rec.hint = +bestH.conf.toFixed(2); }
+    }
+    push50(SD.stats.seedMs, performance.now() - t1);
+    dbg.ms = Math.round(performance.now() - t0);
+    return out;
+  }
+
   let liveBusy = false, liveLast = 0, rr = 0, loopOn = false, loopVid = null;
   async function detectLive(cam, v, meta) {
     const t = frameTime(v, meta), t0 = performance.now();
     D.liveStats.starts.push(t0); if (D.liveStats.starts.length > 200) D.liveStats.starts.shift();
     const bc = (D.liveStats.byCam[cam] = D.liveStats.byCam[cam] || []); bc.push(t0); if (bc.length > 60) bc.shift();
     const fast = D.speed() === "fast" && D.prefs().model !== "gdino";
-    let dets = await D.detectImage(v, v.videoWidth, v.videoHeight, { slot: fast ? "fast" : "main", cam, look: true });
+    const fs0 = frameSize(v);
+    let dets = await D.detectImage(v, fs0.iw, fs0.ih, { slot: fast ? "fast" : "main", cam, look: true });
     let weakDets = dets.filter((d) => d.weak); if (weakDets.length) dets = dets.filter((d) => !d.weak);   // legs-fix: weak person looks wait for 3-look confirmation
     try {
       const plan = T.handoff && T.handoff.zoomPlan ? T.handoff.zoomPlan(cam, dets, t) : null;
       if (plan && plan.length) {
         const pz = D.PERSON_ZOOM_CONF, cut = D.prefs().conf;
-        let zd = await D.detectImage(v, v.videoWidth, v.videoHeight, { slot: fast ? "fast" : "main", crops: plan, tilesOnly: true, cropConf: pz });
+        let zd = await D.detectImage(v, fs0.iw, fs0.ih, { slot: fast ? "fast" : "main", crops: plan, tilesOnly: true, cropConf: pz });
         zd = zd.filter((d) => d.label === "person" && d.conf >= pz && !dets.some((o) => o.label === "person" && (iou(o, d) > 0.35 || contains(o, d))));
         for (const d of zd) { d.zoom = true; if (d.conf >= cut) dets.push(d); else { d.weak = true; weakDets.push(d); } }   // strong zoomed people join the normal detections
         D.liveStats.zoom = (D.liveStats.zoom || 0) + 1;
       }
     } catch (e) { if (/not loaded|stopped/.test(String(e && e.message))) throw e; }
+    try { const sw = await seedLooks(cam, v, t, dets, fast); if (sw.length) weakDets = weakDets.concat(sw); } catch (e) { if (/not loaded|stopped/.test(String(e && e.message))) throw e; console.warn("seeded look", e); }
     D.liveStats.ms.push(performance.now() - t0); if (D.liveStats.ms.length > 50) D.liveStats.ms.shift();
-    if (T.vehicle && T.vehicle.decorateLive) dets = T.vehicle.decorateLive(v, v.videoWidth, v.videoHeight, dets, t, undefined, cam);   // "white car 91%" (colour after white balance when known)
+    if (T.vehicle && T.vehicle.decorateLive) dets = T.vehicle.decorateLive(v, fs0.iw, fs0.ih, dets, t, undefined, cam);   // "white car 91%" (colour after white balance when known)
     const n = Math.max(1, D.liveCams().length), hold = Math.max(0.6, 0.6 + (n * D.liveEvery()) / 1000);
     const prev = D.live[cam]; if (prev && t > prev.t && t - prev.t < 3) D.camGap[cam] = D.camGap[cam] ? 0.7 * D.camGap[cam] + 0.3 * (t - prev.t) : t - prev.t;
     D.live[cam] = { t, dets, hold, src: "live" };
@@ -580,7 +693,7 @@
   // still or empty camera ×0.25 (still looked at, so new cars appear), and the tile's size on screen (√ of its share of
   // the largest tile, at least 0.4). One camera, or Focused camera: every look goes to it.
   const lastLook = {};
-  D.camMoving = (cam) => { const list = D.liveTracks[cam] || []; let m = 0; for (const tr of list) { if ((tr.n || 1) < 2) m = Math.max(m, 0.6); else if (Math.hypot(tr.vx, tr.vy) > 0.02) return 1; } return m || 0.25; };
+  D.camMoving = (cam) => { const list = D.liveTracks[cam] || []; let m = SD.isHot(cam) ? 0.8 : 0; for (const tr of list) { if ((tr.n || 1) < 2 || tr.weak) m = Math.max(m, 0.6); else if (Math.hypot(tr.vx, tr.vy) > 0.02) return 1; } return m || 0.25; };
   D.lastLook = lastLook;
   function pickCam(cams) {
     if (cams.length === 1) return cams[0];
@@ -644,7 +757,7 @@
     loopOn = true; arm();
   };
 
-  D.clear = () => { D.resetIds && D.resetIds(); D.tracks = []; D.live = {}; D.liveSamples = {}; D.liveTracks = {}; D.camGap = {}; D.frameCache.clear(); if (T.colorLock) T.colorLock.clear(); };
+  D.clear = () => { D.resetIds && D.resetIds(); SD.reset(); D.tracks = []; D.live = {}; D.liveSamples = {}; D.liveTracks = {}; D.camGap = {}; D.frameCache.clear(); if (T.colorLock) T.colorLock.clear(); };
   D.clearTracks = () => { D.tracks = []; };
   D.frameCache = new Map();   // "cam|t" → { conf, dets }: frames the search already ran (all classes), reused by the next search
   /** Live detections seen so far, as search rows for a class (same threshold as the search). */
