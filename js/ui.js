@@ -712,10 +712,10 @@
     const ep = T.prefs.export;
     const adv = T.prefs.advanced;
     document.querySelectorAll('input[name=preset]').forEach((r) => (r.checked = r.value === (adv ? ep.preset : "compat")));
-    const sizes = T.exporter.sizeOptions(ev);
+    const sizes = T.exporter.sizeOptions(ev, U.camShape(ev));   // export-cams: the grid shape follows the ticked cameras (3×2 for all six)
     $("exportSize").innerHTML = sizes.map((s) => `<option value="${s.id}">${s.label}</option>`).join("");
     $("exportSize").value = sizes.some((s) => s.id === ep.res) ? ep.res : "native";
-    $("originalDesc").textContent = `All six cameras stitched pixel-for-pixel: ${sizes[0].W}×${sizes[0].H}, no upscaling`;
+    $("originalDesc").textContent = U.originalDesc(sizes);
     const sel = $("exportCodec");
     sel.innerHTML = Object.entries(T.exporter.CODECS).map(([k, c]) => `<option value="${k}">${c.label} (${c.ext.toUpperCase()})</option>`).join("");
     sel.value = ep.codec;
@@ -749,17 +749,35 @@
     $("exportUnsupported").hidden = cap.mode !== "none";
     $("exportUnsupported").textContent = cap.reason || "";
     $("btnExportGo").disabled = cap.mode === "none";
-    // mark unsupported codecs for the chosen size (async)
-    const sz = sizes.find((s) => s.id === $("exportSize").value) || sizes[0];
+    U.markCodecs(ev);
+  }
+  /** Mark unsupported codecs for the chosen size (async). */
+  U.markCodecs = (ev) => {
+    const sel = $("exportCodec"), sizes = T.exporter.sizeOptions(ev, U.camShape(ev)), sz = sizes.find((s) => s.id === $("exportSize").value) || sizes[0];
+    [...sel.options].forEach((o) => { o.textContent = T.exporter.CODECS[o.value].label + " (" + T.exporter.CODECS[o.value].ext.toUpperCase() + ")"; });
     T.exporter.supportedCodecs(sz.W, sz.H, ev.fps).then((sup) => {
       [...sel.options].forEach((o) => { if (sup[o.value] === false) o.textContent = T.exporter.CODECS[o.value].label + " — not available here"; });
     });
-  }
+  };
+  // ── export-cams: the ticked cameras (js/export-cams.js) change the grid shape, so the native sizes follow ──
+  U.exportCamList = () => (T.exportCams && !T.exportCams.isAll() ? T.exportCams.get() : null);   // null = all six (the default, nothing passed to the exporter)
+  U.camShape = (ev) => T.exporter.shapeFor({ cams: U.exportCamList() }, ev);
+  U.originalDesc = (sizes) => {
+    const l = U.exportCamList(), tail = `pixel-for-pixel: ${sizes[0].W}×${sizes[0].H}, no upscaling`;
+    return !l ? `All six cameras stitched ${tail}` : l.length === 1 ? `The ${T.CAM_LABEL[l[0]].toLowerCase()} camera ${tail}` : `${l.length} cameras stitched ${tail}`;
+  };
+  U.refreshSizes = (ev) => {
+    const cur = $("exportSize").value, sizes = T.exporter.sizeOptions(ev, U.camShape(ev));
+    $("exportSize").innerHTML = sizes.map((s) => `<option value="${s.id}">${s.label}</option>`).join("");
+    $("exportSize").value = sizes.some((s) => s.id === cur) ? cur : "native";
+    $("originalDesc").textContent = U.originalDesc(sizes);
+    U.markCodecs(ev);
+  };
   // ── export-panel: camera order, where the map / HUD / car view go, and the final size ──
   /** The saved choice, or the default: Fill black area when the 1920×1080 picture has a black strip worth using, else Add panel. */
   U.extrasDefault = (ev, preset) => {
     if (preset === "equirect") return "overlay";
-    if (preset === "compat" && ev && ev.tile) { const g = T.compositor.geometry(1920, 1080, ev.tile, false); if (g.band && g.band.h >= T.compositor.USABLE_BAND) return "fill"; }
+    if (preset === "compat" && ev && ev.tile) { const sh = U.camShape(ev), g = T.compositor.geometry(1920, 1080, ev.tile, false, sh.cols, sh.rows); if (g.band && g.band.h >= T.compositor.USABLE_BAND) return "fill"; const n = (U.exportCamList() || []).length || 6; if (n < 6 && g.grid.h >= 1078 && 1920 - g.grid.w >= T.compositor.USABLE_BAND) return "fill"; }   // export-cams: 1 or 4 cameras leave a black area at the side
     return "panel";
   };
   U.extrasMode = (ev, preset) => { const c = T.prefs.export.extras; return T.compositor.EXTRA_MODES.includes(c) ? c : U.extrasDefault(ev, preset); };
@@ -770,12 +788,13 @@
     const wrap = (id) => $(id) && !$(id).hidden;
     const base = T.prefs.advanced && U.exportShow ? U.exportShow : T.prefs.show;
     const show = { ...base, hud: wrap("exportHudWrap") && $("exportHud").checked, map: wrap("exportMapWrap") && $("exportMap").checked, carview: !!($("exportCarWrap") && !$("exportCarWrap").hidden && $("exportCar").checked) };
-    return { preset, codec: $("exportCodec").value, sizeId: $("exportSize").value, show, order: T.prefs.export.order === "standard" ? "standard" : "viewer", extras: { mode: eq ? "overlay" : U.extrasMode(ev, preset) } };
+    const cams = U.exportCamList();   // export-cams: only passed when some cameras are unticked
+    return { preset, codec: $("exportCodec").value, sizeId: $("exportSize").value, show, ...(cams && !eq ? { cams } : {}), order: T.prefs.export.order === "standard" ? "standard" : "viewer", extras: { mode: eq ? "overlay" : U.extrasMode(ev, preset) } };
   };
   let sizeTick = 0;
   /** Final output size (and any warning) for the current choices; re-run after any change. */
   async function refreshExportSize() {
-    const my = ++sizeTick, ev = P().ev, line = $("exportSizeLine");
+    const my = ++sizeTick, ev = P().ev, line = $("exportSizeLine"); let lastCand = null;
     if (!line || !ev) return;
     const rq = U.exportRequest();
     line.classList.remove("warn"); if (rq.preset !== "equirect") line.textContent = "Output: working out the size…";
@@ -784,22 +803,24 @@
     try {
       const plan = await T.exporter.plan(rq, ev);
       if (my !== sizeTick) return;
-      const c = (plan.pick && plan.pick.cand) || plan.cands[0], g = c.geo;
+      const c = (plan.pick && plan.pick.cand) || plan.cands[0], g = c.geo; lastCand = c;
       txt = "Output: " + c.W + "×" + c.H;
-      if (g.mode === "panel") txt += " — camera grid " + g.grid.w + "×" + g.grid.h + (g.grid.w === ev.tile.w * 3 && g.grid.h === ev.tile.h * 2 ? " (native, unscaled)" : "") + " + " + (g.strip.h < g.grid.h || g.strip.w >= g.grid.w ? g.strip.h + " px panel strip below" : g.strip.w + " px panel strip at the side") + " for " + g.panels.map((p) => ({ hud: "HUD", map: "map", car: "car view" }[p.k])).join(", ");
-      else if (g.mode === "fill") txt += " — " + (g.panels.length ? g.panels.map((p) => ({ hud: "HUD", map: "map", car: "car view" }[p.k])).join(", ") + " in the black area below the cameras" : "nothing ticked for the black area");
+      if (g.freeCell) txt += " — " + g.panels.map((p) => ({ hud: "HUD", map: "map", car: "car view" }[p.k])).join(", ") + " in the free spot of the camera grid";
+      else if (g.mode === "panel") txt += " — camera grid " + g.grid.w + "×" + g.grid.h + (g.grid.w === ev.tile.w * 3 && g.grid.h === ev.tile.h * 2 ? " (native, unscaled)" : "") + " + " + (g.strip.h < g.grid.h || g.strip.w >= g.grid.w ? g.strip.h + " px panel strip below" : g.strip.w + " px panel strip at the side") + " for " + g.panels.map((p) => ({ hud: "HUD", map: "map", car: "car view" }[p.k])).join(", ");
+      else if (g.mode === "fill") txt += " — " + (g.panels.length ? g.panels.map((p) => ({ hud: "HUD", map: "map", car: "car view" }[p.k])).join(", ") + " in the black area " + (g.side ? "beside" : "below") + " the cameras" : "nothing ticked for the black area");
       else if (g.mode === "overlay") txt += " — map, HUD and car view float over the cameras";
       txt += plan.pick ? " · " + T.exporter.CODECS[plan.pick.k].label + (plan.pick.cfg.hardwareAcceleration === "prefer-hardware" ? " (hardware)" : " (software)") + "." : ".";
       const notes = [plan.note, g.note].filter(Boolean);
       line.classList.toggle("warn", !!notes.length);
       if (notes.length) txt += " ⚠ " + notes.join(" ");
     } catch (e) { txt = ""; console.warn("size preview", e); }
-    if (my === sizeTick) line.textContent = txt;
+    if (my === sizeTick) { line.textContent = txt; if (T.exportCams) { try { T.exportCams.afterPlan(lastCand); } catch (e) { console.warn("export cameras summary", e); } } }
   }
   U.refreshExportSize = refreshExportSize;
   function syncExtrasUi() {
     const ev = P().ev, preset = curPreset(), eq = preset === "equirect", av = T.compositor.extrasAvailable();
     $("extrasRow").hidden = eq; $("orderRow").hidden = eq;
+    if (T.exportCams) T.exportCams.show(!eq);   // export-cams: 360 needs all six cameras
     $("exportHudWrap").hidden = eq || !av.hud; $("exportMapWrap").hidden = eq || !av.map;
     const mode = U.extrasMode(ev, preset);
     seg($("segExtras"), mode, (v) => { T.setPref("export.extras", v); syncExtrasUi(); });
@@ -809,8 +830,10 @@
     seg($("segOrder"), T.prefs.export.order === "standard" ? "standard" : "viewer", (v) => { T.setPref("export.order", v); syncExtrasUi(); });
     const L = T.layout, lbl = L && L.PRESETS && L.PRESETS[L.preset] ? L.PRESETS[L.preset].label : "";
     $("segOrder").querySelector('[data-v="viewer"]').textContent = "Match viewer" + (lbl ? " (" + lbl + ")" : "");
+    if (T.exportCams) T.exportCams.render();
     refreshExportSize();
   }
+  U.syncExtras = syncExtrasUi;
   function initExportExtras(ev, cvOn) {
     $("exportHud").checked = !!T.prefs.show.hud; $("exportMap").checked = !!T.prefs.show.map;
     for (const id of ["exportHud", "exportMap", "exportCar", "exportCodec", "exportSize"]) $(id).onchange = refreshExportSize;

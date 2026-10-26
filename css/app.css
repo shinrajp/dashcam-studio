@@ -982,3 +982,30 @@ body.portrait .cv-chip { min-height: 28px; padding: 3px 5px; gap: 3px; font-size
   .ux-paste { font-size: 16px; } /* 16px stops iOS Safari zooming in on focus */
 }
 .ux-phone .ux-link { display: inline; padding: 4px 0; min-height: 0; line-height: 1.6; }
+
+/* ── export-cams: Cameras row of the Export dialog (js/export-cams.js) ── */
+.cams-block { display: flex; flex-direction: column; gap: 6px; }
+.cam-presets { display: flex; flex-wrap: wrap; gap: 4px; justify-content: flex-end; }
+.cams-body { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; }
+.cam-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; flex: 1 1 260px; min-width: 0; }
+.cam-opt { display: flex; align-items: center; gap: 6px; min-height: 40px; padding: 4px 8px; border: 1px solid var(--line); border-radius: 10px; background: transparent; color: var(--faint); font: inherit; font-size: 12px; font-weight: 650; text-align: left; cursor: pointer; flex-wrap: wrap; }
+.cam-opt .cam-tick { flex: none; width: 18px; height: 18px; border-radius: 5px; border: 1.5px solid var(--line); display: grid; place-items: center; font-size: 12px; line-height: 1; color: #fff; }
+.cam-opt.on { background: rgba(62,106,225,0.18); border-color: rgba(62,106,225,0.6); color: #cfdaff; }
+.cam-opt.on .cam-tick { background: var(--blue); border-color: var(--blue); }
+.cam-opt.lock { cursor: not-allowed; }
+.cam-opt .cam-name { min-width: 0; overflow-wrap: anywhere; line-height: 1.15; }
+.cam-opt .cam-no { flex-basis: 100%; font-size: 10px; font-weight: 600; color: var(--warn, #e6b450); padding-left: 24px; margin-top: -2px; }
+.cam-opt:focus-visible, .cam-presets .chip:focus-visible { outline: 2px solid var(--blue); outline-offset: 1px; }
+.cam-preview { flex: none; min-width: 60px; display: grid; place-items: center; }
+.cp-frame { position: relative; background: #000; border: 1px solid var(--line); border-radius: 3px; overflow: hidden; }
+.cp-frame > div { position: absolute; box-sizing: border-box; display: grid; place-items: center; font: 700 8px/1 system-ui, sans-serif; color: #dbe6ff; border-radius: 2px; overflow: hidden; }
+.cp-cam { background: rgba(62,106,225,0.45); }
+.cp-cam.nofoot { background: rgba(255,255,255,0.12); color: #aaa; }
+.cp-cam.flip::after { content: "↔"; position: absolute; right: 1px; bottom: 0; font-size: 7px; opacity: .8; }
+.cp-free { border: 1px dashed rgba(255,255,255,0.25); }
+.cp-panel { background: rgba(230,180,80,0.5); color: #fff; }
+.cam-summary { margin: 0; line-height: 1.35; color: var(--text, #e8eaf0); }
+.cam-hint { margin: 0; min-height: 0; }
+.cam-hint:empty { display: none; }
+.cam-hint.warn { color: var(--warn, #e6b450); }
+@media (max-width: 520px) { .cam-grid { flex-basis: 100%; } .cam-opt { min-height: 44px; } .cam-preview { width: 100%; justify-content: center; } }
