@@ -71,9 +71,10 @@
     worker.onerror = (e) => {
       e.preventDefault && e.preventDefault();
       const msg = e && e.message;
-      setTimeout(() => {   // let the worker's own "fatal" report arrive first
+      setTimeout(async () => {   // let the worker's own "fatal" report arrive first
         if (worker !== w) return;
-        const why = T.workerStart ? T.workerStart.describe(e, stage, workerHow) : msg || "the worker script could not start (" + workerHow + ")";
+        const why = T.workerStart ? await T.workerStart.explain(e, stage, workerHow, workerFirst, m) : msg || "the worker script could not start (" + workerHow + ")";
+        if (worker !== w) return;
         const err = new Error("Detection worker failed: " + why); for (const p of pending.values()) p.reject(err); pending.clear();
         if (!msg && D.info) D.unload();   // killed by the browser: start afresh next time
       }, msg ? 0 : 400);
@@ -99,9 +100,9 @@
 
   // The worker is started from a blob: URL of its fetched source, so a server sending the wrong MIME type for .js
   // (e.g. Windows python http.server) can't stop it. Falls back to a plain new Worker(url).
-  let workerHow = "";
+  let workerHow = "", workerFirst = "";
   async function makeWorker(m) {
-    if (T.workerStart) { const st = await T.workerStart.start(m, "detection worker"); workerHow = st.how; return st.worker; }
+    if (T.workerStart) { const st = await T.workerStart.start(m, "detection worker"); workerHow = st.how; workerFirst = st.first || ""; return st.worker; }
     const opts = m.module ? { type: "module" } : undefined;
     try {
       const r = await fetch(m.worker, { cache: "no-cache" });

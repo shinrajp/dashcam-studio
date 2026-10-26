@@ -58,9 +58,9 @@
     const useCache = D.cacheOk ? D.cacheOk() : true;
     setStatus("Loading the plate finder…");
     const preferGpu = gpuOk();
-    let stage = "", how = "", died = false;
+    let stage = "", how = "", first = "", died = false;
     loading = startWorker().then((st) => {
-      const w = (worker = st.worker); how = st.how;
+      const w = (worker = st.worker); how = st.how; first = st.first || "";
       worker.onmessage = (e) => {
         const d = e.data || {};
         if (d.type === "stage") { stage = d.stage; L.stage = d.stage; return; }
@@ -74,10 +74,12 @@
       worker.onerror = (e) => {
         e.preventDefault && e.preventDefault();
         const msg = e && e.message;
-        setTimeout(() => {
+        setTimeout(async () => {
           if (worker !== w) return;
           died = !msg && !!stage && stage !== "ready";
-          const err = new Error("Plate worker failed: " + (T.workerStart ? T.workerStart.describe(e, stage, how) : msg || "could not start (" + how + ")"));
+          const why = T.workerStart ? await T.workerStart.explain(e, stage, how, first, { worker: "js/detect-worker.js" }) : msg || "could not start (" + how + ")";
+          if (worker !== w) return;
+          const err = new Error("Plate worker failed: " + why);
           err.died = died; for (const p of pending.values()) p.reject(err); pending.clear();
           if (!msg && L.info) { console.warn("plates: worker stopped by the browser; it restarts on the next scan"); L.unload(); }
         }, msg ? 0 : 400);
