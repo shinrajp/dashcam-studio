@@ -26,14 +26,24 @@
   const hex2 = (n) => n.toString(16).toUpperCase().padStart(2, "0");
 
   /** Size options for the "original" preset (never larger than the source). */
-  X.sizeOptions = (ev) => {
-    const t = ev.tile;
+  X.sizeOptions = (ev, shape) => {   // shape: { cols, rows } of the camera grid (export-cams); default 3 × 2 = all six cameras
+    const t = ev.tile, cols = (shape && shape.cols) || 3, rows = (shape && shape.rows) || 2;
     const out = [];
-    out.push({ id: "native", W: even(t.w * 3), H: even(t.h * 2), label: `Native ${even(t.w * 3)}×${even(t.h * 2)} (1:1 side cameras)` });
-    if (t.maxW * t.maxH > t.w * t.h) out.push({ id: "max", W: even(t.maxW * 3), H: even(t.maxH * 2), label: `Largest ${even(t.maxW * 3)}×${even(t.maxH * 2)} (1:1 front camera)` });
-    for (const f of [0.75, 0.5]) out.push({ id: "p" + f * 100, W: even(t.w * 3 * f), H: even(t.h * 2 * f), label: `${Math.round(f * 100)}% ${even(t.w * 3 * f)}×${even(t.h * 2 * f)}` });
+    out.push({ id: "native", W: even(t.w * cols), H: even(t.h * rows), label: `Native ${even(t.w * cols)}×${even(t.h * rows)} (1:1 side cameras)` });
+    if (t.maxW * t.maxH > t.w * t.h) out.push({ id: "max", W: even(t.maxW * cols), H: even(t.maxH * rows), label: `Largest ${even(t.maxW * cols)}×${even(t.maxH * rows)} (1:1 front camera)` });
+    for (const f of [0.75, 0.5]) out.push({ id: "p" + f * 100, W: even(t.w * cols * f), H: even(t.h * rows * f), label: `${Math.round(f * 100)}% ${even(t.w * cols * f)}×${even(t.h * rows * f)}` });
     return out;
   };
+  // ── export-cams: which cameras go into the file ──
+  /** The ticked cameras as a list in T.GRID order; anything missing / unknown / empty means all six (the default). */
+  X.normCams = (cams) => {
+    if (!Array.isArray(cams)) return T.GRID.slice();
+    const out = T.GRID.filter((c) => cams.includes(c));
+    return out.length ? out : T.GRID.slice();
+  };
+  X.camsTag = (cams) => { const c = X.normCams(cams); return c.length === 6 ? "" : c.length === 1 ? c[0].replace(/_/g, "-") : c.length + "cams"; };   // file name part: "front", "3cams"; nothing for all six
+  /** Grid shape the export will use for these cameras (opts.cams). */
+  X.shapeFor = (opts, ev) => T.compositor.shape(X.normCams(opts && opts.cams).length, ev.tile);
 
   function codecStrings(key, w, h, fps) {
     const ps = w * h, rate = ps * fps, fs = Math.ceil(w / 16) * Math.ceil(h / 16), mbps = fs * fps;
@@ -167,7 +177,7 @@
 
   /** Per-clip source manager. */
   class Sources {
-    constructor(ev) { this.ev = ev; this.ci = -1; this.src = {}; this.notes = { hw: 0, sw: 0, seek: 0 }; }
+    constructor(ev, cams) { this.ev = ev; this.cams = cams || null; this.ci = -1; this.src = {}; this.notes = { hw: 0, sw: 0, seek: 0 }; }   // cams: only these cameras are decoded (export-cams); null = all six
     async frames(t) {
       const ci = T.player.clipIndexAt(t);
       if (ci !== this.ci) await this.open(ci);
@@ -190,6 +200,7 @@
       this.ci = ci;
       const clip = this.ev.clips[ci];
       for (const cam of T.GRID) {
+        if (this.cams && !this.cams.includes(cam)) continue;   // export-cams: an unticked camera is never decoded
         const it = clip.files[cam];
         if (!it || !it.blob) continue;
         let s = null;
@@ -241,8 +252,8 @@
   X.layoutBase = (opts) => {
     const C = T.compositor, show = opts.show || {}, ex = opts.extras || {};
     const mode = C.EXTRA_MODES.includes(ex.mode) ? ex.mode : "overlay";
-    const co = C.cameraOrder(opts.order === "viewer" ? "viewer" : "standard");
-    return { mode, want: { hud: !!show.hud, map: !!show.map, car: !!show.carview }, time: !!show.time, order: co.order, mirror: co.mirror };
+    const co = C.cameraOrder(opts.order === "viewer" ? "viewer" : "standard"), cams = X.normCams(opts.cams);
+    return { mode, want: { hud: !!show.hud, map: !!show.map, car: !!show.carview }, time: !!show.time, order: cams.length === 6 ? co.order : co.order.filter((c) => cams.includes(c)), mirror: cams.length === 6 ? co.mirror : co.mirror.filter((c) => cams.includes(c)) };
   };
   /** Candidate outputs, best first: the layout the user asked for at its full size, a thinner strip, 75%, 50%, then a plain 1920×1080. */
   X.candidates = (opts, ev) => {
@@ -258,7 +269,7 @@
       if (base.mode === "panel") add(1920, 1080, false, null, "fill", "fill");   // no encoder for the taller picture: back to exactly 1920×1080
       if (base.mode !== "overlay") add(1920, 1080, false, null, "overlay", "plain");
     } else {
-      const so = X.sizeOptions(ev), pk = so.find((z) => z.id === opts.sizeId) || so[0];
+      const so = X.sizeOptions(ev, C.shape(base.order.length, ev.tile)), pk = so.find((z) => z.id === opts.sizeId) || so[0];
       add(pk.W, pk.H, true, null, base.mode, "full");
       if (base.mode === "panel") add(pk.W, pk.H, true, 0.14, base.mode, "thin");
       for (const f of [0.75, 0.5]) add(even(pk.W * f), even(pk.H * f), true, null, base.mode, "p" + f * 100);
@@ -315,7 +326,7 @@
     const wake = () => waiters.splice(0).forEach((r) => r());
     const encoder = new VideoEncoder({ output: (chunk, meta) => { try { muxer.addVideoChunk(chunk, meta); } catch (e) { encErr = encErr || e; } }, error: (e) => { encErr = e; wake(); } });
     encoder.ondequeue = wake;
-    const sources = new Sources(ev);
+    const sources = new Sources(ev, cand.equirect || !geo.order || geo.order.length === 6 ? null : T.GRID.filter((c) => geo.order.includes(c)));   // only the ticked cameras are decoded
     const fm = frameMap(ranges, fps), total = fm.total;
     try {
       encoder.configure(cand.cfg);
@@ -364,7 +375,7 @@
     const totalDur = ranges.reduce((a, r) => a + (r[1] - r[0]), 0);
     const draw = () => {
       const frames = {};
-      for (const cam of T.GRID) { const v = P.tiles[cam].vids[P.active]; if (v._url && v.videoWidth) frames[cam] = { img: v, w: v.videoWidth, h: v.videoHeight }; }
+      for (const cam of geo.order || T.GRID) { const v = P.tiles[cam].vids[P.active]; if (v._url && v.videoWidth) frames[cam] = { img: v, w: v.videoWidth, h: v.videoHeight }; }
       T.compositor.drawFrame(ctx, geo, P.time, frames, show); // P.time = source time
     };
     P.setRate(1);
@@ -478,7 +489,7 @@
       const fps = compat ? 30 : ev.fps || 36;
       const { key, keys } = X.codecKeys(opts);
       const kind = compat ? "compatible" : "original";
-      const nameFor = (sz, k) => fileName(ev, kind, sz, k);
+      const camsUsed = X.normCams(opts.cams), nameFor = (sz, k) => fileName(ev, kind, sz, k, camsUsed);
       if (!X.webcodecs()) {
         const c = X.candidates({ ...opts, preset: "compat" }, ev)[0];   // the real-time recorder is always 1920-wide
         await prefetchMap(c.geo, show, ranges, status);
@@ -503,7 +514,7 @@
           if (k !== key || sz.W !== target.W || sz.H !== target.H || sz.geo.mode !== target.geo.mode) note = `${X.CODECS[key].label} at ${target.W}×${target.H} wasn't available here — used ${X.CODECS[k].label} at ${sz.W}×${sz.H}` + (tried.length ? ` (tried: ${tried.join("; ")})` : "");
           else if (plan.note) note = plan.note;
           if (sz.geo.note) note = (note ? note + " " : "") + sz.geo.note;
-          return { ...r, name: nameFor(sz, k), W: sz.W, H: sz.H, codec: cfg.codec, key: k, hw: cfg.hardwareAcceleration === "prefer-hardware", fps, label, note, layout: sz.geo.mode, grid: sz.geo.grid, panels: sz.geo.panels };
+          return { ...r, name: nameFor(sz, k), W: sz.W, H: sz.H, codec: cfg.codec, key: k, hw: cfg.hardwareAcceleration === "prefer-hardware", fps, label, note, layout: sz.geo.mode, grid: sz.geo.grid, panels: sz.geo.panels, cams: sz.geo.order || camsUsed, cols: sz.geo.cols, rows: sz.geo.rows };
         } catch (e) {
           if (X.cancelled || String(e && e.message) === "cancelled") throw new Error("cancelled");
           console.warn("encode attempt failed", k, sz.W + "x" + sz.H, e);
@@ -518,11 +529,12 @@
   };
   X.cancel = () => { X.cancelled = true; };
 
-  function fileName(ev, kind, sz, key) {
+  function fileName(ev, kind, sz, key, cams) {
     const d = ev.clips[0].time ? new Date(ev.clips[0].time) : new Date();
     const stamp = `${T.fmtDate(d)}_${T.pad2(d.getHours())}-${T.pad2(d.getMinutes())}-${T.pad2(d.getSeconds())}`;
     const trig = (ev.trigger && ev.trigger.kind) || "event";
-    return `TeslaCam_${stamp}_${trig}_${kind}_${sz.W}x${sz.H}_${key}.${X.CODECS[key].ext}`;
+    const ct = cams ? X.camsTag(cams) : "";   // export-cams: "_front" / "_3cams" when not all six cameras; all six = the old name
+    return `TeslaCam_${stamp}_${trig}${ct ? "_" + ct : ""}_${kind}_${sz.W}x${sz.H}_${key}.${X.CODECS[key].ext}`;
   }
   X.fileName = fileName;
 })();

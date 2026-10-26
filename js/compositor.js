@@ -13,17 +13,31 @@
   C.liveScale = (gw, gh) => Math.min(gh / 900, gw / 1300) * T.prefs.hudScale;
   /** Top-left of a panel (pw × ph px) inside grid rect g, from saved fractions. */
   C.place = (g, pw, ph, pos) => ({ x: g.x + T.clamp(pos.fx, 0, 1) * Math.max(0, g.w - pw), y: g.y + T.clamp(pos.fy, 0, 1) * Math.max(0, g.h - ph) });
-  C.cellRect = (g, i, gap) => {
-    gap = gap || 0;
-    const col = i % 3, row = Math.floor(i / 3);
-    const cw = (g.w - gap * 2) / 3, ch = (g.h - gap) / 2;
+  /** Cell i of a cols × rows grid (default 3 × 2, the six-camera grid) inside rect g. */
+  C.cellRect = (g, i, gap, cols, rows) => {
+    gap = gap || 0; cols = cols || 3; rows = rows || 2;
+    const col = i % cols, row = Math.floor(i / cols);
+    const cw = (g.w - gap * (cols - 1)) / cols, ch = (g.h - gap * (rows - 1)) / rows;
     return { x: g.x + col * (cw + gap), y: g.y + row * (ch + gap), w: cw, h: ch };
+  };
+  /** export-cams: grid shape for n exported cameras (n < 6 when the user unticks some). 6 and 5 keep the 3 × 2 grid (5 leaves one free cell);
+   *  1–4 pick the cols × rows (with at most one free cell) whose tiles come out biggest in a 16:9 picture, so the cameras fill the frame at
+   *  native tile size, with no letterbox beyond what the cameras' own shape gives. 1 → 1×1, 2 → 2×1, 3 → 2×2 (one free cell), 4 → 2×2. */
+  C.shape = (n, tile) => {
+    if (!(n >= 1 && n < 5)) return { cols: 3, rows: 2 };
+    let best = null;
+    for (const [c, r] of [[1, 1], [2, 1], [1, 2], [3, 1], [1, 3], [2, 2], [4, 1], [1, 4]]) {
+      if (c * r < n || c * r > n + 1) continue;
+      const s = Math.min(1920 / (c * tile.w), 1080 / (r * tile.h)), fill = n * s * s * tile.w * tile.h;
+      if (!best || fill > best.fill * 1.0000001) best = { cols: c, rows: r, fill };
+    }
+    return { cols: best.cols, rows: best.rows };
   };
 
   /** Output geometry for a preset. tile = { w, h } native tile size. */
-  C.geometry = (W, H, tile, exact) => {
+  C.geometry = (W, H, tile, exact, cols, rows) => {
     if (exact) return { W, H, grid: { x: 0, y: 0, w: W, h: H }, band: null };
-    const aspect = (3 * tile.w) / (2 * tile.h);
+    const aspect = ((cols || 3) * tile.w) / ((rows || 2) * tile.h);
     let gw = W, gh = W / aspect;
     if (gh > H) { gh = H; gw = H * aspect; }
     const band = H - gh;
@@ -83,6 +97,11 @@
       return q;
     });
   };
+  /** Like arrange, but tries a row and a column and keeps whichever makes the panels bigger (a free grid cell is nearly square). */
+  C.arrangeBest = (r, items) => {
+    const a = C.arrange(r, items, false), b = C.arrange(r, items, true), area = (l) => l.reduce((t, q) => t + q.w * q.h, 0);
+    return area(b) > area(a) ? b : a;
+  };
   /** Strip size (px) for a base grid gw × gh: the share of the long side's partner, capped so the strip never needs more than the panels fit. */
   C.stripSize = (gw, gh, items, frac) => {
     frac = frac || C.STRIP_FRAC;
@@ -100,11 +119,22 @@
    *  Returns { W, H, grid, band, mode, panels, strip, order, mirror, note } — geo for drawFrame. mode is what was really used. */
   C.layout = (o) => {
     const items = o.mode === "overlay" ? [] : C.extraItems(o.want || {}, o.avail);
-    const mk = (geo, mode, extra) => Object.assign(geo, { mode, order: o.order || null, mirror: o.mirror || [], panels: [], strip: null, note: null }, extra || {});
-    if (o.mode !== "fill" && o.mode !== "panel") return mk(C.geometry(o.W, o.H, o.tile, o.exact), "overlay");
-    if (!items.length) return mk(C.geometry(o.W, o.H, o.tile, o.exact), o.mode, { extrasOnly: true });   // nothing ticked: plain picture, overlays stay off
+    const n = o.order && o.order.length ? o.order.length : 6, shape = C.shape(n, o.tile), cols = shape.cols, rows = shape.rows;   // export-cams: fewer cameras → another grid shape
+    const geom = (W, H, tile, exact) => C.geometry(W, H, tile, exact, cols, rows);
+    const mk = (geo, mode, extra) => Object.assign(geo, { mode, order: o.order || null, mirror: o.mirror || [], cols, rows, panels: [], strip: null, note: null }, extra || {});
+    if (o.mode !== "fill" && o.mode !== "panel") return mk(geom(o.W, o.H, o.tile, o.exact), "overlay");
+    if (!items.length) return mk(geom(o.W, o.H, o.tile, o.exact), o.mode, { extrasOnly: true });   // nothing ticked: plain picture, overlays stay off
     let mode = o.mode, note = null;
-    const g0 = C.geometry(o.W, o.H, o.tile, o.exact);
+    const g0 = geom(o.W, o.H, o.tile, o.exact);
+    if (cols * rows > n) {   // export-cams: a free cell in the camera grid (3 or 5 cameras) holds the map / HUD / car view: no letterbox strip, no added strip
+      const cell = C.cellRect(g0.grid, n, 0, cols, rows);
+      return mk({ W: o.W, H: o.H, grid: g0.grid, band: g0.band }, "fill", { panels: C.arrangeBest(cell, items), strip: cell, freeCell: true });
+    }
+    if (mode === "fill" && !o.exact && n < 6 && (!g0.band || g0.band.h < C.USABLE_BAND) && g0.grid.h >= o.H - 2 && o.W - g0.grid.w >= C.USABLE_BAND) {
+      // export-cams: 1 or 4 cameras are as tall as the frame and leave black areas left and right: grid flush left, the panels fill the right-hand area (no added strip)
+      const gw = g0.grid.w, reg = { x: gw, y: 0, w: o.W - gw, h: o.H };
+      return mk({ W: o.W, H: o.H, grid: { x: 0, y: 0, w: gw, h: g0.grid.h }, band: null }, "fill", { panels: C.arrange(reg, items, true), strip: reg, side: true });
+    }
     if (mode === "fill") {
       if (o.exact || !g0.band || g0.band.h < C.USABLE_BAND || g0.grid.w < o.W - 8) { mode = "panel"; note = "This size has no black area to fill, so the panels get an added strip instead."; }
       else {
@@ -115,7 +145,7 @@
     }
     // add a strip: the base grid is native (exact) or the compatible preset's own 1920-wide grid
     let gw, gh;
-    if (o.exact) { gw = o.W; gh = o.H; } else { const aspect = (3 * o.tile.w) / (2 * o.tile.h); gw = o.W; gh = even(o.W / aspect); }
+    if (o.exact) { gw = o.W; gh = o.H; } else { const aspect = (cols * o.tile.w) / (rows * o.tile.h); gw = o.W; gh = even(o.W / aspect); }
     const vert = gh > gw, sz = C.stripSize(gw, gh, items, o.frac);
     const W = vert ? gw + sz : gw, H = vert ? gh : gh + sz;
     const strip = vert ? { x: gw, y: 0, w: sz, h: gh } : { x: 0, y: gh, w: gw, h: sz };
@@ -192,7 +222,7 @@
     const s = C.unitScale(grid.h);
     const xm = geo.mode === "fill" || geo.mode === "panel";   // panels live outside the grid: the floating overlays are off
     (geo.order || T.GRID).forEach((cam, i) => {
-      const r = C.cellRect(grid, i, 0);
+      const r = C.cellRect(grid, i, 0, geo.cols, geo.rows);
       const f = frames[cam];
       if (f && f.img) {
         const flip = !!(geo.mirror && geo.mirror.includes(cam)), wantBoxes = T.burnBoxes && (show.boxes !== undefined ? show.boxes : T.burnBoxes.enabled());
