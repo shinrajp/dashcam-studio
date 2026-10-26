@@ -181,6 +181,18 @@ In the Export dialog (Most Compatible and Original resolution; the 360 export is
 - Limits: a very long strip of panels on a phone-size picture gets small; the map panel has no tiles when the device is offline; Safari/iPhone may refuse the taller picture and then fall back as above (the dialog shows what it will use).
 - Test: `node test/export-panel.js` (`BR=chromium|webkit DEV=desktop|phone`, `NOEXPORT=1` skips the encode checks).
 
+## Export: choose cameras (export-cams)
+The Export dialog has a **Cameras** row (Most Compatible and Original resolution; hidden for the 360 equirect preset, which needs all six). All six are ticked by default, so nothing changes unless you untick.
+- **Chips** for the six cameras in the export order (so they follow *Match viewer* / *Standard fixed order*), tick box + name; a camera with no footage in the event says *No footage* (ticked it keeps today's "No … footage" placeholder; unticked it is simply left out). At least one stays ticked (the last one is locked with a hint).
+- **Quick choices:** All, Front only, Front + Rear, Sides (both pillars and both repeaters), and *Focused camera* (only while a camera is focused in the viewer).
+- **Summary + picture:** "Exporting 3 of 6 cameras (Left Repeater, Rear, Right Repeater) · 1920×1080" and a small drawing of the real output layout (cameras, free spot, map / HUD / car view).
+- **Layout re-flows by count, at native tile size** (no stretching): 1 camera 1×1, 2 side by side, 3 → 2×2 with a free cell, 4 → 2×2, 5 → 3×2 with a free cell, 6 → 3×2 as before. Original resolution lists native sizes for that shape. In the free cell (3 or 5 cameras) the map, HUD and car view are drawn, with nothing added and no black strip. For 1 and 4 cameras (a 4:3 picture in a 16:9 frame) *Fill black area* uses the black area beside the cameras (grid flush left); *Add panel* adds a strip as before; 2 cameras fill the strip below.
+- **File name** gets the cameras after the trigger when not all six: `…_sentry_front_compatible_1920x1080_h264.mp4`, `…_sentry_3cams_…`. All six: the old name.
+- **Faster:** only the ticked cameras are decoded. Burned detection boxes, redaction and the car view follow the moved pictures. Match viewer keeps the viewer's relative order (and flips) for the ticked cameras.
+- **Not remembered between sessions** on purpose (a forgotten "front only" would silently cut the next export); it stays while the page is open. Not in preferences or localStorage.
+- Limits: box burning / plate / detection prep still look at all six cameras (decode saving is for the pictures only); the real-time recorder (browsers without WebCodecs encoders) draws the ticked cameras the same way.
+- Test: `BR=chromium|webkit node test/export-cams.js` (`DEV=desktop|phone`, `NOEXPORT=1`, `SHOTS=dir` writes mock-data screenshots).
+
 ## Plates & street names (beta)
 Settings ▸ **Plates & text** (off until you turn it on). Then type a plate in the search box:
 

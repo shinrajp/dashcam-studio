@@ -609,3 +609,15 @@ The optional YOLO11 medium model (AGPL, not in the repo) no longer ends in a bar
 - `js/detect.js`: for medium the order is stored file → `models/yolo11m.onnx` → `urls.medium`; the stored bytes go to the worker as a Blob (or a transferred ArrayBuffer); a missing model shows "YOLO11 medium isn't included in the app (it's an optional AGPL model). Choose the yolo11m.onnx file from your device." with the Choose button; the panel appears only while medium is selected and only on computers. `js/detect-worker.js`: `user:` pseudo-URL reads the Blob; the load answer also reports `stored` and `outShape`.
 - Service worker / pack: unchanged in kind (`js/model-picker.js` is in the core list, the stored model is never cached or listed, and SW updates don't touch `tdc-user-models`). Asset version `model-picker`.
 - Test: `test/model-picker.js` (Playwright, chromium + webkit separately; serves a hard-linked copy of the tree without `models/yolo11m.onnx`, and needs the real file at `models/yolo11m.onnx` or `MEDIUM=`).
+
+## export-cams (branch feature/all-in-one)
+Rollback: `git checkout pre-export-cams` (tip before this change, `model-picker`).
+
+Export dialog: tick which cameras go into the file. All six by default (output byte-for-byte as before: same layout code path, same size, same name, same encoded bytes, checked in Chromium). Comparable apps (tesla_dashcam: exclude flags; TDashcamStudio: Select Cameras + grid; Focus/TesClip: single vs all) inspired chips + presets; none previews the result, so this one adds a summary and a layout picture.
+- `js/export-cams.js` (new, `T.exportCams`): chips, presets (All / Front only / Front + Rear / Sides / Focused camera), last-camera guard, no-footage label, summary, layout picture. Session only (not persisted, comment says why).
+- `js/compositor.js`: `C.shape(n, tile)`, `C.cellRect(grid, i, gap, cols, rows)`, geometry / layout take cols and rows (defaults 3 × 2 = unchanged). Free cell (3 or 5 cameras) holds the map / HUD / car view; side fill for 1 and 4 cameras. `drawFrame` uses the shape.
+- `js/export.js`: `normCams`, `camsTag`, `shapeFor`, `sizeOptions(ev, shape)`; `Sources` decode only the ticked cameras; `layoutBase` filters order and mirror; real-time recorder uses the same order; file name suffix; result carries `cams, cols, rows`.
+- `js/ui.js`, `index.html`, `css/app.css`: Cameras block, size line (free spot / beside the cameras), Original description for the shape, 44 px touch targets at ≤ 520 px. 360 hides the row.
+- Service worker / pack: `js/export-cams.js` in the core list. Asset version `export-cams`.
+- Test: `test/export-cams.js` (Playwright, chromium + webkit separately, desktop + phone 390×844; WebKit exports decoded in Chrome). Planner invariants for 1–6 cameras, dialog, real short exports (cells, native size, free cell, order/mirror, placeholders, decoder count, box/redact rects, six explicit = default).
+- Not done: `burnBoxes.prepare`, `detect.prepareLive`, `plates.exportPrep` still process all six cameras.

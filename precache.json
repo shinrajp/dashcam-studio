@@ -67,6 +67,7 @@
   "js/unlock-ux.js",
   "js/key-store.js",
   "js/ui.js",
+  "js/export-cams.js",
   "js/lib-index.js",
   "js/lib-index-ui.js",
   "js/auto.js",
