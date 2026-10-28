@@ -78,6 +78,7 @@
     const v = view();
     if (W.w) p.style.width = Math.min(W.w, v.w - 2 * M) + "px";
     if (W.h) p.style.height = Math.min(W.h, v.h - 2 * M) + "px";
+    p.style.maxHeight = Math.max(150, Math.round(v.h - 2 * M)) + "px";   // never taller than the visible area (the window scrolls inside)
     const pw = p.offsetWidth || 360, ph = p.offsetHeight || 200;
     let x = W.x == null ? v.w - pw - 16 : W.x, y = W.y == null ? 70 : W.y;
     x = Math.max(v.l + M, Math.min(x, v.l + v.w - pw - M));
@@ -98,7 +99,7 @@
       placeFloat();
     } else {
       if (p.parentNode !== d) d.appendChild(p);
-      p.style.left = p.style.top = p.style.width = p.style.height = "";
+      p.style.left = p.style.top = p.style.width = p.style.height = p.style.maxHeight = "";
     }
     const dockShown = !fl && U.open;
     if (d.hidden === dockShown) { d.hidden = !dockShown; if (T.ui && T.ui.fit) requestAnimationFrame(() => { try { T.ui.fit(); } catch (e) {} }); }
@@ -182,7 +183,8 @@
           const v = view(), sw = parseFloat(p.style.width), sh = parseFloat(p.style.height);
           if (Number.isFinite(sw) && sw < v.w - 2 * M - 1 && sw !== W.w) W.w = Math.round(sw);
           if (Number.isFinite(sh) && sh < v.h - 2 * M - 1 && sh !== W.h) W.h = Math.round(sh);
-          saveWin();
+          else if (Number.isFinite(sh) && sh >= v.h - 2 * M - 1) W.h = Math.round(v.h - 2 * M);   // dragged taller than the screen: keep it at the biggest that fits
+          saveWin(); placeFloat();   // re-clamp so the bottom edge (and the resize corner) never ends up off screen
         }, 250);
       }).observe(p);
     }
