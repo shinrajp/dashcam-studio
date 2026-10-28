@@ -110,6 +110,7 @@ async function partB(b, dev, tag) {
   let g = await geo(p);
   ok(tag + " B1 docked: panel scrolls (overflow-y auto) and the file row is within the viewport after scrolling to the bottom", g.ov === "auto", g);
   await scrollPanel(p, 99999); await W(150); g = await geo(p);
+  if (SHOTS) await p.screenshot({ path: SHOTS + "/panel-docked-scrolled-to-custom-regions-" + tag.replace(/\W+/g, "-") + ".png" });
   const dockInView = g.fileBottom <= g.vh + 1 && g.fileBottom <= g.b + 1 && g.fileTop >= g.t - 1;
   ok(tag + " B1 docked: Custom regions' last row reachable (visible inside the panel and the screen)", dockInView, g);
   // a short window forces the cap
