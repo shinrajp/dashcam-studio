@@ -52,16 +52,16 @@ const gripDrag = async (p, toY, toX) => {
 /** Put the bar (free mode, by its grip) over the low or high part of the picture. */
 async function placeBar(p, where) {
   const tr = await tileRect(p), bi = await barInfo(p), cy = where === "low" ? tr.b - 38 : tr.t + 38;
-  await gripDrag(p, Math.round(cy), null);
+  await gripDrag(p, Math.round(cy), Math.round((tr.l + tr.r) / 2 - (bi.w / 2 - 14)));   // the grip sits at the bar's left end: centre the bar on the picture
 }
 /** A stroke that starts just above (low) / below (high) the bar, runs through the bar's spot and on. Returns what happened. */
 async function nearStroke(p, where, natural, shape) {
   if (!natural) await placeBar(p, where);
   const before = await barInfo(p), tr = await tileRect(p);
-  const cx = Math.round((before.l + before.r) / 2), yMid = Math.round((before.t + before.b) / 2), cl = (y) => Math.min(tr.b - 5, Math.max(tr.t + 5, y));
+  const cx = Math.round((tr.l + tr.r) / 2), hw = Math.min(100, Math.floor((tr.r - tr.l) / 2) - 10), yMid = Math.round((before.t + before.b) / 2), cl = (y) => Math.min(tr.b - 5, Math.max(tr.t + 5, y));
   const pts = where === "low"
-    ? [[cx - 80, cl(yMid - 70)], [cx - 100, cl(yMid - 40)], [cx - 100, cl(yMid)], [cx, cl(yMid + 6)], [cx + 100, cl(yMid)], [cx + 100, cl(yMid - 50)], [cx + 60, cl(yMid - 70)]]
-    : [[cx - 80, cl(yMid + 70)], [cx - 100, cl(yMid + 40)], [cx - 100, cl(yMid)], [cx, cl(yMid - 6)], [cx + 100, cl(yMid)], [cx + 100, cl(yMid + 50)], [cx + 60, cl(yMid + 70)]];
+    ? [[cx - hw * 0.8, cl(yMid - 70)], [cx - hw, cl(yMid - 40)], [cx - hw, cl(yMid)], [cx, cl(yMid + 6)], [cx + hw, cl(yMid)], [cx + hw, cl(yMid - 50)], [cx + hw * 0.6, cl(yMid - 70)]]
+    : [[cx - hw * 0.8, cl(yMid + 70)], [cx - hw, cl(yMid + 40)], [cx - hw, cl(yMid)], [cx, cl(yMid - 6)], [cx + hw, cl(yMid)], [cx + hw, cl(yMid + 50)], [cx + hw * 0.6, cl(yMid + 70)]];
   const last = pts[pts.length - 1];
   await drawMouse(p, shape === "rect" ? [pts[0], pts[2], pts[3]] : pts);
   const ds = await drawState(p), after = await barInfo(p);
@@ -78,6 +78,7 @@ async function run(b, dev, tag) {
     await p.click("#usBtn"); await W(400);
   await p.evaluate(() => { document.getElementById("crSec").open = true; }); await W(200);
   await startDraw(p, "free");
+  await p.evaluate(() => { if (!TDC.searchUI.narrow() && TDC.searchUI.hide) TDC.searchUI.hide(); }); await W(500);   // wide window: the panel stays open while drawing and shrinks the picture; hide it to draw on the big picture
   ok(tag + " 1 draw bar shown while drawing", await vis(p, "#crBar"));
   let bi = await barInfo(p);
   const top0 = Math.min(...bi.btns.map((x) => x.t)), bot0 = Math.max(...bi.btns.map((x) => x.b));
@@ -88,6 +89,10 @@ async function run(b, dev, tag) {
   ok(tag + " 1 grip handle present", await vis(p, "#crBarGrip"));
   ok(tag + " 1 bottom edge by default, above the transport bar", bi.edge === "bottom" && bi.b <= bi.vh, bi);
   if (SHOTS) await p.screenshot({ path: SHOTS + "/bar-bottom-" + tag.replace(/\W+/g, "-") + ".png" });
+  ok(tag + " 2 while drawing, HUD / map / car-view panels and the camera bar's empty parts let the stroke through (and give the pointer back afterwards)", await (async () => {
+    const on = await p.evaluate(() => ({ cls: document.body.classList.contains("cr-drawing"), fp: [...document.querySelectorAll(".float-panel")].every((e) => getComputedStyle(e).pointerEvents === "none"), sb: getComputedStyle(document.getElementById("stageBar")).pointerEvents }));
+    return on.cls && on.fp && on.sb === "none";
+  })());
   // click-through: a point in the bar's border / padding is NOT the bar
   const thru = await p.evaluate(() => { const b = document.getElementById("crBar"), r = b.getBoundingClientRect(), e = document.elementFromPoint(r.left + 1.5, r.top + 1.5); return { id: e && e.id, cls: e && e.className, inBar: !!e && b.contains(e) }; });
   ok(tag + " 2 the bar's own corner is click-through (not the bar)", !thru.inBar, thru);
@@ -103,6 +108,7 @@ async function run(b, dev, tag) {
   await W(300);
   ok(tag + " 3 it stays where it moved (no flip back on its own)", (await barInfo(p)).edge === r1.expect);
   await cancelDraw(p);
+  ok(tag + " 2 after Cancel the panels catch the pointer again", await p.evaluate(() => !document.body.classList.contains("cr-drawing") && [...document.querySelectorAll(".float-panel")].every((e) => getComputedStyle(e).pointerEvents === "auto")));
 
   // the other direction: bar over the TOP of the picture
   await resetBar(p); await startDraw(p, "rect");

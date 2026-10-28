@@ -257,8 +257,9 @@
     ctx.lineWidth = strong ? 1.5 : 1; ctx.strokeStyle = strong ? "#ffd27a" : "rgba(255,255,255,0.8)"; ctx.setLineDash(strong ? [] : [5, 4]); ctx.stroke(); ctx.setLineDash([]);
   }
   let raf = 0;
+  const drawClass = () => document.body.classList.toggle("cr-drawing", !!S.drawing);   // while you draw, the HUD / map / car-view panels let the pointer through (they used to grab a stroke that began over them)
   function frame() {
-    raf = 0;
+    raf = 0; drawClass();
     const cams = new Set();
     if (S.cam && (S.drawing || S.draft || S.editId)) cams.add(S.cam);
     if (S.peek) cams.add(S.peek.cam);
@@ -489,6 +490,7 @@
   }
   function syncBar() {
     const b = ensureBar(), show = !!(S.drawing || S.draft);
+    drawClass();
     b.hidden = !show;
     if (!show) return;
     applyPos(false);
