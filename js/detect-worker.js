@@ -100,15 +100,19 @@ async function load(msg) {
   if (cur && cur.url === msg.urls[0]) return { backend: cur.backend, url: cur.url, cached: true, size: cur.size, offscreen: typeof OffscreenCanvas !== "undefined", slot: key, threads: cur.backend === "wasm" && RT ? RT.env.wasm.numThreads : null };
   if (cur) { try { await cur.session.release(); } catch (_) {} delete slots[key]; }
   const t0 = Date.now();
-  const got = await fetchModel(msg.urls, msg.useCache !== false, (p) => postMessage({ type: "progress", ...p }), msg.userBlob || null);
+  let got = await fetchModel(msg.urls, msg.useCache !== false, (p) => postMessage({ type: "progress", ...p }), msg.userBlob || null);
   const tDl = Date.now() - t0;
   const wantGpu = rtGpu;
   const order = wantGpu ? ["webgpu", "wasm"] : ["wasm"];
   let err = null, sess = null, be = null;
-  for (const ep of order) {
-    stage("starting the model on " + (ep === "webgpu" ? "WebGPU" : "WASM"));
-    try { sess = await RT.InferenceSession.create(new Uint8Array(got.buf), { executionProviders: [ep], graphOptimizationLevel: "all" }); be = ep; break; }
-    catch (e) { err = e; sess = null; }
+  for (let pass = 0; pass < 2 && !sess; pass++) {
+    // The IndexedDB copy is only a cache: if it is damaged (no session can start from it), fetch the file again from its real address.
+    if (pass === 1) { if (!(got.cached && !got.stored)) break; got = await fetchModel(msg.urls, false, (p) => postMessage({ type: "progress", ...p }), null); }
+    for (const ep of order) {
+      stage("starting the model on " + (ep === "webgpu" ? "WebGPU" : "WASM"));
+      try { sess = await RT.InferenceSession.create(new Uint8Array(got.buf), { executionProviders: [ep], graphOptimizationLevel: "all" }); be = ep; break; }
+      catch (e) { err = e; sess = null; }
+    }
   }
   if (!sess) throw new Error("Could not start the model: " + ((err && err.message) || err));
   stage("ready");
@@ -175,9 +179,14 @@ async function detect(msg) {
 async function loadOcr(msg) {
   await loadOrt(msg);
   if (ocr && ocrUrl === msg.urls[0]) return { cached: true, url: ocrUrl };
-  const got = await fetchModel(msg.urls, msg.useCache !== false, (p) => postMessage({ type: "progress", ...p, what: "ocr" }));
+  let got = await fetchModel(msg.urls, msg.useCache !== false, (p) => postMessage({ type: "progress", ...p, what: "ocr" }));
   stage("starting the plate reader on WASM");
-  ocr = await RT.InferenceSession.create(new Uint8Array(got.buf), { executionProviders: ["wasm"], graphOptimizationLevel: "all" });
+  try { ocr = await RT.InferenceSession.create(new Uint8Array(got.buf), { executionProviders: ["wasm"], graphOptimizationLevel: "all" }); }
+  catch (e) {   // a damaged IndexedDB copy: it is only a cache, so fetch the file again from its real address
+    if (!got.cached) throw e;
+    got = await fetchModel(msg.urls, false, (p) => postMessage({ type: "progress", ...p, what: "ocr" }));
+    ocr = await RT.InferenceSession.create(new Uint8Array(got.buf), { executionProviders: ["wasm"], graphOptimizationLevel: "all" });
+  }
   ocrUrl = msg.urls[0];
   stage("ready");
   const meta = ocr.inputMetadata && ocr.inputMetadata[0];

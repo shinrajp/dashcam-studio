@@ -3,13 +3,13 @@
  *  - Plate reader: fast-plate-ocr CCT-S global model (MIT), 10 character slots, with per-character confidence.
  *  - Street names / sign text: the PP-OCR text finder already bundled for redaction (redact.js).
  * Off until Settings ▸ Plates & text (beta) is turned on. Runs in its own Web Worker (same MIME-proof start as
- * Phase 5), models cached in IndexedDB. Results go to the library's text index (metadata only: text, time,
+ * Phase 5), models are served from models/plates/ (IndexedDB is only a speed-up cache). Results go to the library's text index (metadata only: text, time,
  * camera, box, confidence — no images). Any failure → plate search says why, everything else works as before. */
 (function () {
   "use strict";
   const T = (window.TDC = window.TDC || {});
   const KEY = "tdc.plates.v1";
-  const BASE = "https://raw.githubusercontent.com/shinrajp/dashcam-studio/feature/phase6-plates-ocr/models/plates/";
+  const LOCAL = "models/plates/";   // shipped with the app; the only built-in source (a custom URL in Settings is tried first if set)
   const MODELS = {
     fast: { label: "Fast (384 px, phones, ~8 MB)", file: "yolo-v9-t-384-license-plates-end2end.onnx" },
     accurate: { label: "Accurate (640 px, computers, ~8 MB)", file: "yolo-v9-t-640-license-plates-end2end.onnx" },
@@ -18,7 +18,7 @@
   const CAM_LABEL = { front: "Front", back: "Rear", left_repeater: "Left", right_repeater: "Right", left_pillar: "Left pillar", right_pillar: "Right pillar" };
   const PT = () => T.plateText;
   const isMobile = () => (T.detect && T.detect.isMobile ? T.detect.isMobile() : /iPhone|iPad|Android/i.test(navigator.userAgent));
-  const L = (T.plates = { MODELS, OCR, BASE, status: "", info: null, scanning: false, blurTracks: {}, timings: { det: [], ocr: [] } });
+  const L = (T.plates = { MODELS, OCR, LOCAL, status: "", info: null, scanning: false, blurTracks: {}, timings: { det: [], ocr: [] } });
 
   L.defaults = () => ({ enabled: false, model: isMobile() ? "fast" : "accurate", conf: 0.3, minRead: 0.4, far: "auto", street: false, blur: false, urls: {} });
   L.prefs = () => { const d = L.defaults(); try { const v = JSON.parse(localStorage.getItem(KEY) || "null"); if (v && typeof v === "object") { if (!MODELS[v.model]) delete v.model; return { ...d, ...v }; } } catch (_) {} return d; };
@@ -37,7 +37,7 @@
   const pending = new Map();
   L.unload = () => { try { worker && worker.terminate(); } catch (_) {} worker = null; loading = null; loadedModel = null; L.info = null; for (const p of pending.values()) p.reject(new Error("plate reader stopped")); pending.clear(); };
   const call = (msg, transfer) => new Promise((resolve, reject) => { const id = ++seq; pending.set(id, { resolve, reject }); worker.postMessage({ ...msg, id }, transfer || []); });
-  const urlsFor = (file, custom) => (custom ? [custom] : []).concat(["models/plates/" + file].concat(L.BASE ? [L.BASE + file] : [])).map((u) => new URL(u, location.href).href);
+  const urlsFor = (file, custom) => (custom ? [custom] : []).concat([LOCAL + file]).map((u) => new URL(u, location.href).href);
   // Same MIME-proof start as object detection (worker-start.js), whether or not detection is turned on.
   async function startWorker() {
     const m = { worker: "js/detect-worker.js" };
