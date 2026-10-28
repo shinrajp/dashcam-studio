@@ -638,3 +638,4 @@ Rollback point: tag `pre-bytetrack` (= feature/all-in-one 3a650d4).
 - Not changed: `js/people.js`, `js/handoff.js`, `js/motion.js`, `js/redact.js`, the track output format.
 - Real-clip replay (private, not in the repo): small 32 -> 33 of 46 s, ids 1 on the man / 3 total unchanged, false-person seconds 10 -> 10; nano 36 -> 36 s, no change; medium 38 -> 39 s, man 28 -> 30 s, false seconds 7 -> 7, total ids 3 -> 3. First version made nano/medium worse (still headrest boxes kept alive); fixed with the peak >= 0.5 rule.
 - Test: `test/bytetrack.js` (Chromium + WebKit, mock detector); existing tracker tests unchanged before/after.
+- Ids on the man (replay, off -> on): small 1 -> 1, nano 4 -> 4, medium 4 -> 4 (nano/medium were already split before this change); registry totals 3/2/3 -> 3/2/3. Default stays ON because it is equal or +1 s on every model and the tests are unchanged, but it is a small, unproven gain on one clip.
