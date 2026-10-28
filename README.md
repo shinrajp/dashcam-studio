@@ -500,3 +500,30 @@ A person seen through a van window, behind a pillar or in glare often drops from
 - **Test:** `BR=chromium|webkit node test/bytetrack.js` (synthetic mock detector: bridge a gap with the same id, weak boxes never start a track, no extension of a never-confident still box, coast ends, off = old behaviour, rear camera low person at the frame edge, `buildTracks` with and without the pool, and the setting).
 - **Real-clip result (one private screen recording, replay through the real YOLO11 models, honest):** small (the clip's earlier reference, 32 of 46 s with someone tracked, 1 id on the man, 3 ids in total) **33 of 46 s, same ids**; nano 36 s, same ids, no change; medium 38 -> 39 s (man 28 -> 30 s), same ids. In the clip the man is physically hidden by the car for about 5 s and the small model has no box above 0.10 there, so a weak box cannot bridge him; the gain is a second or two where the model does give a low box. The first version (without the 0.5-peak rule) kept still headrest boxes alive (nano false-person seconds 6 -> 22, medium 7 -> 11) and was fixed before release. **It does not fix the target of 1 id on the man for that clip**, it only helps when there is a weak box to follow.
 - **Not verified:** real Safari / iPhone, other clips, the speed cost on a phone (the worker returns a few extra person boxes per look; not timed).
+
+## Custom regions: hide something the automatic redaction misses (tag `custom-redact`)
+Rollback: `git checkout pre-custom-redact` (tip before this change, `bytetrack`, ccc92e7).
+
+Automatic redaction only blurs the plates, faces and text the models find. A plate that is bent by the rear fisheye lens is often missed. **Custom regions** let you draw the spot yourself, once, per camera.
+
+**How to use it**
+1. Open **Search** ▸ **Redact**, then open **Custom regions** (at the bottom of that panel).
+2. Pick the **Camera** (for example Back).
+3. Choose the **Shape**: **Box**, or **Freehand** for a bent plate (draw round it with a finger or the mouse).
+4. Choose **Hide with**: **Blur** (strong, the text cannot be read) or **Remove** (solid black).
+5. **When**: it is the **Whole clip** by default. Untick it to type a *From* and *to* time, press **Now** to take the current playhead position, or **Use my sections** to take the span of your trim.
+6. Press **Draw region**, drag on the picture (the camera comes up large for you), then **Save region**. On a phone the panel steps aside while you draw and a small bar at the bottom holds **Save region / Draw again / Cancel**.
+7. The list shows each region with a tick (on/off), **Show** (jump to it), **Edit** and **Delete**.
+
+**What it does**
+- The region stays in the same place on the picture (it does not follow a moving car; see future work). It is stored as a fraction of the camera's picture, so it is the same spot at any zoom, in full screen, in a mirrored tile, and in the export.
+- **Export burns it in**, in every layout: per-camera ticks, Fill black area / Add panel / Overlay, Match viewer order (mirrored cells included), trimmed and joined sections (only the sections inside the region's time range), and the 360 equirect export. The export dialog says how many regions will be hidden. A region on a camera you did not tick is simply not in the file.
+- **Saved in this browser** under a fingerprint of the clip (a hash, no file names, dates or folders). **Save as file / Load file** writes and reads a small JSON file (`dashcam-studio-regions`), so you can move regions between browsers. Up to 40 regions of up to 96 points each.
+- Nothing is uploaded. The blur uses plain canvas drawing (no canvas `filter`), so it works in Safari and on iPhone.
+
+**Limits (honest)**
+- Regions do not follow a moving object: if the plate moves across the frame, draw a region for each stretch of time (or one big enough to cover its path). *Follow tracking* is future work.
+- The live 360 *look-around* view does not show custom regions (and does not show the automatic redaction either). The 360 **export** does burn them in.
+- Not tested on a real iPhone or Safari (headless WebKit only). A phone's speed with several blur regions has not been measured.
+- Blur is strong but not a cryptographic guarantee; use **Remove** if the text must never be recoverable.
+
