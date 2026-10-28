@@ -514,7 +514,7 @@ body.usearch:not(.usearch-classic) .transport > #btnCloudRecheck { display: none
 .us-hl { position: absolute; z-index: 6; pointer-events: none; border: 2px solid #e6b422; border-radius: 4px; box-shadow: 0 0 0 9999px rgba(0,0,0,0), 0 0 14px rgba(230,180,34,.8); animation: us-hl 1.2s ease-out 2; }
 @keyframes us-hl { 0% { transform: scale(1.25); opacity: 0; } 40% { transform: scale(1); opacity: 1; } }
 /* phone / narrow: bottom sheet pinned above the keyboard (fixed; the grid is never resized) */
-.us-panel.sheet { left: 0; right: 0; width: auto; bottom: var(--us-kb, 0px); border-radius: 16px 16px 0 0; border-bottom: 0;
+.us-panel.sheet { --us-pt: 6px; left: 0; right: 0; width: auto; bottom: var(--us-kb, 0px); border-radius: 16px 16px 0 0; border-bottom: 0;
   max-height: min(62vh, calc(var(--us-vvh, 100vh) - 56px)); padding: 6px max(14px, env(safe-area-inset-right)) max(10px, env(safe-area-inset-bottom)) max(14px, env(safe-area-inset-left)); }
 .us-panel.sheet .us-grab { display: block; width: 38px; height: 4px; border-radius: 2px; background: rgba(255,255,255,.25); margin: 2px auto 2px; }
 .us-panel.sheet .us-row input { font-size: 16px; }  /* 16px stops iOS zooming the page on focus */
@@ -554,7 +554,7 @@ body.idle .bar-dock .stage-bar { pointer-events: auto; }   /* off the video: no 
 /* ---------- search window: docked below the video (default) / floating / pinned ---------- */
 .us-dock { flex: none; position: relative; z-index: 20; padding: 6px max(10px, env(safe-area-inset-right)) 6px max(10px, env(safe-area-inset-left)); background: var(--bg2); border-top: 1px solid var(--line); }
 .us-dock[hidden] { display: none; }
-.us-head { display: flex; align-items: center; gap: 2px; min-height: 28px; margin: -8px -6px 0 -4px; padding: 4px 0 0; position: sticky; top: 0; z-index: 3; flex: none; background: #171a20; }   /* sticky: grip, float, pin and close stay in view while the window scrolls (ui-quick) */
+.us-head { display: flex; align-items: center; gap: 2px; min-height: 28px; margin: -8px -6px 0 -4px; padding: 4px 0 0; position: sticky; top: calc(-1 * var(--us-pt, 10px)); z-index: 3; flex: none; background: var(--us-bg, #171a20); }   /* sticky: grip, float, pin and close stay in view while the window scrolls (ui-quick) */
 .us-grip { flex: 1; display: inline-flex; align-items: center; gap: 7px; min-width: 0; height: 28px; padding: 0 6px; border-radius: 7px; font-size: 11px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--faint); }
 .us-grip svg { width: 10px; height: 16px; fill: currentColor; flex: none; opacity: .4; }
 .us-head .btn.icon.sm { width: 30px; height: 28px; }
@@ -563,7 +563,7 @@ body.idle .bar-dock .stage-bar { pointer-events: auto; }   /* off the video: no 
 .us-pin[aria-pressed="true"] { color: #e6b422; background: rgba(230,180,34,.14); }
 .us-pin[aria-pressed="true"] svg { fill: currentColor; }
 /* docked: in page flow under the video; compact two-column layout on wide screens so the grid keeps its height */
-.us-panel.docked { position: relative; z-index: auto; left: auto; right: auto; bottom: auto; top: auto; width: 100%; max-width: 1400px; margin: 0 auto; max-height: max(220px, calc(100vh - 190px)); max-height: max(220px, calc(100dvh - 190px));
+.us-panel.docked { --us-pt: 4px; --us-bg: var(--bg2); position: relative; z-index: auto; left: auto; right: auto; bottom: auto; top: auto; width: 100%; max-width: 1400px; margin: 0 auto; max-height: max(220px, calc(100vh - 190px)); max-height: max(220px, calc(100dvh - 190px));
   box-shadow: none; backdrop-filter: none; -webkit-backdrop-filter: none; background: transparent; border: 0; border-radius: 0; padding: 4px 2px 2px; gap: 6px; }
 .us-panel.docked .us-grip svg { display: none; }
 .us-panel.docked .us-results { max-height: 112px; }
@@ -586,7 +586,7 @@ body.idle .bar-dock .stage-bar { pointer-events: auto; }   /* off the video: no 
 .us-panel.sheet .us-results, .us-panel.docked.sheet .us-results { flex: 0 0 auto; max-height: 38vh; }
 .us-panel.docked .us-results { flex: 0 0 auto; }
 /* phone typing in the dock: lifted above the keyboard (existing .sheet rules), the dock keeps its height */
-.us-panel.docked.sheet { position: fixed; z-index: 60; left: 0; right: 0; top: auto; bottom: var(--us-kb, 0px); width: auto; max-width: none; margin: 0; display: flex;
+.us-panel.docked.sheet { --us-pt: 4px; --us-bg: #171a20; max-height: min(62vh, calc(var(--us-vvh, 100vh) - 56px)); position: fixed; z-index: 60; left: 0; right: 0; top: auto; bottom: var(--us-kb, 0px); width: auto; max-width: none; margin: 0; display: flex;
   background: rgba(23,26,32,0.98); border: 1px solid rgba(255,255,255,.12); border-bottom: 0; border-radius: 16px 16px 0 0; box-shadow: 0 -10px 40px rgba(0,0,0,.5); }
 body.fs .us-dock { margin-bottom: var(--tp-h, 62px); }
 @media (max-width: 760px) {
