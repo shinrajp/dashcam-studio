@@ -276,6 +276,7 @@
     ctx.drawImage(sC, 0, 0, uw, uh, dx, dy, dw, dh);
     ctx.imageSmoothingEnabled = s0;
   }
+  R.softBlur = softBlur; R.contain = contain;   // custom-redact.js uses the same blur and the same contain-fit
   function paintBox(ctx, img, iw, ih, fit, box, action) {
     if (typeof VideoFrame !== "undefined" && img instanceof VideoFrame) img = frameCanvas(img, iw, ih);   // see softBlur (WebKit export)
     const dx = fit.x + box.x * fit.w, dy = fit.y + box.y * fit.h;
@@ -388,17 +389,22 @@
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, tw, th);
       if (!video || !video.videoWidth) continue;
-      const pb = plateBlur(cam, t);
-      if (pb.length) { const fit = contain(video.videoWidth, video.videoHeight, { x: 0, y: 0, w: tw, h: th }); for (const box of pb) paintBox(ctx, video, video.videoWidth, video.videoHeight, fit, box, "blur"); tintLike(ctx, fit, pb, cam); }
-      const mb = matchBlur(cam, t);
-      if (mb.length) { const fit = contain(video.videoWidth, video.videoHeight, { x: 0, y: 0, w: tw, h: th }); for (const box of mb) paintBox(ctx, video, video.videoWidth, video.videoHeight, fit, box, "blur"); tintLike(ctx, fit, mb, cam); }
-      if (!R.active || !blurOn()) continue;
-      const boxes = boxesAt(cam, t);
-      if (!boxes.length) continue;
-      const fit = contain(video.videoWidth, video.videoHeight, { x: 0, y: 0, w: tw, h: th });
-      for (const box of boxes) paintBox(ctx, video, video.videoWidth, video.videoHeight, fit, box, R.action);
-      tintLike(ctx, fit, boxes, cam);
+      liveAuto(cam, t, ctx, video, tw, th);
+      // custom regions (custom-redact.js): drawn last, on top of everything above, from the same raw frame and the same rules as the export
+      if (T.regions && T.regions.live) { try { T.regions.live(ctx, cam, t, video, tw, th); } catch (e) { console.warn("custom regions", e); } }
     }
+  }
+  function liveAuto(cam, t, ctx, video, tw, th) {
+    const pb = plateBlur(cam, t);
+    if (pb.length) { const fit = contain(video.videoWidth, video.videoHeight, { x: 0, y: 0, w: tw, h: th }); for (const box of pb) paintBox(ctx, video, video.videoWidth, video.videoHeight, fit, box, "blur"); tintLike(ctx, fit, pb, cam); }
+    const mb = matchBlur(cam, t);
+    if (mb.length) { const fit = contain(video.videoWidth, video.videoHeight, { x: 0, y: 0, w: tw, h: th }); for (const box of mb) paintBox(ctx, video, video.videoWidth, video.videoHeight, fit, box, "blur"); tintLike(ctx, fit, mb, cam); }
+    if (!R.active || !blurOn()) return;
+    const boxes = boxesAt(cam, t);
+    if (!boxes.length) return;
+    const fit = contain(video.videoWidth, video.videoHeight, { x: 0, y: 0, w: tw, h: th });
+    for (const box of boxes) paintBox(ctx, video, video.videoWidth, video.videoHeight, fit, box, R.action);
+    tintLike(ctx, fit, boxes, cam);
   }
   // wb.js "blend" mode tints with a multiply layer that sits under this canvas: tint the patches the same way
   // (multiply by g / max(g), then color-dodge = × max(g): the same two layers wb.js puts over the video)
@@ -416,6 +422,7 @@
     } catch (e) { console.warn("redact tint", e); }
   }
 
+  R.tintLike = tintLike;
   function b64ToU8(b64) {
     const bin = atob(b64);
     const out = new Uint8Array(bin.length);
@@ -1055,6 +1062,8 @@
   };
   R.clearText = () => { if (R.active) R.clear(); };
   R.paint = () => { try { paintLive(); } catch (e) { console.warn("redact paint", e); } };
+  let paintQ = false;   // zoom / pan while paused: repaint the patches at the new transform (once per frame)
+  R.paintSoon = () => { if (paintQ) return; paintQ = true; (window.requestAnimationFrame || setTimeout)(() => { paintQ = false; R.paint(); }); };
   /** "Show blur" for Blur text / plates / faces results (classic bar tick, search panel button). */
   R.shown = () => blurOn();
   R.setShown = (on) => { const b = $("redactShow"); if (b) b.checked = !!on; paintLive(); syncButtons(); if (T.emit) T.emit("redact-shown", !!on); };

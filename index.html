@@ -251,6 +251,7 @@
           <div class="row wrap"><span>Burn in</span><div id="exportShow" class="mini-toggles"></div></div>
         </div>
         <label class="row burn-boxes-row" id="exportBoxesWrap" title="Draw the gold search boxes and their labels (name + confidence) into the exported video. Nothing is drawn where there is no box."><span>Burn detection boxes</span><input type="checkbox" id="exportBoxes"></label>
+        <p class="hint export-regions-note" id="exportRegionsNote" hidden></p>
         <div class="export-extras" id="exportExtras">
           <div class="row wrap" id="orderRow" title="Which camera goes where in the exported picture. Match viewer follows the layout you chose in the viewer (Rear view, Mirrored bottom row…); Standard fixed order is always left pillar · front · right pillar / left repeater · rear · right repeater."><span>Camera order</span><div class="seg" id="segOrder"><button data-v="viewer">Match viewer</button><button data-v="standard">Standard fixed order</button></div></div>
           <div class="row wrap" id="extrasRow" title="Where the map, HUD and car view go. On the picture: floating over the cameras where they sit in the viewer. Fill black area: into the black strip of the 1920×1080 picture. Add panel: the picture grows by an extra strip, the cameras keep their full size."><span>Map, HUD &amp; car view</span><div class="seg" id="segExtras"><button data-v="overlay">On the picture</button><button data-v="fill" id="segExtrasFill">Fill black area</button><button data-v="panel">Add panel</button></div></div>
@@ -476,6 +477,7 @@
   <script src="js/det-debug.js?v=bytetrack"></script>
   <script src="js/colour-constancy.js?v=bytetrack"></script>
   <script src="js/search-ui.js?v=bytetrack"></script>
+  <script src="js/custom-redact.js?v=bytetrack"></script>
   <script src="js/search-strip.js?v=bytetrack"></script>
   <script src="js/mobile-bar.js?v=bytetrack"></script>
   <script src="js/connector-src.js?v=bytetrack"></script>

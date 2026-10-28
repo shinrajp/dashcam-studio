@@ -103,6 +103,7 @@
       const tf = T.layout ? T.layout.zoomTf(F.cam, F.x, F.y, F.z) : { video: F.z > 1.001 ? `translate(${F.x}px, ${F.y}px) scale(${F.z})` : "" };
       P().tiles[F.cam].vids.forEach((v) => { v.style.transform = tf.video; v._zoomPlain = tf.plain != null ? tf.plain : tf.video; });
       tile.classList.toggle("zoomed", F.z > 1.001);
+      try { if (T.redact && T.redact.paintSoon) T.redact.paintSoon(); } catch (_) {}   // the blur / custom-region layer follows the zoom even when paused
     }
     const lab = $("zoomLabel");
     if (lab) lab.textContent = (Math.round(F.z * 10) / 10).toFixed(1).replace(/\.0$/, "") + "×";

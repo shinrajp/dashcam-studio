@@ -337,7 +337,7 @@
         if (encErr) throw encErr;
         const { t, seg } = fm.at(k); // t = SOURCE time of this output frame
         const frames = await sources.frames(t);
-        if (cand.equirect) { T.pano.drawEquirect(ctx, W, H, frames); if (show && show.carview && T.carView && T.carView.drawExport) { try { T.carView.drawExport(ctx, { x: 0, y: 0, w: W, h: H }, t); } catch (e) { console.warn("car view export", e); } } }   // 360 (beta): 2:1 equirectangular
+        if (cand.equirect) { T.pano.drawEquirect(ctx, W, H, T.regions && T.regions.prepareFrames ? T.regions.prepareFrames(frames, t) : frames); if (show && show.carview && T.carView && T.carView.drawExport) { try { T.carView.drawExport(ctx, { x: 0, y: 0, w: W, h: H }, t); } catch (e) { console.warn("car view export", e); } } }   // 360 (beta): 2:1 equirectangular
         else T.compositor.drawFrame(ctx, geo, t, frames, show);
         const vf = new VideoFrame(canvas, { timestamp: Math.round(k * fd), duration: Math.round(fd) });
         const key = seg !== lastSeg || sinceKey >= gop; // key frame at every cut (clean seeking) and every 2 s

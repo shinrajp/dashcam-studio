@@ -229,6 +229,7 @@
         if (flip) { ctx.save(); ctx.translate(r.x * 2 + r.w, 0); ctx.scale(-1, 1); }   // the viewer's mirrored bottom row: picture (and redaction patches) flipped
         drawContain(ctx, f.img, f.w, f.h, r);
         if (T.redact && T.redact.burn) T.redact.burn(ctx, cam, t, r, f.w, f.h, f.img);
+        if (T.regions && T.regions.burn) { try { T.regions.burn(ctx, cam, t, r, f.w, f.h, f.img); } catch (e) { console.warn("custom regions", e); } }   // custom-redact: user-drawn regions, on top of the automatic redaction, in the same (flipped) cell
         if (flip) ctx.restore();
         if (wantBoxes) {
           if (flip && T.burnBoxes.at && T.layout) T.burnBoxes.draw(ctx, cam, t, r, f.w, f.h, T.burnBoxes.at(cam, t).map(T.layout.mirrorBox));   // boxes follow the flipped picture, their text stays readable
