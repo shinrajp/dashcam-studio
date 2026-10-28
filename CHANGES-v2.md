@@ -629,3 +629,12 @@ Rollback point: tag `pre-plates-local` (= feature/all-in-one 59c36ee).
 - The offline pack no longer pre-downloads the plate files (13.0 MB in the background for everyone, for a feature that is off by default). Pre-cache "extra" went from 56.7 MB to 43.7 MB (tools/gen-precache.py). After plates are first used the service worker's run-time cache keeps the files; not tested offline.
 - `models/README.md`: upstream licences re-checked (both repos MIT; training-data licence not stated upstream, flagged), 384 px detector and reader re-downloaded and sha256 match.
 - Test: `test/plates-local.js` (Chromium + WebKit). Existing `test/phase6-plates.js` 33/33 before and after.
+
+## Follow half-hidden people (tag bytetrack)
+Rollback point: tag `pre-bytetrack` (= feature/all-in-one 3a650d4).
+- `js/detect-worker.js`: optional `msg.pool` (person boxes from 0.10, returned separately as `pool`, after NMS, not mixed with detections).
+- `js/detect.js`: `D.BYTE`, `D.byteOn()`, `btScore`; live `track()` stage 2 (leftover tracks x weak boxes; only tracks with peak >= 0.5, >= 2 sightings, not seeded/weak; retire after "Keep a hidden person" seconds without a strong look, `btStale`); `buildTracks`/`trackAround` the same with `f.pool`; `detectImage(..., {pool})` only full-frame person looks; setting *Follow half-hidden people* (default on, `?byte=0|1`).
+- `tools/clip-eval.js`: medium model URL from `location.origin` (so the replay works from any port).
+- Not changed: `js/people.js`, `js/handoff.js`, `js/motion.js`, `js/redact.js`, the track output format.
+- Real-clip replay (private, not in the repo): small 32 -> 33 of 46 s, ids 1 on the man / 3 total unchanged, false-person seconds 10 -> 10; nano 36 -> 36 s, no change; medium 38 -> 39 s, man 28 -> 30 s, false seconds 7 -> 7, total ids 3 -> 3. First version made nano/medium worse (still headrest boxes kept alive); fixed with the peak >= 0.5 rule.
+- Test: `test/bytetrack.js` (Chromium + WebKit, mock detector); existing tracker tests unchanged before/after.

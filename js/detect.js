@@ -21,7 +21,7 @@
   D.config = { ortBases: ["vendor/ort/", "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.22.0/dist/"], tfUrl: "https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.8.1", size: 640 };
   const isMobile = () => { try { return /iPhone|iPad|iPod|Android/i.test(navigator.userAgent) || (matchMedia("(pointer: coarse)").matches && Math.min(screen.width, screen.height) < 820); } catch (_) { return false; } };
   D.isMobile = isMobile;
-  D.defaults = () => ({ enabled: false, model: isMobile() ? "nano" : "small", conf: 0.35, live: false, small: "auto", seed: "auto", occl: 3.5, urls: {} });
+  D.defaults = () => ({ enabled: false, model: isMobile() ? "nano" : "small", conf: 0.35, live: false, small: "auto", seed: "auto", occl: 3.5, byte: "on", urls: {} });
   D.prefs = () => { const d = D.defaults(); try { const v = JSON.parse(localStorage.getItem(KEY) || "null"); if (v && typeof v === "object") { if (!MODELS[v.model] || (MODELS[v.model].desktopOnly && isMobile())) delete v.model; const c = +v.conf; if (!(c >= 0.05 && c <= 0.95)) delete v.conf; return { ...d, ...v }; } } catch (_) {} return d; };
   D.setPref = (k, v) => { const p = D.prefs(); p[k] = v; try { localStorage.setItem(KEY, JSON.stringify(p)); } catch (_) {} if (k === "model") { D.unload(); if (T.modelStore) T.modelStore.noteFailure(false); } D.renderSettings(); };
   D.enabled = () => D.prefs().enabled === true;
@@ -168,7 +168,7 @@
   const detectRaw = async (img, iw, ih, opts) => {
     opts = opts || {};
     const conf = opts.conf || D.prefs().conf;
-    if (D._mock) { const r = await D._mock(img, iw, ih, opts); return (r || []).map(named).filter((b) => b.conf >= (opts.crops && opts.cropConf ? opts.cropConf : conf)); }
+    if (D._mock) { const r = await D._mock(img, iw, ih, opts); return (r || []).map(named).filter((b) => b.conf >= (opts.crops && opts.cropConf ? opts.cropConf : conf) || (opts.pool > 0 && b.label === "person" && b.conf >= opts.pool && !opts.crops)); }
     await D.load();
     let slot = "main";
     if (opts.slot === "fast" && D.prefs().model !== "gdino") { const fi = await D.loadFast(); if (fi) slot = "fast"; }
@@ -180,7 +180,7 @@
       if (!noBitmap && typeof createImageBitmap === "function" && D.info && D.info.offscreen && !opts.prompt) {
         try {
           const bmp = await createImageBitmap(img), f = fitFor(S, iw, ih, crop);
-          r = await call({ type: "detect", bitmap: bmp, lb: f.lb, fit: f.fit, conf: conf0, slot }, [bmp]);
+          r = await call({ type: "detect", bitmap: bmp, lb: f.lb, fit: f.fit, conf: conf0, slot, pool: crop ? 0 : opts.pool || 0 }, [bmp]);
           D.lastPath = "bitmap";
           bitmapFails = 0;
         } catch (e) {
@@ -192,7 +192,7 @@
       }
       if (!r) {
         const lb = letterbox(img, iw, ih, crop, S);
-        r = await call({ type: "detect", rgba: lb.rgba, fit: lb.fit, conf: conf0, size: S, prompt: opts.prompt, slot }, [lb.rgba]);
+        r = await call({ type: "detect", rgba: lb.rgba, fit: lb.fit, conf: conf0, size: S, prompt: opts.prompt, slot, pool: crop ? 0 : opts.pool || 0 }, [lb.rgba]);
         D.lastPath = "rgba";
       }
       D.timings.push(r.ms); if (D.timings.length > 50) D.timings.shift();
@@ -233,18 +233,29 @@
     const r = await detectRaw(img, iw, ih, { slot: "main", crops, tilesOnly: true, cropConf: 0.15 });
     return r.filter((x) => x.label === "person").reduce((m, x) => Math.max(m, x.conf), 0);
   }
+  /** (tag bytetrack) Person boxes under the cut-off, asked for with opts.pool (live viewer only): they leave the detections here and travel
+   *  on the returned array as .pool, for the tracker to extend a track it already has. A weak box never becomes a detection or a track. */
+  const takePool = (dets, cut, opts, keep) => {
+    if (!(opts.pool > 0)) return { dets, pool: [] };
+    const pool = dets.filter((d) => d.label === "person" && d.conf < cut && d.conf >= opts.pool && !(keep && keep(d)));
+    return { dets: pool.length ? dets.filter((d) => !pool.includes(d)) : dets, pool };
+  };
   D.detectImage = async (img, iw, ih, opts) => {
     opts = opts || {};
-    if (opts.noFix || opts.crops || opts.tilesOnly || opts.prompt || !D.legsOn()) return detectRaw(img, iw, ih, opts);
-    const cam = opts.cam, rear = cam === "back" && !!opts.look, cut = opts.conf || D.prefs().conf;
+    const cut = opts.conf || D.prefs().conf;
+    if (opts.noFix || opts.crops || opts.tilesOnly || opts.prompt || !D.legsOn()) { const r = takePool(await detectRaw(img, iw, ih, opts), cut, opts); r.dets.pool = r.pool; return r.dets; }
+    const cam = opts.cam, rear = cam === "back" && !!opts.look;
     let dets = await detectRaw(img, iw, ih, rear ? { ...opts, conf: Math.min(cut, D.LEGS.lowCut) } : opts);
+    const tp = takePool(dets, cut, opts, rear ? (d) => edgeTouch(d) && d.h >= 0.25 : null); dets = tp.dets;   // rear: a low person box touching the edge is a legs look (below), not a pool box
     if (rear) dets = dets.filter((d) => d.conf >= cut || (d.label === "person" && edgeTouch(d) && d.h >= 0.25)).map((d) => (d.conf < cut ? { ...d, weak: true, legs: true } : d));
-    return D.fixAnimals ? await D.fixAnimals(dets, cam, cut, async (d) => {
+    const out = D.fixAnimals ? await D.fixAnimals(dets, cam, cut, async (d) => {
       const now = performance.now(); D._legsLast = D._legsLast || {};
       if (!opts.look || now - (D._legsLast[cam] || 0) < D.LEGS.lookGap) return 0;
       D._legsLast[cam] = now;
       try { return await legsLook(img, iw, ih, d, opts); } catch (e) { if (/not loaded|stopped/.test(String(e && e.message))) throw e; return 0; }
     }, !!opts.look) : dets;
+    out.pool = tp.pool;
+    return out;
   };
   /** Pure part (tests): relabel big animal boxes as people. look(d) → person score of a second look (optional); live = the weak/confirm rule applies (search and export have no tracker, so they take the box as a person). */
   D.fixAnimals = async (dets, cam, cut, look, live) => {
@@ -291,6 +302,15 @@
       pairs.sort((a, b) => b[0] - a[0]);
       const usedD = new Set(), usedT = new Set();
       for (const [, di, tr] of pairs) { if (usedD.has(di) || usedT.has(tr)) continue; usedD.add(di); usedT.add(tr); const d = f.dets[di]; tr.pts.push({ t: f.t, x: d.x, y: d.y, w: d.w, h: d.h, conf: d.conf }); }
+      // (tag bytetrack) second association: weak person boxes (f.pool, under the cut-off) extend the person tracks the strong boxes left over;
+      // they never start a track, and the box keeps its size (a half-hidden person's weak box is only a part of him)
+      if (f.pool && f.pool.length && opt.pool !== false) {
+        const p2 = [];
+        f.pool.forEach((d, di) => { if (d.label !== "person") return; open.forEach((tr) => { if (usedT.has(tr) || tr.label !== "person") return; const l = tr.pts[tr.pts.length - 1], v = D.BYTE ? btScore(l, d) : 0; if (v > 0) p2.push([v, di, tr]); }); });
+        p2.sort((a, b) => b[0] - a[0]);
+        const u2 = new Set();
+        for (const [, di, tr] of p2) { if (u2.has(di) || usedT.has(tr)) continue; u2.add(di); usedT.add(tr); const d = f.pool[di], l = tr.pts[tr.pts.length - 1], g = D.BYTE.gain; tr.pts.push({ t: f.t, x: l.x + g * (d.x + d.w / 2 - l.x - l.w / 2), y: l.y + g * (d.y + d.h / 2 - l.y - l.h / 2), w: l.w, h: l.h, conf: d.conf }); }
+      }
       f.dets.forEach((d, di) => { if (!usedD.has(di)) tracks.push({ id: next++, label: d.label, pts: [{ t: f.t, x: d.x, y: d.y, w: d.w, h: d.h, conf: d.conf }] }); });
     }
     return tracks;
@@ -357,8 +377,8 @@
       for (const t of times) {
         if (performance.now() > until && frames.length >= 3) break;
         const v = await frameAt(hit.cam, t); if (!v) continue;
-        let dets = []; try { dets = await D.detectImage(v, v.videoWidth, v.videoHeight, { prompt: opts.prompt, conf: hit.det && hit.label ? D.classConf(hit.label) : undefined, tiles: !!hit.tiled }); } catch (e) { console.warn("track frame", e); if (!frames.length) throw e; continue; }
-        frames.push({ t, dets });
+        let dets = []; try { dets = await D.detectImage(v, v.videoWidth, v.videoHeight, { prompt: opts.prompt, conf: hit.det && hit.label ? D.classConf(hit.label) : undefined, tiles: !!hit.tiled, pool: hit.label === "person" && !opts.prompt && D.byteOn() ? D.BYTE.floor : 0 }); } catch (e) { console.warn("track frame", e); if (!frames.length) throw e; continue; }
+        frames.push({ t, dets, pool: dets.pool });
         if (opts.onProgress) opts.onProgress(frames.length, times.length);
       }
       const tracks = D.buildTracks(frames);
@@ -470,12 +490,30 @@
     return { x: cx - tr.w / 2, y: cy - tr.h / 2, w: tr.w, h: tr.h };
   };
   D._predictAt = predictAt;   // tests
-  function track(cam, t, dets) {
+  // ── ByteTrack-style second association (tag bytetrack) ──
+  // Strong boxes (>= the confidence setting) match first, exactly as before. Then the tracks that found nothing get a second chance with the
+  // WEAK person boxes (floor..cut-off) the detector returned for the tracker only: a person behind a minivan's window or a pillar scores
+  // 0.15–0.34 for a second or two and used to turn into a ghost, then a second person when the strong box came back. A weak box
+  //  · never starts a track and is never shown or counted as a detection by itself,
+  //  · only extends a person track that once scored >= 0.5 (a headrest or coat that flickers at 0.2–0.45 must not be kept alive by weaker boxes: measured on a real clip, tag bytetrack) and was seen strongly within the last "Keep a hidden person" seconds (so a coat or headrest that scores 0.2
+  //    for a minute can't keep anything alive: after that time the track is retired, weak box or not),
+  //  · moves the track by a part of the miss and keeps its size (a head over a van roof is not the whole person), the speed is left alone.
+  // A ghost needs two weak boxes in 3 s to come back (like the weak second looks). Switch: Settings ▸ Object detection, or ?byte=0 / ?byte=1.
+  D.BYTE = { floor: 0.10, iou: 0.2, cover: 0.7, gain: 0.35, peak: 0.5 };
+  D.byteOn = () => { try { const m = /(?:[?&#])byte=([01])\b/.exec(location.search + location.hash); if (m) return m[1] === "1"; } catch (_) {} return D.prefs().byte !== "off" && D.occlKeep() > 0; };
+  /** Weak person box d vs the predicted box p of a track: overlap, or d lying inside p (a head-and-shoulders over a roof). 0 = no match. */
+  const btScore = (p, d) => {
+    const v = iou(p, d); if (v >= D.BYTE.iou) return v;
+    const x1 = Math.max(p.x, d.x), y1 = Math.max(p.y, d.y), x2 = Math.min(p.x + p.w, d.x + d.w), y2 = Math.min(p.y + p.h, d.y + d.h), i = Math.max(0, x2 - x1) * Math.max(0, y2 - y1);
+    return i >= D.BYTE.cover * d.w * d.h && d.h >= 0.3 * p.h && d.w <= 1.3 * p.w ? 0.1 * i / (d.w * d.h) : 0;
+  };
+  D._btScore = btScore;
+  function track(cam, t, dets, pool) {
     // occluded-people: a person who was tracked for a few looks and vanished (behind a car window, a pillar, another car) stays
     // in the list as a GHOST for D.occlKeep() seconds — not drawn, not counted — and takes its identity back when a person shows up
     // near where it should be. A person who walked out through the picture's edge is not kept (the hand-off cue links the next camera).
     const ex0 = expiry(cam), keep = D.occlKeep();
-    const list = (D.liveTracks[cam] = (D.liveTracks[cam] || []).filter((tr) => tr.t <= t + 0.05 && (t - tr.seen <= exOf(tr, ex0) || ghostOk(tr, t, keep))));
+    const list = (D.liveTracks[cam] = (D.liveTracks[cam] || []).filter((tr) => tr.t <= t + 0.05 && !btStale(tr, t, keep) && (t - tr.seen <= exOf(tr, ex0) || ghostOk(tr, t, keep))));
     const gap = gapOf(cam);
     const pred = list.map((tr) => predictAt(tr, t, gap));
     const isGhost = list.map((tr) => t - tr.seen > exOf(tr, ex0));
@@ -520,12 +558,36 @@
       tr.mcx = dcx; tr.mcy = dcy; tr.mt = t;
       if (tr.c0x == null) { tr.c0x = dcx; tr.c0y = dcy; tr.mc = 0; tr.disp = 0; } tr.mc = Math.max(tr.mc, d.conf); tr.disp = Math.max(tr.disp, Math.hypot(dcx - tr.c0x, dcy - tr.c0y));
       if (tr.label === "person" && !d.seeded && tr.disp < D.STATIC.disp && tr.mc < D.STATIC.conf && (tr.n || 1) >= 2) stillZoneNote(cam, tr, t);
-      tr.t = t; tr.seen = t; tr.ls = !!d.seeded; tr.conf = d.conf; tr.attr = d.attr; tr.clObs = d.clObs; tr.n = (tr.n || 1) + 1;
+      tr.t = t; tr.seen = t; tr.sst = t; tr.pk = Math.max(tr.pk || 0, d.conf); tr.ls = !!d.seeded; tr.conf = d.conf; tr.attr = d.attr; tr.clObs = d.clObs; tr.n = (tr.n || 1) + 1;
       if (d.seeded && tr.seeded !== false) { tr.seeded = true; seedPath(tr, d, t); } else if (!d.seeded && tr.weak) tr.seeded = false;
       if (tr.weak) weakHit(tr, d, t);   // multi-frame score accumulation (zoomed person looks below the normal cut-off)
       else if (d.zoom) tr.zoom = true;
     }
-    dets.forEach((d, i) => { if (!ud.has(i)) { const tr = { id: newId(cam), cam, first: t, seeded: d.seeded ? true : undefined, path: d.seeded ? [{ t, x: d.x, y: d.y, w: d.w, h: d.h }] : undefined, weakLooks: d.seeded ? [{ t, d }] : undefined, weak: !!d.weak, acc: d.weak ? d.conf : 0, hits: 1, wt: t, zoom: !!d.zoom, label: d.label, x: d.x, y: d.y, w: d.w, h: d.h, vx: 0, vy: 0, t, seen: t, conf: d.conf, attr: d.attr, clObs: d.clObs, mcx: d.x + d.w / 2, mcy: d.y + d.h / 2, mt: t }; if (d.label === "person" && !d.seeded) { const z = stillZoneAt(cam, d, t); if (z) { tr.first = z.first; tr.n = z.n; tr.c0x = z.cx; tr.c0y = z.cy; tr.mc = z.mc; tr.disp = 0; } } list.push(tr); } });
+    // second association: weak person boxes extend the tracks the strong boxes left over (never start one)
+    const wm = [];
+    if (pool && pool.length && keep > 0 && D.byteOn()) {
+      const cand = [];
+      pool.forEach((d, i) => {
+        if (d.label !== "person" || dets.some((o) => o.label === "person" && !o.weak && (iou(o, d) > 0.4 || contains(o, d)))) return;   // a strong box covers it
+        list.forEach((tr, j) => { if (ut.has(j) || tr.label !== "person" || tr.weak || tr.seeded === true || (tr.n || 1) < 2 || (tr.pk || 0) < D.BYTE.peak || t - (tr.sst != null ? tr.sst : tr.seen) > keep) return; const v = btScore(pred[j], d); if (v > 0) cand.push([v + (isGhost[j] ? 0 : 0.05), i, j]); });
+      });
+      cand.sort((a, b) => b[0] - a[0]);
+      const pu = new Set();
+      for (const [, i, j] of cand) {
+        if (pu.has(i) || ut.has(j)) continue; pu.add(i); ut.add(j);
+        const d = pool[i], tr = list[j], p = pred[j];
+        if (isGhost[j]) {   // two weak boxes within 3 s bring a hidden person back
+          if (t - (tr.rct == null ? -99 : tr.rct) > 3) tr.rc = 0; tr.rct = t; tr.rc = (tr.rc || 0) + 1; if (tr.rc < 2) continue;
+          tr.revived = (tr.revived || 0) + 1; tr.hidden = t - tr.seen; tr.rc = 0; D.seed.stats.revived++;
+        }
+        const g = D.BYTE.gain, pcx = p.x + p.w / 2, pcy = p.y + p.h / 2, dcx = d.x + d.w / 2, dcy = d.y + d.h / 2;
+        tr.x = pcx + g * (dcx - pcx) - tr.w / 2; tr.y = pcy + g * (dcy - pcy) - tr.h / 2;
+        tr.t = t; tr.seen = t; tr.conf = d.conf; tr.n = (tr.n || 1) + 1; tr.bt = (tr.bt || 0) + 1; tr.btt = t;
+        wm.push({ x: tr.x, y: tr.y, w: tr.w, h: tr.h, cls: 0, label: "person", conf: d.conf, bt: true, id: tr.id });
+      }
+    }
+    dets.forEach((d, i) => { if (!ud.has(i)) { const tr = { id: newId(cam), cam, first: t, sst: t, pk: d.conf, seeded: d.seeded ? true : undefined, path: d.seeded ? [{ t, x: d.x, y: d.y, w: d.w, h: d.h }] : undefined, weakLooks: d.seeded ? [{ t, d }] : undefined, weak: !!d.weak, acc: d.weak ? d.conf : 0, hits: 1, wt: t, zoom: !!d.zoom, label: d.label, x: d.x, y: d.y, w: d.w, h: d.h, vx: 0, vy: 0, t, seen: t, conf: d.conf, attr: d.attr, clObs: d.clObs, mcx: d.x + d.w / 2, mcy: d.y + d.h / 2, mt: t }; if (d.label === "person" && !d.seeded) { const z = stillZoneAt(cam, d, t); if (z) { tr.first = z.first; tr.n = z.n; tr.c0x = z.cx; tr.c0y = z.cy; tr.mc = z.mc; tr.disp = 0; } } list.push(tr); } });
+    return wm;   // the weak boxes that extended a track, at the track's box (the export sees the same person the viewer draws)
   }
   D._track = track;   // tests
   D._detectLive = (cam, src, t) => detectLive(cam, src, { testT: t });
@@ -633,6 +695,7 @@
   /** Hidden-person keep time in seconds (Settings, or ?occl=N): 0 = off. */
   D.occlKeep = () => { try { const m = /(?:[?&#])occl=([\d.]+)/.exec(location.search + location.hash); if (m) return Math.max(0, Math.min(8, +m[1])); } catch (_) {} const v = +D.prefs().occl; return v >= 0 && v <= 8 ? v : 3.5; };
   const leftEdge = (tr) => (tr.x + tr.w > 0.96 && tr.vx > 0.01) || (tr.x < 0.04 && tr.vx < -0.01) || (tr.y + tr.h > 0.97 && tr.vy > 0.02);
+  const btStale = (tr, t, keep) => tr.sst != null && tr.btt != null && t - tr.sst > Math.max(keep, 0);   // kept alive by weak boxes only for longer than "keep a hidden person": retire
   const ghostOk = (tr, t, keep) => keep > 0 && tr.label === "person" && !tr.weak && (tr.n || 1) >= 3 && t - tr.seen <= keep && !leftEdge(tr);
   const ghostNear = (p, d, hid) => Math.hypot(p.x + p.w / 2 - d.x - d.w / 2, p.y + p.h / 2 - d.y - d.h / 2) < 0.75 * Math.max(p.w, p.h, d.w, d.h) + 0.06 * Math.min(hid, 6) && !sizeJump(p, d, 2.2);
   /** Hidden (ghost) people of a camera at event time t, as boxes where they should be now. */
@@ -706,7 +769,8 @@
     const bc = (D.liveStats.byCam[cam] = D.liveStats.byCam[cam] || []); bc.push(t0); if (bc.length > 60) bc.shift();
     const fast = D.speed() === "fast" && D.prefs().model !== "gdino";
     const fs0 = frameSize(v);
-    let dets = await D.detectImage(v, fs0.iw, fs0.ih, { slot: fast ? "fast" : "main", cam, look: true });
+    let dets = await D.detectImage(v, fs0.iw, fs0.ih, { slot: fast ? "fast" : "main", cam, look: true, pool: D.byteOn() ? D.BYTE.floor : 0 });
+    const pool = dets.pool || [];
     let weakDets = dets.filter((d) => d.weak); if (weakDets.length) dets = dets.filter((d) => !d.weak);   // legs-fix: weak person looks wait for 3-look confirmation
     try {
       const plan = T.handoff && T.handoff.zoomPlan ? T.handoff.zoomPlan(cam, dets, t) : null;
@@ -725,7 +789,8 @@
     const prev = D.live[cam]; if (prev && t > prev.t && t - prev.t < 3) D.camGap[cam] = D.camGap[cam] ? 0.7 * D.camGap[cam] + 0.3 * (t - prev.t) : t - prev.t;
     D.live[cam] = { t, dets, hold, src: "live" };
     addSample(cam, D.live[cam]);
-    track(cam, t, weakDets.length ? dets.concat(weakDets) : dets);
+    const wm = track(cam, t, weakDets.length ? dets.concat(weakDets) : dets, pool);
+    if (wm && wm.length) D.live[cam].dets = dets.concat(wm);   // (tag bytetrack) a person the tracker kept through weak boxes is in the export's sample too
     // while playing the boxes are repainted on every frame ("time"); a "layout" here would also re-place the dock/bar
     if (!T.player || !T.player.playing) T.emit("layout");
   }
@@ -913,6 +978,7 @@
     const sm = SD.mode(), oc = D.occlKeep();
     row('<span>Hard-to-see people</span><select class="select" id="detSeed"><option value="auto"' + (P.seed === "auto" || !P.seed ? " selected" : "") + '>Auto (zoomed, brightened second looks at moving things; Balanced speed)</option><option value="on"' + (P.seed === "on" ? " selected" : "") + '>Always (any speed)</option><option value="off"' + (P.seed === "off" ? " selected" : "") + ">Off</option></select>");
     row('<span>Keep a hidden person</span><select class="select" id="detOccl">' + [[0, "Off"], [2, "2 seconds"], [3.5, "3.5 seconds (default)"], [6, "6 seconds"]].map(([v, l]) => '<option value="' + v + '"' + (oc === v ? " selected" : "") + ">" + l + "</option>").join("") + "</select>");
+    row('<label style="display:flex;gap:.5rem;align-items:center"><input type="checkbox" id="detByte"' + (D.byteOn() ? " checked" : "") + (oc > 0 ? "" : " disabled") + "> Follow half-hidden people (behind a van window or pillar: same number; needs “Keep a hidden person”)</label>");
     const cc = row('<label style="display:flex;gap:.5rem;align-items:center"><input type="checkbox" id="detCross"' + (T.people && T.people.linkOn && T.people.linkOn() ? " checked" : "") + "> Cross-camera matching (beta): the same person keeps one colour on every camera</label>");
     const cs = document.createElement("span"); cs.className = "hint"; cs.id = "detCrossStatus"; cs.style.display = "block"; cs.textContent = T.reid && T.reid.statusText ? T.reid.statusText() : ""; cc.appendChild(cs);
     const ch = document.createElement("span"); ch.className = "hint"; ch.style.display = "block"; ch.textContent = "Default: on when this device keeps up, off when it would slow playback. Uses a small appearance model (0.8 MB, Apache-2.0) stored with the app; nothing is uploaded."; cc.appendChild(ch);
@@ -930,6 +996,7 @@
     box.querySelector("#detConf").onchange = (e) => D.setPref("conf", +e.target.value);
     box.querySelector("#detSeed").onchange = (e) => D.setPref("seed", e.target.value);
     box.querySelector("#detOccl").onchange = (e) => D.setPref("occl", +e.target.value);
+    box.querySelector("#detByte").onchange = (e) => D.setPref("byte", e.target.checked ? "on" : "off");
     box.querySelector("#detSmall").onchange = (e) => D.setPref("small", e.target.value);
     box.querySelector("#detCross").onchange = (e) => { T.setPref("crossCam", e.target.checked ? "on" : "off"); if (T.people && T.people.reset) T.people.reset(); const c = box.querySelector("#detCrossStatus"); if (c && T.reid) c.textContent = T.reid.statusText(); };
     box.querySelector("#detLive").onchange = (e) => D.setPref("live", e.target.checked);

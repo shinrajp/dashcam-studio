@@ -14,7 +14,7 @@
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
   <link rel="icon" href="icons/icon-192.png" type="image/png">
-  <link rel="stylesheet" href="css/app.css?v=plates-local">
+  <link rel="stylesheet" href="css/app.css?v=bytetrack">
 </head>
 <body class="simple">
   <div class="slow-note" id="slowNote" role="status" hidden><span class="sn-text"><b>Slow mode:</b> this page is on plain http, so decrypting your clips takes longer. The https / installed version is much faster.</span><button class="btn small" id="slowNoteHow" type="button">How</button><button class="btn icon sm" id="slowNoteX" type="button" title="Dismiss" aria-label="Dismiss"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
@@ -425,72 +425,72 @@
   <!-- Cameras picker: a top-level layer on <body> (never inside the camera bar, whose backdrop-filter would make
        position:fixed relative to the bar); js/focus.js places it next to the Cameras button. -->
   <div class="cam-menu" id="camMenu" hidden></div>
-  <script src="vendor/mp4-muxer.js?v=plates-local"></script>
-  <script src="vendor/webm-muxer.js?v=plates-local"></script>
-  <script src="vendor/ort.wasm.min.js?v=plates-local"></script>
-  <script src="vendor/ocr-pack.js?v=plates-local"></script>
+  <script src="vendor/mp4-muxer.js?v=bytetrack"></script>
+  <script src="vendor/webm-muxer.js?v=bytetrack"></script>
+  <script src="vendor/ort.wasm.min.js?v=bytetrack"></script>
+  <script src="vendor/ocr-pack.js?v=bytetrack"></script>
   <!-- app (classic scripts: they work when opened from file://) -->
-  <script src="js/core.js?v=plates-local"></script>
-  <script src="js/mp4.js?v=plates-local"></script>
-  <script src="js/sei.js?v=plates-local"></script>
-  <script src="js/crypto.js?v=plates-local"></script>
-  <script src="js/teslacam.js?v=plates-local"></script>
-  <script src="js/telemetry.js?v=plates-local"></script>
-  <script src="js/batching.js?v=plates-local"></script>
-  <script src="js/library.js?v=plates-local"></script>
-  <script src="js/player.js?v=plates-local"></script>
-  <script src="js/layout.js?v=plates-local"></script>
-  <script src="js/handoff.js?v=plates-local"></script>
-  <script src="js/reid.js?v=plates-local"></script>
-  <script src="js/people.js?v=plates-local"></script>
-  <script src="js/car-view.js?v=plates-local"></script>
-  <script src="js/draw.js?v=plates-local"></script>
-  <script src="js/hud.js?v=plates-local"></script>
-  <script src="js/map.js?v=plates-local"></script>
-  <script src="js/compositor.js?v=plates-local"></script>
-  <script src="js/overlays.js?v=plates-local"></script>
-  <script src="js/focus.js?v=plates-local"></script>
-  <script src="js/export.js?v=plates-local"></script>
-  <script src="js/search.js?v=plates-local"></script>
-  <script src="js/redact.js?v=plates-local"></script>
-  <script src="js/text-match.js?v=plates-local"></script>
-  <script src="js/text-search.js?v=plates-local"></script>
-  <script src="js/time-search.js?v=plates-local"></script>
-  <script src="js/burn-boxes.js?v=plates-local"></script>
-  <script src="js/worker-start.js?v=plates-local"></script>
-  <script src="js/color-lock.js?v=plates-local"></script>
-  <script src="js/motion.js?v=plates-local"></script>
-  <script src="js/detect.js?v=plates-local"></script>
-  <script src="js/model-picker.js?v=plates-local"></script>
-  <script src="js/plate-text.js?v=plates-local"></script>
-  <script src="js/plates.js?v=plates-local"></script>
-  <script src="js/prewarm.js?v=plates-local"></script>
-  <script src="js/vehicle-attrs.js?v=plates-local"></script>
-  <script src="js/vehicle.js?v=plates-local"></script>
-  <script src="js/cloud-boost.js?v=plates-local"></script>
-  <script src="js/recog-settings.js?v=plates-local"></script>
-  <script src="js/pano-toggle.js?v=plates-local"></script>
-  <script src="js/multi-search.js?v=plates-local"></script>
-  <script src="js/wb.js?v=plates-local"></script>
-  <script src="js/wb-debug.js?v=plates-local"></script>
-  <script src="js/det-debug.js?v=plates-local"></script>
-  <script src="js/colour-constancy.js?v=plates-local"></script>
-  <script src="js/search-ui.js?v=plates-local"></script>
-  <script src="js/search-strip.js?v=plates-local"></script>
-  <script src="js/mobile-bar.js?v=plates-local"></script>
-  <script src="js/connector-src.js?v=plates-local"></script>
-  <script src="js/ios-unlock-src.js?v=plates-local"></script>
-  <script src="js/ios-unlock.js?v=plates-local"></script>
-  <script src="js/tesla-auth.js?v=plates-local"></script>
-  <script src="js/key-import.js?v=plates-local"></script>
-  <script src="js/unlock-ux.js?v=plates-local"></script>
-  <script src="js/key-store.js?v=plates-local"></script>
-  <script src="js/ui.js?v=plates-local"></script>
-  <script src="js/export-cams.js?v=plates-local"></script>
-  <script src="js/lib-index.js?v=plates-local"></script>
-  <script src="js/lib-index-ui.js?v=plates-local"></script>
-  <script src="js/auto.js?v=plates-local"></script>
-  <script src="js/app.js?v=plates-local"></script>
-  <script src="js/pwa.js?v=plates-local"></script>
+  <script src="js/core.js?v=bytetrack"></script>
+  <script src="js/mp4.js?v=bytetrack"></script>
+  <script src="js/sei.js?v=bytetrack"></script>
+  <script src="js/crypto.js?v=bytetrack"></script>
+  <script src="js/teslacam.js?v=bytetrack"></script>
+  <script src="js/telemetry.js?v=bytetrack"></script>
+  <script src="js/batching.js?v=bytetrack"></script>
+  <script src="js/library.js?v=bytetrack"></script>
+  <script src="js/player.js?v=bytetrack"></script>
+  <script src="js/layout.js?v=bytetrack"></script>
+  <script src="js/handoff.js?v=bytetrack"></script>
+  <script src="js/reid.js?v=bytetrack"></script>
+  <script src="js/people.js?v=bytetrack"></script>
+  <script src="js/car-view.js?v=bytetrack"></script>
+  <script src="js/draw.js?v=bytetrack"></script>
+  <script src="js/hud.js?v=bytetrack"></script>
+  <script src="js/map.js?v=bytetrack"></script>
+  <script src="js/compositor.js?v=bytetrack"></script>
+  <script src="js/overlays.js?v=bytetrack"></script>
+  <script src="js/focus.js?v=bytetrack"></script>
+  <script src="js/export.js?v=bytetrack"></script>
+  <script src="js/search.js?v=bytetrack"></script>
+  <script src="js/redact.js?v=bytetrack"></script>
+  <script src="js/text-match.js?v=bytetrack"></script>
+  <script src="js/text-search.js?v=bytetrack"></script>
+  <script src="js/time-search.js?v=bytetrack"></script>
+  <script src="js/burn-boxes.js?v=bytetrack"></script>
+  <script src="js/worker-start.js?v=bytetrack"></script>
+  <script src="js/color-lock.js?v=bytetrack"></script>
+  <script src="js/motion.js?v=bytetrack"></script>
+  <script src="js/detect.js?v=bytetrack"></script>
+  <script src="js/model-picker.js?v=bytetrack"></script>
+  <script src="js/plate-text.js?v=bytetrack"></script>
+  <script src="js/plates.js?v=bytetrack"></script>
+  <script src="js/prewarm.js?v=bytetrack"></script>
+  <script src="js/vehicle-attrs.js?v=bytetrack"></script>
+  <script src="js/vehicle.js?v=bytetrack"></script>
+  <script src="js/cloud-boost.js?v=bytetrack"></script>
+  <script src="js/recog-settings.js?v=bytetrack"></script>
+  <script src="js/pano-toggle.js?v=bytetrack"></script>
+  <script src="js/multi-search.js?v=bytetrack"></script>
+  <script src="js/wb.js?v=bytetrack"></script>
+  <script src="js/wb-debug.js?v=bytetrack"></script>
+  <script src="js/det-debug.js?v=bytetrack"></script>
+  <script src="js/colour-constancy.js?v=bytetrack"></script>
+  <script src="js/search-ui.js?v=bytetrack"></script>
+  <script src="js/search-strip.js?v=bytetrack"></script>
+  <script src="js/mobile-bar.js?v=bytetrack"></script>
+  <script src="js/connector-src.js?v=bytetrack"></script>
+  <script src="js/ios-unlock-src.js?v=bytetrack"></script>
+  <script src="js/ios-unlock.js?v=bytetrack"></script>
+  <script src="js/tesla-auth.js?v=bytetrack"></script>
+  <script src="js/key-import.js?v=bytetrack"></script>
+  <script src="js/unlock-ux.js?v=bytetrack"></script>
+  <script src="js/key-store.js?v=bytetrack"></script>
+  <script src="js/ui.js?v=bytetrack"></script>
+  <script src="js/export-cams.js?v=bytetrack"></script>
+  <script src="js/lib-index.js?v=bytetrack"></script>
+  <script src="js/lib-index-ui.js?v=bytetrack"></script>
+  <script src="js/auto.js?v=bytetrack"></script>
+  <script src="js/app.js?v=bytetrack"></script>
+  <script src="js/pwa.js?v=bytetrack"></script>
 </body>
 </html>

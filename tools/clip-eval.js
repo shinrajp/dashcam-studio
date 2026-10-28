@@ -17,7 +17,7 @@ const URL_ = E.URL || "http://127.0.0.1:8770/index.html", CAMS = ["left_pillar",
   const ctx = await b.newContext({ viewport: { width: 1280, height: 800 } }), p = await ctx.newPage(), errs = [];
   p.on("pageerror", (e) => errs.push(e.message)); p.on("console", (m) => { if (m.type() === "error") errs.push(m.text()); });
   await p.goto(URL_ + (E.QS || ""), { waitUntil: "load" });
-  await p.evaluate((m) => { localStorage.setItem("tdc.detect.v1", JSON.stringify({ enabled: true, live: true, model: m, speed: "balanced", seed: "auto", occl: 3.5, urls: m === "medium" ? { medium: "http://127.0.0.1:8770/models/yolo11m.onnx" } : {} })); }, E.MODEL || "small");
+  await p.evaluate((m) => { localStorage.setItem("tdc.detect.v1", JSON.stringify({ enabled: true, live: true, model: m, speed: "balanced", seed: "auto", occl: 3.5, urls: m === "medium" ? { medium: location.origin + "/models/yolo11m.onnx" } : {} })); }, E.MODEL || "small");
   await p.reload({ waitUntil: "load" });
   const frame = (cam, t) => { const k = Math.min(Math.round((t - 0) * FPS) + 1, 9999), f = path.join(DIR, cam + "_" + String(k).padStart(3, "0") + ".jpg"); return fs.existsSync(f) ? fs.readFileSync(f).toString("base64") : null; };
   const n = Math.round((T1 - T0) * FPS), res = { mode: MODE, env: { model: E.MODEL || "small", seed: E.SEED, occl: E.OCCL, looks: E.LOOKS }, rows: [] };

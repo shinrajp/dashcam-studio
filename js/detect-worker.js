@@ -152,14 +152,17 @@ async function detect(msg) {
   const ms = Date.now() - t0;
   const backend = sl.backend;
   const o = out[sl.outputName], d = o.data, C = o.dims[1] - 4, N = o.dims[2];   // [1, 4+80, 8400]: cx, cy, w, h, class scores
-  const conf = msg.conf || 0.35, cand = [];
+  // msg.pool (tag bytetrack): a lower cut-off for PERSON boxes only. They come back flagged pool:true, below the normal cut-off, for the
+  // tracker to extend a track it already has; the main thread never shows them as detections. Class-wise NMS runs after the sort, so a
+  // low box on a person that has a strong box is suppressed here, and the 100-box cap is filled by the strong boxes first.
+  const conf = msg.conf || 0.35, cand = [], pf = msg.pool > 0 && msg.pool < conf ? msg.pool : conf;
   if (o.dims.length === 2 && o.dims[1] === 7) {   // end2end export (NMS already done): [N, 7] = batch, x1, y1, x2, y2, cls, score
-    for (let j = 0; j < o.dims[0]; j++) { const r = j * 7; if (d[r + 6] >= conf) cand.push({ b: [d[r + 1], d[r + 2], d[r + 3], d[r + 4]], conf: d[r + 6], cls: d[r + 5] | 0 }); }
+    for (let j = 0; j < o.dims[0]; j++) { const r = j * 7, c = d[r + 5] | 0; if (d[r + 6] >= (c === 0 ? pf : conf)) cand.push({ b: [d[r + 1], d[r + 2], d[r + 3], d[r + 4]], conf: d[r + 6], cls: c }); }
   } else
   for (let j = 0; j < N; j++) {
     let best = 0, cls = -1;
     for (let c = 0; c < C; c++) { const v = d[(4 + c) * N + j]; if (v > best) { best = v; cls = c; } }
-    if (best < conf) continue;
+    if (best < (cls === 0 ? pf : conf)) continue;
     const cx = d[j], cy = d[N + j], w = d[2 * N + j], h = d[3 * N + j];
     cand.push({ b: [cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2], conf: best, cls });
   }
@@ -170,7 +173,9 @@ async function detect(msg) {
   const dets = keep.map((k) => {
     const x1 = Math.max(0, (k.b[0] - padX) / scale / fw), y1 = Math.max(0, (k.b[1] - padY) / scale / fh);
     const x2 = Math.min(1, (k.b[2] - padX) / scale / fw), y2 = Math.min(1, (k.b[3] - padY) / scale / fh);
-    return { x: x1, y: y1, w: x2 - x1, h: y2 - y1, cls: k.cls, conf: k.conf };
+    const o2 = { x: x1, y: y1, w: x2 - x1, h: y2 - y1, cls: k.cls, conf: k.conf };
+    if (k.conf < conf) o2.pool = true;
+    return o2;
   }).filter((b) => b.w > 0.003 && b.h > 0.003);
   return { dets, ms, backend };
 }
