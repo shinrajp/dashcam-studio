@@ -430,7 +430,6 @@
   };
   function bind() {
     const sec = $("crSec");
-    sec.addEventListener("toggle", () => { if (!sec.open && (S.drawing || S.draft || S.editId)) { /* keep the draft; outlines stay until Save or Cancel */ } });
     $("crCam").addEventListener("change", () => { S.cam = $("crCam").value; S.draft = null; UI.sync(); });
     $("crShape").addEventListener("click", (e) => { const b = e.target.closest("button"); if (!b) return; S.shape = b.dataset.v; if (!S.editId) S.draft = null; if (S.drawing) UI.draw(); UI.sync(); });
     $("crMode").addEventListener("click", (e) => { const b = e.target.closest("button"); if (!b) return; S.mode = b.dataset.v; UI.sync(); });
@@ -496,9 +495,9 @@
   }
   /** Put the section where the Redact controls are: inside the floating search panel when it exists, else under the classic Redact bar. */
   UI.place = () => {
-    let sec = $("crSec");
+    let sec = $("crSec"), fresh = false;
     const panel = $("usPanel");
-    if (!sec) { sec = build(); bind(); }
+    if (!sec) { sec = build(); fresh = true; }
     if (panel && T.searchUI && T.searchUI.ok) {
       const foot = panel.querySelector(".us-foot");
       if (sec.parentNode !== panel) panel.insertBefore(sec, foot || null);
@@ -506,6 +505,7 @@
       const st = $("redactStatus");
       if (st && sec.parentNode !== st.parentNode) st.parentNode.insertBefore(sec, st.nextSibling);
     }
+    if (fresh) bind();
     return sec;
   };
   UI.init = () => {
