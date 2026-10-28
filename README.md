@@ -518,7 +518,7 @@ Automatic redaction only blurs the plates, faces and text the models find. A pla
 **What it does**
 - The region stays in the same place on the picture (it does not follow a moving car; see future work). It is stored as a fraction of the camera's picture, so it is the same spot at any zoom, in full screen, in a mirrored tile, and in the export.
 - **Export burns it in**, in every layout: per-camera ticks, Fill black area / Add panel / Overlay, Match viewer order (mirrored cells included), trimmed and joined sections (only the sections inside the region's time range), and the 360 equirect export. The export dialog says how many regions will be hidden. A region on a camera you did not tick is simply not in the file.
-- **Saved in this browser** under a fingerprint of the clip (a hash, no file names, dates or folders). **Save as file / Load file** writes and reads a small JSON file (`dashcam-studio-regions`), so you can move regions between browsers. Up to 40 regions of up to 96 points each.
+- **Saved in this browser** under a fingerprint of the clip (a hash, no file names, dates or folders). **Save as file / Load from file** writes and reads a small JSON file (`dashcam-studio-regions`), so you can move regions between browsers. Up to 40 regions of up to 96 points each.
 - Nothing is uploaded. The blur uses plain canvas drawing (no canvas `filter`), so it works in Safari and on iPhone.
 
 **Limits (honest)**
