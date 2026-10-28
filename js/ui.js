@@ -696,6 +696,7 @@
     $("mapFollow").checked = T.prefs.mapFollow;
     $("steerInvert").checked = T.prefs.steerInvert;
     $("accelSwap").checked = T.prefs.accelSwap;
+    if ($("show360")) $("show360").checked = T.show360On();
   }
 
   // ── export dialog ──
@@ -711,7 +712,8 @@
     $("exportTitle").textContent = "Export this event";
     const ep = T.prefs.export;
     const adv = T.prefs.advanced;
-    document.querySelectorAll('input[name=preset]').forEach((r) => (r.checked = r.value === (adv ? ep.preset : "compat")));
+    const wantPreset = !adv ? "compat" : (ep.preset === "equirect" && !(T.show360On && T.show360On())) ? "compat" : ep.preset;   // the 360 preset is hidden unless "Show 360 view" is on
+    document.querySelectorAll('input[name=preset]').forEach((r) => (r.checked = r.value === wantPreset));
     const sizes = T.exporter.sizeOptions(ev, U.camShape(ev));   // export-cams: the grid shape follows the ticked cameras (3×2 for all six)
     $("exportSize").innerHTML = sizes.map((s) => `<option value="${s.id}">${s.label}</option>`).join("");
     $("exportSize").value = sizes.some((s) => s.id === ep.res) ? ep.res : "native";
@@ -1015,8 +1017,9 @@
     $("mapAside").onchange = (e) => { T.setPref("mapDock", e.target.checked ? "aside" : "over"); U.fit(); };
     $("steerInvert").onchange = (e) => T.setPref("steerInvert", e.target.checked);
     $("accelSwap").onchange = (e) => T.setPref("accelSwap", e.target.checked);
+    $("show360").onchange = (e) => T.setPref("show360", e.target.checked);   // pano-toggle.js shows / hides the button + export preset on the "prefs" event
     $("btnResetLayout").onclick = () => { T.resetPrefs("panels"); T.toast("Overlay positions reset"); };
-    $("btnResetAll").onclick = () => { const adv = T.prefs.advanced; T.resetPrefs(); T.setPref("advanced", adv); buildSettings(); syncChips(); T.toast("Settings reset"); };
+    $("btnResetAll").onclick = () => { const adv = T.prefs.advanced; T.resetPrefs(); T.setPref("advanced", adv); buildSettings(); syncChips(); if (T.apply360) T.apply360(); T.toast("Settings reset"); };
 
     // export
     $("btnExport").onclick = openExport;

@@ -42,6 +42,7 @@
     carView: false,   // top-down car with tracked people (js/car-view.js)
     carPanel: { pinned: false, collapsed: false, w: 0, fx: -1, fy: -1 },   // floating car view: pinned = locked, w = width px (0 = default), fx/fy = left/top as fractions of the window (-1 = default corner)
     crossCam: "auto",   // cross-camera matching (beta): auto | on | off (js/people.js)
+    show360: false,   // show the 360 view (beta) button + the 360 export preset (off by default, Settings ▸ Labs; ?show360=1 forces it on for this visit, ?show360=0 off)
     layout: "auto",   // camera layout preset: auto | current | rear | mirror (js/layout.js)
     camsHidden: { left_pillar: false, front: false, right_pillar: false, left_repeater: false, back: false, right_repeater: false },
   };
@@ -66,6 +67,11 @@
     o[parts[parts.length - 1]] = value;
     T.savePrefs();
     T.emit("prefs", path);
+  };
+  /** Is the 360 view (beta) offered? Pref show360 (default off); a ?show360=1 / =0 in the URL overrides it for this visit only. */
+  T.show360On = () => {
+    try { const m = /(?:[?&#])show360=([01])\b/.exec(location.search + location.hash); if (m) return m[1] === "1"; } catch (_) {}
+    return !!T.prefs.show360;
   };
   T.resetPrefs = (section) => {
     if (section) T.prefs[section] = JSON.parse(JSON.stringify(T.DEFAULT_PREFS[section]));

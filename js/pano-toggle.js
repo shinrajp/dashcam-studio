@@ -26,6 +26,22 @@
       return false;
     }
   };
-  const wire = () => { const btn = document.getElementById("btn360"); if (btn && !btn._wired) { btn._wired = true; btn.addEventListener("click", () => T.toggle360(!(T.pano && T.pano.on))); } };
+  /** Show or hide everything that only exists for the 360 view (beta): the camera-bar button and the 360 export preset (and, via
+   *  pano.js's own bar, Calibrate and Gyro, which are only reachable through the 360 view). Safe to call any time. */
+  T.apply360 = () => {
+    const on = T.show360On ? T.show360On() : false;
+    document.body.classList.toggle("no360", !on);
+    const btn = document.getElementById("btn360"); if (btn) btn.hidden = !on;
+    const pre = document.getElementById("presetEquirect"); if (pre) pre.hidden = !on;
+    if (!on) {
+      if (T.pano && T.pano.on) T.toggle360(false);   // leave the 360 view first so nothing is left covering the grid
+      const r = document.querySelector('input[name=preset][value=equirect]');
+      if (r && r.checked) { const c = document.querySelector('input[name=preset][value=compat]'); if (c) { c.checked = true; c.dispatchEvent(new Event("change", { bubbles: true })); } }
+    }
+    const cb = document.getElementById("show360"); if (cb) cb.checked = on;
+  };
+  const wire360 = () => { if (T.on) T.on("prefs", (k) => { if (k === "show360" || k === "*") T.apply360(); }); T.apply360(); };
+  const wireBtn = () => { const btn = document.getElementById("btn360"); if (btn && !btn._wired) { btn._wired = true; btn.addEventListener("click", () => T.toggle360(!(T.pano && T.pano.on))); } };
+  const wire = () => { wireBtn(); wire360(); };
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", wire); else wire();
 })();
