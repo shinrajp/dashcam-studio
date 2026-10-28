@@ -1,3 +1,4 @@
+// (since ui-quick the 360 view is off by default: this test opens the page with ?show360=1)
 // 360 view (prototype): nothing loads while off; WebGL2 + WebGL1 shaders compile; renders non-black from the sample
 // clips in look-around and flat equirect; projection math; blind spot dark; calibration save/export/import;
 // toggling off restores the grid; 360 equirect export (WebCodecs). SHOTS=dir saves panorama-*.png.
@@ -10,7 +11,7 @@ let fails = 0; const ok = (n, c, x) => { console.log((c ? "PASS " : "FAIL ") + n
 const stats = (p, sel) => p.evaluate((sel) => { const c = document.querySelector(sel); const t = document.createElement("canvas"); t.width = 160; t.height = Math.round(160 * c.height / c.width); const x = t.getContext("2d"); x.drawImage(c, 0, 0, t.width, t.height); const d = x.getImageData(0, 0, t.width, t.height).data; let s = 0, bright = 0, n = d.length / 4; for (let i = 0; i < d.length; i += 4) { const l = (d[i] + d[i + 1] + d[i + 2]) / 3; s += l; if (l > 40) bright++; } return { mean: s / n, bright: bright / n, w: c.width, h: c.height }; }, sel);
 async function load(b, vp, ua) {
   const p = await b.newPage(); p.errs = []; p.on("pageerror", (e) => p.errs.push(e.message)); p.reqs = []; p.on("request", (r) => p.reqs.push(r.url())); await p.setViewport(vp); if (ua) await p.setUserAgent(ua);
-  await p.goto(URL_, { waitUntil: "load" }); await p.addStyleTag({ content: ".toast{display:none!important}" });
+  await p.goto(URL_ + (URL_.includes("?") ? "&" : "?") + "show360=1", { waitUntil: "load" }); await p.addStyleTag({ content: ".toast{display:none!important}" });
   await (await p.$("#fileInput")).uploadFile(...files);
   for (let i = 0; i < 80 && (await p.evaluate(() => TDC.library.events.length)) < 3; i++) await W(250);
   await p.evaluate(() => { [...document.querySelectorAll("button")].filter((x) => /Got it/.test(x.textContent)).forEach((x) => x.click()); return TDC.ui.activate(TDC.library.events.find((e) => /18-22/.test(e.id)) || TDC.library.events[0]); });
