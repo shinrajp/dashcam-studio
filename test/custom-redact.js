@@ -135,7 +135,7 @@ async function openEvent(p, URL0) {
     for (const dev of [{ name: "desktop", viewport: { width: 1440, height: 900 } }, { name: "phone", viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, userAgent: UA, deviceScaleFactor: 2 }].filter((d) => !process.env.DEV || d.name === process.env.DEV)) {
       const tag = BR + " " + dev.name + ": ", phone = dev.name === "phone";
       const ctx = await b.newContext(dev), p = await ctx.newPage(), errs = [];
-      p.on("pageerror", (e) => errs.push(e.message)); p.on("console", (m) => { if (m.type() === "warning" || m.type() === "error") if (/custom.?region|custom-redact/i.test(m.text())) errs.push(m.text()); });
+      p.on("pageerror", (e) => errs.push(e.message)); p.on("console", (m) => { if (m.type() === "warning" || m.type() === "error") if (/custom.?region|custom-redact/i.test(m.text().split("\n")[0])) errs.push(m.text()); });
       if (BR === "webkit" && !db) { db = await pw.chromium.launch({ executablePath: process.env.CHROME || "/usr/bin/google-chrome", args: ["--no-sandbox"] }); }
       if (db && !dp) { dp = await (await db.newContext()).newPage(); await dp.goto(URL_.replace(/index\.html.*/, "") + "robots.txt").catch(() => {}); }
       const D = BR === "webkit" ? dp : p;   // where exported files are decoded

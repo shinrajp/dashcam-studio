@@ -553,7 +553,7 @@
       UI.place();
       if (T.on) {
         T.on("player-open", () => { resetForm(); removeOverlays(); G.load(); UI.sync(); });
-        T.on("layout", () => { if (R && R.paintSoon) R.paintSoon(); kick(); });
+        T.on("layout", () => { if (R && R.paintSoon && G.any()) R.paintSoon(); kick(); });   // only with regions: with none the viewer paints exactly as before
       }
       window.addEventListener("resize", () => { if (R && R.paintSoon && G.any()) R.paintSoon(); kick(); });
       window.addEventListener("keydown", (e) => { if (e.key === "Escape" && (S.drawing || S.draft || S.editId) && !(e.target.matches && e.target.matches("input, textarea, select"))) { UI.cancel(); } });
