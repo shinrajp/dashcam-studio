@@ -229,7 +229,11 @@
   const fmt = (t) => { t = Math.max(0, t || 0); const m = Math.floor(t / 60), s = t - m * 60; return m + ":" + (s < 10 ? "0" : "") + s.toFixed(1); };
   const parseT = (s) => { s = String(s || "").trim(); if (!s) return NaN; const m = s.split(":").map(Number); if (m.some((x) => !isFinite(x) || x < 0) || m.length > 3) return NaN; return m.reduce((a, x) => a * 60 + x, 0); };
   const dur = () => (T.player && T.player.ev ? T.player.ev.duration || 0 : 0);
-  function msg(text, bad) { const m = $("crMsg"); if (!m) return; m.textContent = text || ""; m.classList.toggle("bad", !!bad); }
+  function msg(text, bad) {
+    const m = $("crMsg"), b = $("crBarMsg");
+    if (m) { m.textContent = text || ""; m.classList.toggle("bad", !!bad); }
+    if (b) { b.textContent = text || ""; b.classList.toggle("bad", !!bad); }
+  }
   const overlays = {};
   function overlayFor(cam) {
     const tile = T.player.tiles[cam]; if (!tile) return null;
@@ -332,8 +336,8 @@
       const x = Math.min(p[0], p[2]), y = Math.min(p[1], p[3]), w = Math.abs(p[2] - p[0]), h = Math.abs(p[3] - p[1]);
       if (w * f.w >= 8 && h * f.h >= 8) sh = { shape: "rect", x, y, w, h };
     }
+    if (!sh) { S.drawing = true; msg("That was too small. Drag a bigger " + (S.shape === "free" ? "shape" : "box") + " on the picture.", true); UI.sync(); kick(); return; }
     S.drawing = false;
-    if (!sh) { msg("That was too small. Press Draw region and try again.", true); UI.sync(); return; }
     S.draft = sh;
     msg(S.editId ? "Shape changed. Press Save changes." : "Shape drawn. Press Save region (or Draw again).");
     UI.sync(); kick();
@@ -354,6 +358,40 @@
     if ($("crWhole")) $("crWhole").checked = true;
     msg("");
   }
+  /** Phone / narrow window: the Redact panel covers the picture, so it steps aside while you draw and a small bar (Save / Draw again / Cancel / Options) sits over the video instead. */
+  function hidePanelForDrawing() {
+    const U = T.searchUI;
+    if (U && U.ok && U.open && U.narrow && U.narrow() && U.hide) { U.hide(); S.reopen = true; }
+  }
+  function reopenPanel() {
+    const U = T.searchUI;
+    if (S.reopen && U && U.show) { S.reopen = false; U.show(false); const s = $("crSec"); if (s) s.open = true; }
+  }
+  function ensureBar() {
+    let b = $("crBar");
+    if (b) return b;
+    b = document.createElement("div"); b.id = "crBar"; b.className = "cr-bar"; b.hidden = true; b.setAttribute("role", "group"); b.setAttribute("aria-label", "Custom region");
+    b.innerHTML = '<span class="cr-bar-msg" id="crBarMsg" aria-live="polite"></span><span class="cr-bar-btns">' +
+      '<button type="button" class="btn small primary" id="crBarSave">Save region</button>' +
+      '<button type="button" class="btn small" id="crBarAgain">Draw again</button>' +
+      '<button type="button" class="btn small ghost" id="crBarCancel">Cancel</button>' +
+      '<button type="button" class="btn small ghost" id="crBarOpts" title="Back to the Redact panel">Options</button></span>';
+    document.body.appendChild(b);
+    $("crBarSave").addEventListener("click", () => UI.save());
+    $("crBarAgain").addEventListener("click", () => UI.draw());
+    $("crBarCancel").addEventListener("click", () => UI.cancel());
+    $("crBarOpts").addEventListener("click", () => { S.reopen = true; reopenPanel(); });
+    return b;
+  }
+  function syncBar() {
+    const b = ensureBar(), show = !!(S.drawing || S.draft);
+    b.hidden = !show;
+    if (!show) return;
+    const tp = $("transport");
+    b.style.bottom = ((tp && !document.body.classList.contains("fs") ? tp.offsetHeight : 0) + 8) + "px";
+    $("crBarSave").disabled = !S.draft || S.drawing; $("crBarSave").textContent = S.editId ? "Save changes" : "Save region";
+    $("crBarAgain").hidden = !!S.drawing;
+  }
   UI.save = () => {
     if (!S.draft) { msg("Draw a region first.", true); return null; }
     const t = readTimes();
@@ -363,7 +401,7 @@
     else { if (G.list.length >= G.MAX) { msg("That is the most regions for one event (" + G.MAX + "). Delete one first.", true); return null; } r = G.add(o); }
     if (!r) { msg("Couldn't save that region. Draw it again.", true); return null; }
     const was = S.editId;
-    resetForm(); changed(); msg(was ? "Region updated." : "Region saved. It is hidden in the viewer and in the export.");
+    resetForm(); changed(); reopenPanel(); msg(was ? "Region updated." : "Region saved. It is hidden in the viewer and in the export.");
     return r;
   };
   UI.draw = () => {
@@ -372,11 +410,12 @@
     if (T.player.ev.cams && !T.player.ev.cams.includes(cam)) { msg("This event has no " + camName(cam).toLowerCase() + " footage.", true); return; }
     if (T.focus && T.focus.focus && T.focus.cam !== cam) T.focus.focus(cam);   // one big camera: easier to aim, and easier on a phone
     S.drawing = true; S.draft = S.editId ? S.draft : null; S.live = null;
+    hidePanelForDrawing();
     msg(S.shape === "free" ? "Drag on the picture to draw around the area (freehand)." : "Drag on the picture to draw a box.");
     UI.sync(); kick();
     setTimeout(() => { if (S.drawing && !G.screenFit(cam)) msg("The camera picture isn't showing yet. Play or seek the video, then press Draw region again.", true); }, 600);
   };
-  UI.cancel = () => { resetForm(); UI.sync(); kick(); if (R && R.paint) R.paint(); };
+  UI.cancel = () => { resetForm(); reopenPanel(); UI.sync(); kick(); if (R && R.paint) R.paint(); };
   UI.edit = (id) => {
     const r = G.list.find((x) => x.id === id); if (!r) return;
     S.editId = id; S.cam = r.cam; S.shape = r.shape === "poly" ? "free" : "rect"; S.mode = r.mode; S.draft = shapeOf(r); S.drawing = false;
@@ -417,6 +456,7 @@
     $("crSave").disabled = !S.draft || S.drawing;
     $("crSave").textContent = S.editId ? "Save changes" : "Save region";
     $("crCancel").hidden = !(S.drawing || S.draft || S.editId);
+    syncBar();
     const n = G.list.length, on = G.list.filter((r) => r.on).length;
     $("crCount").textContent = n ? "(" + n + ")" : "";
     $("crList").innerHTML = listHtml();

@@ -305,6 +305,7 @@ async function openEvent(p, URL0) {
         const ui0 = await p.evaluate(() => ({ cams: [...document.querySelectorAll("#crCam option")].map((o) => o.value).join(), panel: !document.getElementById("usPanel").hidden, secOpen: document.getElementById("crSec").open, hint: document.querySelector("#crSec .cr-hint").textContent.length > 40 }));
         ok(tag + "Custom regions section opens in the Redact panel; camera list = the event's cameras", ui0.panel && ui0.secOpen && ui0.hint && /front/.test(ui0.cams) && /back/.test(ui0.cams) && !/pillar/.test(ui0.cams), ui0);
         const sel = (id, v) => p.selectOption("#" + id, v), clk = (sl) => p.click(sl);
+        const save = async () => { const bar = await p.evaluate(() => { const b = document.getElementById("crBar"); return !!b && !b.hidden; }); await clk(bar ? "#crBarSave" : "#crSave"); };
         const screenPt = (u, v) => p.evaluate(([u, v]) => { const b = __cr.expect("back", { x: u, y: v, w: 0, h: 0 }); return [b.x, b.y]; }, [u, v]);
         const ptr = (type, x, y, id, kind) => p.evaluate(([type, x, y, id, kind]) => { const cv = document.querySelector(".tile[data-cam=back] .cr-overlay") || document.querySelector(".cr-overlay"); if (!cv) return "no overlay"; const ev = new PointerEvent(type, { pointerId: id, pointerType: kind, isPrimary: true, clientX: x, clientY: y, bubbles: true, cancelable: true, button: 0, buttons: type === "pointerup" ? 0 : 1 }); cv.dispatchEvent(ev); return "ok"; }, [type, x, y, id, kind]);
         const drag = async (path) => {   // mouse on desktop, touch pointer events on the phone
@@ -329,21 +330,23 @@ async function openEvent(p, URL0) {
         const fx1 = await p.evaluate(() => [TDC.focus.x, TDC.focus.y, window.scrollX, window.scrollY, TDC.player.time]);
         let st2 = await p.evaluate(() => ({ save: !document.getElementById("crSave").disabled, msg: document.getElementById("crMsg").textContent }));
         ok(tag + "mouse drag draws a box (Save enabled), without panning / scrolling / moving the playhead", st2.save && JSON.stringify(fx0) === JSON.stringify(fx1), { st2, fx0, fx1 });
-        await clk("#crSave"); await W(200);
+        await save(); await W(200);
         let r1 = await lastRegion();
         ok(tag + "saved region is the plate box on the RAW frame although the tile is mirrored (IoU > 0.85 with the true plate box), Remove, whole clip, camera back", r1 && r1.shape === "rect" && r1.mode === "remove" && r1.cam === "back" && r1.start == null && r1.end == null && iouBox(r1, PB) > 0.85, { r1, PB });
+        if (phone) { await p.evaluate(() => TDC.searchUI.hide()); await W(500); }   // the phone panel covers the picture
         await p.evaluate(() => __cr.paintNow());
         const lb = await p.evaluate((PB) => ({ lb: __cr.layerBox("back"), ex: __cr.expect("back", PB) }), PB);
         ok(tag + "the saved region is hidden at once on the same pixels", lb.lb && lb.lb.n > 0 && iouBox({ x: lb.lb.x, y: lb.lb.y, w: lb.lb.w, h: lb.lb.h }, lb.ex) > 0.85, lb);
+        if (phone) await open();
         ok(tag + "list shows it with Show / Edit / Delete and the export dialog note counts it", await p.evaluate(() => { const li = document.querySelector("#crList li"); const n = document.getElementById("exportRegionsNote"); return !!li && /Back|Rear/i.test(li.textContent) && /Remove/.test(li.textContent) && li.querySelectorAll("button").length === 3 && !n.hidden && /1 custom region/.test(n.textContent); }));
         // zoomed
         await p.evaluate(() => { TDC.regions.clear(); TDC.focus.zoomTo(1.6); }); await W(400);
-        await clk("#crDraw"); await W(300); await drawBox("mouse"); await clk("#crSave"); await W(200);
+        await clk("#crDraw"); await W(300); await drawBox("mouse"); await save(); await W(200);
         let r2 = await lastRegion();
         ok(tag + "drawn while zoomed 1.6x (mirrored): the same raw plate box (IoU > 0.85)", r2 && iouBox(r2, PB) > 0.85, { r2 });
         // touch (synthetic pointer events with pointerType touch)
         await p.evaluate(() => { TDC.regions.clear(); TDC.focus.zoomTo(1); }); await W(300);
-        await clk("#crMode button[data-v=blur]"); await clk("#crDraw"); await W(300); await drawBox("touch"); await clk("#crSave"); await W(200);
+        await clk("#crMode button[data-v=blur]"); await clk("#crDraw"); await W(300); await drawBox("touch"); await save(); await W(200);
         let r3 = await lastRegion();
         ok(tag + "touch (pointer events, pointerType touch): a box lands on the same raw plate box; Blur", r3 && r3.mode === "blur" && iouBox(r3, PB) > 0.85, { r3 });
         // freehand
@@ -353,39 +356,40 @@ async function openEvent(p, URL0) {
         // walk the outline in small steps like a finger / pen would
         const path = []; for (let i = 0; i < pts.length; i++) { const a = pts[i], bb = pts[(i + 1) % pts.length], n = 5; for (let k = 0; k < n; k++) path.push([a[0] + ((bb[0] - a[0]) * k) / n, a[1] + ((bb[1] - a[1]) * k) / n]); }
         await drag(path); await W(150);
-        await clk("#crSave"); await W(200);
+        await save(); await W(200);
         let r4 = await lastRegion();
         const iouP = r4 && r4.pts ? await p.evaluate(([a, b]) => __cr.iouPoly(a, b), [r4.pts, PO]) : 0;
         ok(tag + "freehand outline round the curved plate on a mirrored tile: saved as a polygon (<= 96 points) with IoU > 0.85 against the true plate outline", r4 && r4.shape === "poly" && r4.pts.length / 2 <= 96 && r4.pts.length / 2 >= 4 && iouP > 0.85, { iouP, n: r4 && r4.pts && r4.pts.length / 2 });
+        if (phone) { await p.evaluate(() => TDC.searchUI.hide()); await W(500); }
         await p.evaluate(() => __cr.paintNow());
         const lbp = await p.evaluate(() => __cr.layerBox("back", 1));
+        if (phone) await open();
         ok(tag + "the freehand blur is drawn on the viewer layer inside the outline's box", lbp && lbp.n > 100, lbp);
         // tiny drag is refused with a plain message
         await p.evaluate(() => TDC.regions.clear()); await clk("#crShape button[data-v=rect]"); await clk("#crDraw"); await W(200);
         { const e = await p.evaluate((PB) => __cr.expect("back", PB), PB); await drag([[e.x, e.y], [e.x + 2, e.y + 2]]); }
         const tiny = await p.evaluate(() => ({ msg: document.getElementById("crMsg").textContent, save: document.getElementById("crSave").disabled }));
-        ok(tag + "a tiny accidental drag is refused with a plain message, nothing saved", /too small/i.test(tiny.msg) && tiny.save, tiny);
-        await clk("#crCancel").catch(() => {});
+        ok(tag + "a tiny accidental drag is refused with a plain message (drawing stays armed), nothing saved", /too small/i.test(tiny.msg) && tiny.save, tiny);
+        await clk((await p.evaluate(() => { const b = document.getElementById("crBar"); return !!b && !b.hidden; })) ? "#crBarCancel" : "#crCancel");
         // time range: playhead, trim, whole clip default
         await p.evaluate(() => { TDC.regions.clear(); TDC.layout.set("current"); TDC.focus.grid && TDC.focus.grid(); }); await W(300);
         await p.evaluate(() => TDC.player.seek(2)); await W(300);
-        await clk("#crDraw"); await W(300); await drawBox("mouse");
         const hasWhole = await p.evaluate(() => document.getElementById("crWhole").checked);
         await clk("#crWhole"); const from = await p.evaluate(() => document.getElementById("crFrom").value); await p.evaluate(() => TDC.player.seek(4)); await W(300); await clk("#crToNow");
         const to = await p.evaluate(() => document.getElementById("crTo").value);
-        await clk("#crSave"); await W(200);
+        await clk("#crDraw"); await W(300); await drawBox("mouse"); await save(); await W(200);
         let r5 = await lastRegion();
         ok(tag + "time range: 'Whole clip' is the default; unticking pre-fills From with the playhead; 'Now' sets To; saved start/end in clip seconds", hasWhole && /0:02/.test(from) && /0:04/.test(to) && r5 && near(r5.start, 2, 0.15) && near(r5.end, 4, 0.15), { hasWhole, from, to, r5 });
         // typed times
-        await p.evaluate(() => TDC.regions.clear()); await clk("#crDraw"); await W(200); await drawBox("mouse"); await clk("#crWhole");
-        await p.fill("#crFrom", "0:01.5"); await p.fill("#crTo", "3"); await clk("#crSave"); await W(200); let r6 = await lastRegion();
+        await p.evaluate(() => TDC.regions.clear()); await clk("#crWhole");
+        await p.fill("#crFrom", "0:01.5"); await p.fill("#crTo", "3"); await clk("#crDraw"); await W(200); await drawBox("mouse"); await save(); await W(200); let r6 = await lastRegion();
         ok(tag + "typed times (m:ss.s or seconds) are read", r6 && near(r6.start, 1.5, 0.01) && near(r6.end, 3, 0.01), r6);
         // use sections (trim)
         await p.evaluate(() => { TDC.regions.clear(); TDC.setPref("advanced", true); TDC.ui.segs = []; for (const [a, b] of [[1, 2.5], [3.5, 5]]) { try { TDC.ui.addSeg(a, b); } catch (e) { /* timeline drawing in a hidden layout */ } } TDC.ui.selSeg = null; if (TDC.regions.UI.sync) TDC.regions.UI.sync(); });
-        await clk("#crDraw"); await W(200); await drawBox("mouse"); await clk("#crWhole");
+        await clk("#crWhole");
         const trimVis = await p.evaluate(() => !document.getElementById("crTrim").hidden); await clk("#crTrim");
         const tr = await p.evaluate(() => [document.getElementById("crFrom").value, document.getElementById("crTo").value]);
-        await clk("#crSave"); await W(200); let r7 = await lastRegion();
+        await clk("#crDraw"); await W(200); await drawBox("mouse"); await save(); await W(200); let r7 = await lastRegion();
         ok(tag + "'Use my sections' fills the range from the trim (first section start to last section end)", trimVis && r7 && near(r7.start, 1, 0.05) && near(r7.end, 5, 0.05), { trimVis, tr, r7 });
         await p.evaluate(() => { TDC.ui.segs = []; TDC.setPref("advanced", false); TDC.regions.clear(); });
         // list actions: toggle, edit, show, delete
@@ -394,7 +398,7 @@ async function openEvent(p, URL0) {
         await p.click("#crList li input[data-act=on]"); const on = await p.evaluate(() => [TDC.regions.list[0].on, TDC.regions.at("back", 2).length]);
         ok(tag + "list: the tick switches a region off and on (off = not applied)", off[0] === false && off[1] === 0 && on[0] === true && on[1] === 1, { off, on });
         await p.click("#crList li button[data-act=edit]"); await W(200); await clk("#crMode button[data-v=remove]"); const editing = await p.evaluate(() => ({ save: document.getElementById("crSave").textContent, dis: document.getElementById("crSave").disabled, cam: document.getElementById("crCam").disabled }));
-        await clk("#crSave"); await W(150);
+        await save(); await W(150);
         const edited = await p.evaluate(() => ({ n: TDC.regions.list.length, mode: TDC.regions.list[0].mode, s: TDC.regions.list[0].start, e: TDC.regions.list[0].end }));
         ok(tag + "list: Edit keeps the shape + time, lets you change Blur/Remove, 'Save changes' updates in place (no duplicate)", /Save changes/.test(editing.save) && !editing.dis && edited.n === 1 && edited.mode === "remove" && edited.s === 1 && edited.e === 3, { editing, edited });
         await p.click("#crList li button[data-act=go]"); await W(400);
