@@ -19,6 +19,19 @@ Grounding DINO tiny (experimental) is not stored here. It is loaded from Hugging
 | `plates/yolo-v9-t-640-license-plates-end2end.onnx` | same, 640×640 | 7.8 MB | **MIT** | same release, `…-640-…` (sha256 `c3c1026c…c076`) |
 | `plates/cct_s_v2_global.onnx` | fast-plate-ocr CCT-S v2 "global" plate reader: uint8 RGB `[n, 64, 128, 3]` → `[n, 10, 37]` per-slot probabilities over `0-9 A-Z _`, plus a 66-way region head (includes United States) | 5.3 MB | **MIT** (fast-plate-ocr) | `github.com/ankandrew/fast-plate-ocr/releases/download/arg-plates/cct_s_v2_global.onnx` (sha256 `384bbbd2…c6e47b`) |
 
+**Where they are served from.** Only from `models/plates/` in this app (they are committed here, ~20.5 MB: 7.8 + 7.8 + 5.3 MB). `js/plates.js` has no
+other address (it used to fall back to a raw.githubusercontent.com copy on the `feature/phase6-plates-ocr` branch; that is gone), apart from an
+optional custom URL you set yourself (Settings, `urls` in `tdc.plates.v1`), which is tried first. The browser's IndexedDB (`tdc-models`) is only a
+speed-up cache: loading works with it empty, blocked or refused, and if a cached copy is damaged the worker drops it and fetches the file again
+(`test/plates-local.js`). **Offline pack:** not included. Plates are off by default, and 13.0 MB (reader + 384 px finder) of background download
+for everyone is not worth it; once plates are turned on the files are fetched once and kept by the service worker's run-time cache.
+
+**What was checked (Oct 28, 2026).** Both upstream repositories (`ankandrew/open-image-models`, `ankandrew/fast-plate-ocr`) carry an MIT `LICENSE`
+(copyright 2024 ankandrew) and say `license = "MIT"` in `pyproject.toml`. The 384 px detector and the CCT-S reader were downloaded again from the
+release URLs above and their sha256 match the committed files. The 640 px detector's checksum is the one recorded when it was added (not re-downloaded).
+**Not verified:** neither upstream README states the licence or provenance of the *training data* behind the weights, and the YOLOv9 architecture
+the detector is based on is GPL-3.0 code (WongKinYiu); the weights are published by open-image-models under MIT. Nothing here is legal advice.
+
 Copied unchanged from the authors' GitHub releases. The plate detector's architecture is YOLOv9 (WongKinYiu, GPL-3.0 code);
 the released weights are distributed by open-image-models under MIT. Both are compatible with this AGPL-3.0-style open-source
 app. Training data is the authors' (a global plate dataset); nothing is trained in the app.

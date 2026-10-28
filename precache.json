@@ -85,8 +85,6 @@
   "models/yolo11n.onnx",
   "models/reid/person-reidentification-retail-0288.onnx",
   "models/cc/fc4-squeezenet11-int8.onnx",
-  "models/plates/cct_s_v2_global.onnx",
-  "models/plates/yolo-v9-t-384-license-plates-end2end.onnx",
   "vendor/ocr/det-0.js",
   "vendor/ocr/det-1.js",
   "vendor/ocr/det-2.js",

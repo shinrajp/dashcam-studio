@@ -13,7 +13,10 @@ core += sorted(glob.glob("js/*.js")) + sorted(glob.glob("css/*.css"))
 core += ["vendor/en_dict.txt", "vendor/ort/ort-wasm-simd-threaded.mjs"]
 seen = set(); core = [p for p in core if os.path.isfile(p) and not (p in seen or seen.add(p))]
 extra = ["vendor/ort/ort-wasm-simd-threaded.wasm", "models/yolo11n.onnx", "models/reid/person-reidentification-retail-0288.onnx",
-         "models/cc/fc4-squeezenet11-int8.onnx", "models/plates/cct_s_v2_global.onnx", "models/plates/yolo-v9-t-384-license-plates-end2end.onnx"]
+         "models/cc/fc4-squeezenet11-int8.onnx"]
+# models/plates/* (13.0 MB for the phone finder + reader) are NOT pre-cached: plates are off by default, so nobody pays 13 MB of
+# background download for a feature they never switch on. When plates are turned on, the files are fetched once from models/plates/
+# and the service worker keeps them (same-origin static files seen at run time), so it works offline afterwards.
 extra += sorted(glob.glob("vendor/ocr/*.js"))
 extra = [p for p in extra if os.path.isfile(p)]
 size = lambda l: sum(os.path.getsize(p) for p in l)

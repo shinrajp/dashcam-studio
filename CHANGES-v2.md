@@ -621,3 +621,11 @@ Export dialog: tick which cameras go into the file. All six by default (output b
 - Service worker / pack: `js/export-cams.js` in the core list. Asset version `export-cams`.
 - Test: `test/export-cams.js` (Playwright, chromium + webkit separately, desktop + phone 390×844; WebKit exports decoded in Chrome). Planner invariants for 1–6 cameras, dialog, real short exports (cells, native size, free cell, order/mirror, placeholders, decoder count, box/redact rects, six explicit = default).
 - Not done: `burnBoxes.prepare`, `detect.prepareLive`, `plates.exportPrep` still process all six cameras.
+
+## Plate models only from this app (tag plates-local)
+Rollback point: tag `pre-plates-local` (= feature/all-in-one 59c36ee).
+- The three plate models (YOLOv9-tiny 384 and 640 detectors, CCT-S reader, 20.9 MB) were already committed under `models/plates/`. `js/plates.js` still fell back to a raw.githubusercontent.com copy on the `feature/phase6-plates-ocr` branch; that fallback is removed (`L.BASE` is gone, `L.LOCAL = "models/plates/"`). A custom URL in Settings is still tried first.
+- IndexedDB is a cache only: loading works with it empty, blocked or refused; if a cached copy is damaged the worker (`js/detect-worker.js`) drops it and fetches the file again (also for object-detection models).
+- The offline pack no longer pre-downloads the plate files (13.0 MB in the background for everyone, for a feature that is off by default). Pre-cache "extra" went from 56.7 MB to 43.7 MB (tools/gen-precache.py). After plates are first used the service worker's run-time cache keeps the files; not tested offline.
+- `models/README.md`: upstream licences re-checked (both repos MIT; training-data licence not stated upstream, flagged), 384 px detector and reader re-downloaded and sha256 match.
+- Test: `test/plates-local.js` (Chromium + WebKit). Existing `test/phase6-plates.js` 33/33 before and after.
