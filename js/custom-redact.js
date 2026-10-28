@@ -380,8 +380,18 @@
     $("crBarSave").addEventListener("click", () => UI.save());
     $("crBarAgain").addEventListener("click", () => UI.draw());
     $("crBarCancel").addEventListener("click", () => UI.cancel());
-    $("crBarOpts").addEventListener("click", () => { S.reopen = true; reopenPanel(); });
+    $("crBarOpts").addEventListener("click", () => {   // a toggle: Options opens the Redact panel, "Back to drawing" tucks it away again (the picture is never left covered with no way back)
+      const U = T.searchUI;
+      if (U && U.open) { if (U.hide) U.hide(); S.reopen = true; } else { S.reopen = true; reopenPanel(); }
+      optsLabel();
+    });
     return b;
+  }
+  function optsLabel() {
+    const o = $("crBarOpts"), U = T.searchUI; if (!o) return;
+    const open = !!(U && U.open);
+    o.textContent = open ? "Back to drawing" : "Options"; o.setAttribute("aria-expanded", String(open));
+    o.title = open ? "Hide the panel so you can draw" : "Back to the Redact panel";
   }
   function syncBar() {
     const b = ensureBar(), show = !!(S.drawing || S.draft);
@@ -391,6 +401,7 @@
     b.style.bottom = ((tp && !document.body.classList.contains("fs") ? tp.offsetHeight : 0) + 8) + "px";
     $("crBarSave").disabled = !S.draft || S.drawing; $("crBarSave").textContent = S.editId ? "Save changes" : "Save region";
     $("crBarAgain").hidden = !!S.drawing;
+    optsLabel();
   }
   UI.save = () => {
     if (!S.draft) { msg("Draw a region first.", true); return null; }
