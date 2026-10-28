@@ -299,7 +299,8 @@
       e.preventDefault(); id = e.pointerId;
       try { cv.setPointerCapture(id); } catch (_) {}
       const [u, v] = G.toRaw(f, e.clientX, e.clientY);
-      S.live = { pts: [u, v, u, v], f };
+      S.live = { pts: [u, v, u, v], f, c0: [e.clientX, e.clientY], cb: [e.clientX, e.clientY, e.clientX, e.clientY] };
+      UI.avoidBar(e.clientX, e.clientY, S.live.cb);
       kick();
     });
     cv.addEventListener("pointermove", (e) => {
@@ -311,6 +312,10 @@
         if (Math.hypot((u - lx) * f.w, (v - ly) * f.h) >= 3 && p.length < 4000) p.push(u, v);
       } else { p[2] = u; p[3] = v; }
       S.live.last = [u, v];
+      const L = S.live, c = L.cb, c0 = L.c0;
+      if (S.shape === "free") { c[0] = Math.min(c[0], e.clientX); c[1] = Math.min(c[1], e.clientY); c[2] = Math.max(c[2], e.clientX); c[3] = Math.max(c[3], e.clientY); }
+      else { c[0] = Math.min(c0[0], e.clientX); c[1] = Math.min(c0[1], e.clientY); c[2] = Math.max(c0[0], e.clientX); c[3] = Math.max(c0[1], e.clientY); }
+      UI.avoidBar(e.clientX, e.clientY, c);
     });
     const end = (e) => {
       if (id !== e.pointerId) return;
@@ -371,11 +376,13 @@
     let b = $("crBar");
     if (b) return b;
     b = document.createElement("div"); b.id = "crBar"; b.className = "cr-bar"; b.hidden = true; b.setAttribute("role", "group"); b.setAttribute("aria-label", "Custom region");
-    b.innerHTML = '<span class="cr-bar-msg" id="crBarMsg" aria-live="polite"></span><span class="cr-bar-btns">' +
+    b.innerHTML = '<button type="button" class="cr-grip" id="crBarGrip" aria-label="Move this bar (drag, or press Up / Down)" title="Drag to move this bar"><svg viewBox="0 0 14 22" aria-hidden="true"><circle cx="4" cy="4" r="1.7"/><circle cx="10" cy="4" r="1.7"/><circle cx="4" cy="11" r="1.7"/><circle cx="10" cy="11" r="1.7"/><circle cx="4" cy="18" r="1.7"/><circle cx="10" cy="18" r="1.7"/></svg></button>' +
+      '<span class="cr-bar-btns">' +
       '<button type="button" class="btn small primary" id="crBarSave">Save region</button>' +
       '<button type="button" class="btn small" id="crBarAgain">Draw again</button>' +
       '<button type="button" class="btn small ghost" id="crBarCancel">Cancel</button>' +
-      '<button type="button" class="btn small ghost" id="crBarOpts" title="Back to the Redact panel">Options</button></span>';
+      '<button type="button" class="btn small ghost" id="crBarOpts" title="Back to the Redact panel">Options</button></span>' +
+      '<span class="cr-bar-msg" id="crBarMsg" aria-live="polite"></span>';
     document.body.appendChild(b);
     $("crBarSave").addEventListener("click", () => UI.save());
     $("crBarAgain").addEventListener("click", () => UI.draw());
@@ -385,8 +392,94 @@
       if (U && U.open) { if (U.hide) U.hide(); S.reopen = true; } else { S.reopen = true; reopenPanel(); }
       optsLabel();
     });
+    wireGrip(b);
     return b;
   }
+  /* ---- draw bar position (bar-fix) ----
+     The bar is click-through (only its grip and buttons catch the pointer). It sits above the transport bar at the bottom; when a stroke starts or
+     grows near it, or the shape being drawn reaches it, it glides to the opposite screen edge (never under the finger). The grip drags it anywhere;
+     the position is remembered for the session. */
+  const POSKEY = "dcs.crBarPos.v1", NEAR = 28;
+  const bp = { edge: "bottom", free: null };
+  try { const j = JSON.parse(sessionStorage.getItem(POSKEY) || "null"); if (j && (j.edge === "top" || j.edge === "bottom")) { bp.edge = j.edge; if (j.free && isFinite(j.free.x) && isFinite(j.free.y)) bp.free = { x: +j.free.x, y: +j.free.y }; } } catch (_) {}
+  const savePos = () => { try { sessionStorage.setItem(POSKEY, JSON.stringify(bp)); } catch (_) {} };
+  let probe = null;
+  function safe() {   // iOS safe-area insets in px (0 elsewhere)
+    try {
+      if (!probe) { probe = document.createElement("div"); probe.setAttribute("aria-hidden", "true"); probe.style.cssText = "position:fixed;left:0;top:0;width:0;height:0;visibility:hidden;pointer-events:none;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)"; document.body.appendChild(probe); }
+      const cs = getComputedStyle(probe); return { t: parseFloat(cs.paddingTop) || 0, b: parseFloat(cs.paddingBottom) || 0 };
+    } catch (_) { return { t: 0, b: 0 }; }
+  }
+  function bottomGap() {
+    const tp = $("transport"), fs = document.body.classList.contains("fs");
+    return (tp && !fs ? tp.offsetHeight : 0) + 8 + (fs || !tp ? safe().b : 0);
+  }
+  function edgeRect(edge, W, H) {   // where the bar would sit pinned to an edge (centred)
+    const sf = safe(), l = Math.max(8, (innerWidth - W) / 2), t = edge === "top" ? sf.t + 8 : innerHeight - bottomGap() - H;
+    return { l, t, r: l + W, b: t + H };
+  }
+  function clampFree(x, y, W, H) {
+    const sf = safe();
+    return { x: Math.min(Math.max(4, x), Math.max(4, innerWidth - W - 4)), y: Math.min(Math.max(sf.t + 4, y), Math.max(sf.t + 4, innerHeight - H - sf.b - 4)) };
+  }
+  function applyPos(animate) {
+    const b = $("crBar"); if (!b || b.hidden) return;
+    const before = animate ? b.getBoundingClientRect() : null;
+    if (bp.free) {
+      const W = b.offsetWidth, H = b.offsetHeight, c = clampFree(bp.free.x, bp.free.y, W, H);
+      b.classList.add("free"); b.style.left = c.x + "px"; b.style.top = c.y + "px"; b.style.bottom = "auto";
+      b.dataset.edge = c.y + H / 2 < innerHeight / 2 ? "top" : "bottom";
+    } else {
+      b.classList.remove("free"); b.style.left = ""; b.dataset.edge = bp.edge;
+      if (bp.edge === "top") { b.style.top = "calc(env(safe-area-inset-top, 0px) + 8px)"; b.style.bottom = "auto"; }
+      else { b.style.top = "auto"; b.style.bottom = bottomGap() + "px"; }
+    }
+    if (before && b.animate && !(window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches)) {
+      const a = b.getBoundingClientRect(), dx = before.left - a.left, dy = before.top - a.top;
+      if (Math.abs(dx) > 2 || Math.abs(dy) > 2) { try { b.animate([{ transform: "translate(" + dx + "px," + dy + "px)" }, { transform: "none" }], { duration: 200, easing: "ease-out" }); } catch (_) {} }
+    }
+  }
+  const hit = (r, x0, y0, x1, y1, m) => !(x1 < r.l - m || x0 > r.r + m || y1 < r.t - m || y0 > r.b + m);
+  /** A stroke is at (x, y) with client bounds bb = [x0, y0, x1, y1]: step the bar out of the way if it is close. Returns true when it moved. */
+  UI.avoidBar = (x, y, bb) => {
+    const b = $("crBar"); if (!b || b.hidden || !S.drawing) return false;
+    const W = b.offsetWidth, H = b.offsetHeight, rc = b.getBoundingClientRect();
+    const cur = bp.free ? { l: rc.left, t: rc.top, r: rc.left + W, b: rc.top + H } : edgeRect(bp.edge, W, H);
+    const pt = hit(cur, x, y, x, y, NEAR), box = !!bb && hit(cur, bb[0], bb[1], bb[2], bb[3], NEAR);
+    if (!pt && !box) return false;
+    const edge = y > innerHeight / 2 ? "top" : "bottom";
+    if (!bp.free && edge === bp.edge) return false;
+    const to = edgeRect(edge, W, H);
+    if (hit(to, x, y, x, y, NEAR)) return false;                       // the other edge is just as close to the finger: stay
+    if (!pt && bb && hit(to, bb[0], bb[1], bb[2], bb[3], NEAR)) return false;   // only the shape's bounds are near, and they reach the other edge too
+    bp.free = null; bp.edge = edge; savePos(); applyPos(true);
+    return true;
+  };
+  function wireGrip(b) {
+    const g = b.querySelector("#crBarGrip"); let id = null, ox = 0, oy = 0;
+    g.addEventListener("pointerdown", (e) => {
+      if (id !== null || (e.pointerType === "mouse" && e.button !== 0)) return;
+      e.preventDefault(); e.stopPropagation(); id = e.pointerId; try { g.setPointerCapture(id); } catch (_) {}
+      const r = b.getBoundingClientRect(); ox = e.clientX - r.left; oy = e.clientY - r.top; g.classList.add("on");
+    });
+    g.addEventListener("pointermove", (e) => {
+      if (id !== e.pointerId) return; e.preventDefault();
+      bp.free = { x: e.clientX - ox, y: e.clientY - oy }; applyPos(false);
+    });
+    const end = (e) => {
+      if (id !== e.pointerId) return; id = null; g.classList.remove("on"); try { g.releasePointerCapture(e.pointerId); } catch (_) {}
+      if (bp.free) { const c = clampFree(bp.free.x, bp.free.y, b.offsetWidth, b.offsetHeight); bp.free = c; savePos(); applyPos(false); }
+    };
+    g.addEventListener("pointerup", end); g.addEventListener("pointercancel", end);
+    g.addEventListener("click", (e) => e.stopPropagation());
+    g.addEventListener("keydown", (e) => {   // keyboard: Up / Down pins the bar to the top / bottom edge
+      if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
+      e.preventDefault(); bp.free = null; bp.edge = e.key === "ArrowUp" ? "top" : "bottom"; savePos(); applyPos(true);
+    });
+  }
+  let rsz = 0;
+  addEventListener("resize", () => { clearTimeout(rsz); rsz = setTimeout(() => applyPos(false), 80); });
+  addEventListener("orientationchange", () => setTimeout(() => applyPos(false), 250));
   function optsLabel() {
     const o = $("crBarOpts"), U = T.searchUI; if (!o) return;
     const open = !!(U && U.open);
@@ -397,8 +490,7 @@
     const b = ensureBar(), show = !!(S.drawing || S.draft);
     b.hidden = !show;
     if (!show) return;
-    const tp = $("transport");
-    b.style.bottom = ((tp && !document.body.classList.contains("fs") ? tp.offsetHeight : 0) + 8) + "px";
+    applyPos(false);
     $("crBarSave").disabled = !S.draft || S.drawing; $("crBarSave").textContent = S.editId ? "Save changes" : "Save region";
     $("crBarAgain").hidden = !!S.drawing;
     optsLabel();
