@@ -409,6 +409,185 @@ async function openEvent(p, URL0) {
         ok(tag + "no console errors from the editor (the timeline's own rounded-corner error for sections narrower than 7 px, which the test creates, is not ours)", errs.filter((e) => !/arcTo|allowed range/.test(e)).length === 0, errs);
         await p.evaluate(() => { TDC.focus.grid && TDC.focus.grid(); TDC.layout.set("current"); });
       }
+      // ── 5. export: every layout burns the same region, in the right cell, at the right time ──
+      if (PARTS.includes("5")) {
+        const cap = await p.evaluate(() => TDC.exporter.capability());
+        if (process.env.NOEXPORT || cap.mode === "none") ok(tag + "export checks skipped (" + (process.env.NOEXPORT ? "NOEXPORT" : "no encoder in this browser") + ")", true);
+        else {
+          await p.evaluate(() => { TDC.regions.clear(); TDC.player.pause(); });
+          const esc = (o) => o;
+          const xport = async (o, regs) => {
+            const meta = await p.evaluate(async ([o, regs]) => {
+              TDC.regions.clear(); for (const r of regs || []) TDC.regions.add(r);
+              try {
+                const r = await TDC.exporter.run({ preset: "original", codec: "h264", sizeId: "native", extras: { mode: "overlay" }, order: "standard", ranges: [[0, 1.2]], onStatus: () => {}, onProgress: () => {}, ...o, show: { labels: false, fsd: false, time: false, boxes: false, hud: false, map: false, carview: false } });
+                window.__lastExport = r.blob;
+                const mir = (o.order === "viewer" && r.cams) ? r.cams.map((c) => TDC.layout.mirrored(c)) : (r.cams || []).map(() => false);
+                return { ok: true, W: r.W, H: r.H, grid: r.grid, cols: r.cols, rows: r.rows, cams: r.cams, mir, type: r.blob.type, size: r.blob.size };
+              } catch (e) { return { ok: false, err: String(e && e.message || e) }; } finally { TDC.regions.clear(); }
+            }, [o, regs]);
+            if (meta.ok && D !== p) {
+              const b64 = await p.evaluate(async () => { const u = new Uint8Array(await window.__lastExport.arrayBuffer()); let s = ""; for (let i = 0; i < u.length; i += 32768) s += String.fromCharCode.apply(null, u.subarray(i, i + 32768)); return btoa(s); });
+              await D.evaluate(([d, t]) => { const bin = atob(d), u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); window.__lastExport = new Blob([u], { type: t }); }, [b64, meta.type]);
+            }
+            return meta;
+          };
+          const cellOf = (m, cam) => { const i = m.cams.indexOf(cam); if (i < 0) return null; const gw = m.grid.w / m.cols, gh = m.grid.h / m.rows; return { x: m.grid.x + (i % m.cols) * gw, y: m.grid.y + Math.floor(i / m.cols) * gh, w: gw, h: gh, flip: !!m.mir[i], i }; };
+          const plateSpec = (c, b) => ({ rect: { x: c.x + (c.flip ? 1 - (b.x + b.w) : b.x) * c.w, y: c.y + b.y * c.h, w: b.w * c.w, h: b.h * c.h }, flip: c.flip });
+          const cellSpec = (c) => ({ rect: { x: c.x, y: c.y, w: c.w, h: c.h }, flip: c.flip });
+          const dec = (tau, specs) => D.evaluate(([t, s]) => __cr.decodeAt(t, s), [tau, specs]);
+          const meanDiff = (a, b, skip) => { let s = 0, n = 0; for (let i = 0; i < a.length; i++) { if (skip && skip(i)) continue; s += Math.abs(a[i] - b[i]); n++; } return n ? s / n : 0; };
+          const away = (b) => (i) => { const x = (i % 32) / 32, y = Math.floor(i / 32) / 24; return x > b.x - 0.08 && x < b.x + b.w + 0.08 && y > b.y - 0.08 && y < b.y + b.h + 0.08; };
+          const reBack = { cam: "back", shape: "rect", mode: "blur", x: PB.x, y: PB.y, w: PB.w, h: PB.h };
+          const reFront = { cam: "front", shape: "rect", mode: "remove", x: FB.x, y: FB.y, w: FB.w, h: FB.h };
+
+          // layouts: [label, options, cameras to look at]
+          const layouts = [
+            ["Overlay, all four cameras (Standard order)", { extras: { mode: "overlay" } }],
+            ["Add panel", { extras: { mode: "panel" } }],
+            ["Fill black area (compat 1920x1080)", { preset: "compat", extras: { mode: "fill" }, sizeId: undefined }],
+            ["Only Back + Front ticked", { cams: ["front", "back"], extras: { mode: "overlay" } }],
+            ["Only Back ticked (single camera)", { cams: ["back"], extras: { mode: "panel" } }],
+          ];
+          for (const [label, o] of layouts) {
+            const ref = await xport(o, []);
+            if (!ref.ok) { ok(tag + "export [" + label + "] ran", false, ref); continue; }
+            const tau = 0.5, cb = cellOf(ref, "back"), cf = cellOf(ref, "front");
+            const sp = [plateSpec(cb, PB), cellSpec(cb)].concat(cf ? [plateSpec(cf, FB), cellSpec(cf)] : []);
+            const r0 = await dec(tau, sp);
+            const rg = await xport(o, [reBack].concat(cf ? [reFront] : []));
+            if (!rg.ok) { ok(tag + "export [" + label + "] with regions ran", false, rg); continue; }
+            const r1 = await dec(tau, sp);
+            const same = JSON.stringify([ref.W, ref.H, ref.cams, ref.grid]) === JSON.stringify([rg.W, rg.H, rg.cams, rg.grid]);
+            const plain = r0.specs[0].a, bl = r1.specs[0].a;
+            ok(tag + "export [" + label + "]: same size and cells with and without regions", same, { ref, rg });
+            ok(tag + "export [" + label + "]: the curved plate is readable without a region, unreadable with Blur (texture < 20 %, characters gone)", plain.tex > 6 && plain.runs >= 4 && bl.tex < 0.2 * plain.tex && bl.runs <= 1 && (bl.hi - bl.lo) < 0.5 * (plain.hi - plain.lo), { plain, bl });
+            ok(tag + "export [" + label + "]: nothing else in the camera's picture changed", meanDiff(r0.specs[1].map, r1.specs[1].map, away(PB)) < 3, meanDiff(r0.specs[1].map, r1.specs[1].map, away(PB)));
+            if (cf) {
+              const fm = r1.specs[2].a;
+              ok(tag + "export [" + label + "]: Remove on the front plate is fully black in the file (>= 98 % near-black inside the box), other cameras' cells untouched", fm.black >= 0.98 && r0.specs[2].a.black < 0.2 && meanDiff(r0.specs[3].map, r1.specs[3].map, away(FB)) < 3, { fm, before: r0.specs[2].a.black });
+            }
+          }
+
+          // Match viewer order with a mirrored back camera (layout "mirror"): the burn must follow the flipped cell
+          await p.evaluate(() => TDC.layout.set("mirror")); await W(400);
+          {
+            const o = { order: "viewer", cams: ["front", "left_repeater", "back", "right_repeater"], extras: { mode: "overlay" } };
+            const ref = await xport(o, []), mirrored = ref.ok && ref.mir[ref.cams.indexOf("back")];
+            const cb = ref.ok && cellOf(ref, "back");
+            ok(tag + "Match viewer: the back camera's cell is mirrored in the file", !!mirrored, ref);
+            if (cb) {
+              const r0 = await dec(0.5, [plateSpec(cb, PB), cellSpec(cb), { rect: { x: cb.x + PB.x * cb.w, y: cb.y + PB.y * cb.h, w: PB.w * cb.w, h: PB.h * cb.h }, flip: false }]);
+              const rg = await xport(o, [{ ...reBack, mode: "remove" }]);
+              const r1 = await dec(0.5, [plateSpec(cb, PB), cellSpec(cb), { rect: { x: cb.x + PB.x * cb.w, y: cb.y + PB.y * cb.h, w: PB.w * cb.w, h: PB.h * cb.h }, flip: false }]);
+              ok(tag + "Match viewer + mirrored cell: Remove lands on the plate as the viewer shows it (black there, 98 %+)", rg.ok && r1.specs[0].a.black >= 0.98 && r0.specs[0].a.black < 0.2, { before: r0.specs[0].a.black, after: r1 && r1.specs[0].a.black });
+              ok(tag + "Match viewer + mirrored cell: the un-mirrored position (wrong side) is not blacked out", r1.specs[2].a.black < 0.5, r1.specs[2].a);
+            }
+            // Standard order on the same layout: no flip, the burn is on the un-flipped side
+            const o2 = { ...o, order: "standard" }, ref2 = await xport(o2, []), c2 = ref2.ok && cellOf(ref2, "back");
+            if (c2) {
+              const rg2 = await xport(o2, [{ ...reBack, mode: "remove" }]), r2 = await dec(0.5, [plateSpec(c2, PB)]);
+              ok(tag + "Standard order: not mirrored, Remove on the plate", rg2.ok && !c2.flip && r2.specs[0].a.black >= 0.98, r2.specs[0].a);
+            }
+          }
+          await p.evaluate(() => TDC.layout.set("current"));
+
+          // time gating across trimmed + joined sections: region 2 to 4 s only burns the middle section
+          {
+            const o = { extras: { mode: "overlay" }, cams: ["back"], ranges: [[0.3, 1.3], [2.5, 3.5], [4.5, 5.5]] };
+            const ref = await xport(o, []), cb = ref.ok && cellOf(ref, "back");
+            if (cb) {
+              const rg = await xport(o, [{ ...reBack, mode: "remove", start: 2, end: 4 }]);
+              const out = []; for (const tau of [0.5, 1.5, 2.5]) { const r = await dec(tau, [plateSpec(cb, PB)]); out.push(+r.specs[0].a.black.toFixed(2)); }
+              ok(tag + "time range 2 to 4 s with sections 0.3-1.3 / 2.5-3.5 / 4.5-5.5: only the middle section is burned", rg.ok && out[0] < 0.2 && out[1] >= 0.98 && out[2] < 0.2, out);
+              const rg2 = await xport(o, [{ ...reBack, mode: "remove", start: 3.2, end: 5 }]);   // starts mid-section 2, runs into section 3
+              const o2 = []; for (const tau of [0.5, 1.2, 1.9, 2.5]) { const r = await dec(tau, [plateSpec(cb, PB)]); o2.push(+r.specs[0].a.black.toFixed(2)); }
+              ok(tag + "a range that starts inside a section: burned from that moment on (section 2 from 3.2 s, all of section 3 up to 5 s)", rg2.ok && o2[0] < 0.2 && o2[1] < 0.2 && o2[2] >= 0.98 && o2[3] >= 0.98, o2);
+            } else ok(tag + "sections export ran", false, ref);
+          }
+
+          // 360 equirect: regions are burned into the camera frames before projection
+          {
+            const eqo = { preset: "equirect", ranges: [[0.5, 0.9]], extras: undefined, order: undefined };
+            const ref = await xport(eqo, []);
+            if (!ref.ok) ok(tag + "360 export ran (reference)", false, ref);
+            else {
+              const grab = (tau) => D.evaluate(async (t) => { const v = document.createElement("video"); v.muted = true; v.src = URL.createObjectURL(window.__lastExport); await new Promise((r) => { v.onloadeddata = r; v.onerror = r; setTimeout(r, 8000); }); v.currentTime = t; await new Promise((r) => { v.onseeked = r; setTimeout(r, 5000); }); const c = document.createElement("canvas"); c.width = 256; c.height = 128; const g = c.getContext("2d"); g.drawImage(v, 0, 0, 256, 128); const d = g.getImageData(0, 0, 256, 128).data, m = []; for (let i = 0; i < d.length; i += 4) m.push(0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]); return { w: v.videoWidth, h: v.videoHeight, m }; }, tau);
+              const a = await grab(0.1);
+              const rg = await xport(eqo, [{ ...reBack, mode: "remove", x: 0.1, y: 0.3, w: 0.6, h: 0.5 }]), b = await grab(0.1);
+              let changed = 0, toBlack = 0; for (let i = 0; i < a.m.length; i++) if (Math.abs(a.m[i] - b.m[i]) > 40) { changed++; if (b.m[i] < 25) toBlack++; }
+              ok(tag + "360 equirect export: a Remove region on the back camera changes the projected picture (dark patch appears, nothing else needed)", rg.ok && a.w === 2048 && changed / a.m.length > 0.004 && toBlack / Math.max(1, changed) > 0.7, { changed: changed / a.m.length, toBlack: toBlack / Math.max(1, changed), w: a.w });
+              const rg3 = await xport(eqo, []), c3 = await grab(0.1); let d3 = 0; for (let i = 0; i < a.m.length; i++) d3 += Math.abs(a.m[i] - c3.m[i]); 
+              ok(tag + "360 equirect export: with no regions the picture is the same as before (deterministic, no side effects)", rg3.ok && d3 / a.m.length < 2, d3 / a.m.length);
+            }
+          }
+
+          // Parity (Chromium only: headless WebKit cannot paint decoded video in the viewer): the viewer's picture of the region vs the exported cell
+          if (BR === "chromium" && !phone) {
+            await p.evaluate(() => TDC.focus.focus("back")); await W(400);
+            const F = await p.evaluate(() => TDC.focus.cam);
+            if (F !== "back") ok(tag + "parity: could focus the back camera", false, F);
+            else {
+              await p.evaluate(() => { TDC.player.seek(0.5); TDC.player.pause(); }); await W(900);
+              for (const mode of ["blur", "remove"]) {
+                await p.evaluate(([reg]) => { TDC.regions.clear(); TDC.regions.add(reg); }, [{ ...reBack, mode }]); await p.evaluate(() => __cr.paintNow()); await W(300);
+                const rect = await p.evaluate((b) => __cr.expect("back", b), { x: PB.x - 0.02, y: PB.y - 0.03, w: PB.w + 0.04, h: PB.h + 0.06 });
+                const buf = await p.screenshot({ clip: { x: rect.x, y: rect.y, width: rect.w, height: rect.h } });
+                const viewer = await D.evaluate(async (b64) => { const bm = await createImageBitmap(await (await fetch("data:image/png;base64," + b64)).blob()), c = document.createElement("canvas"); c.width = 32; c.height = 24; const g = c.getContext("2d"); g.drawImage(bm, 0, 0, 32, 24); const d = g.getImageData(0, 0, 32, 24).data, m = []; for (let i = 0; i < d.length; i += 4) m.push(0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]); return m; }, buf.toString("base64"));
+                const o = { cams: ["back"], extras: { mode: "panel" }, ranges: [[0, 1.2]] };
+                const plainX = await xport(o, []), cb = cellOf(plainX, "back"), spec = { rect: { x: cb.x + (PB.x - 0.02) * cb.w, y: cb.y + (PB.y - 0.03) * cb.h, w: (PB.w + 0.04) * cb.w, h: (PB.h + 0.06) * cb.h }, flip: false };
+                const r0 = await dec(0.5, [spec]);
+                const rg = await xport(o, [{ ...reBack, mode }]), r1 = await dec(0.5, [spec]);
+                const dPar = meanDiff(viewer, r1.specs[0].map), dPlain = meanDiff(r0.specs[0].map, r1.specs[0].map);
+                ok(tag + "parity (" + mode + "): the viewer's picture of the region matches the exported file (mean luma difference " + dPar.toFixed(1) + " vs " + dPlain.toFixed(1) + " for an un-redacted export)", rg.ok && dPar < 14 && dPar < 0.5 * dPlain, { dPar, dPlain });
+              }
+              await p.evaluate(() => TDC.regions.clear());
+            }
+          }
+          await p.evaluate(() => { TDC.focus.grid && TDC.focus.grid(); TDC.layout.set("current"); });
+          ok(tag + "export dialog says regions are burned in when any exist, hidden when none", await (async () => {
+            const hid0 = await p.evaluate(() => document.getElementById("exportRegionsNote").hidden);
+            await p.evaluate(() => TDC.regions.add({ cam: "back", shape: "rect", mode: "blur", x: 0.2, y: 0.5, w: 0.2, h: 0.1 })); await W(150);
+            const t1 = await p.evaluate(() => { const n = document.getElementById("exportRegionsNote"); return { hidden: n.hidden, text: n.textContent }; });
+            await p.evaluate(() => TDC.regions.clear()); await W(150);
+            return hid0 && !t1.hidden && /region/i.test(t1.text) && await p.evaluate(() => document.getElementById("exportRegionsNote").hidden);
+          })());
+          ok(tag + "no console errors during export tests", errs.filter((e) => !/arcTo|allowed range/.test(e)).length === 0, errs);
+        }
+      }
+
+      // ── 6. phone layout + cost per frame ──
+      if (PARTS.includes("6")) {
+        await p.evaluate(() => { TDC.regions.clear(); TDC.focus.focus("back"); }); await W(500);
+        const perf = await p.evaluate(async (PB) => {
+          const G = TDC.regions, v = TDC.player.tiles.back.vids[TDC.player.active], cv = TDC.player.tiles.back.tile.querySelector(".redact-layer"), g = cv.getContext("2d");
+          const tw = cv.width, th = cv.height, time = (n) => { const t0 = performance.now(); for (let i = 0; i < n; i++) G.live(g, "back", 1, v, tw, th); return (performance.now() - t0) / n; };
+          const none = time(300);
+          G.add({ cam: "back", shape: "rect", mode: "blur", x: PB.x, y: PB.y, w: PB.w, h: PB.h }); G.add({ cam: "back", shape: "poly", mode: "blur", pts: [0.5, 0.2, 0.7, 0.3, 0.6, 0.45, 0.45, 0.4], x: 0.45, y: 0.2, w: 0.25, h: 0.25 });
+          time(3);
+          const made = []; const orig = document.createElement; document.createElement = function (t) { const e = orig.apply(this, arguments); if (String(t).toLowerCase() === "canvas") made.push(1); return e; };
+          const blur = time(60); document.createElement = orig;
+          const heap = performance.memory ? performance.memory.usedJSHeapSize : 0; const h0 = heap; time(120); const h1 = performance.memory ? performance.memory.usedJSHeapSize : 0;
+          G.clear();
+          return { none, blur, newCanvases: made.length, heapGrowthKB: Math.round((h1 - h0) / 1024), tw, th };
+        }, PB);
+        console.log("INFO " + tag + "cost per viewer frame: no regions " + perf.none.toFixed(4) + " ms, two blur regions " + perf.blur.toFixed(2) + " ms (tile " + perf.tw + "x" + perf.th + "); new canvases in 60 frames: " + perf.newCanvases + (perf.heapGrowthKB ? "; heap growth over 120 frames " + perf.heapGrowthKB + " KB" : ""));
+        ok(tag + "no regions: the viewer hook costs nothing (< 0.02 ms per frame, no drawing)", perf.none < 0.02, perf);
+        ok(tag + "blur regions reuse their scratch canvases: no canvas is created per frame", perf.newCanvases === 0, perf);
+        ok(tag + "two blur regions stay cheap in the viewer (< 12 ms per frame in this headless run)", perf.blur < 12, perf);
+        if (phone) {
+          await p.evaluate(() => { TDC.focus.grid(); }); await open(); await W(300);
+          const lay = await p.evaluate(() => { const s = document.getElementById("crSec"), r = s.getBoundingClientRect(), de = document.documentElement; const bs = [...s.querySelectorAll("button")].filter((b) => b.offsetParent).map((b) => b.getBoundingClientRect()); return { left: r.left, right: r.right, vw: innerWidth, overflowX: de.scrollWidth > innerWidth + 1, smallest: Math.min(...bs.map((b) => b.height)), narrow: Math.min(...bs.map((b) => b.width)), n: bs.length }; });
+          ok(tag + "Custom regions section fits a 390 px wide screen (no sideways scroll)", lay.right <= lay.vw + 1 && lay.left >= -1 && !lay.overflowX, lay);
+          ok(tag + "its buttons are at least 32 px tall (touch targets)", lay.smallest >= 32, lay);
+          await p.click("#crDraw"); await W(300);
+          const bar = await p.evaluate(() => { const b = document.getElementById("crBar"), r = b.getBoundingClientRect(), bs = [...b.querySelectorAll("button")].filter((x) => x.offsetParent).map((x) => x.getBoundingClientRect().height); return { hidden: b.hidden, left: r.left, right: r.right, vw: innerWidth, h: Math.min(...bs), n: bs.length }; });
+          ok(tag + "while drawing, the floating bar is on screen, inside the width, with 40 px buttons", !bar.hidden && bar.left >= -1 && bar.right <= bar.vw + 1 && bar.h >= 40, bar);
+          await p.click("#crBarCancel"); await W(200);
+        }
+        ok(tag + "no console errors in part 6", errs.filter((e) => !/arcTo|allowed range/.test(e)).length === 0, errs);
+      }
+
       if (errs.length && !phone) { /* reported by the first check */ }
       await ctx.close();
     }
