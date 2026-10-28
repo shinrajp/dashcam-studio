@@ -536,3 +536,10 @@ Rollback: `git checkout pre-ui-quick` (tip before this change, `custom-redact`, 
 - The floating window can be dragged taller than before (the old 620 px cap is gone): it grows up to the screen height, never off the bottom, and is put back inside the screen after a resize or when the browser window shrinks. The docked window is capped just under the screen height with its own scroll.
 - On the phone draw bar, **Options** is now a toggle: it opens the Redact panel, and the button becomes **Back to drawing**, which tucks the panel away again so you can see the picture. (A real pop-over of the options inside the bar is planned with the bubble UI.)
 - Test: `node test/ui-quick.js` (see test/README.md).
+
+## Draw bar stays out of the way (tag `bar-fix`)
+Rollback: `git checkout pre-bar-fix` (tip before this change, `ui-quick`, 10bf875).
+- While you draw a custom redaction region, the small bar (**Save region / Draw again / Cancel / Options**) lets your finger or mouse through, so you can draw right where it sits.
+- When your stroke gets close to it, the bar hops to the opposite edge of the screen (top or bottom). Drag the **⋮⋮ grip** at its left end to put it anywhere; it remembers the spot until you close the tab.
+- The HUD, map, car view and the camera bar's empty parts also stop catching the stroke while you draw.
+- Test: `node test/bar-fix.js` (see test/README.md).

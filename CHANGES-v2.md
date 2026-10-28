@@ -659,3 +659,11 @@ Rollback point: tag `pre-ui-quick` (= custom-redact, 1a1d9a1).
 - Search / Redact window (`css/app.css`, `js/search-ui.js`): `.us-panel` has `overflow-y:auto`; floating max-height = screen height (was min(78vh, 620px)) set from the visual viewport in `placeFloat()`; sticky header; docked max-height capped to screen minus 190 px; phone sheet cap also applies to the docked sheet; results list no longer shrinks to nothing under the Custom regions section; after a resize the window is re-clamped into view (a drag past the screen height is stored as "as tall as fits").
 - Draw bar Options: toggle with label "Back to drawing" (custom-redact.js). Not the planned in-bar pop-over.
 - Test: `test/ui-quick.js` (Chromium + WebKit, desktop 1280x800 + phone 390x844, mock footage only).
+
+## bar-fix: the draw bar never blocks drawing (tag bar-fix)
+Rollback point: tag `pre-bar-fix` (= ui-quick, 10bf875).
+- `#crBar` (Save region / Draw again / Cancel / Options) is click-through: `pointer-events: none` on the container, `auto` only on its grip and buttons, so a stroke that starts or runs over the bar still reaches the picture. One compact row (no wrapping at 390 px; the hint text is a small click-through pill above or below it).
+- It moves itself: when a stroke starts or grows within 28 px of the bar, or the shape's bounds reach it, the bar glides (200 ms, skipped with reduced motion) to the screen edge away from the finger (never under it), honouring the iOS safe-area insets (`js/custom-redact.js`: `UI.avoidBar`, `applyPos`).
+- A grip handle on the left drags the bar anywhere on screen (kept inside the viewport, Up / Down keys pin it to the top / bottom); the spot is remembered for the session only (`sessionStorage` key `dcs.crBarPos.v1`, nothing in `localStorage`).
+- Also fixed while testing: while you draw (`body.cr-drawing`), the HUD / map / car-view floating panels and the camera bar's empty parts no longer grab a stroke that begins over them (they used to start dragging the panel instead). The camera bar's buttons and grip still work.
+- Region semantics and export are untouched. Test: `test/bar-fix.js` (Chromium + WebKit, desktop, 390x844 phone, 844x390 landscape; real touch on Chromium phone).
