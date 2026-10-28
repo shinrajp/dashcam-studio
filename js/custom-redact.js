@@ -477,6 +477,7 @@
       e.preventDefault(); bp.free = null; bp.edge = e.key === "ArrowUp" ? "top" : "bottom"; savePos(); applyPos(true);
     });
   }
+  UI.barReset = () => { bp.free = null; bp.edge = "bottom"; savePos(); applyPos(false); };   // back to the default spot (bottom edge)
   let rsz = 0;
   addEventListener("resize", () => { clearTimeout(rsz); rsz = setTimeout(() => applyPos(false), 80); });
   addEventListener("orientationchange", () => setTimeout(() => applyPos(false), 250));
