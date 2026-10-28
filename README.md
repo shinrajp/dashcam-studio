@@ -279,6 +279,8 @@ Night clips under streetlights often look orange. Tap **White balance** in the b
 - **Colour constancy (prototype, off by default):** Settings ▸ White balance ▸ *Colour constancy*. Uses more references (lane markings, plates, a small 1.8 MB on-device model) and CAT16 / Bradford adaptation for colour search and export labels; optional CLIP colour check. On the synthetic test it raises strict colour accuracy from 56 % to 64–65 %, but it can be worse on some real clips. Details in CHANGES-v2.md.
 
 ## 360 view (beta prototype)
+**Off by default (tag `ui-quick`).** The 360 button and the 360 export are hidden until you tick **Settings ▸ Labs (beta) ▸ Show 360 view (beta)** (Settings is under Advanced). The setting is remembered; **Reset all settings** hides it again. `?show360=1` shows it for one visit without saving, `?show360=0` hides it for one visit. If it is switched off while the 360 view is open, the view closes first; a saved 360 export choice opens as Most Compatible. The *Calibration* section in Settings (steering / acceleration signs) is not part of 360 and stays.
+
 Tap **360** in the camera bar. The six cameras are stitched on your device's GPU (WebGL2, or WebGL1 on older browsers) into one view around the car:
 - **Look around:** drag to turn, pinch or scroll to zoom, double-click to reset. **Gyro** uses the phone's motion sensor (iPhone asks for permission).
 - **Flat 360:** the whole equirectangular 2:1 picture.
@@ -527,3 +529,10 @@ Automatic redaction only blurs the plates, faces and text the models find. A pla
 - Not tested on a real iPhone or Safari (headless WebKit only). A phone's speed with several blur regions has not been measured.
 - Blur is strong but not a cryptographic guarantee; use **Remove** if the text must never be recoverable.
 
+
+## Search / Redact window: scrolls and resizes (tag `ui-quick`)
+Rollback: `git checkout pre-ui-quick` (tip before this change, `custom-redact`, 1a1d9a1).
+- The window now scrolls as a whole, so the **Custom regions** section at the bottom is always reachable, docked under the video, floating, or as the phone sheet. Its header (grip, float, pin, close) stays at the top while you scroll.
+- The floating window can be dragged taller than before (the old 620 px cap is gone): it grows up to the screen height, never off the bottom, and is put back inside the screen after a resize or when the browser window shrinks. The docked window is capped just under the screen height with its own scroll.
+- On the phone draw bar, **Options** is now a toggle: it opens the Redact panel, and the button becomes **Back to drawing**, which tucks the panel away again so you can see the picture. (A real pop-over of the options inside the bar is planned with the bubble UI.)
+- Test: `node test/ui-quick.js` (see test/README.md).
