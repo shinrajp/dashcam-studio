@@ -587,3 +587,12 @@ Rollback: `git checkout pre-ui-glass-2` (tip before this change, `ui-glass-1`, e
 - With **Reduce motion** on they switch at once, without fading. Hidden controls don't block taps on the video and don't cost blur.
 - The camera bar no longer fades while paused (it used to fade after about 3 s in any state). The exported video is unchanged.
 - Tests: `node test/ui-glass-2.js` (see test/README.md).
+
+## Liquid Glass, step 3: timeline and trim capsule (tag `ui-glass-3`)
+Rollback: `git checkout pre-ui-glass-3` (tip before this change, `ui-glass-2`, 77f5d39).
+- The bottom bar (timeline, play controls, sections and toggles) is now one rounded glass **capsule** that floats on the page colour. On a phone, the slim play row (play, time, timeline, ⌃) is the capsule, and in the pull-up sheet the section buttons (add, split, start, end, play sections, delete, clear) sit in their own small capsule.
+- The timeline is drawn with rounded bands: the scrub band, the sections lane, the section blocks, the trim handles and the playhead knob.
+- Nothing moved: every button, the timeline and the sections lane keep their exact size and place, so seeking, trimming (drag an edge or the middle of a section), pinch / Ctrl+scroll zoom and the iPhone touch behaviour work as before. Touch targets stay at least 44 px.
+- It follows the Glass setting (Automatic / Clear / Solid), Reduce transparency and Reduce motion, hides with the other controls while playing (Auto-hide), and in full screen the blur sits on the capsule only.
+- The exported video is unchanged.
+- Tests: `node test/ui-glass-3.js` (see test/README.md).
