@@ -13,6 +13,15 @@
   var state = { refr: true, str: 1, blur: 4, ca: true, six: false, auto: !Q.has('nofallback'), solid: false };
   var gl = null, glOK = false, progScene, progGlass, quadBuf, fbo = null, fboTex = null, fboW = 0, fboH = 0, dpr = 1;
   var videos = [$('v0')], vtex = [], vsrc = [];
+  // The loop is fetched into a Blob typed video/mp4: raw.githack redirects binaries to raw.githubusercontent,
+  // which serves application/octet-stream + nosniff. A same-origin blob URL avoids both. Falls back to the plain path.
+  var SRC = 'mock-loop.mp4', srcURL = SRC;
+  function loadSrc(cb) {
+    if (!window.fetch || !window.Blob || !window.URL) return cb(SRC);
+    fetch(SRC).then(function (r) { if (!r.ok) throw new Error(r.status); return r.arrayBuffer(); })
+      .then(function (b) { cb(URL.createObjectURL(new Blob([b], { type: 'video/mp4' }))); })
+      .catch(function () { cb(SRC); });
+  }
   var poster = new Image(); poster.src = 'poster.jpg'; // shown until the video has a frame (iOS before tap, or no H.264)
 
   function showNote(t, ms) { note.textContent = t; note.classList.add('on'); clearTimeout(showNote.t); showNote.t = setTimeout(function () { note.classList.remove('on'); }, ms || 5000); }
@@ -152,7 +161,7 @@
     if (on && videos.length < 6) {
       for (var i = videos.length; i < 6; i++) {
         var v = document.createElement('video');
-        v.src = 'mock-loop.mp4'; v.muted = true; v.loop = true; v.playsInline = true; v.preload = 'auto';
+        v.src = srcURL; v.muted = true; v.loop = true; v.playsInline = true; v.preload = 'auto';
         v.setAttribute('muted', ''); v.setAttribute('playsinline', ''); v.setAttribute('crossorigin', 'anonymous');
         (function (v, i) { v.addEventListener('loadedmetadata', function () { try { v.currentTime = (i * 2) % (v.duration || 12); } catch (e) {} }); })(v, i);
         document.body.appendChild(v); videos.push(v);
@@ -285,7 +294,9 @@
       var v = videos[i];
       if (!vtex[i]) vtex[i] = mkTex();
       gl.bindTexture(gl.TEXTURE_2D, vtex[i]);
-      if (v.readyState >= 2 && v.videoWidth && !v.error) { try { gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, v); vsrc[i] = 'v'; } catch (e) {} }
+      // use the video once it really has frames (time advanced, or paused on a decoded frame); sticky after that
+      var ready = v.readyState >= 2 && v.videoWidth && !v.error && (vsrc[i] === 'v' || v.currentTime > 0.05 || v.paused);
+      if (ready) { try { gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, v); vsrc[i] = 'v'; } catch (e) {} }
       else if ((v.error || vsrc[i] !== 'v') && vsrc[i] !== 'p' && poster.complete && poster.naturalWidth) { gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, poster); vsrc[i] = 'p'; }
       var r = rects[i], g = Math.round(2 * dpr * (videos.length > 1 ? 1 : 0));
       var uv = coverUV(v.videoWidth || 16, v.videoHeight || 9, r[2], r[3]);
@@ -370,7 +381,11 @@
   applyMode();
   layout();
   addEventListener('resize', function () { layout(); });
-  if (Q.get('six') === '1') { state.six = true; $('oSix').checked = true; setSix(true); }
-  if (mqM.matches || Q.has('paused')) { body.classList.add('needtap'); } else playAll();
+  body.classList.add('needtap');
+  loadSrc(function (u) {
+    srcURL = u; videos[0].src = u;
+    if (Q.get('six') === '1') { state.six = true; $('oSix').checked = true; setSix(true); }
+    if (!(mqM.matches || Q.has('paused'))) playAll();
+  });
   requestAnimationFrame(frame);
 })();
