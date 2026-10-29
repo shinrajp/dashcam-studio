@@ -200,7 +200,7 @@
         <div class="row"><span>Style</span><div class="seg" id="segMapStyle"><button data-v="osm">OpenStreetMap</button><button data-v="dark">Dark</button></div></div>
         <div class="row"><span>Follow the car</span><input type="checkbox" id="mapFollow"></div>
         <div class="row"><span>Beside the video</span><input type="checkbox" id="mapAside"></div>
-        <p class="hint">Beside the video keeps the map off the cameras while you watch. Drag the corner to resize it. Export still burns the map onto the video when Map is included.</p>
+        <p class="hint">Beside the video keeps the map off the cameras while you watch. Drag its ⋮⋮ grip to float it anywhere in the window; drop it at the right edge of the video to dock it again. Drag the corner to resize it. Export still burns the map onto the video when Map is included.</p>
       </section>
       <section><h3>Camera bar</h3>
         <div class="row"><span>Beside the video</span><input type="checkbox" id="barAside"></div>
@@ -211,7 +211,7 @@
         <div class="row"><span>Show 360 view (beta)</span><input type="checkbox" id="show360"></div>
         <p class="hint">Adds the 360 button to the camera bar and the 360 export. Still being polished, so it is off by default.</p>
       </section>
-      <section><h3>Calibration</h3>
+      <section id="calibSec" class="need360"><h3>Calibration</h3>
         <p class="hint">Tesla doesn't document sign conventions. Flip these if the wheel turns the wrong way or the g-ball moves sideways when braking.</p>
         <div class="row"><span>Invert steering</span><input type="checkbox" id="steerInvert"></div>
         <div class="row"><span>Swap accel X/Y axes</span><input type="checkbox" id="accelSwap"></div>

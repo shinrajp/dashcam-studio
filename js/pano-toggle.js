@@ -26,13 +26,16 @@
       return false;
     }
   };
-  /** Show or hide everything that only exists for the 360 view (beta): the camera-bar button and the 360 export preset (and, via
+  /** Show or hide everything that only exists for the 360 view (beta): the camera-bar button, the 360 export preset and Settings ▸ Calibration (and, via
    *  pano.js's own bar, Calibrate and Gyro, which are only reachable through the 360 view). Safe to call any time. */
   T.apply360 = () => {
     const on = T.show360On ? T.show360On() : false;
     document.body.classList.toggle("no360", !on);
     const btn = document.getElementById("btn360"); if (btn) btn.hidden = !on;
     const pre = document.getElementById("presetEquirect"); if (pre) pre.hidden = !on;
+    // Calibration (Settings section, and the 360 view's Calibrate panel) only shows while 360 is on (user decision t213u). Prefs keep their values.
+    document.querySelectorAll(".need360").forEach((el) => { el.hidden = !on; });
+    const cp = document.getElementById("panoCalibPanel"); if (cp && !on) cp.hidden = true;
     if (!on) {
       if (T.pano && T.pano.on) T.toggle360(false);   // leave the 360 view first so nothing is left covering the grid
       const r = document.querySelector('input[name=preset][value=equirect]');
