@@ -294,8 +294,26 @@
     ctx.lineWidth = strong ? 2.5 : 1.5; ctx.strokeStyle = "rgba(0,0,0,0.75)"; ctx.setLineDash([]); ctx.stroke();
     ctx.lineWidth = strong ? 1.5 : 1; ctx.strokeStyle = strong ? "#ffd27a" : "rgba(255,255,255,0.8)"; ctx.setLineDash(strong ? [] : [5, 4]); ctx.stroke(); ctx.setLineDash([]);
   }
+  /** ui-glass-7: the selected region in Move: corner handles (a box can be resized from them) and a small tag ("Blur · Box"). */
+  function bboxOf(sh) {
+    if (sh.shape !== "poly") return { x: sh.x, y: sh.y, w: sh.w, h: sh.h };
+    let x0 = 1, y0 = 1, x1 = 0, y1 = 0; const p = sh.pts;
+    for (let i = 0; i < p.length; i += 2) { x0 = Math.min(x0, p[i]); x1 = Math.max(x1, p[i]); y0 = Math.min(y0, p[i + 1]); y1 = Math.max(y1, p[i + 1]); }
+    return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
+  }
+  function cornersOf(f, sh) {   // screen corners of a box: [raw corner, anchor (the opposite corner), screen point]
+    const b = bboxOf(sh), c = [[b.x, b.y], [b.x + b.w, b.y], [b.x, b.y + b.h], [b.x + b.w, b.y + b.h]];
+    return c.map((k, i) => ({ k, a: c[3 - i], s: G.toScreen(f, k[0], k[1]) }));
+  }
+  function drawHandles(ctx, f, tr, sh, tag) {
+    if (sh.shape !== "poly") for (const c of cornersOf(f, sh)) { ctx.fillStyle = "#ffd27a"; ctx.strokeStyle = "rgba(0,0,0,.8)"; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.rect(c.s[0] - tr.left - 5, c.s[1] - tr.top - 5, 10, 10); ctx.fill(); ctx.stroke(); }
+    const cs = cornersOf(f, sh), x = Math.min(...cs.map((c) => c.s[0])) - tr.left, y = Math.min(...cs.map((c) => c.s[1])) - tr.top;
+    ctx.font = "600 11px -apple-system, system-ui, sans-serif"; const w = ctx.measureText(tag).width + 12, ty = y > 22 ? y - 20 : y + 4;
+    ctx.fillStyle = "rgba(20,24,32,.85)"; ctx.beginPath(); if (ctx.roundRect) ctx.roundRect(x, ty, w, 16, 8); else ctx.rect(x, ty, w, 16); ctx.fill();
+    ctx.fillStyle = "#ffe3a3"; ctx.fillText(tag, x + 6, ty + 12);
+  }
   let raf = 0;
-  const drawClass = () => { document.body.classList.toggle("cr-drawing", !!(S.drawing || S.pick)); document.body.classList.toggle("cr-picking", !!S.pick); };   // while you draw, the HUD / map / car-view panels let the pointer through (they used to grab a stroke that began over them)
+  const drawClass = () => { document.body.classList.toggle("cr-drawing", !!(S.drawing || S.pick || S.move)); document.body.classList.toggle("cr-picking", !!S.pick); };   // while you draw, the HUD / map / car-view panels let the pointer through (they used to grab a stroke that began over them)
   function frame() {
     raf = 0; drawClass();
     const cams = new Set();
@@ -305,7 +323,7 @@
       if (S.pick && !multi) { const one = (T.focus && T.focus.cam) || visibleCams()[0]; if (one) choose(one, "auto"); }   // the user showed one camera some other way (camera bar, number key): that is the camera
     }
     if (multi) visibleCams().forEach((c) => cams.add(c));
-    if (S.cam && (S.drawing || S.draft || S.editId)) cams.add(S.cam);
+    if (S.cam && (S.drawing || S.draft || S.editId || S.move)) cams.add(S.cam);
     if (S.peek) cams.add(S.peek.cam);
     syncPicks(S.pick && multi ? [...cams] : []);
     for (const c of Object.keys(overlays)) if (!cams.has(c)) { const o = overlays[c]; if (o.sig !== "") { const x = o.cv.getContext("2d"); x.clearRect(0, 0, o.cv.width, o.cv.height); o.sig = ""; } o.cv.style.pointerEvents = "none"; }
@@ -314,14 +332,15 @@
       const tr = f ? f.tile.getBoundingClientRect() : o.cv.parentNode.getBoundingClientRect();
       const dpr = Math.min(2, window.devicePixelRatio || 1), w = Math.max(1, Math.round(tr.width * dpr)), h = Math.max(1, Math.round(tr.height * dpr));
       const live = S.live;   // the shape being dragged
-      const sig = [w, h, f ? [f.x, f.y, f.w, f.h, f.mirrored].map((v) => Math.round(v)).join(",") : "x", JSON.stringify(shapeOf(S.draft)), S.peek ? JSON.stringify(S.peek.sh) : "", live ? live.pts.length + ":" + live.pts[live.pts.length - 1] + live.pts[live.pts.length - 2] : "", G.list.length, S.editId, S.drawing, S.pick, S.cam].join("|");
-      o.cv.style.pointerEvents = (S.pick && multi) || (S.drawing && f && (cam === S.cam || multi)) ? "auto" : "none";
+      const sig = [w, h, f ? [f.x, f.y, f.w, f.h, f.mirrored].map((v) => Math.round(v)).join(",") : "x", JSON.stringify(shapeOf(S.draft)), S.peek ? JSON.stringify(S.peek.sh) : "", live ? live.pts.length + ":" + live.pts[live.pts.length - 1] + live.pts[live.pts.length - 2] : "", G.list.map((r) => r.id + r.x + r.y + r.w + r.h + r.mode).join(), S.editId, S.drawing, S.pick, S.cam, S.move, S.sel, S.mv ? JSON.stringify(S.mv.sh) : ""].join("|");
+      o.cv.style.pointerEvents = (S.pick && multi) || (S.drawing && f && (cam === S.cam || multi)) || (S.move && f && cam === S.cam) ? "auto" : "none";
       if (o.sig === sig) continue;
       o.sig = sig;
       if (o.cv.width !== w || o.cv.height !== h) { o.cv.width = w; o.cv.height = h; }
       const ctx = o.cv.getContext("2d"); ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, tr.width, tr.height);
       if (!f) continue;
-      for (const r of G.list) if (r.cam === cam && r.id !== S.editId) drawOutline(ctx, f, tr, shapeOf(r), false);
+      for (const r of G.list) if (r.cam === cam && r.id !== S.editId && !(S.move && r.id === S.sel)) drawOutline(ctx, f, tr, shapeOf(r), false);
+      if (S.move && S.sel && cam === S.cam) { const r = G.list.find((x) => x.id === S.sel); if (r) { const sh = S.mv && S.mv.id === r.id ? S.mv.sh : shapeOf(r); drawOutline(ctx, f, tr, sh, true); drawHandles(ctx, f, tr, sh, (r.mode === "remove" ? "Remove" : "Blur") + " · " + (r.shape === "poly" ? "Freehand" : "Box")); } }
       if (S.draft && cam === S.cam) drawOutline(ctx, f, tr, shapeOf(S.draft), true);
       if (S.peek && S.peek.cam === cam) drawOutline(ctx, f, tr, S.peek.sh, true);
       if (live) {
@@ -330,7 +349,7 @@
         else { ctx.beginPath(); live.pts.forEach((v, i) => { if (i % 2) return; const [x, y] = G.toScreen(f, v, live.pts[i + 1]); i ? ctx.lineTo(x - tr.left, y - tr.top) : ctx.moveTo(x - tr.left, y - tr.top); }); ctx.lineWidth = 2; ctx.strokeStyle = "#ffd27a"; ctx.stroke(); }
       }
     }
-    if ((S.drawing || S.pick || S.draft || S.editId || S.peek) && !raf) raf = requestAnimationFrame(frame);
+    if ((S.drawing || S.pick || S.draft || S.editId || S.peek || S.move) && !raf) raf = requestAnimationFrame(frame);
   }
   function kick() { if (!raf) raf = requestAnimationFrame(frame); }
 
@@ -352,6 +371,7 @@
     cv.addEventListener("pointerdown", (e) => {
       e.stopPropagation();
       if (id !== null || (e.pointerType === "mouse" && e.button !== 0)) return;
+      if (S.move && cam === S.cam) { moveDown(cam, e); return; }
       if (S.pick || (S.drawing && S.cam !== cam)) {   // no camera chosen yet (or another camera of the grid): wait to see whether this is a tap or a drag
         if (!S.pick && !S.drawing) return;
         e.preventDefault(); id = e.pointerId; try { cv.setPointerCapture(id); } catch (_) {}
@@ -401,9 +421,88 @@
       finishShape(cam, live);
     };
     cv.addEventListener("pointerup", end); cv.addEventListener("pointercancel", end);
-    cv.addEventListener("touchmove", (e) => { if (S.drawing || S.pick) e.preventDefault(); }, { passive: false });   // iOS Safari: no page scroll / rubber band while drawing or picking
+    cv.addEventListener("touchmove", (e) => { if (S.drawing || S.pick || S.move) e.preventDefault(); }, { passive: false });   // iOS Safari: no page scroll / rubber band while drawing or picking
     cv.addEventListener("contextmenu", (e) => e.preventDefault());
   }
+  /* ---- ui-glass-7: Move / adjust a saved region ----
+     A press on a region of the camera selects it; a drag moves it, a drag from a corner handle of a box resizes it. One history step per drag.
+     No pointer capture (Mac Safari): the drag follows window pointermove / pointerup. */
+  const rawOf = (f, cx, cy) => { let u = (cx - f.x) / f.w; if (f.mirrored) u = 1 - u; return [u, (cy - f.y) / f.h]; };
+  function regionAt(cam, f, cx, cy) {
+    const [u, v] = rawOf(f, cx, cy), pad = 8 / Math.max(1, Math.min(f.w, f.h));
+    const sel = G.list.find((r) => r.id === S.sel && r.cam === cam);
+    const list = G.list.filter((r) => r.cam === cam).reverse();
+    if (sel) list.unshift(sel);
+    return list.find((r) => u >= r.x - pad && u <= r.x + r.w + pad && v >= r.y - pad && v <= r.y + r.h + pad) || null;
+  }
+  function moveDown(cam, e) {
+    const f = G.screenFit(cam); if (!f) return;
+    e.preventDefault();
+    const R0 = e.pointerType === "mouse" ? 10 : 22;
+    let r = G.list.find((x) => x.id === S.sel && x.cam === cam), kind = "move", anchor = null;
+    if (r && r.shape !== "poly") { const c = cornersOf(f, r).find((k) => Math.hypot(k.s[0] - e.clientX, k.s[1] - e.clientY) <= R0); if (c) { kind = "size"; anchor = c.a; } }
+    if (kind === "move") r = regionAt(cam, f, e.clientX, e.clientY);
+    if (!r) { S.sel = null; msg("Press a region to select it, then drag it. Drag a box's corner to resize it.", false); UI.sync(); kick(); return; }
+    S.sel = r.id; const pid = e.pointerId, p0 = rawOf(f, e.clientX, e.clientY), sh0 = shapeOf(r), bb = bboxOf(sh0);
+    S.mv = { id: r.id, sh: sh0 };
+    const mv = (ev) => {
+      if (ev.pointerId !== pid) return; ev.preventDefault();
+      const ff = G.screenFit(cam) || f, p = rawOf(ff, ev.clientX, ev.clientY);
+      if (kind === "size") {
+        const q = [clamp01(p[0]), clamp01(p[1])], x = Math.min(anchor[0], q[0]), y = Math.min(anchor[1], q[1]);
+        S.mv.sh = { shape: "rect", x, y, w: Math.max(0.01, Math.abs(q[0] - anchor[0])), h: Math.max(0.01, Math.abs(q[1] - anchor[1])) };
+      } else {
+        const du = Math.min(1 - bb.x - bb.w, Math.max(-bb.x, p[0] - p0[0])), dv = Math.min(1 - bb.y - bb.h, Math.max(-bb.y, p[1] - p0[1]));
+        S.mv.sh = sh0.shape === "poly" ? { shape: "poly", pts: sh0.pts.map((t, i) => t + (i % 2 ? dv : du)) } : { shape: "rect", x: sh0.x + du, y: sh0.y + dv, w: sh0.w, h: sh0.h };
+      }
+      UI.avoidBar(ev.clientX, ev.clientY, null); kick();
+    };
+    const up = (ev) => {
+      if (ev.pointerId !== pid) return;
+      removeEventListener("pointermove", mv, true); removeEventListener("pointerup", up, true); removeEventListener("pointercancel", up, true);
+      const m = S.mv; S.mv = null;
+      if (m && ev.type !== "pointercancel") { const { shape, ...rest } = m.sh; void shape; G.update(m.id, rest); }
+      UI.sync(); kick();
+    };
+    addEventListener("pointermove", mv, true); addEventListener("pointerup", up, true); addEventListener("pointercancel", up, true);
+    UI.sync(); kick();
+  }
+  /** Move mode on / off. On: the drawing pauses, the regions of this camera can be pressed and dragged. Off: back to drawing on the same camera. */
+  UI.move = (on) => {
+    on = on === undefined ? !S.move : !!on;
+    if (on) {
+      if (!S.cam || S.pick || S.draft || S.editId) return false;
+      const mine = G.list.filter((r) => r.cam === S.cam);
+      if (!mine.length) { msg("No saved regions on the " + camName(S.cam).toLowerCase() + " camera to move yet.", true); return false; }
+      S.move = true; S.drawing = false; S.live = null; if (!mine.some((r) => r.id === S.sel)) S.sel = mine[mine.length - 1].id;
+      msg("Move: drag a region to move it, drag a corner to resize. Arrow keys nudge it.");
+    } else { S.move = false; S.sel = null; S.mv = null; if (S.cam) { S.drawing = true; msg(camName(S.cam) + ": drag on the picture to draw."); } }
+    UI.sync(); kick(); return true;
+  };
+  UI.nudge = (dx, dy) => {
+    const r = G.list.find((x) => x.id === S.sel); if (!r) return;
+    const sh = shapeOf(r), bb = bboxOf(sh), du = Math.min(1 - bb.x - bb.w, Math.max(-bb.x, dx)), dv = Math.min(1 - bb.y - bb.h, Math.max(-bb.y, dy));
+    G.update(r.id, sh.shape === "poly" ? { pts: sh.pts.map((t, i) => t + (i % 2 ? dv : du)) } : { x: r.x + du, y: r.y + dv });
+  };
+  /** Undo / redo: an unsaved shape first (it is not in the list yet), then the region history. */
+  UI.canUndo = () => !!(S.draft && !S.editId) || G.canUndo();
+  UI.canRedo = () => !!(S.undone && !S.draft) || G.canRedo();
+  UI.undo = () => {
+    if (S.draft && !S.editId && !S.move) { S.undone = S.draft; S.draft = null; S.drawing = !!S.cam; msg("Shape undone."); UI.sync(); kick(); return true; }
+    if (G.undo()) { msg("Undone."); kick(); return true; }
+    return false;
+  };
+  UI.redo = () => {
+    if (S.undone && !S.draft && !S.move) { S.draft = S.undone; S.undone = null; S.drawing = false; msg("Shape back."); UI.sync(); kick(); return true; }
+    if (G.redo()) { msg("Redone."); kick(); return true; }
+    return false;
+  };
+  /** Done: saves a drawn shape; in Move it simply closes the tray (the moves are already saved, and undoable). */
+  UI.done = () => {
+    if (S.draft) return UI.save();
+    if (S.move) { resetForm(); reopenPanel(true); UI.sync(); kick(); msg("Done."); return true; }
+    return null;
+  };
   /** A camera was chosen (tap, key, drag or the only one on screen): enlarge it when it was a tap / key (not a drag, which draws in place), arm the drag. */
   function choose(cam, how) {
     if (!cam) return;
@@ -431,7 +530,7 @@
     }
     if (!sh) { S.drawing = true; msg("That was too small. Drag a bigger " + (S.shape === "free" ? "shape" : "box") + " on the picture.", true); UI.sync(); kick(); return; }
     S.drawing = false;
-    S.draft = sh;
+    S.draft = sh; S.undone = null;
     msg(S.editId ? "Shape changed. Press Save changes." : "Shape drawn. Press Save region (or Draw again).");
     UI.sync(); kick();
     if (R && R.paint) R.paint();
@@ -446,7 +545,7 @@
     return { start: a, end: Math.min(b, dur() || b) };
   }
   function resetForm() {
-    S.drawing = false; S.pick = false; S.cam = null; S.draft = null; S.editId = null; S.live = null; S.peek = null;
+    S.drawing = false; S.pick = false; S.cam = null; S.draft = null; S.editId = null; S.live = null; S.peek = null; S.move = false; S.sel = null; S.mv = null; S.undone = null;
     S.whole = true; syncPicks([]);
     if ($("crWhole")) $("crWhole").checked = true;
     msg("");
@@ -461,22 +560,53 @@
     if ((S.reopen || S.hid || (busy && U && U.narrow && U.narrow())) && U && U.show) {   // phones: Save / Cancel of a drawing always bring the panel back (also after Options, then the panel's X)
       S.reopen = false; S.hid = false; U.show(false, "redact"); const s = $("crSec"); if (s) s.open = true; }
   }
+  /* ---- ui-glass-7: the Redact tray (the draw bar, rebuilt like the iOS markup pen tray) ----
+     camera chip · Box / Freehand · Blur / Remove · Undo · Redo · Move · Draw again · Options · Cancel · Done.
+     Same ids as the bar-fix draw bar (crBar, crBarGrip, crBarCam, crBarSave = Done, crBarAgain, crBarCancel, crBarOpts, crBarMsg). Real <button>s with
+     click handlers (Mac Safari mouse / trackpad clicks); icons only on phones; 44 px targets on touch (CSS). */
+  const ICON = {
+    rect: '<rect x="4" y="6" width="16" height="12" rx="2"/>',
+    free: '<path d="M4 15c2-6 5-8 7-5s3 6 5 3 3-6 4-6"/>',
+    blur: '<circle cx="12" cy="12" r="7" stroke-dasharray="2.5 2.5"/><circle cx="12" cy="12" r="2.5"/>',
+    remove: '<rect x="5" y="7" width="14" height="10" rx="1.5" fill="currentColor"/>',
+    undo: '<path d="M9 7 4 12l5 5"/><path d="M4 12h10a6 6 0 0 1 0 12h-3" transform="translate(0 -6)"/>',
+    redo: '<path d="m15 7 5 5-5 5"/><path d="M20 12H10a6 6 0 0 0 0 12h3" transform="translate(0 -6)"/>',
+    move: '<path d="M12 3v18M3 12h18M12 3l-3 3m3-3 3 3M12 21l-3-3m3 3 3-3M3 12l3-3m-3 3 3 3M21 12l-3-3m3 3-3 3"/>',
+    again: '<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="m13 7 4 4"/>',
+    opts: '<path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/>',
+    cancel: '<path d="M6 6l12 12M18 6 6 18"/>',
+    done: '<path d="m5 12.5 4.5 4.5L19 7"/>',
+  };
+  const ico = (k) => '<svg class="cr-ico" viewBox="0 0 24 24" aria-hidden="true">' + ICON[k] + "</svg>";
+  const tb = (id, k, label, extra) => '<button type="button" class="btn small cr-tb' + (extra || "") + '" id="' + id + '" title="' + label + '" aria-label="' + label + '">' + ico(k) + '<span class="t">' + label + "</span></button>";
   function ensureBar() {
     let b = $("crBar");
     if (b) return b;
-    b = document.createElement("div"); b.id = "crBar"; b.className = "cr-bar"; b.hidden = true; b.setAttribute("role", "group"); b.setAttribute("aria-label", "Custom region");
-    b.innerHTML = '<button type="button" class="cr-grip" id="crBarGrip" aria-label="Move this bar (drag, or press Up / Down)" title="Drag to move this bar"><svg viewBox="0 0 14 22" aria-hidden="true"><circle cx="4" cy="4" r="1.7"/><circle cx="10" cy="4" r="1.7"/><circle cx="4" cy="11" r="1.7"/><circle cx="10" cy="11" r="1.7"/><circle cx="4" cy="18" r="1.7"/><circle cx="10" cy="18" r="1.7"/></svg></button>' +
+    b = document.createElement("div"); b.id = "crBar"; b.className = "cr-bar cr-tray"; b.hidden = true; b.setAttribute("role", "toolbar"); b.setAttribute("aria-label", "Redact tray");
+    const mac = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent || ""), mod = mac ? "⌘" : "Ctrl+";
+    b.innerHTML = '<button type="button" class="cr-grip" id="crBarGrip" aria-label="Move this tray (drag, or press Up / Down)" title="Drag to move this tray"><svg viewBox="0 0 14 22" aria-hidden="true"><circle cx="4" cy="4" r="1.7"/><circle cx="10" cy="4" r="1.7"/><circle cx="4" cy="11" r="1.7"/><circle cx="10" cy="11" r="1.7"/><circle cx="4" cy="18" r="1.7"/><circle cx="10" cy="18" r="1.7"/></svg></button>' +
       '<button type="button" class="btn small cr-chip" id="crBarCam" hidden></button>' +
       '<span class="cr-bar-btns">' +
-      '<button type="button" class="btn small primary" id="crBarSave">Save region</button>' +
-      '<button type="button" class="btn small" id="crBarAgain">Draw again</button>' +
-      '<button type="button" class="btn small ghost" id="crBarCancel">Cancel</button>' +
-      '<button type="button" class="btn small ghost" id="crBarOpts" title="Back to the Redact panel">Options</button></span>' +
+      '<span class="seg cr-tseg" id="crBarShape" role="group" aria-label="Tool">' + tb("crBarBox", "rect", "Box", " cr-sv").replace("<button", '<button data-v="rect" aria-pressed="true"') + tb("crBarFree", "free", "Freehand", " cr-sv").replace("<button", '<button data-v="free" aria-pressed="false"') + "</span>" +
+      '<span class="seg cr-tseg" id="crBarMode" role="group" aria-label="How to hide">' + tb("crBarBlur", "blur", "Blur", " cr-sv").replace("<button", '<button data-v="blur" aria-pressed="true"') + tb("crBarRemove", "remove", "Remove", " cr-sv").replace("<button", '<button data-v="remove" aria-pressed="false"') + "</span>" +
+      tb("crBarUndo", "undo", "Undo (" + mod + "Z)", " ghost cr-io").replace('<span class="t">Undo (' + mod + "Z)", '<span class="t">Undo') +
+      tb("crBarRedo", "redo", "Redo (" + (mac ? "⇧⌘Z" : "Ctrl+Shift+Z") + ")", " ghost cr-io").replace(/<span class="t">Redo[^<]*/, '<span class="t">Redo') +
+      tb("crBarMove", "move", "Move", " ghost").replace("<button", '<button aria-pressed="false"') +
+      tb("crBarAgain", "again", "Draw again", "") +
+      '<button type="button" class="btn small ghost cr-tb" id="crBarOpts" title="Back to the Redact panel" aria-expanded="false">' + ico("opts") + '<span class="t">Options</span></button>' +
+      tb("crBarCancel", "cancel", "Cancel", " ghost") +
+      '<button type="button" class="btn small primary cr-tb cr-done" id="crBarSave" title="Save region" aria-label="Done: save region">' + ico("done") + '<span class="t">Done</span></button>' +
+      "</span>" +
       '<span class="cr-bar-msg" id="crBarMsg" aria-live="polite"></span>';
     document.body.appendChild(b);
-    $("crBarSave").addEventListener("click", () => UI.save());
+    $("crBarSave").addEventListener("click", () => UI.done());
     $("crBarAgain").addEventListener("click", () => UI.draw());
     $("crBarCancel").addEventListener("click", () => UI.cancel());
+    $("crBarUndo").addEventListener("click", () => UI.undo());
+    $("crBarRedo").addEventListener("click", () => UI.redo());
+    $("crBarMove").addEventListener("click", () => UI.move());
+    $("crBarShape").addEventListener("click", (e) => { const x = e.target.closest("button"); if (x && !x.disabled) UI.setShape(x.dataset.v); });
+    $("crBarMode").addEventListener("click", (e) => { const x = e.target.closest("button"); if (x && !x.disabled) UI.setMode(x.dataset.v); });
     $("crBarCam").addEventListener("click", () => UI.draw(true));   // the chip names the camera; tapping it picks another one (no dropdown)
     $("crBarOpts").addEventListener("click", () => {   // a toggle: Options opens the Redact panel, "Back to drawing" tucks it away again (the picture is never left covered with no way back)
       const U = T.searchUI;
@@ -486,6 +616,19 @@
     wireGrip(b);
     return b;
   }
+  /** Tool (Box / Freehand) and mode (Blur / Remove), shared by the tray and the panel. In Move, Blur / Remove changes the selected region (one undo step). */
+  UI.setShape = (v) => {
+    if (S.move) return;
+    S.shape = v === "free" ? "free" : "rect";
+    if (!S.editId && S.draft) { S.draft = null; S.undone = null; if (S.cam) S.drawing = true; }   // a new tool: draw the shape again with it
+    if (S.drawing) UI.draw();
+    UI.sync();
+  };
+  UI.setMode = (v) => {
+    S.mode = v === "remove" ? "remove" : "blur";
+    if (S.move && S.sel) G.update(S.sel, { mode: S.mode });
+    UI.sync(); kick();
+  };
   /* ---- draw bar position (bar-fix) ----
      The bar is click-through (only its grip and buttons catch the pointer). It sits above the transport bar at the bottom; when a stroke starts or
      grows near it, or the shape being drawn reaches it, it glides to the opposite screen edge (never under the finger). The grip drags it anywhere;
@@ -533,7 +676,7 @@
   const hit = (r, x0, y0, x1, y1, m) => !(x1 < r.l - m || x0 > r.r + m || y1 < r.t - m || y0 > r.b + m);
   /** A stroke is at (x, y) with client bounds bb = [x0, y0, x1, y1]: step the bar out of the way if it is close. Returns true when it moved. */
   UI.avoidBar = (x, y, bb) => {
-    const b = $("crBar"); if (!b || b.hidden || !S.drawing) return false;
+    const b = $("crBar"); if (!b || b.hidden || !(S.drawing || S.move)) return false;
     const W = b.offsetWidth, H = b.offsetHeight, rc = b.getBoundingClientRect();
     const cur = bp.free ? { l: rc.left, t: rc.top, r: rc.left + W, b: rc.top + H } : edgeRect(bp.edge, W, H);
     const pt = hit(cur, x, y, x, y, NEAR), box = !!bb && hit(cur, bb[0], bb[1], bb[2], bb[3], NEAR);
@@ -550,18 +693,19 @@
     const g = b.querySelector("#crBarGrip"); let id = null, ox = 0, oy = 0;
     g.addEventListener("pointerdown", (e) => {
       if (id !== null || (e.pointerType === "mouse" && e.button !== 0)) return;
-      e.preventDefault(); e.stopPropagation(); id = e.pointerId; try { g.setPointerCapture(id); } catch (_) {}
+      e.preventDefault(); e.stopPropagation(); id = e.pointerId;   // ui-glass-7: no pointer capture (Mac Safari); the drag follows the window
       const r = b.getBoundingClientRect(); ox = e.clientX - r.left; oy = e.clientY - r.top; g.classList.add("on");
+      addEventListener("pointermove", mv, true); addEventListener("pointerup", end, true); addEventListener("pointercancel", end, true);
     });
-    g.addEventListener("pointermove", (e) => {
+    const mv = (e) => {
       if (id !== e.pointerId) return; e.preventDefault();
       bp.free = { x: e.clientX - ox, y: e.clientY - oy }; applyPos(false);
-    });
+    };
     const end = (e) => {
-      if (id !== e.pointerId) return; id = null; g.classList.remove("on"); try { g.releasePointerCapture(e.pointerId); } catch (_) {}
+      if (id !== e.pointerId) return; id = null; g.classList.remove("on");
+      removeEventListener("pointermove", mv, true); removeEventListener("pointerup", end, true); removeEventListener("pointercancel", end, true);
       if (bp.free) { const c = clampFree(bp.free.x, bp.free.y, b.offsetWidth, b.offsetHeight); bp.free = c; savePos(); applyPos(false); }
     };
-    g.addEventListener("pointerup", end); g.addEventListener("pointercancel", end);
     g.addEventListener("click", (e) => e.stopPropagation());
     g.addEventListener("keydown", (e) => {   // keyboard: Up / Down pins the bar to the top / bottom edge
       if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
@@ -575,18 +719,27 @@
   function optsLabel() {
     const o = $("crBarOpts"), U = T.searchUI; if (!o) return;
     const open = !!(U && U.open);
-    o.textContent = open ? "Back to drawing" : "Options"; o.setAttribute("aria-expanded", String(open));
+    const t = o.querySelector(".t"); (t || o).textContent = open ? "Back to drawing" : "Options"; o.setAttribute("aria-expanded", String(open)); o.setAttribute("aria-label", open ? "Back to drawing" : "Options");
     o.title = open ? "Hide the panel so you can draw" : "Back to the Redact panel";
   }
   function syncBar() {
-    const b = ensureBar(), show = !!(S.drawing || S.draft || S.pick);
+    const b = ensureBar(), show = !!(S.drawing || S.draft || S.pick || S.move);
     drawClass();
     b.hidden = !show; document.body.classList.toggle("cr-bar-on", !!show);
     if (!show) return;
     applyPos(false);
-    $("crBarSave").disabled = !S.draft || S.drawing; $("crBarSave").textContent = S.editId ? "Save changes" : "Save region";
-    $("crBarSave").hidden = !!S.pick;
-    $("crBarAgain").hidden = !!S.drawing || !!S.pick;
+    const sv = $("crBarSave"), what = S.move ? "Done moving" : S.editId ? "Save changes" : "Save region";
+    sv.disabled = !(S.move || (S.draft && !S.drawing)); sv.title = what; sv.setAttribute("aria-label", "Done: " + what.toLowerCase());
+    sv.hidden = !!S.pick;
+    $("crBarAgain").hidden = !!S.drawing || !!S.pick || !!S.move;
+    const setSeg = (id, v, dis) => document.querySelectorAll("#" + id + " button").forEach((x) => { x.setAttribute("aria-pressed", String(x.dataset.v === v)); x.classList.toggle("on", x.dataset.v === v); x.disabled = dis; });
+    const selR = S.move && G.list.find((r) => r.id === S.sel);
+    setSeg("crBarShape", selR ? (selR.shape === "poly" ? "free" : "rect") : S.shape, !!S.move || !!S.pick);
+    setSeg("crBarMode", selR ? selR.mode : S.mode, !!S.pick || (!!S.move && !selR));
+    $("crBarUndo").disabled = !UI.canUndo(); $("crBarRedo").disabled = !UI.canRedo();
+    const mvb = $("crBarMove"), canMove = !!S.cam && !S.pick && !S.draft && !S.editId && G.list.some((r) => r.cam === S.cam);
+    mvb.hidden = !!S.pick; mvb.disabled = !S.move && !canMove; mvb.setAttribute("aria-pressed", String(!!S.move)); mvb.classList.toggle("on", !!S.move);
+    b.classList.toggle("moving", !!S.move);
     const chip = $("crBarCam"), has = !!S.cam && !S.pick;
     chip.hidden = !has;
     if (has) { chip.textContent = camName(S.cam); chip.disabled = !!S.editId; chip.title = S.editId ? "The camera of the region you are editing" : "Redacting the " + camName(S.cam) + " camera. Tap to pick a different camera"; chip.setAttribute("aria-label", chip.title); }
@@ -634,7 +787,7 @@
       setTimeout(() => { const b = document.querySelector(".cr-pick"); if (S.pick && b && !b.matches(":focus")) { try { b.focus({ preventScroll: true }); } catch (_) {} } }, 120);   // keyboard: Tab moves between the cameras, Enter picks, Esc cancels
     } else choose(one || vis[0], "auto");
   };
-  UI.cancel = () => { const busy = !!(S.drawing || S.pick || S.draft || S.editId); resetForm(); reopenPanel(busy); UI.sync(); kick(); if (R && R.paint) R.paint(); };
+  UI.cancel = () => { const busy = !!(S.drawing || S.pick || S.draft || S.editId || S.move); resetForm(); reopenPanel(busy); UI.sync(); kick(); if (R && R.paint) R.paint(); };
   UI.edit = (id) => {
     const r = G.list.find((x) => x.id === id); if (!r) return;
     S.pick = false; syncPicks([]);
@@ -660,6 +813,8 @@
     const sec = $("crSec"); if (!sec) return;
     const ev = T.player && T.player.ev, cams = ev && ev.cams ? T.GRID.filter((c) => ev.cams.includes(c)) : [];
     if (S.cam && !cams.includes(S.cam)) S.cam = null;
+    if (S.editId && !G.list.some((r) => r.id === S.editId)) { S.editId = null; S.draft = null; }   // ui-glass-7: an undo took away the region being edited
+    if (S.sel && !G.list.some((r) => r.id === S.sel)) S.sel = null;
     document.querySelectorAll("#crShape button").forEach((b) => { b.setAttribute("aria-pressed", String(b.dataset.v === S.shape)); b.classList.toggle("on", b.dataset.v === S.shape); });
     document.querySelectorAll("#crMode button").forEach((b) => { b.setAttribute("aria-pressed", String(b.dataset.v === S.mode)); b.classList.toggle("on", b.dataset.v === S.mode); });
     $("crTimes").hidden = S.whole;
@@ -689,7 +844,7 @@
     const pop = (id, cls) => { const b = $(id); if (b) b.addEventListener("click", () => { const U = T.searchUI, on = !sec.classList.contains(cls); if (U && U.closePops) U.closePops(id); sec.classList.toggle(cls, on); b.setAttribute("aria-expanded", String(on)); }); };
     pop("crInfo", "hint-open"); pop("crRegBtn", "list-open");
     $("crShape").addEventListener("click", (e) => { const b = e.target.closest("button"); if (!b) return; S.shape = b.dataset.v; if (!S.editId) S.draft = null; if (S.drawing) UI.draw(); UI.sync(); });
-    $("crMode").addEventListener("click", (e) => { const b = e.target.closest("button"); if (!b) return; S.mode = b.dataset.v; UI.sync(); });
+    $("crMode").addEventListener("click", (e) => { const b = e.target.closest("button"); if (!b) return; UI.setMode(b.dataset.v); });
     $("crWhole").addEventListener("change", () => {
       S.whole = $("crWhole").checked;
       if (!S.whole) { const t = T.player ? T.player.time || 0 : 0; if (!$("crFrom").value) $("crFrom").value = fmt(t); if (!$("crTo").value) $("crTo").value = fmt(Math.min(dur(), t + 5)); }
@@ -784,7 +939,21 @@
         T.on("layout", () => { if (R && R.paintSoon && G.any()) R.paintSoon(); kick(); });   // only with regions: with none the viewer paints exactly as before
       }
       window.addEventListener("resize", () => { if (R && R.paintSoon && G.any()) R.paintSoon(); kick(); });
-      window.addEventListener("keydown", (e) => { if (e.key === "Escape" && (S.drawing || S.pick || S.draft || S.editId) && !(e.target.matches && e.target.matches("input, textarea, select"))) { UI.cancel(); } });
+      window.addEventListener("keydown", (e) => { if (e.key === "Escape" && (S.drawing || S.pick || S.draft || S.editId || S.move) && !(e.target.matches && e.target.matches("input, textarea, select"))) { UI.cancel(); } });
+      // ui-glass-7: Cmd/Ctrl+Z undo, Shift+Cmd/Ctrl+Z (or Ctrl+Y) redo; in Move the arrow keys nudge the selected region and Delete removes it
+      window.addEventListener("keydown", (e) => {
+        const tg = e.target; if (tg && tg.matches && (tg.matches("input, textarea, select, #crBarGrip") || tg.isContentEditable)) return;
+        const k = (e.key || "").toLowerCase(), mod = e.metaKey || e.ctrlKey;
+        if (mod && !e.altKey && (k === "z" || (k === "y" && e.ctrlKey && !e.metaKey))) {
+          const redo = k === "y" || e.shiftKey;
+          if (redo ? !UI.canRedo() : !UI.canUndo()) return;
+          e.preventDefault(); e.stopImmediatePropagation(); redo ? UI.redo() : UI.undo(); return;
+        }
+        if (!S.move || !S.sel || mod || e.altKey) return;
+        const st = e.shiftKey ? 0.02 : 0.004, d = { arrowleft: [-st, 0], arrowright: [st, 0], arrowup: [0, -st], arrowdown: [0, st] }[k];
+        if (d) { e.preventDefault(); e.stopImmediatePropagation(); const f = G.screenFit(S.cam); UI.nudge(f && f.mirrored ? -d[0] : d[0], d[1]); }
+        else if (k === "delete" || k === "backspace") { e.preventDefault(); e.stopImmediatePropagation(); G.remove(S.sel); msg("Region deleted. " + (navigator.platform && /Mac/.test(navigator.platform) ? "⌘Z" : "Ctrl+Z") + " brings it back."); }
+      }, true);
       G.load(); UI.sync();
       G.ready = true;
     } catch (err) { G.error = String((err && err.message) || err); console.warn("[custom-redact] UI failed; regions still burn in:", err); }
