@@ -630,3 +630,12 @@ Rollback: `git checkout pre-ui-glass-6` (tip before this change, `ui-glass-5`, 6
 - The exported video is unchanged.
 - Tests: `node test/ui-glass-6.js` (see test/README.md).
 
+## Liquid Glass, step 7: Redact tray with undo (tag `ui-glass-7`)
+Rollback: `git checkout pre-ui-glass-7` (tip before this change, `ui-glass-6`, a861273).
+- **Redact tray:** while you draw a region, the bar over the video is now a small glass tray, like the markup pen tray on an iPhone: the camera, **Box / Freehand**, **Blur / Remove**, **Undo**, **Redo**, **Move**, Draw again, Options, **Cancel** and **Done**. On a phone it shows icons only (two rows when upright); on touch every button is at least 44 px.
+- **Undo / Redo:** adding, editing, moving, deleting (and switching off) regions can be undone and redone, with the tray buttons or **⌘Z / ⇧⌘Z** (Ctrl+Z / Ctrl+Shift+Z or Ctrl+Y on Windows). Undo also takes back a shape you just drew but have not saved. The history lasts for the session and the event you are on; it is not saved.
+- **Move:** press Move, then drag a saved region to move it, or drag a corner of a box to resize it. The selected region has a yellow outline, corner handles and a tag ("Blur · Box"). With a keyboard, the arrow keys nudge it (Shift: bigger steps) and Delete removes it. Blur / Remove in the tray changes the selected region. Done closes the tray.
+- The tray still moves out of the way when you draw near it, can be dragged by its grip (with a mouse or trackpad too, also in Safari), rises in with a small spring (a fade with Reduce motion) and keeps the tools bubble out of the way on phones.
+- Saved regions, the regions file and the exported video are unchanged.
+- Tests: `node test/ui-glass-7.js` (see test/README.md).
+
