@@ -567,3 +567,13 @@ Rollback: `git checkout pre-map-float` (tip before this change, glass-sdf v5, 60
 - The exported video's map overlay is unchanged (the floating spot is kept separately from the export layout).
 - With **Show 360 view (beta)** off (the default), Settings ▸ **Calibration** is hidden too (along with the 360 button and any open 360 calibration view). Turning 360 on brings it back; your calibration values are kept. `?show360=1|0` and Reset all work as before.
 - Tests: `node test/map-float.js`; `test/ui-quick.js` and `test/bottom-overlap.js` updated (see test/README.md).
+
+## Liquid Glass, step 1: the material (tag `ui-glass-1`)
+Rollback: `git checkout pre-ui-glass-1` (tip before this change, `map-float`, 14da42e).
+- The controls look like frosted glass: the top bar, the bottom bar and its chips, the camera bar, the Search / Redact window, the draw bar, the map frame, the Settings drawer and the toasts. They have rounded capsule shapes, a thin light edge along the top and a soft shadow. **Nothing moved**: every button is where it was and works the same way.
+- **Settings ▸ Appearance ▸ Glass**: **Automatic** (default; the glass gets darker over bright video so white text stays readable), **Clear** (more see-through; text can be harder to read over a bright sky) or **Solid** (no transparency). For one visit, add `?glass=auto`, `?glass=clear` or `?glass=solid` to the address.
+- It switches to Solid by itself when your system asks to **Reduce transparency**, or in a browser that can't blur. **Reduce motion** turns the glass pieces' animations off.
+- To stay smooth on iPhone, at most three pieces are blurred at once (the rest keep the same tint without blur).
+- The exported video is unchanged.
+- The SDF/WebGL refraction from `labs/glass-sdf` is not in this step. It is planned for a later step, as the default with this frosted glass as its fallback.
+- Tests: `node test/ui-glass-1.js` (see test/README.md).
