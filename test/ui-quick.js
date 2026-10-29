@@ -3,7 +3,7 @@
 // Mock footage only (tools/make-mock-footage.py, made into /tmp/ho-mock on first run). Serves the repo itself on PORT (default 8797).
 //   A. 360: hidden by default (button, export preset, no pano.js request); Settings row; turning it on shows both and survives a reload; turning it off
 //      again leaves the 360 view first and moves a selected 360 preset to Most Compatible; a saved 360 preset with the setting off opens as Most
-//      Compatible; ?show360=1 / =0 override for the visit only; Reset all settings hides it again; the other export presets and Calibration stay.
+//      Compatible; ?show360=1 / =0 override for the visit only; Reset all settings hides it again; the other export presets stay. Settings ▸ Calibration only shows while 360 is on (t213u).
 //   B. panel: with 3+ regions saved, the Custom regions section is reachable by scrolling (docked, floating, phone sheet, short window); the header
 //      stays put (sticky); the floating window grows past the old 620 px cap up to the screen height by dragging its corner, the bottom edge stays on
 //      screen, no horizontal scrollbar.   C. Options toggles the panel and the label follows.
@@ -31,6 +31,7 @@ const addRegions = (p, n) => p.evaluate((n) => { for (let i = 0; i < n; i++) TDC
 const openExportDlg = async (p) => { await p.evaluate(() => document.getElementById("btnExport").click()); await W(500); };
 const closeExportDlg = (p) => p.evaluate(() => { document.getElementById("exportModal").hidden = true; });
 const advOn = async (p) => { await p.evaluate(() => { const c = document.getElementById("advToggle"); if (!c.checked) c.click(); }); await W(300); };
+const calibShown = (p) => p.evaluate(() => { const s = document.getElementById("settings"), was = s.hidden; s.hidden = false; const v = [...document.querySelectorAll("#settings h3")].some((h) => h.textContent === "Calibration" && h.getBoundingClientRect().height > 0); s.hidden = was; return v; });
 const settingsOpen = (p, on) => p.evaluate((on) => { document.getElementById("settings").hidden = !on; }, on);
 
 async function partA(b, dev, tag) {
@@ -48,9 +49,10 @@ async function partA(b, dev, tag) {
   await settingsOpen(p, true); await W(200);
   const row = await p.evaluate(() => { const c = document.getElementById("show360"); return c ? { checked: c.checked, label: c.closest(".row").textContent.trim(), hint: !!c.closest("section").querySelector(".hint") } : null; });
   ok(tag + " A2 Settings row 'Show 360 view (beta)' with a hint, unticked", !!row && row.checked === false && /Show 360 view \(beta\)/.test(row.label) && row.hint, row);
-  ok(tag + " A2 Calibration section (steering / accel) stays visible", await p.evaluate(() => [...document.querySelectorAll("#settings h3")].some((h) => h.textContent === "Calibration" && h.getBoundingClientRect().height > 0)));
+  ok(tag + " A2 360 off: Calibration section hidden in Settings", !(await calibShown(p)));
   if (SHOTS && tag.includes("desktop")) { await p.evaluate(() => document.getElementById("show360").scrollIntoView({ block: "center" })); await W(200); await p.screenshot({ path: SHOTS + "/settings-show360-" + tag.replace(/\W+/g, "-") + ".png" }); }
   await p.evaluate(() => document.getElementById("show360").click()); await W(400);
+  ok(tag + " A3 on: Calibration section back in Settings", await calibShown(p));
   ok(tag + " A3 ticking it saves the pref and shows the button", (await p.evaluate(() => TDC.prefs.show360 === true && JSON.parse(localStorage.getItem("tdc.prefs.v1")).show360 === true)) && (await vis(p, "#btn360")));
   await settingsOpen(p, false);
   await openExportDlg(p);
@@ -82,14 +84,17 @@ async function partA(b, dev, tag) {
   await p.evaluate(() => { TDC.prefs.export.preset = "compat"; TDC.savePrefs(); });
   await openEvent(p, "&show360=1", true); await advOn(p);
   ok(tag + " A7 ?show360=1 shows the button for this visit without saving the pref", (await vis(p, "#btn360")) && (await p.evaluate(() => TDC.prefs.show360)) === false);
+  ok(tag + " A7 ?show360=1 also shows Calibration", await calibShown(p));
   await p.evaluate(() => TDC.setPref("show360", true));
   await openEvent(p, "&show360=0", true); await advOn(p);
   ok(tag + " A7 ?show360=0 hides it even when the setting is on", !(await vis(p, "#btn360")) && (await p.evaluate(() => TDC.prefs.show360)) === true);
+  ok(tag + " A7 ?show360=0 also hides Calibration", !(await calibShown(p)));
   // reset all
   await openEvent(p, "", true); await advOn(p);
   ok(tag + " A8 (setting on) button shown", await vis(p, "#btn360"));
   await settingsOpen(p, true); await p.evaluate(() => document.getElementById("btnResetAll").click()); await W(400);
   ok(tag + " A8 Reset all settings hides it again", !(await vis(p, "#btn360")) && (await p.evaluate(() => document.getElementById("show360").checked === false)));
+  ok(tag + " A8 Reset all settings hides Calibration again", !(await calibShown(p)));
   // keyboard shortcuts: nothing for 360 throws
   await p.keyboard.press("3"); await p.keyboard.press("6"); await p.keyboard.press("0");
   ok(tag + " A9 no page errors", errs.length === 0, errs);

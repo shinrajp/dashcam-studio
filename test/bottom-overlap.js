@@ -1,7 +1,7 @@
 // bottom-overlap (tag tap-redact): the Redact button (#rdBtn) must not make the bottom of the window taller or wider, must not push the page past the viewport, and
 // nothing in the bottom-right corner may sit on top of anything else (Redact / Search buttons, draw bar, Redact panel, toast, camera bar, transport controls, Full screen).
 //   Playwright, BR=chromium|webkit, mock footage (tools/make-mock-footage.py -> /tmp/ho-mock). Common Mac Safari window sizes + phone portrait / landscape.
-//   For every size and state (idle, Redact panel open, tap-a-camera pick, drawing with a box + a long toast):
+//   For every size and state (idle, Redact panel open, tap-a-camera pick, drawing with a box + a long toast, map floated into the bottom-right corner (map-float)):
 //     1. the page does not scroll: scrollWidth <= innerWidth, scrollTo(max) leaves scrollX at 0; desktop also scrollHeight <= innerHeight and scrollY 0
 //        (phones: the closed "more controls" sheet below the screen has always made the document taller; printed as INFO, and check 2 holds it unchanged)
 //     2. the bottom bar is exactly as tall as with the Redact button taken out (display: none), and the page is not wider / taller than without it
@@ -29,6 +29,7 @@ const MEASURE = () => {
   const items = [];
   const add = (e, grp) => { if (shown(e)) items.push(Object.assign({ n: name(e), g: grp, el: e }, box(e))); };
   ["rdBtn", "usBtn", "crBar", "usPanel", "btnFullscreen", "chipCamBar"].forEach((id) => add(document.getElementById(id), "main"));
+  const fm = document.querySelector(".map-floating"); if (fm) add(fm, "main");   // map-float: the floating map counts as a corner item
   const toast = document.getElementById("toast"); if (toast && toast.classList.contains("show")) add(toast, "main");
   document.querySelectorAll(".stage-bar").forEach((e) => add(e, "main"));
   document.querySelectorAll(".tp-controls button, .tp-controls select, .tp-controls .chip, #clockLabel").forEach((e) => { if (!items.some((i) => i.el === e)) add(e, "tp"); });
@@ -60,6 +61,8 @@ const state = {
   idle: async (p) => { await p.evaluate(() => TDC.toast("Saved. A long message to see that it never sits on the buttons in the corner.", "ok", 60000)); await W(500); },
   panel: async (p) => { await p.evaluate(() => { TDC.toast("Hello from the corner, a longer message than usual", "ok", 60000); TDC.searchUI.show(false, "redact"); }); await W(900); },
   pick: async (p) => { await p.evaluate(() => { TDC.regions.UI.cancel(); TDC.searchUI.hide(); TDC.focus.grid && TDC.focus.grid(); TDC.regions.UI.draw(true); TDC.toast("Tap the camera you want to redact, and a longer text", "ok", 60000); }); await W(900); },
+  // map-float: the map floated and pushed into the bottom-right corner (as far as it goes) must stay clear of every bottom control
+  mapfloat: async (p) => { await p.evaluate(() => { TDC.prefs.mapFloat = { fx: 1, fy: 1 }; TDC.overlays.setMapHome("float", true); }); await W(900); },
   drawing: async (p) => { await p.evaluate(() => { TDC.regions.UI.cancel(); TDC.searchUI.hide(); TDC.focus.focus("front"); TDC.regions.UI.draw(); }); await W(700);
     await p.evaluate(() => { const S = TDC.regions.ui; S.draft = { shape: "rect", x: .3, y: .3, w: .3, h: .25 }; S.drawing = false; TDC.regions.UI.sync(); TDC.toast("Shape drawn. Press Save region (or Draw again). A long one.", "ok", 60000); }); await W(700); },
 };
@@ -69,7 +72,7 @@ async function run(b, size, tag) {
   const ctx = await b.newContext({ viewport: { width: w, height: h }, isMobile: !!touch, hasTouch: !!touch, userAgent: touch ? UA : undefined, deviceScaleFactor: touch ? 2 : 1 });
   const p = await ctx.newPage(); const errs = []; p.on("pageerror", (e) => errs.push(e.message));
   await open(p);
-  for (const st of ["idle", "panel", "pick", "drawing"]) {
+  for (const st of ["idle", "panel", "pick", "drawing", "mapfloat"]) {
     const t = tag + " " + name + " " + st;
     await p.evaluate(() => { try { TDC.regions.UI.cancel(); } catch (_) {} TDC.searchUI.hide(); document.getElementById("toast").classList.remove("show"); }); await W(300);
     await state[st](p);
@@ -82,6 +85,7 @@ async function run(b, size, tag) {
     }
     if (!touch) ok(t + " | desktop: document height <= window height", m.sh <= m.vh + 1, { sh: m.sh, vh: m.vh });
     ok(t + " | the Redact button adds no height to the bottom bar and nothing to the page size", m.tph === m0.tph && m.sw <= m0.sw + 1 && m.sh <= m0.sh + 1, { tph: [m.tph, m0.tph], sw: [m.sw, m0.sw], sh: [m.sh, m0.sh] });
+    if (st === "mapfloat") ok(t + " | the map is floating outside the video, on screen", await p.evaluate(() => { const e = document.querySelector(".map-floating"); if (!e || e.hidden) return false; const r = e.getBoundingClientRect(); return e.parentElement === document.body && r.width > 50 && r.left >= 0 && r.right <= innerWidth + 1 && r.bottom <= innerHeight + 1; }));
     ok(t + " | every bottom-bar control is inside the window", m.clipped.length === 0, m.clipped);
     ok(t + " | no overlap between the corner items (buttons, panel, draw bar, toast, camera bar, controls)", m.hits.length === 0, m.hits.slice(0, 8));
   }
