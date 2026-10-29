@@ -35,7 +35,8 @@
   B.area = () => {
     const W = vw(), H = vh(); let top = px("--sa-t"), floor = H - px("--sa-b");
     const tb = document.querySelector(".topbar"); if (shown(tb)) top = Math.max(top, tb.getBoundingClientRect().bottom);
-    for (const id of ["mbBar", "transport"]) { const e = $(id); if (!shown(e)) continue; const r = e.getBoundingClientRect(); if (r.height > 1 && r.top > H * 0.4 && r.top < floor) floor = r.top; }
+    const ids = body().classList.contains("mbar") && shown($("mbBar")) ? ["mbBar"] : ["mbBar", "transport"];   // phone: the slim bar, not the pull-up sheet
+    for (const id of ids) { const e = $(id); if (!shown(e)) continue; const r = e.getBoundingClientRect(); if (r.height > 1 && r.top > H * 0.4 && r.top < floor) floor = r.top; }
     return { l: px("--sa-l") + M, r: W - px("--sa-r") - M, t: top + M, b: floor - M };
   };
   function xyFor(c) { const a = B.area(); return { x: c[1] === "l" ? a.l : a.r - S, y: c[0] === "t" ? a.t : a.b - S }; }
@@ -94,16 +95,23 @@
     const b = body(), tp = $("transport"), set = $("settings"), lib = $("library");
     const narrow = b.classList.contains("mbar") || (T.searchUI && T.searchUI.narrow && T.searchUI.narrow());
     const away = b.classList.contains("no-event") || b.classList.contains("cr-bar-on") || b.classList.contains("cr-picking") || b.classList.contains("cr-drawing") ||
-      !!(set && !set.hidden) || B.sheet || !!(tp && tp.classList.contains("mb-open")) || (narrow && (b.classList.contains("us-open") || b.classList.contains("us-docked")));
+      !!(set && !set.hidden) || B.sheet || !!(tp && tp.classList.contains("mb-open")) || (narrow && (b.classList.contains("us-open") || b.classList.contains("us-docked"))) || panelOver();
     if (evBtn) evBtn.hidden = !lib || lib.hidden;
     if (B.sheet && lib && lib.hidden) B.events(false);
+    if (!away && !drag) B.place();
     if (away !== B.away) {
       B.away = away; b.classList.toggle("tb-away", away);
       if (away && B.open) B.close(false);
-      if (!away) { B.place(); if (retFocus) { retFocus = false; const a = document.activeElement; if (!a || a === document.body || !shown(a)) main.focus({ preventScroll: true }); } }
+      if (!away) { if (retFocus) { retFocus = false; const a = document.activeElement; if (!a || a === document.body || !shown(a)) main.focus({ preventScroll: true }); } }
     }
   }
-  B.sync = sync;
+  B.sync = sync;   // (sync also re-places the bubble: bars can move without resizing, e.g. the phone's slim mode)
+  /** a floating Search / Redact panel that covers the bubble's corner sends it away (desktop: the panel can sit at the bottom right) */
+  function panelOver() {
+    const up = $("usPanel"); if (!root || !shown(up) || !body().classList.contains("us-open")) return false;
+    const a = up.getBoundingClientRect(), p = xyFor(B.cornerPref()), m = 4;
+    return a.left < p.x + S + m && a.right > p.x - m && a.top < p.y + S + m && a.bottom > p.y - m;
+  }
   function mirrorCount() { const c = $("usCount"); if (badge) badge.textContent = c ? c.textContent : ""; }
 
   /* ---------- after an item is used ---------- */
@@ -213,12 +221,14 @@
 
     // stay in the corner when things move
     addEventListener("resize", () => { B.place(); sync(); });
-    if (window.visualViewport) visualViewport.addEventListener("resize", () => B.place());
-    if (typeof ResizeObserver === "function") { const ro = new ResizeObserver(() => B.place()); for (const n of [$("transport"), document.querySelector(".topbar")]) if (n) ro.observe(n); }
+    if (window.visualViewport) { visualViewport.addEventListener("resize", () => B.place()); visualViewport.addEventListener("scroll", () => B.place()); }
+    addEventListener("scroll", () => B.place(), { passive: true });   // bars measured in the viewport move if the page ever scrolls
+    if (typeof ResizeObserver === "function") { const ro = new ResizeObserver(() => B.place()); for (const n of [$("transport"), $("mbBar"), document.querySelector(".topbar")]) if (n) ro.observe(n); }
     if (typeof MutationObserver === "function") {
       const mo = new MutationObserver(sync);
       mo.observe(document.body, { attributes: true, attributeFilter: ["class"] });
       for (const n of [$("settings"), $("transport"), $("library")]) if (n) mo.observe(n, { attributes: true, attributeFilter: ["hidden", "class"] });
+      const up = $("usPanel"); if (up) mo.observe(up, { attributes: true, attributeFilter: ["hidden", "class", "style"] });
       const c = $("usCount"); if (c) new MutationObserver(mirrorCount).observe(c, { childList: true, characterData: true, subtree: true });
       const s = $("settings"); if (s) new MutationObserver(() => setBtn.setAttribute("aria-expanded", String(!s.hidden))).observe(s, { attributes: true, attributeFilter: ["hidden"] });
     }

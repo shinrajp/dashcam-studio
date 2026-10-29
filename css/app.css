@@ -1183,4 +1183,5 @@ body.mbar.cr-bar-on .transport > .us-btn { display: none; }
   body.multi-ev .topbar { padding-left: max(10px, env(safe-area-inset-left)); padding-right: max(10px, env(safe-area-inset-right)); }
   body.multi-ev .brand { display: none; }
   body.multi-ev .top-actions .btn { width: 44px; min-width: 44px; padding: 0; justify-content: center; }
+  body.tb-on.multi-ev .top-actions #btnSettings { display: none; }   /* Advanced mode: Settings is in the tools bubble; the picker keeps its room */
 }
