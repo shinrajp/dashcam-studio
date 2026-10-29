@@ -14,7 +14,7 @@
   const A = (T.autohide = { mode: "3", delay: 3000, hidden: false, why: "" });
   const mRM = (() => { try { return matchMedia("(prefers-reduced-motion: reduce)"); } catch (_) { return null; } })();
   // the pieces that hide (CSS in css/autohide.css uses the same list); the docked camera bar and the redaction draw bar stay
-  A.SEL = ".stage .stage-bar, .tile-expand, .map-panel.map-floating, .map-grip, .map-move, #transport";
+  A.SEL = ".stage .stage-bar, .stage-bar.bar-floating, .tile-expand, .map-panel.map-floating, .map-grip, .map-move, #transport";
   const CTL = ".stage-bar, .transport, .map-panel, .tile-expand, .cam-menu, .us-btn, #usBtn, #rdBtn, .bar-hint, .us-strip";
   A.override = () => { try { const m = /(?:[?&#])autohide=(2|3|5|never)\b/.exec(location.search + location.hash); return m ? m[1] : null; } catch (_) { return null; } };
   A.pref = () => { const v = String(T.prefs.autohide); return VALUES.includes(v) ? v : "3"; };

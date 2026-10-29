@@ -40,7 +40,7 @@
     },
     export: { preset: "compat", codec: "h264", res: "native", range: "full", extras: "auto", order: "viewer" },   // extras: auto | overlay | fill | panel (auto = Fill black area when the picture has one, else Add panel); order: viewer | standard
     rate: 1,
-    cameraBar: { on: true, hintSeen: false, dock: "over", side: "top", grid: { fx: -1, fy: -1 }, focus: { fx: -1, fy: -1 } },
+    cameraBar: { on: true, hintSeen: false, dock: "over", side: "top", grid: { fx: -1, fy: -1 }, focus: { fx: -1, fy: -1 }, from: "over", float: { fx: -1, fy: -1 } },   // dock: over | beside | float (ui-glass-5: anywhere in the window; from = where it docks back; float = left / top as fractions of the free window area)
     cue: true,   // hand-off cue (js/handoff.js)
     carView: false,   // top-down car with tracked people (js/car-view.js)
     carPanel: { pinned: false, collapsed: false, w: 0, fx: -1, fy: -1 },   // floating car view: pinned = locked, w = width px (0 = default), fx/fy = left/top as fractions of the window (-1 = default corner)
@@ -121,7 +121,7 @@
     t.style.bottom = ""; t.style.left = ""; t.style.maxWidth = "";
     try {
       const vw = innerWidth, vh = innerHeight, seen = (e) => { if (!e || e.hidden) return null; const cs = getComputedStyle(e); if (cs.display === "none" || cs.visibility === "hidden") return null; const r = e.getBoundingClientRect(); return r.width > 1 && r.height > 1 ? r : null; };
-      const obs = []; ["crBar", "usBtn", "rdBtn", "usPanel", "stageBar"].forEach((id) => { const e = T.$(id), r = id === "stageBar" && !(e && e.closest("#stage")) ? null : seen(e); if (r && id === "stageBar" && +getComputedStyle(e).opacity < 0.05) return; if (r) obs.push(r); if (id === "crBar" && r) [...e.children].forEach((c) => { const q = seen(c); if (q) obs.push(q); }); });
+      const obs = []; ["crBar", "usBtn", "rdBtn", "usPanel", "stageBar"].forEach((id) => { const e = T.$(id), r = id === "stageBar" && !(e && (e.closest("#stage") || e.classList.contains("bar-floating"))) ? null : seen(e); if (r && id === "stageBar" && +getComputedStyle(e).opacity < 0.05) return; if (r) obs.push(r); if (id === "crBar" && r) [...e.children].forEach((c) => { const q = seen(c); if (q) obs.push(q); }); });
       if (!obs.length) return;
       let w = t.offsetWidth; const h = t.offsetHeight; let bottom = parseFloat(getComputedStyle(t).bottom) || 0, cx = vw / 2;
       for (let k = 0; k < 6; k++) {

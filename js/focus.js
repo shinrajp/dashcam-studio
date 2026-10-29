@@ -419,21 +419,76 @@
   // ── dock: "over" (floating on the video, default) or "beside" (a strip above/below the video, like the map's dock) ──
   F.barDocked = () => CB().dock === "beside" && F.barOn() && !!P().ev;
   F.barDockH = () => { if (!F.barDocked()) return 0; const b = $("stageBar"); return (b && b.offsetHeight ? b.offsetHeight : 44) + 8; };
+  // ── ui-glass-5: "float" = a window-level pill you drag anywhere (also outside the video), like the floating map. Its spot is kept in
+  // prefs.cameraBar.float (fractions of the free window area) and kept on screen; it docks back to where it came from (cameraBar.from)
+  // when dropped on the dashed dock spot, on a double-tap of the grip, or with Enter on the grip. Export never uses any of this. ──
+  F.barFloating = () => CB().dock === "float" && F.barOn() && !!P().ev;
+  const FM = 8;
+  const winW = () => document.documentElement.clientWidth || innerWidth;
+  const floatFloor = () => { try { return T.overlays && T.overlays.floatFloor ? T.overlays.floatFloor() : innerHeight; } catch (e) { return innerHeight; } };
+  function floatSpan(bar) {
+    const floor = floatFloor();
+    return { x0: FM, y0: FM, sx: Math.max(0, winW() - bar.offsetWidth - 2 * FM), sy: Math.max(0, floor - bar.offsetHeight - 2 * FM) };
+  }
+  function setFloatXY(bar, x, y, save) {
+    const s = floatSpan(bar);
+    x = T.clamp(x, s.x0, s.x0 + s.sx); y = T.clamp(y, s.y0, s.y0 + s.sy);
+    bar.style.left = Math.round(x) + "px"; bar.style.top = Math.round(y) + "px";
+    if (save) { T.prefs.cameraBar.float = { fx: s.sx ? +((x - s.x0) / s.sx).toFixed(4) : 0, fy: s.sy ? +((y - s.y0) / s.sy).toFixed(4) : 0 }; T.savePrefs(); }
+    return { x, y };
+  }
+  /** Shape the pill so a camera is never scrolled away: names first go (icon-only chips), then it wraps onto two rows with the cameras
+   *  on top. (An upright pill does not fit a phone in landscape with 44 px targets: 8 x 44 px is taller than the room above the slim bar.) */
+  function fitPill() {
+    const bar = $("stageBar");
+    if (!bar || bar.hidden) return;
+    bar.classList.remove("pill-compact", "pill-wrap");
+    bar.style.width = bar.style.height = "";
+    const fl = F.barFloating();
+    const kids = () => [...bar.children].filter((c) => c.id !== "barHint" && c.getClientRects().length);
+    const gapOf = (prop) => parseFloat(getComputedStyle(bar)[prop]) || 0;
+    const over = () => bar.scrollWidth > bar.clientWidth + 1;
+    if (!over()) return;
+    bar.classList.add("pill-compact");
+    if (!over()) return;
+    // two rows: the cameras on the first, the grip and the tools on the second; as wide as the longer row (never wider than allowed)
+    const cs = getComputedStyle(bar), padH = parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight) + 2, g = gapOf("columnGap");
+    const sw = $("camSwitch"), rest = kids().filter((c) => c !== sw);
+    const restW = rest.reduce((a, c) => a + c.offsetWidth, 0) + g * Math.max(0, rest.length - 1);
+    const maxW = fl ? winW() - 2 * FM : stage().clientWidth - 16, camsW = sw.scrollWidth;   // measured on one line, before wrapping
+    bar.classList.add("pill-wrap");
+    bar.style.width = Math.ceil(Math.min(maxW, Math.max(camsW, restW) + padH)) + "px";
+  }
+  F.fitPill = fitPill;
   function syncBarDock() {
     const bar = $("stageBar"), dock = $("barDock");
     if (!bar || !dock) return;
-    const docked = F.barDocked();
+    const docked = F.barDocked(), fl = F.barFloating();
     document.body.classList.toggle("bar-aside", docked);
     document.body.classList.toggle("bar-below", docked && CB().side === "bottom");
+    document.body.classList.toggle("bar-float", fl);
     dock.hidden = !docked;
+    const refocus = bar.contains(document.activeElement) ? document.activeElement : null;   // re-parenting drops the focus: give it back
+    const wasFl = bar.classList.contains("bar-floating");
+    bar.classList.toggle("bar-floating", fl);
     if (docked) { if (bar.parentElement !== dock) dock.appendChild(bar); bar.classList.remove("moved"); bar.style.left = bar.style.top = bar.style.transform = ""; }
-    else if (bar.parentElement !== stage()) stage().insertBefore(bar, $("btnBarRestore"));
+    else if (fl) { if (bar.parentElement !== document.body) document.body.appendChild(bar); bar.classList.add("moved"); bar.style.transform = ""; }
+    else {
+      if (bar.parentElement !== stage()) stage().insertBefore(bar, $("btnBarRestore"));
+      if (wasFl) { bar.classList.remove("moved"); bar.style.left = bar.style.top = ""; }
+    }
+    if (refocus && document.activeElement !== refocus && refocus.isConnected) try { refocus.focus({ preventScroll: true }); } catch (e) {}
     const btn = $("btnBarDock");
     if (btn) {
       const on = CB().dock === "beside";
-      btn.setAttribute("aria-pressed", String(on));
-      btn.querySelector("span").textContent = on ? "On video" : "Beside video";
-      btn.title = on ? "Put the camera bar back on the video" : "Move the camera bar off the video (above or below it)";
+      btn.setAttribute("aria-pressed", String(on || fl));
+      btn.querySelector("span").textContent = fl ? "Dock" : on ? "On video" : "Beside video";
+      btn.title = fl ? "Dock the camera bar again" + ((CB().from || "over") === "beside" ? " (beside the video)" : " (on the video)") : on ? "Put the camera bar back on the video" : "Move the camera bar off the video (above or below it)";
+    }
+    const grip = $("barGrip");
+    if (grip) {
+      grip.title = fl ? "Drag to move · double-click or Enter docks it" : "Drag me to move this bar (drag it off the video to float it anywhere). Double-click to put it back at the top.";
+      grip.setAttribute("aria-label", fl ? "Move the camera bar (drag, or arrow keys). Enter or a double-tap docks it again" : "Move the camera bar: drag it off the video to float it anywhere (or press Enter, then arrow keys)");
     }
     const cb = $("barAside"); if (cb) cb.checked = CB().dock === "beside";
     document.querySelectorAll("#segBarSide button").forEach((b) => b.classList.toggle("on", b.dataset.v === (CB().side || "top")));
@@ -484,6 +539,8 @@
   function placeBar() {
     const bar = $("stageBar");
     if (bar.hidden || F.dragging) return;
+    fitPill();
+    if (F.barFloating()) { placeFloat(); placeHint(); return; }
     if (F.barDocked()) { placeDock(); placeHint(); return; }
     const pos = CB()[layoutKey()];
     if (!(pos && pos.fx >= 0)) {
@@ -503,6 +560,56 @@
     placeHint();
   }
   F.placeBar = placeBar;
+  function placeFloat() {
+    const bar = $("stageBar"), f = CB().float || {}, s = floatSpan(bar);
+    const fx = f.fx >= 0 ? f.fx : 0.5, fy = f.fy >= 0 ? f.fy : 0.06;
+    setFloatXY(bar, s.x0 + T.clamp(fx, 0, 1) * s.sx, s.y0 + T.clamp(fy, 0, 1) * s.sy, false);
+  }
+  const mapAgain = () => { try { if (T.overlays && T.overlays.invalidate) T.overlays.invalidate(); } catch (e) {} };
+  /** Where the floating pill docks back (viewport px): the on-video spot (its saved spot, else top centre), or the strip beside the video. */
+  function dockSpot() {
+    const st = stage(); if (!st) return null;
+    const sr = st.getBoundingClientRect(), bar = $("stageBar"); if (sr.width < 40) return null;
+    const bw = Math.min(bar.offsetWidth, sr.width - 16), bh = bar.offsetHeight;
+    if ((CB().from || "over") === "beside") {
+      const h = Math.max(44, bh);
+      return { l: sr.left, t: CB().side === "bottom" ? sr.bottom - h : sr.top, w: sr.width, h };
+    }
+    const pos = CB()[layoutKey()];
+    if (pos && pos.fx >= 0) return { l: sr.left + MARGIN + T.clamp(pos.fx, 0, 1) * Math.max(0, sr.width - bw - 2 * MARGIN), t: sr.top + MARGIN + T.clamp(pos.fy, 0, 1) * Math.max(0, sr.height - bh - 2 * MARGIN), w: bw, h: bh };
+    return { l: sr.left + (sr.width - bw) / 2, t: sr.top + (innerWidth <= 760 ? 6 : 48), w: bw, h: Math.min(bh, sr.height - 12) };
+  }
+  let spotEl = null;
+  function showSpot(on, near) {
+    if (on && !spotEl) { spotEl = T.el("div", "cam-dock-hint"); spotEl.setAttribute("aria-hidden", "true"); document.body.appendChild(spotEl); }
+    if (!spotEl) return;
+    const d = on ? dockSpot() : null;
+    spotEl.hidden = !d;
+    if (!d) return;
+    Object.assign(spotEl.style, { left: Math.round(d.l) + "px", top: Math.round(d.t) + "px", width: Math.round(d.w) + "px", height: Math.round(d.h) + "px" });
+    spotEl.classList.toggle("near", !!near);
+  }
+  const nearSpot = (x, y) => { const d = dockSpot(), m = 28; return !!d && x >= d.l - m && x <= d.l + d.w + m && y >= d.t - m && y <= d.t + d.h + m; };
+  /** Lift the pill off its dock into the window (keyboard: where it is now). */
+  function floatHere(quiet) {
+    const bar = $("stageBar"), r = bar.getBoundingClientRect(), was = CB().dock;
+    if (was !== "float") T.prefs.cameraBar.from = was === "beside" ? "beside" : "over";
+    T.prefs.cameraBar.dock = "float";
+    syncBarDock();
+    if (was === "beside" && T.ui && T.ui.fit) T.ui.fit();
+    fitPill();
+    setFloatXY(bar, r.left, r.top, true);
+    placeHint(); mapAgain();
+    if (!quiet) T.toast("Camera bar floats: drag ⋮⋮ anywhere. Double-tap ⋮⋮ (or Enter) docks it again", "ok", 3200);
+  }
+  F.floatBar = floatHere;
+  /** Dock the floating pill again, where it came from. */
+  F.dockBar = (quiet) => {
+    if (CB().dock !== "float") return;
+    F.setBarDock(CB().from === "beside" ? "beside" : "over");
+    mapAgain();
+    if (!quiet) T.toast(CB().dock === "beside" ? "Camera bar docked beside the video" : "Camera bar docked on the video", "ok", 2200);
+  };
   F.resetBarPos = () => {
     T.prefs.cameraBar[layoutKey()] = { fx: -1, fy: -1 }; T.savePrefs();
     placeBar(); T.toast("Camera bar is back at the top");
@@ -517,27 +624,64 @@
       if (!(grip || empty) || (e.pointerType === "mouse" && e.button !== 0)) return;
       e.preventDefault();
       const r = bar.getBoundingClientRect(), sr = stage().getBoundingClientRect();
-      d = { id: e.pointerId, x: e.clientX, y: e.clientY, l: r.left - sr.left, t: r.top - sr.top, moved: false, grip: !!grip };
+      d = { id: e.pointerId, x: e.clientX, y: e.clientY, l: r.left - sr.left, t: r.top - sr.top, fl: F.barFloating(), fx0: r.left, fy0: r.top, moved: false, grip: !!grip, near: false };
       try { bar.setPointerCapture(e.pointerId); } catch (_) {}
       F.dragging = true; bar.classList.add("dragging"); wake();
     });
-    bar.addEventListener("pointermove", (e) => {
+    // move / up are read on the window: floating re-parents the bar (out of the video or the dock strip), which drops pointer capture
+    const outOf = (x, y) => {   // has the pointer left the video (and the dock strip)? → the pill lifts off and floats
+      const rs = [stage().getBoundingClientRect()]; const dk = $("barDock"); if (dk && !dk.hidden) rs.push(dk.getBoundingClientRect());
+      return !rs.some((r) => x >= r.left - 12 && x <= r.right + 12 && y >= r.top - 12 && y <= r.bottom + 12);
+    };
+    const move = (e) => {
       if (!d || e.pointerId !== d.id) return;
       const dx = e.clientX - d.x, dy = e.clientY - d.y;
       if (!d.moved && Math.hypot(dx, dy) < 5) return;
       d.moved = true;
-      if (F.barDocked()) { bar.style.transform = "translateY(" + Math.round(dy) + "px)"; return; }   // docked: drag up/down to switch side
-      const s = spans();
-      bar.classList.add("moved");
-      bar.style.left = Math.round(T.clamp(d.l + dx, MARGIN, MARGIN + s.sx)) + "px";
-      bar.style.top = Math.round(T.clamp(d.t + dy, MARGIN, MARGIN + s.sy)) + "px";
-      placeHint(); wake();
-    });
+      if (!F.barFloating()) {
+        if (!outOf(e.clientX, e.clientY)) {
+          if (F.barDocked()) { bar.style.transform = "translateY(" + Math.round(dy) + "px)"; return; }   // docked: drag up/down to switch side
+          const s = spans();
+          bar.classList.add("moved");
+          bar.style.left = Math.round(T.clamp(d.l + dx, MARGIN, MARGIN + s.sx)) + "px";
+          bar.style.top = Math.round(T.clamp(d.t + dy, MARGIN, MARGIN + s.sy)) + "px";
+          placeHint(); wake(); return;
+        }
+        // lift off: keep the grip under the pointer while the pill changes home (and maybe shape)
+        const g0 = $("barGrip").getBoundingClientRect(), ox = e.clientX - g0.left, oy = e.clientY - g0.top;
+        bar.style.transform = "";
+        const was = CB().dock;
+        T.prefs.cameraBar.from = was === "beside" ? "beside" : "over";
+        T.prefs.cameraBar.dock = "float";
+        syncBarDock();
+        if (was === "beside" && T.ui && T.ui.fit) T.ui.fit();
+        fitPill();
+        const br = bar.getBoundingClientRect(), g1 = $("barGrip").getBoundingClientRect();
+        d.fx0 = e.clientX - ox - (g1.left - br.left); d.fy0 = e.clientY - oy - (g1.top - br.top); d.x = e.clientX; d.y = e.clientY;
+        mapAgain();
+      }
+      e.preventDefault();
+      setFloatXY(bar, d.fx0 + (e.clientX - d.x), d.fy0 + (e.clientY - d.y), false);
+      d.near = nearSpot(e.clientX, e.clientY);
+      showSpot(true, d.near); bar.classList.toggle("dock-near", d.near);
+      if (F.camMenuOpen()) placeCamMenu(true);
+      wake();
+    };
     const end = (e) => {
       if (!d || e.pointerId !== d.id) return;
       const was = d; d = null;
-      F.dragging = false; bar.classList.remove("dragging");
-      if (was.moved && F.barDocked()) {
+      F.dragging = false; bar.classList.remove("dragging", "dock-near"); showSpot(false);
+      if (was.moved && F.barFloating()) {
+        F.dragEnd = performance.now();
+        if (was.near) { F.dockBar(true); wake(); return; }
+        const s = floatSpan(bar);
+        let x = parseFloat(bar.style.left) || 0, y = parseFloat(bar.style.top) || 0;
+        if (x - s.x0 < SNAP) x = s.x0; else if (s.x0 + s.sx - x < SNAP) x = s.x0 + s.sx;
+        if (y - s.y0 < SNAP) y = s.y0; else if (s.y0 + s.sy - y < SNAP) y = s.y0 + s.sy;
+        setFloatXY(bar, x, y, true);
+        hideHint(true); mapAgain();
+        if (!was.fl) T.toast("Camera bar floats: drop it on the dashed spot, double-tap ⋮⋮ or press Enter on it to dock it again", "ok", 3200);
+      } else if (was.moved && F.barDocked()) {
         F.dragEnd = performance.now();
         bar.style.transform = "";
         const sr = stage().getBoundingClientRect();
@@ -552,16 +696,32 @@
         T.prefs.cameraBar[layoutKey()] = { fx: s.sx ? l / s.sx : 0.5, fy: s.sy ? t / s.sy : 0 };
         T.savePrefs();
         hideHint(true);
-        placeBar();
+        placeBar(); mapAgain();
       } else if (was.grip && e.type === "pointerup") {
         const now = performance.now();
-        if (now - lastTap < 400) { lastTap = 0; F.resetBarPos(); } else lastTap = now; // double-click / double-tap the grip
+        // double-click / double-tap the grip: a floating pill docks again; a docked one goes back to the top
+        if (now - lastTap < 400) { lastTap = 0; if (F.barFloating()) F.dockBar(); else F.resetBarPos(); } else lastTap = now;
       }
       wake();
     };
-    bar.addEventListener("pointerup", end);
-    bar.addEventListener("pointercancel", end);
+    addEventListener("pointermove", move, true);
+    addEventListener("pointerup", end, true);
+    addEventListener("pointercancel", end, true);
     bar.addEventListener("dblclick", (e) => e.stopPropagation());
+    // keyboard: the grip is a button. Enter / Space floats the pill where it is, or docks it again; the arrow keys float it and move it.
+    const grip = $("barGrip");
+    grip.tabIndex = 0; grip.setAttribute("role", "button");
+    grip.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); if (F.barFloating()) F.dockBar(); else floatHere(); wake(); return; }
+      const k = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[e.key];
+      if (!k) return;
+      e.preventDefault(); e.stopPropagation();
+      if (!F.barFloating()) floatHere(true);
+      const r = bar.getBoundingClientRect(), st = e.shiftKey ? 64 : 16;
+      setFloatXY(bar, r.left + k[0] * st, r.top + k[1] * st, true);
+      if (F.camMenuOpen()) placeCamMenu(true);
+      mapAgain(); wake();
+    });
   }
   const hintHidden = () => !$("barHint") || $("barHint").hidden;
   function maybeHint() {
@@ -624,7 +784,7 @@
     $("btnFocusClose").addEventListener("click", (e) => { e.stopPropagation(); F.grid(); });
     $("chipCamBar").addEventListener("click", () => F.setBar(!F.barOn()));
     $("btnBarDock").addEventListener("pointerdown", (e) => e.stopPropagation());
-    $("btnBarDock").addEventListener("click", (e) => { e.stopPropagation(); F.setBarDock(CB().dock === "beside" ? "over" : "beside"); });
+    $("btnBarDock").addEventListener("click", (e) => { e.stopPropagation(); if (CB().dock === "float") F.dockBar(); else F.setBarDock(CB().dock === "beside" ? "over" : "beside"); });
     if ($("barAside")) $("barAside").addEventListener("change", (e) => F.setBarDock(e.target.checked ? "beside" : "over"));
     document.querySelectorAll("#segBarSide button").forEach((b) => b.addEventListener("click", () => F.setBarDock(null, b.dataset.v)));
     T.on("layout", placeDock);
@@ -634,6 +794,7 @@
     $("btnHintOk").addEventListener("click", (e) => { e.stopPropagation(); hideHint(true); });
     barDrag();
     new ResizeObserver(() => placeBar()).observe(stage());
+    addEventListener("resize", () => { if (F.barFloating()) placeBar(); });   // the floating pill stays on screen
     T.on("layout", () => { placeBar(); requestAnimationFrame(() => placeBar()); });
     zoomInput();
     document.addEventListener("fullscreenchange", onFsChange);
