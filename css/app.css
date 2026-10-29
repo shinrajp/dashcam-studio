@@ -1169,3 +1169,18 @@ body.mbar.us-open .transport > .us-btn, body.mbar.no-event .transport > .us-btn,
 @media (max-width: 760px) { body.cr-bar-on .tp-controls .us-btn { display: none; } }
 body.mbar.cr-bar-on .transport > .us-btn { display: none; }
 .toast { transition: opacity .2s, transform .2s; }   /* not "all": js/core.js lifts it above the draw bar / panel / buttons, and reads its resting place */
+/* ui-glass-6 (iPhone feedback): the phone event picker is a real 44 px pill with the date + time and a clearly drawn chevron,
+   not iOS's tiny native up/down arrows. Narrow phones give it the logo's spot and slightly slimmer top buttons (still 44 px). */
+@media (max-width: 960px) {
+  body.multi-ev .event-title { min-width: 96px; align-items: stretch; }
+  body.multi-ev .event-pick { -webkit-appearance: none; appearance: none; width: 100%; min-width: 96px; height: 44px; min-height: 44px; padding: 0 26px 0 10px; border-radius: 999px;
+    font: 600 14px var(--font); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5l5 5 5-5' fill='none' stroke='%23e6ebf5' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    background-repeat: no-repeat; background-position: right 10px center; background-size: 12px 8px; }
+  body.multi-ev .event-pick:focus-visible { outline: 2px solid var(--accent, #3E6AE1); outline-offset: 2px; }
+}
+@media (max-width: 480px) {
+  body.multi-ev .topbar { padding-left: max(10px, env(safe-area-inset-left)); padding-right: max(10px, env(safe-area-inset-right)); }
+  body.multi-ev .brand { display: none; }
+  body.multi-ev .top-actions .btn { width: 44px; min-width: 44px; padding: 0; justify-content: center; }
+}
