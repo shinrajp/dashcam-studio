@@ -115,6 +115,17 @@ async function partB(b, dev, tag) {
   await clickRd(p); await W(500);
   await p.evaluate(() => { document.getElementById("crSec").open = true; }); await W(400);
   let g = await geo(p);
+  // ui-glass-6: on a wide screen the docked panel is a thin strip; the saved regions and the file buttons live in popovers above it
+  if (await p.evaluate(() => { const b = document.getElementById("crRegBtn"); return !!b && !!b.getClientRects().length; })) {
+    ok(tag + " B1 docked strip: thin (<= 20% of the window), the last saved region and the file buttons are on screen from Regions / ⋯", g.h <= g.vh * 0.2 + 1 && await p.evaluate(() => (async () => { const S = (ms) => new Promise((r) => setTimeout(r, ms)), on = (e) => { const r = e.getBoundingClientRect(); return e.getClientRects().length && r.top >= 0 && r.bottom <= innerHeight && r.left >= 0 && r.right <= innerWidth && r.height > 8; };
+      const rb = document.getElementById("crRegBtn"), mb = document.getElementById("usMore"); rb.click(); await S(150); const a = on(document.querySelector("#crList li:last-child [data-act=del]")); rb.click(); mb.click(); await S(150);
+      const b = on(document.getElementById("crExportFile")) && on(document.getElementById("crImportFile")); mb.click(); await S(100); return a && b; })()), g);
+    await p.setViewportSize({ width: dev.ctx.viewport.width, height: dev.short }); await W(500); g = await geo(p);
+    ok(tag + " B2 short window (" + dev.short + " px): the strip stays thin and its popovers stay on screen", g.h <= Math.max(110, g.vh * 0.2 + 1) && await p.evaluate(() => (async () => { const S = (ms) => new Promise((r) => setTimeout(r, ms)), on = (e) => { const r = e.getBoundingClientRect(); return e.getClientRects().length && r.top >= 0 && r.bottom <= innerHeight && r.left >= 0 && r.right <= innerWidth && r.height > 8; };
+      const rb = document.getElementById("crRegBtn"), mb = document.getElementById("usMore"); rb.click(); await S(150); const a = on(document.querySelector("#crList li:last-child [data-act=del]")); rb.click(); mb.click(); await S(150);
+      const b = on(document.getElementById("crExportFile")) && on(document.getElementById("crImportFile")); mb.click(); await S(100); return a && b; })()), g);
+    await p.setViewportSize(dev.ctx.viewport); await W(400);
+  } else {
   ok(tag + " B1 docked: panel scrolls (overflow-y auto) and the file row is within the viewport after scrolling to the bottom", g.ov === "auto", g);
   await scrollPanel(p, 99999); await W(150); g = await geo(p);
   if (SHOTS) await p.screenshot({ path: SHOTS + "/panel-docked-scrolled-to-custom-regions-" + tag.replace(/\W+/g, "-") + ".png" });
@@ -128,6 +139,7 @@ async function partB(b, dev, tag) {
   ok(tag + " B2 short window: last row reachable by scrolling", g.scrollTop > 0 && g.fileBottom <= g.b + 1 && g.fileBottom <= g.vh + 1, g);
   ok(tag + " B2 short window: header stays at the top of the panel while scrolled (sticky)", Math.abs(g.headTop - g.t) <= 3, g);
   await p.setViewportSize(dev.ctx.viewport); await W(400);
+  }
   // phone sheet (typing): simulate the sheet class + visual viewport height as the keyboard does
   await p.evaluate(() => { const e = document.getElementById("usPanel"); e.classList.add("sheet"); e.style.setProperty("--us-vvh", Math.round(innerHeight * 0.55) + "px"); }); await W(300);
   await scrollPanel(p, 0); g = await geo(p);

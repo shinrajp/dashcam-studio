@@ -394,6 +394,8 @@ async function openEvent(p, URL0) {
         await p.evaluate(() => { TDC.ui.segs = []; TDC.setPref("advanced", false); TDC.regions.clear(); });
         // list actions: toggle, edit, show, delete
         await p.evaluate((PB) => { TDC.regions.clear(); TDC.regions.add({ cam: "back", shape: "rect", mode: "blur", x: PB.x, y: PB.y, w: PB.w, h: PB.h, start: 1, end: 3 }); TDC.regions.UI.sync(); }, PB);
+        const regs = () => p.evaluate(() => { const b = document.getElementById("crRegBtn"), l = document.getElementById("crList"); if (b && b.getClientRects().length && !l.getClientRects().length) b.click(); });   // ui-glass-6 strip: the list is a popover
+        await regs(); await W(150);
         await p.click("#crList li input[data-act=on]"); const off = await p.evaluate(() => [TDC.regions.list[0].on, TDC.regions.at("back", 2).length]);
         await p.click("#crList li input[data-act=on]"); const on = await p.evaluate(() => [TDC.regions.list[0].on, TDC.regions.at("back", 2).length]);
         ok(tag + "list: the tick switches a region off and on (off = not applied)", off[0] === false && off[1] === 0 && on[0] === true && on[1] === 1, { off, on });
@@ -401,6 +403,7 @@ async function openEvent(p, URL0) {
         await save(); await W(150);
         const edited = await p.evaluate(() => ({ n: TDC.regions.list.length, mode: TDC.regions.list[0].mode, s: TDC.regions.list[0].start, e: TDC.regions.list[0].end }));
         ok(tag + "list: Edit keeps the shape + time, lets you change Blur/Remove, 'Save changes' updates in place (no duplicate)", /Save changes/.test(editing.save) && !editing.dis && edited.n === 1 && edited.mode === "remove" && edited.s === 1 && edited.e === 3, { editing, edited });
+        await regs(); await W(150);
         await p.click("#crList li button[data-act=go]"); await W(400);
         const go = await p.evaluate(() => ({ focus: TDC.focus.cam, t: TDC.player.time }));
         ok(tag + "list: Show jumps into the region's time and camera", go.focus === "back" && go.t >= 0.9, go);
