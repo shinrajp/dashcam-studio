@@ -85,7 +85,7 @@
     if (W.w) p.style.width = Math.min(W.w, v.w - 2 * M) + "px";
     if (W.h) p.style.height = Math.min(W.h, v.h - 2 * M) + "px";
     // never taller than the visible area (the window scrolls inside). Until the user sizes it, about 45% of the screen so it never hides the video (redact-button)
-    p.style.maxHeight = Math.max(150, Math.round(W.h || W.lift ? v.h - 2 * M : Math.min(v.h - 2 * M, Math.max(260, v.h * 0.45)))) + "px";
+    p.style.maxHeight = Math.max(150, Math.round(W.h ? v.h - 2 * M : Math.min(v.h - 2 * M, Math.max(260, v.h * 0.45)))) + "px";
     const pw = p.offsetWidth || 360, ph = p.offsetHeight || 200;
     let x = W.x == null ? v.w - pw - 16 : W.x, y = W.y == null ? 70 : W.y;
     x = Math.max(v.l + M, Math.min(x, v.l + v.w - pw - M));
@@ -183,9 +183,9 @@
     // hovering over / grabbing the resize corner lifts the default 45% height cap, so the user can still make the window taller (redact-button).
     // It has to happen on hover too: WebKit ignores a style change made after the drag has started.
     const liftCap = (e) => {
-      if (W.mode !== "float" || W.pinned || W.h || W.lift || e.target !== p) return;
+      if (W.mode !== "float" || W.pinned || W.h || e.target !== p) return;
       const r = p.getBoundingClientRect();
-      if (e.clientX > r.right - 22 && e.clientY > r.bottom - 22) { W.lift = true; placeFloat(); }
+      if (e.clientX > r.right - 22 && e.clientY > r.bottom - 22) { W.h = Math.round(r.height); placeFloat(); }
     };
     p.addEventListener("pointermove", liftCap, true);
     p.addEventListener("pointerdown", liftCap, true);
@@ -257,7 +257,7 @@
   U.hide = () => {
     const p = $("usPanel");
     if (!p) return;
-    U.open = false; W.lift = false;
+    U.open = false;
     p.hidden = true;
     document.body.classList.remove("us-open");
     syncBtns();
