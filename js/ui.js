@@ -268,14 +268,15 @@
     ctx.clearRect(0, 0, w, h);
     clampView();
     const g = geom(h), top = g.top, bh = g.bh;
-    T.draw.rr(ctx, 0, top, w, bh, 7); ctx.fillStyle = "#1c2028"; ctx.fill();
-    if (g.laneH) { T.draw.rr(ctx, 0, g.laneTop, w, g.laneH, 7); ctx.fillStyle = "#12151b"; ctx.fill(); ctx.strokeStyle = "rgba(255,255,255,0.07)"; ctx.lineWidth = 1; ctx.stroke(); }
+    const RT = Math.max(0, Math.min(12, bh / 2)), RL = 12;   // ui-glass-3: capsule-shaped bands (look only: the geometry and hit areas are unchanged)
+    T.draw.rr(ctx, 0, top, w, bh, RT); ctx.fillStyle = "#1c2028"; ctx.fill();
+    if (g.laneH) { T.draw.rr(ctx, 0, g.laneTop, w, g.laneH, RL); ctx.fillStyle = "#12151b"; ctx.fill(); ctx.strokeStyle = "rgba(255,255,255,0.07)"; ctx.lineWidth = 1; ctx.stroke(); }
     if (!ev || !ev.duration) return;
     const sp = span(), v0 = view.v0;
     const X = (t) => ((t - v0) / sp) * w;
     const tl = $("timeline");
     tl.setAttribute("aria-valuemax", ev.duration.toFixed(1)); tl.setAttribute("aria-valuenow", P().time.toFixed(1));
-    ctx.save(); T.draw.rr(ctx, 0, top, w, bh, 7); ctx.clip();
+    ctx.save(); T.draw.rr(ctx, 0, top, w, bh, RT); ctx.clip();
     // self-driving / autosteer bands + speed sparkline from parsed telemetry
     const tel = T.telemetry;
     let vmax = 1;
@@ -320,12 +321,12 @@
     // section lane: labelled blocks with wide edge handles
     if (g.laneH) {
       const ly = g.laneTop + 3, lh = g.laneH - 6;
-      ctx.save(); T.draw.rr(ctx, 0, g.laneTop, w, g.laneH, 7); ctx.clip();
+      ctx.save(); T.draw.rr(ctx, 0, g.laneTop, w, g.laneH, RL); ctx.clip();
       if (!secs.length) T.draw.text(ctx, isCoarse() ? "Sections: tap + to add one at the playhead" : "Sections: press + (or A) to add one at the playhead, then drag its edges", w / 2, g.laneTop + g.laneH / 2 + 0.5, 11, "rgba(255,255,255,0.32)", "center", 600);
       secs.forEach((sg, i) => {
         const col = SEG_COLORS[i % SEG_COLORS.length], x0 = X(sg.start), x1 = X(sg.end), sel = sg.id === U.selSeg;
         if (x1 < -10 || x0 > w + 10) return;
-        T.draw.rr(ctx, x0, ly, Math.max(2, x1 - x0), lh, 6); ctx.fillStyle = col + (sel ? "f2" : "b8"); ctx.fill();
+        T.draw.rr(ctx, x0, ly, Math.max(2, x1 - x0), lh, 9); ctx.fillStyle = col + (sel ? "f2" : "b8"); ctx.fill();
         if (sel) { ctx.strokeStyle = "#fff"; ctx.lineWidth = 2; ctx.stroke(); }
         const len = sg.end - sg.start, bwid = x1 - x0;
         const lab = bwid > 110 ? `S${i + 1} · ${T.fmtTime(len, true)}` : bwid > 34 ? `S${i + 1}` : "";
@@ -337,7 +338,7 @@
         for (const x of [x0, x1]) {
           if (x < -8 || x > w + 8) continue;
           const hw = sel ? 8 : 6;
-          T.draw.rr(ctx, x - hw / 2, g.laneTop + 1, hw, g.laneH - 2, 3);
+          T.draw.rr(ctx, x - hw / 2, g.laneTop + 1, hw, g.laneH - 2, hw / 2);
           ctx.fillStyle = sel ? "#fff" : "rgba(255,255,255,0.78)"; ctx.fill();
           ctx.fillStyle = "rgba(0,0,0,0.45)";
           const cy = g.laneTop + g.laneH / 2;
@@ -370,7 +371,7 @@
       ctx.fillRect(x - 1, 2, 2, h - 4);
       const kw = isCoarse() ? 14 : 12, kh = Math.min(bh, isCoarse() ? 20 : 16);
       ctx.save(); ctx.shadowColor = "rgba(0,0,0,0.6)"; ctx.shadowBlur = 4;
-      T.draw.rr(ctx, x - kw / 2, top + (bh - kh) / 2, kw, kh, 4); ctx.fill(); ctx.restore();
+      T.draw.rr(ctx, x - kw / 2, top + (bh - kh) / 2, kw, kh, kw / 2); ctx.fill(); ctx.restore();
       ctx.fillStyle = "rgba(0,0,0,0.35)"; ctx.fillRect(x - 0.5, top + (bh - kh) / 2 + 4, 1, kh - 8);
     }
   };
