@@ -22,7 +22,7 @@
       .then(function (b) { cb(URL.createObjectURL(new Blob([b], { type: 'video/mp4' }))); })
       .catch(function () { cb(SRC); });
   }
-  var poster = new Image(); poster.src = 'poster.jpg'; // shown until the video has a frame (iOS before tap, or no H.264)
+  var poster = new Image(); poster.crossOrigin = 'anonymous'; poster.src = 'poster.jpg'; // shown until the video has a frame (iOS before tap, or no H.264)
 
   function showNote(t, ms) { note.textContent = t; note.classList.add('on'); clearTimeout(showNote.t); showNote.t = setTimeout(function () { note.classList.remove('on'); }, ms || 5000); }
 
@@ -297,7 +297,7 @@
       // use the video once it really has frames (time advanced, or paused on a decoded frame); sticky after that
       var ready = v.readyState >= 2 && v.videoWidth && !v.error && (vsrc[i] === 'v' || v.currentTime > 0.05 || v.paused);
       if (ready) { try { gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, v); vsrc[i] = 'v'; } catch (e) {} }
-      else if ((v.error || vsrc[i] !== 'v') && vsrc[i] !== 'p' && poster.complete && poster.naturalWidth) { gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, poster); vsrc[i] = 'p'; }
+      else if ((v.error || vsrc[i] !== 'v') && vsrc[i] !== 'p' && poster.complete && poster.naturalWidth) { vsrc[i] = 'p'; try { gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, poster); } catch (e) {} }
       var r = rects[i], g = Math.round(2 * dpr * (videos.length > 1 ? 1 : 0));
       var uv = coverUV(v.videoWidth || 16, v.videoHeight || 9, r[2], r[3]);
       gl.uniform4f(P.u.uRect, r[0] + g / 2, r[1] + g / 2, r[2] - g, r[3] - g);
