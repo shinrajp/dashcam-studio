@@ -1,0 +1,42 @@
+/* capsule.css — ui-glass-3: the timeline, transport and multi-section trim drawn as one Liquid Glass capsule. Skin only: no box moves or changes size
+ * (test/ui-glass-3.js compares every element with this sheet on and off). The capsule is a ::before behind the controls (pointer-events: none, so it
+ * never takes a tap); the bar around it takes the page colour, so the capsule reads as floating.
+ *   Desktop / tablet: the whole transport (timeline row + controls row) is one capsule.  Phones (js/mobile-bar.js): the slim row (play, time, timeline, ⌃)
+ *   is the capsule, and in the pull-up sheet the trim buttons sit in their own small capsule.
+ *   Glass modes use the ui-glass-1 tokens (--g-rgb, --g-a, --g-sheen, --g-rim). Next to the video it is tint only (no blur: nothing to blur);
+ *   in full screen, when js/glass.js gives the transport its blur, the blur is on the capsule, not the whole bar. Auto-hide (ui-glass-2) hides it with
+ *   the bar. No transitions, so reduced motion needs nothing. Safari: -webkit-backdrop-filter beside backdrop-filter; no :has(). */
+:root { --cap-tint: var(--g-sheen), linear-gradient(rgba(255,255,255,.03), rgba(255,255,255,.03)), rgba(var(--g-rgb), max(var(--g-a), .86));
+  --cap-tint-fs: var(--g-sheen), rgba(var(--g-rgb), max(var(--g-a), .8)); --cap-shadow: var(--g-rim), 0 6px 18px rgba(0,0,0,.32), 0 1px 3px rgba(0,0,0,.25); }
+
+/* ── desktop / tablet: the transport ── */
+html.glass body:not(.mbar) .transport { position: relative; background: var(--bg); border-top-color: transparent; box-shadow: none; }
+html.glass body.fs:not(.mbar) .transport { position: fixed; background: transparent; border-top-color: transparent; }
+html.glass body:not(.mbar) .transport::before { content: ""; position: absolute; left: max(6px, calc(env(safe-area-inset-left) - 6px)); right: max(6px, calc(env(safe-area-inset-right) - 6px));
+  top: 3px; bottom: max(3px, calc(env(safe-area-inset-bottom) - 3px)); border-radius: 24px; pointer-events: none; background: var(--cap-tint); box-shadow: var(--cap-shadow); }
+html.glass body.fs:not(.mbar) .transport::before { background: var(--cap-tint-fs); }
+/* the rows paint above the capsule (positioned, no z-index: no new stacking context, fixed children keep the screen as their frame) */
+html.glass body:not(.mbar) .transport > .tp-scrub, html.glass body:not(.mbar) .transport > .tp-controls, html.glass body:not(.mbar) .transport > .find-bar,
+html.glass body:not(.mbar) .transport > .redact-bar, html.glass body:not(.mbar) .transport > .q-chips, html.glass body:not(.mbar) .transport > .find-status,
+html.glass body:not(.mbar) .transport > .find-hits { position: relative; }
+
+/* ── phones: the slim playback row ── */
+html.glass body.mbar .mb-bar { background: var(--bg); border-top-color: transparent; }
+html.glass body.fs.mbar .mb-bar { background: transparent; }
+html.glass body.mbar .mb-row { position: relative; }
+html.glass body.mbar .mb-row > * { position: relative; }
+html.glass body.mbar .mb-row::before { content: ""; position: absolute; left: -5px; right: -5px; top: 0; bottom: 0; border-radius: 24px; pointer-events: none; background: var(--cap-tint); box-shadow: var(--cap-shadow); }
+html.glass body.fs.mbar .mb-row::before { background: var(--cap-tint-fs); }
+/* the sheet keeps its own surface; its top corners match the capsule */
+html.glass body.mbar .mb-sheet { border-radius: 22px 22px 0 0; background: var(--g-sheen), var(--bg2); border-top-color: rgba(255,255,255,.1); box-shadow: var(--g-rim), 0 -10px 30px rgba(0,0,0,.45); }
+
+/* ── full screen: the transport's blur (when js/glass.js picks it) goes onto the capsule ── */
+html.glass body.fs:not(.mbar) .transport.g-blur, html.glass body.fs.mbar .transport.g-blur { -webkit-backdrop-filter: none !important; backdrop-filter: none !important; }
+html.glass body.fs:not(.mbar) .transport.g-blur::before, html.glass body.fs.mbar .transport.g-blur .mb-row::before { -webkit-backdrop-filter: blur(var(--g-blur)) saturate(170%); backdrop-filter: blur(var(--g-blur)) saturate(170%); }
+html.glass[data-glass="solid"] body .transport::before, html.glass[data-glass="solid"] body .mb-row::before { -webkit-backdrop-filter: none !important; backdrop-filter: none !important; }
+
+/* ── the multi-section trim group: a small capsule inside (a spread shadow pads it, so nothing moves) ── */
+html.glass .tp-trim { border-radius: 22px; background: rgba(255,255,255,.045); box-shadow: 0 0 0 3px rgba(255,255,255,.045), inset 0 1px 0 rgba(255,255,255,.07); }
+html.glass body.mbar .mb-sheet .tp-trim { border-radius: 26px; box-shadow: 0 0 0 4px rgba(255,255,255,.045), inset 0 1px 0 rgba(255,255,255,.07); }
+html.glass .tp-trim .btn.sq { border-radius: 999px; }
+html.glass body.no-event .tp-trim { background: transparent; box-shadow: none; }
