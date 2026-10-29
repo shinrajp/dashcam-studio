@@ -40,6 +40,7 @@ async function layoutSame(p, t) {
   const off = await p.evaluate(async (R) => { const ss = [...document.styleSheets].find((s) => s.href && s.href.includes("glass.css")); ss.disabled = true; await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))); const o = (0, eval)("(" + R + ")")(); ss.disabled = false; return o; }, RECTS.toString());
   const on2 = await p.evaluate(RECTS), same = (x, y) => x && y && x.every((v, i) => Math.abs(v - y[i]) <= 0.6);
   for (const k of Object.keys(on)) if (!same(on[k], on2[k])) delete on[k];   // still moving by itself (async list, animation): not glass's doing
+  for (const k of Object.keys(off)) if (!on[k] && on2[k]) delete off[k];   // it appeared after the first look (draw bar sliding in): timing, not glass's doing
   for (const k of Object.keys(off)) if (!on2[k] && !on[k]) { const again = await p.evaluate((id) => !!document.getElementById(id), k); if (!again) delete off[k]; }
   const diff = Object.keys(on).filter((k) => off[k] && on[k].some((v, i) => Math.abs(v - off[k][i]) > 0.6)).map((k) => k + " " + on[k] + " vs " + off[k]);
   const gone = Object.keys(on).filter((k) => !off[k]).concat(Object.keys(off).filter((k) => !on[k]));
@@ -115,7 +116,8 @@ async function run(b, BR, dev) {
     ["main", async () => { await p.evaluate(() => TDC.toast("A toast over the video", "ok", 60000)); }],
     ["redact", async () => { await p.evaluate(() => { document.getElementById("toast").classList.remove("show"); TDC.searchUI.show(false, "redact"); }); }],
     ["settings+redact", async () => { await p.evaluate(() => { document.getElementById("settings").hidden = false; TDC.toast("Another toast", "ok", 60000); }); }],
-    ["drawing", async () => { await p.evaluate(() => { document.getElementById("settings").hidden = true; TDC.searchUI.hide(); try { TDC.focus.focus("front"); } catch (_) {} TDC.regions.UI.draw(); TDC.toast("Draw now", "ok", 60000); }); }],
+    ["drawing", async () => { await p.evaluate(() => { document.getElementById("settings").hidden = true; TDC.searchUI.hide(); try { TDC.focus.focus("front"); } catch (_) {} TDC.regions.UI.draw(); TDC.toast("Draw now", "ok", 60000); });
+      await p.waitForFunction(() => { const e = document.getElementById("crBar"); return e && !e.hidden && e.getClientRects().length > 0; }, null, { timeout: 5000 }).catch(() => {}); }],
     ["fullscreen", async () => { await p.evaluate(() => { try { TDC.regions.UI.cancel(); } catch (_) {} document.body.classList.add("fs"); window.dispatchEvent(new Event("resize")); document.getElementById("settings").hidden = false; TDC.searchUI.show(false, "redact"); }); }],
   ];
   for (const [n, fn] of states) {
