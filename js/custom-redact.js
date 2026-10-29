@@ -672,6 +672,7 @@
     const sec = $("crSec");
     sec.addEventListener("toggle", () => { if (!sec.open) sec.open = true; });   // the section never folds away
     const sm = sec.querySelector("summary"); if (sm) sm.addEventListener("click", (e) => e.preventDefault());
+    const info = $("crInfo"); if (info) info.addEventListener("click", () => { const on = !sec.classList.contains("hint-open"); sec.classList.toggle("hint-open", on); info.setAttribute("aria-expanded", String(on)); });
     $("crShape").addEventListener("click", (e) => { const b = e.target.closest("button"); if (!b) return; S.shape = b.dataset.v; if (!S.editId) S.draft = null; if (S.drawing) UI.draw(); UI.sync(); });
     $("crMode").addEventListener("click", (e) => { const b = e.target.closest("button"); if (!b) return; S.mode = b.dataset.v; UI.sync(); });
     $("crWhole").addEventListener("change", () => {
@@ -717,7 +718,8 @@
     sec.className = "cr-sec us-t-redact"; sec.id = "crSec"; sec.open = true;   // always open: no accordion click needed (redact-button)
     sec.innerHTML =
       '<summary>Custom regions <span id="crCount"></span></summary>' +
-      '<p class="cr-hint">For what automatic redaction misses, like a curved plate. Press <b>Draw region</b>, tap the camera you want, then drag over the area. Regions stay put on the picture and are burned into the export.</p>' +
+      '<button type="button" class="cr-info" id="crInfo" aria-expanded="false" aria-controls="crHint" aria-label="How custom regions work" title="How custom regions work">i</button>' +   // ui-glass-6: the wide docked panel folds the help text behind this (i)
+      '<p class="cr-hint" id="crHint">For what automatic redaction misses, like a curved plate. Press <b>Draw region</b>, tap the camera you want, then drag over the area. Regions stay put on the picture and are burned into the export.</p>' +
       '<div class="cr-grid">' +
       '<div class="cr-f"><span>Shape</span><div class="seg" id="crShape" role="group" aria-label="Shape"><button type="button" data-v="rect" aria-pressed="true">Box</button><button type="button" data-v="free" aria-pressed="false">Freehand</button></div></div>' +
       '<div class="cr-f"><span>Hide with</span><div class="seg" id="crMode" role="group" aria-label="How to hide"><button type="button" data-v="blur" aria-pressed="true" title="A strong blur: the text can\'t be read">Blur</button><button type="button" data-v="remove" aria-pressed="false" title="A solid black shape">Remove (black)</button></div></div>' +
