@@ -559,3 +559,11 @@ Rollback: `git checkout pre-tap-redact` (tip before this change, `redact-button`
 - Saved regions, the list and the export are unchanged (same storage, same burn-in).
 - The bottom bar no longer gets crowded by the Redact button: on narrower desktop windows (below 1200 px) Search and Redact show as icons (with tooltips), the row of toggle chips scrolls sideways with a fade instead of pushing things off screen, the clock hides at 1000-1199 px, messages (toasts) move up or to the side so they never sit on the buttons, the draw bar or the Redact window, and on phones the Redact circle steps aside while the draw bar is up (its **Options** brings the window back).
 - Tests: `node test/tap-redact.js`, `node test/bottom-overlap.js` (see test/README.md).
+
+## Floating map, and Calibration follows 360 (tag `map-float`)
+Rollback: `git checkout pre-map-float` (tip before this change, glass-sdf v5, 60ce6fa).
+- The map can float **outside** the video. Drag its **⋮⋮ grip** (top-left of the map) anywhere in the window; it stays where you leave it, also after a reload, and is pulled back on screen when the window shrinks or the phone rotates. It never sits on the bottom bar, the Search / Redact buttons or the full-screen button.
+- To dock it again, drop it on the right edge of the video (a "Release to dock the map" hint shows), press its **Dock** button, or double-tap the grip. Keyboard: Tab to the grip, Enter floats / docks, arrow keys move it (Shift = bigger steps).
+- The exported video's map overlay is unchanged (the floating spot is kept separately from the export layout).
+- With **Show 360 view (beta)** off (the default), Settings ▸ **Calibration** is hidden too (along with the 360 button and any open 360 calibration view). Turning 360 on brings it back; your calibration values are kept. `?show360=1|0` and Reset all work as before.
+- Tests: `node test/map-float.js`; `test/ui-quick.js` and `test/bottom-overlap.js` updated (see test/README.md).
