@@ -11,6 +11,7 @@
   "css/autohide.css",
   "css/capsule.css",
   "css/toggles.css",
+  "css/camera-pill.css",
   "vendor/mp4-muxer.js",
   "vendor/webm-muxer.js",
   "vendor/ort.wasm.min.js",

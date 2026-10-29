@@ -1,0 +1,35 @@
+/* camera-pill.css — ui-glass-5 (js/focus.js). The camera bar is a short glass pill:
+   - it never scrolls to pick a camera: when it does not fit, the chips go icon-only (pill-compact), then the pill wraps onto two rows with the
+     cameras on the first one (pill-wrap). Touch screens keep 44 px targets.
+   - it floats anywhere in the window (bar-floating, a window-level fixed layer like the floating map), with a bigger shadow; in a short phone
+     landscape window the floating pill stands upright (pill-vert). A dashed outline (cam-dock-hint) shows the dock spot while dragging. */
+.stage-bar { border-radius: 26px; padding: 4px 6px; gap: 4px; }
+.stage-bar > * { flex-shrink: 0; }
+.stage-bar .cam-switch { overflow: visible; flex-shrink: 0; gap: 2px; }
+.stage-bar.pill-compact .cam-chip .nm { display: none; }
+.stage-bar.pill-compact .cam-chip { padding: 0 8px; }
+.stage-bar.pill-compact .bar-dock-btn span, .stage-bar.pill-compact #btnCams span, .stage-bar.pill-compact #btnBoxes span, .stage-bar.pill-compact #btn360 span { display: none; }
+@media (pointer: coarse) {
+  .stage-bar .cam-chip kbd { display: none; }   /* the 1–6 keys mean nothing on a touch screen */
+  .stage-bar.pill-compact .cam-chip { width: 44px; padding: 0; justify-content: center; }
+  .stage-bar.pill-compact .btn.small { min-width: 44px; height: 44px; padding: 0; justify-content: center; }
+}
+.stage-bar.pill-wrap { flex-wrap: wrap; justify-content: center; row-gap: 4px; border-radius: 24px; }
+.stage-bar.pill-wrap .cam-switch { order: -1; flex: 1 0 100%; justify-content: center; flex-wrap: wrap; }
+/* upright pill (floating, short phone landscape) */
+.stage-bar.pill-vert { flex-direction: column; flex-wrap: wrap; align-content: center; justify-content: flex-start; align-items: center; border-radius: 26px; padding: 6px 4px; }
+.stage-bar.pill-vert .cam-switch { flex-direction: column; }
+.stage-bar.pill-vert .zoom-ctl { flex-direction: column; border-left: 0; padding-left: 0; }
+.stage-bar.pill-vert .cams-wrap { border-left: 0; padding-left: 0; }
+/* floating: window level, above the video, the floating map and the docked panels, under the Settings drawer and dialogs */
+.stage-bar.bar-floating { position: fixed; transform: none; z-index: 29; max-width: calc(100vw - 16px); box-shadow: 0 18px 44px rgba(0,0,0,.6), 0 2px 8px rgba(0,0,0,.35); }
+html.glass .stage-bar.bar-floating { box-shadow: var(--g-rim, 0 0 0 transparent), 0 18px 44px rgba(0,0,0,.6); }
+body.bar-float .float-panel.map-panel.map-floating { z-index: 28; }
+body.focused .stage-bar.bar-floating .focus-only { display: flex; }
+body.focused .stage-bar.bar-floating .grid-only { display: none; }
+.stage-bar.bar-floating.dock-near { border-color: rgba(143,176,255,.95); }
+.cam-dock-hint { position: fixed; z-index: 28; box-sizing: border-box; border: 2px dashed rgba(143,176,255,.8); border-radius: 26px; background: rgba(62,106,225,.10); pointer-events: none; transition: background .15s, border-color .15s; }
+.cam-dock-hint.near { background: rgba(62,106,225,.26); border-color: #8fb0ff; }
+.cam-dock-hint[hidden] { display: none; }
+.bar-grip:focus-visible { outline: 2px solid #8fb0ff; outline-offset: 1px; }
+@media (prefers-reduced-motion: reduce) { .cam-dock-hint, .stage-bar.bar-floating { transition: none !important; } }

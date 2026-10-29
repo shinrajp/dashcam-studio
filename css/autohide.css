@@ -1,12 +1,12 @@
 /* autohide.css — ui-glass-2 (js/autohide.js). body.idle = controls hidden while playing: they fade and let taps through;
    body.ah-gone (after the fade) = visibility: hidden, so they paint nothing and cost no blur. The redaction draw bar and the
-   docked camera bar never hide. A 2 px progress line shows at the bottom of the video while hidden. */
+   docked camera bar never hide; the floating camera pill (ui-glass-5) hides like the floating map. A 2 px progress line shows at the bottom of the video while hidden. */
 .map-panel.map-floating, .map-grip, .map-move { transition: opacity .25s; }
-.transport { transition: opacity .25s; }
-body.idle .stage .stage-bar:not(.dragging), body.idle .tile-expand, body.idle .map-panel.map-floating:not(.dragging), body.idle .map-grip, body.idle .map-move,
+.transport, .stage-bar.bar-floating { transition: opacity .25s; }
+body.idle .stage .stage-bar:not(.dragging), body.idle .stage-bar.bar-floating:not(.dragging), body.idle .tile-expand, body.idle .map-panel.map-floating:not(.dragging), body.idle .map-grip, body.idle .map-move,
 body.idle #transport:not(.mb-open) { opacity: 0 !important; pointer-events: none !important; }
 body.idle #transport:not(.mb-open) * { pointer-events: none !important; }
-body.ah-gone .stage .stage-bar:not(.dragging), body.ah-gone .tile-expand, body.ah-gone .map-panel.map-floating:not(.dragging), body.ah-gone .map-grip, body.ah-gone .map-move,
+body.ah-gone .stage .stage-bar:not(.dragging), body.ah-gone .stage-bar.bar-floating:not(.dragging), body.ah-gone .tile-expand, body.ah-gone .map-panel.map-floating:not(.dragging), body.ah-gone .map-grip, body.ah-gone .map-move,
 body.ah-gone #transport:not(.mb-open), body.ah-gone #transport:not(.mb-open) * { visibility: hidden !important; }
 /* the docked camera bar sits off the video: it stays (it used to fade) */
 body.idle .bar-dock .stage-bar { opacity: 1 !important; pointer-events: auto !important; visibility: visible !important; }
@@ -17,5 +17,5 @@ body.idle.fs, body.idle.fs * { cursor: none; }
 body.idle .ah-line { opacity: 1; }
 body.fs .ah-line { position: fixed; bottom: env(safe-area-inset-bottom, 0px); z-index: 41; }
 @media (prefers-reduced-motion: reduce) {
-  .stage .stage-bar, .tile-expand, .map-panel.map-floating, .map-grip, .map-move, .transport, .ah-line { transition: none !important; }
+  .stage .stage-bar, .stage-bar.bar-floating, .tile-expand, .map-panel.map-floating, .map-grip, .map-move, .transport, .ah-line { transition: none !important; }
 }
