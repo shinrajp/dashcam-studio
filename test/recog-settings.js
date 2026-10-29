@@ -18,7 +18,7 @@ const OLD = ["detModel", "detConf", "detSmall", "detLiveCams", "detTest", "plMod
     const ctx = await b.newContext(opt.iphone ? { ...pw.devices["iPhone 13"] } : { viewport: { width: 1280, height: 1000 } });
     const p = await ctx.newPage(); const errs = []; p.on("pageerror", (e) => errs.push(e.message));
     await p.goto(URL_); await p.evaluate(() => { for (const k of ["tdc.detect.v1", "tdc.plates.v1", "tdc.recogAdv.v1"]) localStorage.removeItem(k); }); await p.reload();
-    await p.evaluate(() => document.getElementById("btnSettings").click()); await W(500);
+    await p.evaluate(() => { document.getElementById("btnSettings").click(); if (TDC.settings) TDC.settings.show("redact"); /* ui-glass-8 groups */ }); await W(500);
     const s0 = await p.evaluate(() => ({ adv: document.getElementById("recogAdv").open, sw: [...document.querySelectorAll("#setRecog input[type=checkbox]")].map((x) => x.id), seg: !!document.getElementById("rsSpeed"), old: (ids) => 0 }));
     ok(tag + ": five switches + speed on top, Advanced collapsed by default", s0.sw.join() === "rsFind,rsLive,rsVehicle,rsPlates,rsBlur" && s0.seg && s0.adv === false, s0);
     // (closed <details>: content-visibility hidden, so boxes still measure; checkVisibility / the closed ancestor say it)
@@ -46,7 +46,7 @@ const OLD = ["detModel", "detConf", "detSmall", "detLiveCams", "detTest", "plMod
     await p.evaluate(() => { const c = document.getElementById("plEnabled"); c.checked = false; c.dispatchEvent(new Event("change", { bubbles: true })); }); await W(150);
     ok(tag + ": an advanced change (plate reading off) updates the switches", await p.evaluate(() => !document.getElementById("rsPlates").checked && !TDC.plates.prefs().enabled));
     if (opt.iphone) { const hs = await p.evaluate(() => [...document.querySelectorAll("#setRecog label.rs-switch, #recogAdv > summary")].map((e) => Math.round(e.getBoundingClientRect().height))); ok(tag + ": tap targets ≥ 40 px tall", hs.every((h) => h >= 40), hs); }
-    await p.reload(); await p.evaluate(() => document.getElementById("btnSettings").click()); await W(400);
+    await p.reload(); await p.evaluate(() => { document.getElementById("btnSettings").click(); if (TDC.settings) TDC.settings.show("redact"); /* ui-glass-8 groups */ }); await W(400);
     ok(tag + ": Advanced open state remembered after a reload", await p.evaluate(() => document.getElementById("recogAdv").open === true && localStorage.getItem("tdc.recogAdv.v1") === "1"));
     await p.evaluate(() => { const a = document.getElementById("recogAdv"); a.open = false; }); await W(200);
     ok(tag + ": closing it is remembered too", await p.evaluate(() => localStorage.getItem("tdc.recogAdv.v1") === "0"));

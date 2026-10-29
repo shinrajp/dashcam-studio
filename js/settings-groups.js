@@ -110,7 +110,7 @@
       const cbs = row.querySelectorAll('input[type="checkbox"]'); if (cbs.length === 1 && !cbs[0].disabled) cbs[0].click();
     });
     // every time it opens: the group list, no search (like iOS); the × still folds it (ui.js)
-    new MutationObserver(() => { if (!panel.hidden) { filter.value = ""; S.q = ""; const g = S.next || "home"; S.next = null; show(g); } }).observe(panel, { attributes: true, attributeFilter: ["hidden"] });
+    new MutationObserver(() => { if (panel.hidden) { S.next = null; return; } filter.value = ""; S.q = ""; const g = S.next || "home"; S.next = null; show(g); }).observe(panel, { attributes: true, attributeFilter: ["hidden"] });
     show("home");
   }
 
@@ -169,6 +169,6 @@
     if (body) body.scrollTop = 0;
     if (focus && S.view !== "home") { try { title.focus({ preventScroll: true }); } catch (_) {} }
   }
-  T.settings = { show: (g) => { if (!panel) return; if (panel.hidden) { S.next = g; panel.hidden = false; } else show(g); }, view: () => S.view, groups: GROUPS.map((x) => x.g), groupOf: (el) => { const s = el && el.closest && el.closest("section[data-g]"); return s ? s.dataset.g : null; }, build };
+  T.settings = { show: (g) => { if (!panel) return; S.next = g; if (panel.hidden) panel.hidden = false; else show(g); } /* S.next also wins over the reset from an open in the same tick */, view: () => S.view, groups: GROUPS.map((x) => x.g), groupOf: (el) => { const s = el && el.closest && el.closest("section[data-g]"); return s ? s.dataset.g : null; }, build };
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", build); else build();
 })();

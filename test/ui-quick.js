@@ -31,7 +31,7 @@ const addRegions = (p, n) => p.evaluate((n) => { for (let i = 0; i < n; i++) TDC
 const openExportDlg = async (p) => { await p.evaluate(() => document.getElementById("btnExport").click()); await W(500); };
 const closeExportDlg = (p) => p.evaluate(() => { document.getElementById("exportModal").hidden = true; });
 const advOn = async (p) => { await p.evaluate(() => { const c = document.getElementById("advToggle"); if (!c.checked) c.click(); }); await W(300); };
-const calibShown = (p) => p.evaluate(() => { const s = document.getElementById("settings"), was = s.hidden; s.hidden = false; const v = [...document.querySelectorAll("#settings h3")].some((h) => h.textContent === "Calibration" && h.getBoundingClientRect().height > 0); s.hidden = was; return v; });
+const calibShown = (p) => p.evaluate(() => { const s = document.getElementById("settings"), was = s.hidden; s.hidden = false; if (TDC.settings) TDC.settings.show("advanced"); /* ui-glass-8: Calibration lives in Advanced & Labs */ const v = [...document.querySelectorAll("#settings h3")].some((h) => h.textContent === "Calibration" && h.getBoundingClientRect().height > 0); s.hidden = was; return v; });
 const settingsOpen = (p, on) => p.evaluate((on) => { document.getElementById("settings").hidden = !on; }, on);
 
 async function partA(b, dev, tag) {
