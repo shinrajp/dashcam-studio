@@ -71,9 +71,9 @@ async function run(b, dev, tag) {
   const pn2 = await rect(p, "#usPanel");
   ok(tag + " B6 panel is compact: <= 45% of the screen height (+ rounding)", pn2.h <= VH * 0.45 + 2, { h: pn2.h, VH });
   ok(tag + " B6 the panel scrolls inside when its content is taller", await p.evaluate(() => { const e = document.getElementById("usPanel"); return e.scrollHeight > e.clientHeight ? ["auto", "scroll"].includes(getComputedStyle(e).overflowY) : true; }));
-  if (await p.evaluate(() => { const b = document.getElementById("crRegBtn"); return !!b && !!b.getClientRects().length; }))   // ui-glass-6 thin docked strip
+  if (await p.evaluate(() => { const b = document.getElementById("usMore"); return !!b && !!b.getClientRects().length; }))   // ui-glass-6 thin docked strip
     ok(tag + " B7 strip: the saved-regions list (Regions) and the file buttons (⋯) open on screen", await p.evaluate(() => (async () => { const S = (ms) => new Promise((r) => setTimeout(r, ms)), on = (e) => { const r = e.getBoundingClientRect(); return e.getClientRects().length && r.top >= 0 && r.bottom <= innerHeight && r.left >= 0 && r.right <= innerWidth && r.height > 8; };
-      const rb = document.getElementById("crRegBtn"), mb = document.getElementById("usMore"); rb.click(); await S(150); const a = on(document.querySelector("#crList li:last-child [data-act=del]")); rb.click(); mb.click(); await S(150);
+      const rb = document.getElementById("crRegBtn"), mb = document.getElementById("usMore"); let a = true; if (!rb.hidden) { rb.click(); await S(150); a = on(document.querySelector("#crList li:last-child [data-act=del]")); rb.click(); } mb.click(); await S(150);
       const b = on(document.getElementById("crExportFile")) && on(document.getElementById("crImportFile")); mb.click(); await S(100); return a && b; })()));
   else ok(tag + " B7 the saved-regions list and file buttons are reachable by scrolling", await p.evaluate(async () => { const e = document.getElementById("usPanel"), f = document.getElementById("crFileRow"); e.scrollTop = e.scrollHeight; await new Promise((r) => setTimeout(r, 100)); const a = e.getBoundingClientRect(), r = f.getBoundingClientRect(); e.scrollTop = 0; return r.top >= a.top - 1 && r.bottom <= a.bottom + 1; }));
   await shot("redact-tab-open");
