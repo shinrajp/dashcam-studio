@@ -272,7 +272,8 @@
     $("btnFullscreen").addEventListener("click", () => F.fullscreen());
     const bar = $("stageBar");
     for (const el of [bar, $("transport")]) {
-      el.addEventListener("pointerenter", () => { overBar = true; wake(); });
+      // hover holds the controls for a mouse or pen only: a finger has no hover, and a pill re-parented mid-drag may never get its leave
+      el.addEventListener("pointerenter", (e) => { if (e.pointerType !== "touch") overBar = true; wake(); });
       el.addEventListener("pointerleave", () => { overBar = false; wake(); });
     }
   }
@@ -648,7 +649,9 @@
           placeHint(); wake(); return;
         }
         // lift off: keep the grip under the pointer while the pill changes home (and maybe shape)
-        const g0 = $("barGrip").getBoundingClientRect(), ox = e.clientX - g0.left, oy = e.clientY - g0.top;
+        // (the docked pill stops at the video's edge, so the pointer may be past the grip: take the grip back under it)
+        const g0 = $("barGrip").getBoundingClientRect(), inG = e.clientX >= g0.left && e.clientX <= g0.right && e.clientY >= g0.top && e.clientY <= g0.bottom,
+          ox = inG ? e.clientX - g0.left : g0.width / 2, oy = inG ? e.clientY - g0.top : g0.height / 2;
         bar.style.transform = "";
         const was = CB().dock;
         T.prefs.cameraBar.from = was === "beside" ? "beside" : "over";
