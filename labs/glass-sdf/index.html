@@ -10,6 +10,7 @@
 </head>
 <body>
 <!-- Lab prototype: SDF-based glass refraction in WebGL over a mock video loop. Not part of the app (not linked, not cached by the service worker). -->
+<div id="stage">
 <canvas id="c"></canvas>
 
 <div id="ui">
@@ -35,6 +36,7 @@
   </div>
 </div>
 
+</div><!-- /stage -->
 <div id="lab" class="closed">
   <button id="labBtn"><b>Glass lab</b> <span id="fpsChip">– fps</span></button>
   <div class="body">
@@ -44,6 +46,7 @@
     <label class="row"><input type="checkbox" id="oCA" checked> Chromatic edge</label>
     <label class="row"><input type="checkbox" id="oSix"> 6 videos (6 tiles, 6 decoders)</label>
     <label class="row"><input type="checkbox" id="oAuto" checked> Auto-fallback below 40 fps</label>
+    <label class="row"><input type="checkbox" id="oOut"> Show outlines <small>pink = DOM box, green = WebGL glass edge</small></label>
     <div class="stats" id="stats">starting…</div>
     <p class="hint">Drag any capsule or the bubble over the picture. Mock footage only.</p>
   </div>

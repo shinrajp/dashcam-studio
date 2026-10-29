@@ -10,8 +10,9 @@
   var body = document.body, canvas = $('c'), note = $('note');
   var mqT = window.matchMedia('(prefers-reduced-transparency: reduce)');
   var mqM = window.matchMedia('(prefers-reduced-motion: reduce)');
-  var state = { refr: true, str: 1, blur: 4, ca: true, six: false, auto: !Q.has('nofallback'), solid: false };
-  var gl = null, glOK = false, progScene, progGlass, quadBuf, fbo = null, fboTex = null, fboW = 0, fboH = 0, dpr = 1;
+  var state = { outlines: false, refr: true, str: 1, blur: 4, ca: true, six: false, auto: !Q.has('nofallback'), solid: false };
+  var gl = null, glOK = false, progScene, progGlass, quadBuf, fbo = null, fboTex = null, fboW = 0, fboH = 0, dpr = 1, sx = 1, sy = 1, cRect = null;
+  var stage = $('stage');
   var videos = [$('v0')], vtex = [], vsrc = [];
   // The loop is fetched into a Blob typed video/mp4: raw.githack redirects binaries to raw.githubusercontent,
   // which serves application/octet-stream + nosniff. A same-origin blob URL avoids both. Falls back to the plain path.
@@ -50,7 +51,7 @@
     '#endif',
     'uniform sampler2D uScene; uniform vec2 uRes;',
     'uniform vec4 uBox;',   // center xy, half size zw (device px)
-    'uniform float uRad, uStr, uBlur, uCA, uDpr, uTint;',
+    'uniform float uRad, uStr, uBlur, uCA, uDpr, uTint, uDebug;',
     'varying vec2 vP;',
     'float sdf(vec2 p){ vec2 q = abs(p - uBox.xy) - uBox.zw + uRad; return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - uRad; }',
     'vec3 tap(vec2 p){ p = clamp(p, vec2(1.0), uRes - 1.0); return texture2D(uScene, vec2(p.x, uRes.y - p.y) / uRes).rgb; }',
@@ -70,6 +71,7 @@
     '    float a = 0.26 * exp(-ds / (9.0 * uDpr)) * smoothstep(0.0, 3.0 * aa, d);',
     '    gl_FragColor = vec4(0.0, 0.0, 0.0, a); return;',
     '  }',
+    '  if (uDebug > 0.5 && d > -uDpr) { gl_FragColor = vec4(0.0, 1.0, 0.0, 1.0); return; }', // 1 CSS px green band just inside the edge
     '  float e = 1.0 * uDpr;',
     '  vec2 g = vec2(sdf(vP + vec2(e, 0.0)) - sdf(vP - vec2(e, 0.0)), sdf(vP + vec2(0.0, e)) - sdf(vP - vec2(0.0, e)));',
     '  vec2 n = dot(g, g) > 1e-6 ? normalize(g) : vec2(0.0);', // points outward
@@ -130,7 +132,7 @@
       gl = canvas.getContext('webgl', opts) || canvas.getContext('experimental-webgl', opts);
       if (!gl) throw new Error('WebGL unavailable');
       progScene = prog(FS_SCENE, ['uRect', 'uRes', 'uUV', 'uTex', 'uFlip']);
-      progGlass = prog(FS_GLASS, ['uRect', 'uRes', 'uUV', 'uScene', 'uBox', 'uRad', 'uStr', 'uBlur', 'uCA', 'uDpr', 'uTint']);
+      progGlass = prog(FS_GLASS, ['uRect', 'uRes', 'uUV', 'uScene', 'uBox', 'uRad', 'uStr', 'uBlur', 'uCA', 'uDpr', 'uTint', 'uDebug']);
       quadBuf = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, quadBuf);
       gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([0, 0, 1, 0, 0, 1, 1, 1]), gl.STATIC_DRAW);
       gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
@@ -185,17 +187,23 @@
 
   /* ---------------- layout + dragging ---------------- */
   function place(el, x, y) { el.style.left = Math.round(x) + 'px'; el.style.top = Math.round(y) + 'px'; }
+  function stageWH() { return { W: stage.clientWidth || innerWidth, H: stage.clientHeight || innerHeight }; }
+  function clampEl(el) {
+    var S = stageWH();
+    place(el, Math.max(-el.offsetWidth / 2, Math.min(S.W - el.offsetWidth / 2, el.offsetLeft)), Math.max(0, Math.min(S.H - 40, el.offsetTop)));
+  }
   function layout() {
-    var W = innerWidth, H = innerHeight, phone = W < 600;
+    var S = stageWH(), W = S.W, H = S.H, phone = W < 600 || H < 500;
     var cam = $('cam'), tg = $('tg'), tl = $('tl'), fan = $('fan');
     tl.style.width = (phone ? W - 24 : Math.min(860, W - 200)) + 'px';
     var tlx = phone ? 12 : (W - tl.offsetWidth) / 2;
     var tly = H - 56 - (phone ? 24 : 22);
-    place(tl, tlx, tly);
-    if (phone) tg.style.maxWidth = (W - 24) + 'px';
-    place(tg, phone ? 12 : (W - tg.offsetWidth) / 2, tly - 40 - 12);
-    place(cam, (W - cam.offsetWidth) / 2, phone ? 64 : 18);
-    place(fan, W - 60 - (phone ? 16 : 28), tly - 60 - (phone ? 64 : 16));
+    tg.style.maxWidth = (W - 24) + 'px';
+    var P = function (el, x, y) { if (el.dataset.moved) clampEl(el); else place(el, x, y); }; // keep user-dragged positions
+    P(tl, tlx, tly);
+    P(tg, phone ? 12 : (W - tg.offsetWidth) / 2, tly - 40 - 12);
+    P(cam, (W - cam.offsetWidth) / 2, phone && H >= 500 ? 64 : 18);
+    P(fan, W - 60 - (phone ? 16 : 28), Math.max(290, tly - 60 - (phone && H >= 500 ? 64 : 16)));
   }
   function draggable(el, handleTap) {
     var sx, sy, ox, oy, id = null, moved = false;
@@ -208,9 +216,10 @@
       if (e.pointerId !== id) return;
       var dx = e.clientX - sx, dy = e.clientY - sy;
       if (!moved && dx * dx + dy * dy < 36) return;
-      moved = true;
-      var x = Math.max(-el.offsetWidth / 2, Math.min(innerWidth - el.offsetWidth / 2, ox + dx));
-      var y = Math.max(0, Math.min(innerHeight - 40, oy + dy));
+      moved = true; el.dataset.moved = '1';
+      var S = stageWH();
+      var x = Math.max(-el.offsetWidth / 2, Math.min(S.W - el.offsetWidth / 2, ox + dx));
+      var y = Math.max(0, Math.min(S.H - 40, oy + dy));
       place(el, x, y);
     });
     function up(e) {
@@ -237,7 +246,7 @@
 
   /* ---------------- lab panel ---------------- */
   var lab = $('lab');
-  if (innerWidth >= 600 || Q.has('panel')) lab.classList.remove('closed');
+  if ((innerWidth >= 600 && innerHeight >= 600) || Q.has('panel')) lab.classList.remove('closed');
   $('labBtn').addEventListener('click', function () { lab.classList.toggle('closed'); });
   function bind(id, key, out, fmt) {
     var el = $(id);
@@ -246,11 +255,12 @@
       if (out) $(out).textContent = fmt(state[key]);
       if (key === 'refr') { if (state.refr) slowSecs = 0; applyMode(); }
       if (key === 'six') setSix(state.six);
+      if (key === 'outlines') body.classList.toggle('outlines', state.outlines);
     });
   }
   bind('oRefr', 'refr'); bind('oStr', 'str', 'vStr', function (v) { return v.toFixed(2); });
   bind('oBlur', 'blur', 'vBlur', function (v) { return String(v); });
-  bind('oCA', 'ca'); bind('oSix', 'six'); bind('oAuto', 'auto');
+  bind('oCA', 'ca'); bind('oSix', 'six'); bind('oAuto', 'auto'); bind('oOut', 'outlines');
   function setRefr(on) { state.refr = on; $('oRefr').checked = on; applyMode(); }
   function applyMode() {
     var reducedT = mqT.matches;
@@ -264,15 +274,26 @@
   if (Q.get('refr') === '0') state.refr = false, $('oRefr').checked = false;
   if (Q.has('str')) state.str = parseFloat(Q.get('str')), $('oStr').value = state.str, $('vStr').textContent = state.str.toFixed(2);
   if (Q.has('blur')) state.blur = parseFloat(Q.get('blur')), $('oBlur').value = state.blur, $('vBlur').textContent = state.blur;
+  if (Q.get('outlines') === '1') state.outlines = true, $('oOut').checked = true, body.classList.add('outlines');
   if (Q.get('ca') === '0') state.ca = false, $('oCA').checked = false;
   if (!state.auto) $('oAuto').checked = false;
 
   /* ---------------- render ---------------- */
   var glassEls = Array.prototype.slice.call(document.querySelectorAll('.gc'));
+  // Backing store comes from the canvas's own CSS box (same box as the controls), at up to 3x, capped in pixels.
+  var MAXPX = 4.5e6;
   function resize() {
-    dpr = Math.min(window.devicePixelRatio || 1, 2);
-    var w = Math.round(innerWidth * dpr), h = Math.round(innerHeight * dpr);
+    var r = canvas.getBoundingClientRect(); if (r.width < 1 || r.height < 1) return;
+    var d = Math.min(window.devicePixelRatio || 1, 3);
+    if (r.width * r.height * d * d > MAXPX) d = Math.sqrt(MAXPX / (r.width * r.height));
+    var w = Math.round(r.width * d), h = Math.round(r.height * d);
     if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
+    cRect = r; sx = w / r.width; sy = h / r.height; dpr = (sx + sy) / 2;
+  }
+  function radiusPx(el, r) { // computed border-radius in CSS px, clamped like CSS does for a capsule
+    var v = getComputedStyle(el).borderTopLeftRadius || '0', n = parseFloat(v) || 0;
+    if (v.indexOf('%') > 0) n = n / 100 * Math.min(r.width, r.height);
+    return Math.min(n, Math.min(r.width, r.height) / 2);
   }
   function tileRects(n, W, H) {
     if (n === 1) return [[0, 0, W, H]];
@@ -307,6 +328,7 @@
   }
   function render() {
     var W = canvas.width, H = canvas.height;
+    if (!cRect) return 0;
     var glass = state.refr && !mqT.matches;
     if (glass) { ensureFBO(W, H); gl.bindFramebuffer(gl.FRAMEBUFFER, fbo); }
     gl.viewport(0, 0, W, H); gl.disable(gl.BLEND); gl.disable(gl.SCISSOR_TEST);
@@ -324,16 +346,17 @@
     gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA); gl.enable(gl.SCISSOR_TEST);
     gl.uniform2f(G.u.uRes, W, H); gl.uniform1i(G.u.uScene, 0);
     gl.uniform1f(G.u.uStr, state.str); gl.uniform1f(G.u.uBlur, state.blur); gl.uniform1f(G.u.uCA, state.ca ? 1 : 0);
-    gl.uniform1f(G.u.uDpr, dpr); gl.uniform1f(G.u.uTint, 0.22); gl.uniform4f(G.u.uUV, 0, 0, 1, 1);
+    gl.uniform1f(G.u.uDpr, dpr); gl.uniform1f(G.u.uTint, 0.22); gl.uniform1f(G.u.uDebug, state.outlines ? 1 : 0); gl.uniform4f(G.u.uUV, 0, 0, 1, 1);
     var n = 0;
     for (var i = 0; i < glassEls.length; i++) {
       var el = glassEls[i]; if (!el.offsetParent) continue;
       var r = el.getBoundingClientRect(); if (r.width < 2) continue;
-      var x = r.left * dpr, y = r.top * dpr, w = r.width * dpr, h = r.height * dpr, m = 26 * dpr;
-      var rad = Math.min(w, h) / 2; // all controls are capsules / circles
+      // DOM is the source of truth: rect relative to the canvas box, scaled to backing-store px (Y flip happens in the vertex shader)
+      var x = (r.left - cRect.left) * sx, y = (r.top - cRect.top) * sy, w = r.width * sx, h = r.height * sy, m = 26 * dpr;
+      var rad = Math.min(radiusPx(el, r) * dpr, Math.min(w, h) / 2);
       var qx = x - m, qy = y - m, qw = w + 2 * m, qh = h + 2 * m;
-      var sx = Math.max(0, Math.floor(qx)), sy = Math.max(0, Math.floor(H - (qy + qh)));
-      gl.scissor(sx, sy, Math.max(0, Math.ceil(Math.min(W, qx + qw)) - sx), Math.max(0, Math.ceil(Math.min(H, H - qy)) - sy));
+      var scX = Math.max(0, Math.floor(qx)), scY = Math.max(0, Math.floor(H - (qy + qh)));
+      gl.scissor(scX, scY, Math.max(0, Math.ceil(Math.min(W, qx + qw)) - scX), Math.max(0, Math.ceil(Math.min(H, H - qy)) - scY));
       gl.uniform4f(G.u.uRect, qx, qy, qw, qh);
       gl.uniform4f(G.u.uBox, x + w / 2, y + h / 2, w / 2, h / 2);
       gl.uniform1f(G.u.uRad, rad);
@@ -368,7 +391,7 @@
         'JS render  ' + stats.cpuMs.toFixed(2) + ' ms\n' +
         'mode       ' + (mqT.matches ? 'solid (reduced transparency)' : state.refr && glOK ? 'SDF refraction, ' + nGlass + ' glass' : 'CSS frosted') + '\n' +
         'videos     ' + videos.length + (videos[0].paused ? ' (paused)' : '') + '\n' +
-        'canvas     ' + canvas.width + '×' + canvas.height + ' @' + dpr + 'x';
+        'canvas     ' + canvas.width + '×' + canvas.height + ' @' + dpr.toFixed(2) + 'x (dpr ' + (window.devicePixelRatio || 1) + ')';
       var playing = !videos[0].paused && !document.hidden;
       if (state.auto && state.refr && glOK && playing && stats.fps < 40) {
         if (++slowSecs >= 2) { setRefr(false); slowSecs = 0; showNote('Running below 40 fps: switched to CSS frosted glass. Turn Refraction back on in the lab panel.', 7000); }
@@ -380,7 +403,12 @@
   initGL();
   applyMode();
   layout();
-  addEventListener('resize', function () { layout(); });
+  var relayout = function () { if (window.scrollX || window.scrollY) window.scrollTo(0, 0); layout(); };
+  addEventListener('resize', relayout); addEventListener('orientationchange', function () { setTimeout(relayout, 50); });
+  if (window.visualViewport) { visualViewport.addEventListener('resize', relayout); visualViewport.addEventListener('scroll', relayout); }
+  if (window.ResizeObserver) new ResizeObserver(relayout).observe(stage);
+  addEventListener('scroll', function () { window.scrollTo(0, 0); }, { passive: true });
+  window.__glassDbg = { gl: function () { return gl; }, scale: function () { return [sx, sy]; }, rect: function () { return cRect; } };
   body.classList.add('needtap');
   loadSrc(function (u) {
     srcURL = u; videos[0].src = u;
