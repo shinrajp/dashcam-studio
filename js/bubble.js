@@ -94,7 +94,8 @@
     if (!root) return;
     const b = body(), tp = $("transport"), set = $("settings"), lib = $("library");
     const narrow = b.classList.contains("mbar") || (T.searchUI && T.searchUI.narrow && T.searchUI.narrow());
-    const away = b.classList.contains("no-event") || b.classList.contains("cr-bar-on") || b.classList.contains("cr-picking") || b.classList.contains("cr-drawing") ||
+    const drawing = b.classList.contains("cr-bar-on") || b.classList.contains("cr-drawing");   // desktop keeps the bubble (Redact reopens the panel mid-drawing, as before) unless the draw bar covers its corner
+    const away = b.classList.contains("no-event") || b.classList.contains("cr-picking") || (drawing && (narrow || over($("crBar")))) ||
       !!(set && !set.hidden) || B.sheet || !!(tp && tp.classList.contains("mb-open")) || (narrow && (b.classList.contains("us-open") || b.classList.contains("us-docked"))) || panelOver();
     if (evBtn) evBtn.hidden = !lib || lib.hidden;
     if (B.sheet && lib && lib.hidden) B.events(false);
@@ -107,9 +108,10 @@
   }
   B.sync = sync;   // (sync also re-places the bubble: bars can move without resizing, e.g. the phone's slim mode)
   /** a floating Search / Redact panel that covers the bubble's corner sends it away (desktop: the panel can sit at the bottom right) */
-  function panelOver() {
-    const up = $("usPanel"); if (!root || !shown(up) || !body().classList.contains("us-open")) return false;
-    const a = up.getBoundingClientRect(), p = xyFor(B.cornerPref()), m = 4;
+  function panelOver() { const up = $("usPanel"); return !!up && body().classList.contains("us-open") && over(up); }
+  function over(el) {
+    if (!root || !el || !shown(el)) return false;
+    const a = el.getBoundingClientRect(), p = xyFor(B.cornerPref()), m = 4;
     return a.left < p.x + S + m && a.right > p.x - m && a.top < p.y + S + m && a.bottom > p.y - m;
   }
   function mirrorCount() { const c = $("usCount"); if (badge) badge.textContent = c ? c.textContent : ""; }
@@ -225,7 +227,8 @@
     addEventListener("scroll", () => B.place(), { passive: true });   // bars measured in the viewport move if the page ever scrolls
     if (typeof ResizeObserver === "function") { const ro = new ResizeObserver(() => B.place()); for (const n of [$("transport"), $("mbBar"), document.querySelector(".topbar")]) if (n) ro.observe(n); }
     if (typeof MutationObserver === "function") {
-      const mo = new MutationObserver(sync);
+      let crSeen = null;   // the draw bar is made on first use and can be dragged: watch it once it exists
+      const mo = new MutationObserver(() => { const cb = $("crBar"); if (cb && cb !== crSeen) { crSeen = cb; mo.observe(cb, { attributes: true, attributeFilter: ["hidden", "style", "class"] }); } sync(); });
       mo.observe(document.body, { attributes: true, attributeFilter: ["class"] });
       for (const n of [$("settings"), $("transport"), $("library")]) if (n) mo.observe(n, { attributes: true, attributeFilter: ["hidden", "class"] });
       const up = $("usPanel"); if (up) mo.observe(up, { attributes: true, attributeFilter: ["hidden", "class", "style"] });

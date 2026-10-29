@@ -135,7 +135,7 @@ async function run(b, dev, tag) {
   await drawMouse(p, [[cx - 60, cy - 30], [cx + 60, cy + 30]]);
   ok(tag + " E2 a box can be drawn on the picture", (await p.evaluate(() => !!TDC.regions.ui.draft)));
   // phones: while the draw bar is up the floating Redact circle steps aside (it sat under the bar, tap-redact); the bar's Options brings the panel back
-  const rdShown = await vis(p, "#rdBtn");
+  const rdFan = await inFan(p, "#rdBtn"), rdShown = (await vis(p, "#rdBtn")) || !!(rdFan && !rdFan.away);   // ui-glass-6: reachable through the tools bubble
   if (touch) ok(tag + " E3 phone: the Redact circle is not under the draw bar (hidden while the bar is up)", !rdShown);
   await tap(p, rdShown ? "#rdBtn" : "#crBarOpts", touch);
   ok(tag + " E3 the Redact button (phone: the bar's Options) reopens the panel on the Redact tab while a draft exists", (await open(p)) && (await tabOf(p)) === "redact");
