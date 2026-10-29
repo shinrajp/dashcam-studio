@@ -37,7 +37,7 @@ const tap = async (p, sel, touch) => { if (touch) { const r = await rect(p, sel)
 const tabOf = (p) => p.evaluate(() => document.getElementById("usPanel").dataset.tab);
 const open = (p) => p.evaluate(() => TDC.searchUI.open);
 const drawMouse = async (p, pts) => { await p.mouse.move(pts[0][0], pts[0][1]); await p.mouse.down(); for (const q of pts.slice(1)) { await p.mouse.move(q[0], q[1], { steps: 4 }); await W(30); } await p.mouse.up(); await W(200); };
-const tileRect = (p) => p.evaluate(() => { const t = TDC.player.tiles[TDC.regions.ui.cam].tile.getBoundingClientRect(); return { l: t.left, t: t.top, r: t.right, b: t.bottom }; });
+const tileRect = (p) => p.evaluate(() => { const t = TDC.player.tiles[TDC.regions.ui.cam || TDC.focus.cam].tile.getBoundingClientRect(); return { l: t.left, t: t.top, r: t.right, b: t.bottom }; });
 
 async function run(b, dev, tag) {
   const ctx = await b.newContext(dev.ctx); const p = await ctx.newPage(); const errs = []; p.on("pageerror", (e) => errs.push(e.message));
@@ -57,8 +57,8 @@ async function run(b, dev, tag) {
   // B. Redact button
   await tap(p, "#rdBtn", touch);
   ok(tag + " B1 Redact button opens the panel on the Redact tab", (await open(p)) && (await vis(p, "#usPanel")) && (await tabOf(p)) === "redact");
-  ok(tag + " B2 Custom regions is open, nothing to click (form fields visible)", (await p.evaluate(() => document.getElementById("crSec").open)) && (await vis(p, "#crSec")) && (await vis(p, "#crCam")) && (await vis(p, "#crShape")) && (await vis(p, "#crMode")) && (await vis(p, "#crWhole")));
-  const dr = await rect(p, "#crDraw"), pn = await rect(p, "#usPanel"), form = await rect(p, "#crCam");
+  ok(tag + " B2 Custom regions is open, nothing to click (form fields visible)", (await p.evaluate(() => document.getElementById("crSec").open)) && (await vis(p, "#crSec")) && !(await p.evaluate(() => !!document.getElementById("crCam"))) && (await vis(p, "#crShape")) && (await vis(p, "#crMode")) && (await vis(p, "#crWhole")));
+  const dr = await rect(p, "#crDraw"), pn = await rect(p, "#usPanel"), form = await rect(p, "#crShape");
   ok(tag + " B3 'Draw region' is visible, primary, and the first action (above the form, at the top of the panel)", !!dr && (await p.evaluate(() => document.getElementById("crDraw").classList.contains("primary") && /Draw region/.test(document.getElementById("crDraw").textContent))) && dr.t < form.t && dr.t - pn.t < 90, { dr, pn, form });
   ok(tag + " B4 automatic controls are on this tab (Blur text, presets, text box)", (await vis(p, "#usRedact")) && (await vis(p, ".us-chip")) && (await vis(p, "#usQuery")) && (await p.evaluate(() => document.querySelectorAll(".us-presets .us-chip").length)) >= 4);
   ok(tag + " B4 Find-only controls are not (Find moment, Matches style)", !(await vis(p, "#usFind")) && !(await vis(p, "#usHl")));
@@ -118,7 +118,7 @@ async function run(b, dev, tag) {
   // E. drawing
   await p.evaluate(() => TDC.searchUI.show(false, "redact")); await W(300);
   await p.evaluate(() => { TDC.regions.ui.shape = "rect"; TDC.regions.UI.sync(); });
-  await p.evaluate(() => document.getElementById("crDraw").click()); await W(700);
+  await p.evaluate(() => TDC.focus.focus("front")); await W(300); await p.evaluate(() => document.getElementById("crDraw").click()); await W(700);
   ok(tag + " E1 Draw region hides the panel (video fully visible)", !(await open(p)) && !(await vis(p, "#usPanel")));
   ok(tag + " E1 the draw bar is shown", await vis(p, "#crBar"));
   const docked = await p.evaluate(() => !document.body.classList.contains("us-docked"));
