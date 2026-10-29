@@ -36,3 +36,8 @@ body.focused .stage-bar.bar-floating .grid-only { display: none; }
 /* a floating map that cannot step clear of the docked bar (short landscape) goes under it, never over it */
 body.map-float .stage .stage-bar, body.map-float .bar-dock { z-index: 29; }
 body.map-float .float-panel.map-panel.map-floating { z-index: 28; }
+/* drawing a region: a docked pill that needs 2+ rows covers the middle of a small picture, so it steps back like while picking
+   (strokes go through; float it off the video first to keep it usable). One-row and floating pills keep working buttons. */
+body.cr-drawing .stage-bar.pill-wrap:not(.bar-floating), body.cr-drawing .stage-bar.pill-wrap:not(.bar-floating) * { pointer-events: none !important; }
+body.cr-drawing .stage-bar.pill-wrap:not(.bar-floating) { opacity: 0.25; transition: opacity .15s; }
+@media (prefers-reduced-motion: reduce) { body.cr-drawing .stage-bar.pill-wrap { transition: none; } }
