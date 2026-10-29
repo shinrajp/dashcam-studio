@@ -322,7 +322,7 @@ body.fs .toast { bottom: calc(var(--tp-h, 62px) + 16px); }
 @media (max-width: 760px) {
   .cam-chip span { display: none; }
   .cam-chip.grid-chip { padding: 0 8px; }
-  .cam-chip kbd { font-size: 11px; color: var(--text); background: none; }
+  .cam-chip kbd { display: none; }   /* ui-glass-6: icon-only chips: no 1–6 badges (title / aria-label keep the key) */
   #btnCams span { display: none; }
   #btnBoxes span { display: none; }
   .topbar { gap: 8px; padding: 0 10px; }

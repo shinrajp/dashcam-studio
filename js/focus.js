@@ -248,7 +248,7 @@
       b.dataset.cam = cam;
       b.innerHTML = `${camIcon(cam)}<span class="nm"></span><kbd>${i + 1}</kbd>`;
       b.querySelector(".nm").textContent = NAMES[cam];
-      b.setAttribute("aria-label", NAMES[cam] + " camera");
+      b.setAttribute("aria-label", NAMES[cam] + " camera, key " + (i + 1)); b.setAttribute("aria-keyshortcuts", String(i + 1));
       sw.appendChild(b);
     });
     sw.addEventListener("click", (e) => {

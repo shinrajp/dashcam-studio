@@ -6,7 +6,10 @@
 .stage-bar > * { flex-shrink: 0; }
 .stage-bar .cam-switch { overflow: visible; flex-shrink: 0; gap: 2px; }
 .stage-bar.pill-compact .cam-chip .nm { display: none; }
-.stage-bar.pill-compact .cam-chip { padding: 0 8px; }
+.stage-bar.pill-compact .cam-chip { padding: 0 8px; justify-content: center; }
+/* ui-glass-6: icon-only chips drop the 1–6 key badges so the pill fits one row more often (the keys still work; the chip's title and
+   aria-label still name the camera and its key). The full layout with names keeps them. */
+.stage-bar.pill-compact .cam-chip kbd { display: none; }
 .stage-bar.pill-compact .bar-dock-btn span, .stage-bar.pill-compact #btnCams span, .stage-bar.pill-compact #btnBoxes span, .stage-bar.pill-compact #btn360 span { display: none; }
 @media (pointer: coarse) {
   .stage-bar .cam-chip kbd { display: none; }   /* the 1–6 keys mean nothing on a touch screen */
