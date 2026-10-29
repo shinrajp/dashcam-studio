@@ -614,6 +614,9 @@
     const b = $("stageBar").getBoundingClientRect();
     return b.right > z.l + 8 && b.left < z.r - 8 && b.bottom > z.top + 8 && b.top < z.bottom - 4;
   }
+  /** Room for the strip below the video? Not on a short touch screen held sideways (the strip would squeeze the video and meet the
+   *  bottom controls): there the bottom zone docks the pill back where it came from. */
+  const roomBelow = () => !(innerHeight < 360 || (innerHeight < 500 && matchMedia("(pointer: coarse)").matches));
   let spotEl = null, spotEl2 = null;
   const mkSpot = (cls) => { const e = T.el("div", cls); e.setAttribute("aria-hidden", "true"); document.body.appendChild(e); return e; };
   const putSpot = (el, d, near) => {
@@ -629,6 +632,7 @@
     const same = d && z && (CB().from || "over") === "beside" && CB().side === "bottom";   // it came from the bottom strip: one outline
     putSpot(spotEl, same ? null : d, near === "spot");
     putSpot(spotEl2, z ? z.strip : null, near === "bottom" || (same && near === "spot"));
+    if (spotEl2) spotEl2.dataset.label = roomBelow() ? "Release to dock below the video" : "Release to dock it back";
   }
   // (it came from the strip below the video: anything below that spot counts too, so pulling it down past the video docks it back)
   const nearSpot = (x, y) => { const d = dockSpot(), m = 28, down = (CB().from || "over") === "beside" && CB().side === "bottom";
@@ -725,6 +729,7 @@
         // the release decides (Safari may not send a last move at the release point); pointercancel keeps the last move's answer
         const near = e.type === "pointerup" && Number.isFinite(e.clientX) && (e.clientX || e.clientY) ? nearWhich(e.clientX, e.clientY) || was.near : was.near;
         if (near === "spot") { F.dockBar(true); wake(); return; }
+        if (near === "bottom" && !roomBelow()) { F.dockBar(true); wake(); return; }   // a short landscape phone: no room for a strip below, dock it back
         if (near === "bottom") { F.setBarDock("beside", "bottom"); mapAgain(); hideHint(true); T.toast("Camera bar docked below the video", "ok", 2200); wake(); return; }
         const s = floatSpan(bar);
         let x = parseFloat(bar.style.left) || 0, y = parseFloat(bar.style.top) || 0;

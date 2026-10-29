@@ -36,7 +36,7 @@ body.focused .stage-bar.bar-floating .grid-only { display: none; }
 .cam-dock-hint[hidden] { display: none; }
 /* ui-glass-7: the bottom dock strip (release on the lower part of the video → docked below it), labelled so it reads as a target */
 .cam-dock-hint.dock-bottom { border-radius: 14px; display: flex; align-items: center; justify-content: center; }
-.cam-dock-hint.dock-bottom::after { content: "Release to dock below the video"; font: 600 12px/1 system-ui, -apple-system, sans-serif; color: #dce6ff; background: rgba(20,28,48,.72); padding: 5px 10px; border-radius: 999px; }
+.cam-dock-hint.dock-bottom::after { content: attr(data-label); font: 600 12px/1 system-ui, -apple-system, sans-serif; color: #dce6ff; background: rgba(20,28,48,.72); padding: 5px 10px; border-radius: 999px; }
 .cam-dock-hint.dock-bottom.near::after { background: rgba(62,106,225,.85); color: #fff; }
 .bar-grip:focus-visible { outline: 2px solid #8fb0ff; outline-offset: 1px; }
 @media (prefers-reduced-motion: reduce) { .cam-dock-hint, .stage-bar.bar-floating { transition: none !important; } }
