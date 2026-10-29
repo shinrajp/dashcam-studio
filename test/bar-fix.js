@@ -1,5 +1,5 @@
 // bar-fix (tag bar-fix): the custom-redaction draw bar (#crBar: Save region / Draw again / Cancel / Options) must never block drawing.
-//   1. the bar is one compact row (no wrapping at 390 px) and click-through: only its grip and buttons catch the pointer
+//   1. the bar (the Redact tray since ui-glass-7) is compact: one row, two on an upright phone and click-through: only its grip and buttons catch the pointer
 //   2. a stroke that starts in the bar's gaps / runs through the bar's area is recorded (mouse; real touch on Chromium)
 //   3. the bar glides to the opposite edge when the stroke starts / grows near it (never under the finger), and back again when needed
 //   4. the grip drags the bar anywhere on screen (kept inside the viewport), the position is remembered for the session
@@ -27,6 +27,9 @@ async function openEvent(p) {
   await p.evaluate(() => { TDC.player.pause(); TDC.setPref("mapTiles", false); });
 }
 const vis = (p, sel) => p.evaluate((s) => { const e = document.querySelector(s); if (!e) return false; const r = e.getBoundingClientRect(); return !e.hidden && getComputedStyle(e).display !== "none" && r.width > 0 && r.height > 0; }, sel);
+// ui-glass-7: the bar is the Redact tray. It may wrap to two rows on an upright phone (<= 500 px wide), one row elsewhere; a row is <= 64 px.
+const rowsOf = (bi) => new Set(bi.btns.map((x) => Math.round((x.t + x.b) / 2 / 12))).size;
+const compact = (bi) => rowsOf(bi) <= (bi.vw <= 500 ? 2 : 1) && bi.h <= (bi.vw <= 500 ? 116 : 64);
 const barInfo = (p) => p.evaluate(() => {
   const b = document.getElementById("crBar"), r = b.getBoundingClientRect(), bs = [...b.querySelectorAll("button")].filter((x) => x.offsetParent).map((x) => { const q = x.getBoundingClientRect(); return { id: x.id, t: q.top, b: q.bottom, l: q.left, r: q.right, h: q.height }; });
   return { hidden: b.hidden, l: r.left, t: r.top, r: r.right, b: r.bottom, w: r.width, h: r.height, vw: innerWidth, vh: innerHeight, edge: b.dataset.edge, free: b.classList.contains("free"), btns: bs, pe: getComputedStyle(b).pointerEvents, safeTop: 0 };
@@ -75,16 +78,16 @@ async function nearStroke(p, where, natural, shape) {
 async function run(b, dev, tag) {
   const ctx = await b.newContext(dev.ctx); const p = await ctx.newPage(); const errs = []; p.on("pageerror", (e) => errs.push(e.message));
   await openEvent(p);
-    await p.click("#rdBtn"); await W(400);
+    await p.evaluate(() => document.getElementById("rdBtn").click()); await W(400);   // ui-glass-6: #rdBtn lives in the tools bubble fan
   await p.evaluate(() => { document.getElementById("crSec").open = true; }); await W(200);
   await startDraw(p, "free");
   await p.evaluate(() => { if (!TDC.searchUI.narrow() && TDC.searchUI.hide) TDC.searchUI.hide(); }); await W(500);   // wide window: the panel stays open while drawing and shrinks the picture; hide it to draw on the big picture
   ok(tag + " 1 draw bar shown while drawing", await vis(p, "#crBar"));
   let bi = await barInfo(p);
   const top0 = Math.min(...bi.btns.map((x) => x.t)), bot0 = Math.max(...bi.btns.map((x) => x.b));
-  ok(tag + " 1 one compact row: every control on the same line, bar height < 60", bot0 - top0 < 48 && bi.h < 60 && bi.btns.length >= 3, bi);
+  ok(tag + " 1 compact tray: one row (two on an upright phone), <= 64 px a row", compact(bi) && bi.btns.length >= 3, { rows: rowsOf(bi), top0, bot0, bi });
   ok(tag + " 1 inside the screen width", bi.l >= 0 && bi.r <= bi.vw, bi);
-  ok(tag + " 1 buttons are 40 px tall (touch targets)", Math.min(...bi.btns.map((x) => x.h)) >= 40, bi);
+  ok(tag + " 1 buttons are at least 36 px tall (40 px segment capsules with a mouse, 44 px on touch)", Math.min(...bi.btns.map((x) => x.h)) >= 36, bi);
   ok(tag + " 1 container ignores the pointer, the buttons and grip catch it", bi.pe === "none" && (await p.evaluate(() => [...document.querySelectorAll("#crBar button")].every((x) => getComputedStyle(x).pointerEvents === "auto"))));
   ok(tag + " 1 grip handle present", await vis(p, "#crBarGrip"));
   ok(tag + " 1 bottom edge by default, above the transport bar", bi.edge === "bottom" && bi.b <= bi.vh, bi);
@@ -103,7 +106,7 @@ async function run(b, dev, tag) {
   let r1 = await nearStroke(p, "low", natural >= 30);
   ok(tag + " 2 freehand through the bar's spot is recorded (draft polygon with points)", !!r1.ds.draft && r1.ds.draft.shape === "poly" && r1.ds.draft.pts.length >= 8 && !r1.ds.drawing, r1.ds);
   ok(tag + " 3 the bar moved to the edge away from the finger (" + r1.expect + ")", !r1.after.free && r1.after.edge === r1.expect && r1.moved, r1);
-  ok(tag + " 3 the bar is not under the finger afterwards, still one row, inside the screen", !r1.under && r1.after.l >= 0 && r1.after.r <= r1.after.vw && r1.after.h < 60, r1);
+  ok(tag + " 3 the bar is not under the finger afterwards, still compact, inside the screen", !r1.under && r1.after.l >= 0 && r1.after.r <= r1.after.vw && compact(r1.after), r1);
   if (SHOTS) await p.screenshot({ path: SHOTS + "/bar-moved-" + tag.replace(/\W+/g, "-") + ".png" });
   await W(300);
   ok(tag + " 3 it stays where it moved (no flip back on its own)", (await barInfo(p)).edge === r1.expect);
@@ -187,7 +190,7 @@ async function run(b, dev, tag) {
   if (narrow) {
     await p.click("#crBarOpts"); await W(400);
     ok(tag + " 5 Options opens the panel, label Back to drawing, still one row inside the width", (await vis(p, "#usPanel")) && (await p.evaluate(() => document.getElementById("crBarOpts").textContent)) === "Back to drawing");
-    const wi = await barInfo(p); ok(tag + " 5 'Back to drawing' label: one row, inside the width", Math.max(...wi.btns.map((x) => x.b)) - Math.min(...wi.btns.map((x) => x.t)) < 48 && wi.l >= 0 && wi.r <= wi.vw, wi);
+    const wi = await barInfo(p); ok(tag + " 5 'Back to drawing' label: still compact, inside the width", compact(wi) && wi.l >= 0 && wi.r <= wi.vw, wi);
     await p.click("#crBarOpts"); await W(400);
     ok(tag + " 5 Options toggles back (panel tucked away)", !(await vis(p, "#usPanel")));
   }
@@ -196,7 +199,7 @@ async function run(b, dev, tag) {
   await p.evaluate(() => { const r = TDC.regions.list[0]; TDC.regions.UI.edit(r.id); }); await W(300);
   if (narrow) { await p.evaluate(() => TDC.regions.UI.draw()); await W(300); await p.evaluate(() => { TDC.regions.ui.drawing = false; TDC.regions.ui.draft = TDC.regions.ui.draft || { shape: "rect", x: 0.2, y: 0.2, w: 0.2, h: 0.2 }; TDC.regions.UI.sync(); }); await p.evaluate(() => { const o = document.getElementById("crBarOpts"); o.click(); }); await W(400); }
   const wc = await barInfo(p);
-  ok(tag + " 5 worst case ('Save changes' + 'Back to drawing'): one row, inside the width", !wc.hidden && Math.max(...wc.btns.map((x) => x.b)) - Math.min(...wc.btns.map((x) => x.t)) < 48 && wc.l >= 0 && wc.r <= wc.vw, wc);
+  ok(tag + " 5 worst case ('Save changes' + 'Back to drawing'): still compact, inside the width", !wc.hidden && compact(wc) && wc.l >= 0 && wc.r <= wc.vw, wc);
   if (SHOTS) await p.screenshot({ path: SHOTS + "/bar-worst-" + tag.replace(/\W+/g, "-") + ".png" });
   await cancelDraw(p);
   ok(tag + " 5 no page errors", errs.filter((e) => !/arcTo|allowed range/.test(e)).length === 0, errs);
@@ -207,7 +210,7 @@ async function run(b, dev, tag) {
 async function touchRun(b, dev, tag) {
   const ctx = await b.newContext(dev.ctx); const p = await ctx.newPage();
   await openEvent(p);
-  await p.click("#rdBtn"); await W(400);
+  await p.evaluate(() => document.getElementById("rdBtn").click()); await W(400);   // ui-glass-6: #rdBtn lives in the tools bubble fan
   await p.evaluate(() => { document.getElementById("crSec").open = true; }); await W(200);
   await startDraw(p, "free");
   const cdp = await ctx.newCDPSession(p);
