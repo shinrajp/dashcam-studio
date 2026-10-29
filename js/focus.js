@@ -449,7 +449,7 @@
     if ((bar.offsetWidth !== w0 || bar.offsetHeight !== h0) && T.prefs.mapDock === "float" && T.overlays && T.overlays.invalidate) T.overlays.invalidate();
   }
   function shapePill(bar) {
-    bar.classList.remove("pill-compact", "pill-wrap", "pill-scroll");
+    bar.classList.remove("pill-compact", "pill-wrap", "pill-pack");
     bar.style.width = bar.style.height = "";
     const fl = F.barFloating();
     const kids = () => [...bar.children].filter((c) => c.id !== "barHint" && c.getClientRects().length);
@@ -468,10 +468,10 @@
     const maxW = Math.max(room, Math.min(winW() - 2 * FM, camsW + padH));
     bar.classList.add("pill-wrap");
     bar.style.width = Math.ceil(Math.min(maxW, Math.max(camsW, restW) + padH)) + "px";
-    // a very small video area (a panel open beside it, a split-screen window): if even two rows would cover most of the video, keep one
-    // short row and let the cameras scroll there instead (the old bar), rather than a pill taller than the video
-    if (!fl && bar.offsetHeight > Math.max(110, (F.barDocked() && dock ? 1e9 : stage().clientHeight * 0.6))) {
-      bar.classList.remove("pill-wrap"); bar.style.width = ""; bar.classList.add("pill-scroll");
+    // a very small video area (a phone held sideways in the focus view, a panel beside the video): the cameras' own row would leave the
+    // tools on two more rows, taller than the video. Pack chips and tools together (fewest rows, still no scrolling), as wide as allowed.
+    if (!fl && !F.barDocked() && bar.offsetHeight > Math.max(110, stage().clientHeight * 0.7)) {
+      bar.classList.add("pill-pack"); bar.style.width = Math.floor(Math.max(room, 120)) + "px";
     }
   }
   F.fitPill = fitPill;
