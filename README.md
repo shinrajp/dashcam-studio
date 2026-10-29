@@ -611,6 +611,7 @@ Rollback: `git checkout pre-ui-glass-5` (tip before this change, `ui-glass-4`, 1
 - **Float it:** drag the ⋮⋮ grip off the video and the pill floats anywhere in the window, including outside the video, just like the map. A dashed outline shows where it docks. The spot is remembered and the pill stays on screen when the window gets smaller. It never covers the play bar, Search or Redact.
 - **Dock it again:** drop it on the dashed spot, double-tap (or double-click) the grip, press the Dock button, or Tab to the grip and press Enter. With a keyboard, Enter or Space on the grip floats it and the arrow keys move it (hold Shift for bigger steps). A pill that was docked beside the video goes back beside it.
 - Picking cameras, tap-to-redact camera picking, export and saved settings are unchanged. Touch targets are at least 44 px. A floating pill hides and returns with the other controls under Auto-hide. It follows the Glass setting and Reduce motion.
-- On a 390-wide phone, the floated map now moves above or below the camera bar instead of covering it. Where it cannot fit, as on a phone held sideways, the camera bar stays on top of the map.
+- On a 390-wide phone, the floated map now moves above or below the camera bar instead of covering it. If you drag the map somewhere yourself, it stays there, and the camera bar is drawn on top of it. Where it cannot fit, as on a phone held sideways, the camera bar stays on top of the map.
+- While you draw a redaction box, a camera pill that takes two or more rows fades and lets your strokes through. Float the pill off the video if you want its buttons while drawing.
 - The exported video is unchanged.
 - Tests: `node test/ui-glass-5.js` (see test/README.md).
