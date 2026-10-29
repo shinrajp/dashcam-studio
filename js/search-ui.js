@@ -7,7 +7,10 @@
  * Window modes (search-float): "dock" (default) puts the panel in normal page flow BELOW the video, so it never
  * covers a camera (the grid is refitted into the remaining height, like the camera bar's "Beside video" dock).
  * "float" detaches it into a draggable window (drag the header; mouse, pen or touch; arrow keys on the grip),
- * clamped to the viewport and resizable; "pin" locks it where the user put it. Saved in localStorage. */
+ * clamped to the viewport and resizable; "pin" locks it where the user put it. Saved in localStorage.
+ * redact-button: the panel has two tabs, Find and Redact. The Search button opens Find, the new Redact button (#rdBtn, right
+ * beside it) opens Redact: the automatic hide controls (text, plates, faces) and the Custom regions section, always open, with
+ * a primary "Draw region" at the top. The tab is remembered for the session (sessionStorage tdc.us.tab). One panel, same ids. */
 (function () {
   "use strict";
   const T = window.TDC;
@@ -19,6 +22,9 @@
   const fmt = (t) => (T.fmtTime ? T.fmtTime(t, true) : t.toFixed(1) + "s");
   const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
   let built = [];
+  const TABKEY = "tdc.us.tab";
+  U.tab = "find";
+  try { if (sessionStorage.getItem(TABKEY) === "redact") U.tab = "redact"; } catch (e) {}
 
   U.classic = () => { try { return localStorage.getItem(KEY) === "1" || /[?&]search=classic\b/.test(location.search); } catch (e) { return false; } };
   U.setClassic = (on) => {
@@ -78,7 +84,8 @@
     const v = view();
     if (W.w) p.style.width = Math.min(W.w, v.w - 2 * M) + "px";
     if (W.h) p.style.height = Math.min(W.h, v.h - 2 * M) + "px";
-    p.style.maxHeight = Math.max(150, Math.round(v.h - 2 * M)) + "px";   // never taller than the visible area (the window scrolls inside)
+    // never taller than the visible area (the window scrolls inside). Until the user sizes it, about 45% of the screen so it never hides the video (redact-button)
+    p.style.maxHeight = Math.max(150, Math.round(W.h || W.lift ? v.h - 2 * M : Math.min(v.h - 2 * M, Math.max(260, v.h * 0.45)))) + "px";
     const pw = p.offsetWidth || 360, ph = p.offsetHeight || 200;
     let x = W.x == null ? v.w - pw - 16 : W.x, y = W.y == null ? 70 : W.y;
     x = Math.max(v.l + M, Math.min(x, v.l + v.w - pw - M));
@@ -173,6 +180,15 @@
       const step = e.shiftKey ? 60 : 12;
       U.moveBy(k[0] * step, k[1] * step);
     });
+    // hovering over / grabbing the resize corner lifts the default 45% height cap, so the user can still make the window taller (redact-button).
+    // It has to happen on hover too: WebKit ignores a style change made after the drag has started.
+    const liftCap = (e) => {
+      if (W.mode !== "float" || W.pinned || W.h || W.lift || e.target !== p) return;
+      const r = p.getBoundingClientRect();
+      if (e.clientX > r.right - 22 && e.clientY > r.bottom - 22) { W.lift = true; placeFloat(); }
+    };
+    p.addEventListener("pointermove", liftCap, true);
+    p.addEventListener("pointerdown", liftCap, true);
     // user resize (CSS resize handle on the floating window): remember the size
     if (typeof ResizeObserver === "function") {
       let t = 0;
@@ -196,43 +212,76 @@
     else if (!on && m.dataset.usOrig) { m.content = m.dataset.usOrig; delete m.dataset.usOrig; }
   }
 
-  U.show = (focus) => {
+  /** Switch the tab ("find" | "redact"). Remembered for the session. */
+  function setTab(tab, opt) {
+    tab = tab === "redact" ? "redact" : "find";
+    const p = $("usPanel"); if (!p) return;
+    U.tab = tab;
+    if (!opt || opt.remember !== false) { try { sessionStorage.setItem(TABKEY, tab); } catch (e) {} }
+    p.dataset.tab = tab;
+    for (const [id, t] of [["usTabFind", "find"], ["usTabRedact", "redact"]]) { const b = $(id); if (b) { b.setAttribute("aria-selected", String(t === tab)); b.tabIndex = t === tab ? 0 : -1; } }
+    const q = $("usQuery");
+    if (q) { q.placeholder = tab === "redact" ? "Text to hide: Oak Ave, a name, a plate" : "A cyclist in the bike lane · text Oak Ave · 20:53:46 · 2:30"; q.setAttribute("aria-label", tab === "redact" ? "Text to hide" : "Search"); }
+    const h = $("usHeadLbl"); if (h) h.textContent = tab === "redact" ? "Redact" : "Search";
+    p.setAttribute("aria-label", tab === "redact" ? "Redact the video" : "Search the video");
+    syncBtns();
+    if (U.ok || p) { try { results(); } catch (e) {} }
+    if (W.mode === "float") placeFloat();
+    if (T.ui && T.ui.fit && W.mode !== "float" && U.open) requestAnimationFrame(() => { try { T.ui.fit(); } catch (e) {} });
+  }
+  U.setTab = (tab) => setTab(tab);
+  function syncBtns() {
+    const f = $("usBtn"), r = $("rdBtn");
+    if (f) f.setAttribute("aria-expanded", String(U.open && U.tab === "find"));
+    if (r) r.setAttribute("aria-expanded", String(U.open && U.tab === "redact"));
+  }
+  /** show(focus, tab): tab "find" | "redact"; without it the remembered tab opens. */
+  U.show = (focus, tab) => {
     const p = $("usPanel");
     if (!p) return;
+    if (tab === "find" || tab === "redact") setTab(tab);
+    else if (p.dataset.tab !== U.tab) setTab(U.tab, { remember: false });
     U.open = true;
     p.hidden = false;
     document.body.classList.add("us-open");
-    $("usBtn").setAttribute("aria-expanded", "true");
+    syncBtns();
     if (U.narrow()) setOverlaysContent(true);
     applyMode();
     placeSheet();
     refresh();
-    if (focus !== false) { const q = $("usQuery"); try { q.focus({ preventScroll: true }); } catch (e) { q.focus(); } }
+    if (focus !== false) {
+      const q = U.tab === "redact" ? $("crDraw") : $("usQuery");   // Redact: don't pop the phone keyboard, land on Draw region
+      try { q.focus({ preventScroll: true }); } catch (e) { q.focus(); }
+    }
   };
   U.hide = () => {
     const p = $("usPanel");
     if (!p) return;
-    U.open = false;
+    U.open = false; W.lift = false;
     p.hidden = true;
     document.body.classList.remove("us-open");
-    $("usBtn").setAttribute("aria-expanded", "false");
+    syncBtns();
     if (document.activeElement && p.contains(document.activeElement)) document.activeElement.blur();
     setOverlaysContent(false);
     typing(false);
     applyMode();
   };
   U.toggle = () => (U.open ? U.hide() : U.show());
+  /** The Search button: opens Find; on the other tab it switches to Find; on Find it closes. The Redact button does the same for Redact. */
+  U.toggleTab = (tab) => { if (U.open && U.tab === tab) U.hide(); else U.show(true, tab); };
 
   /* ---------- actions: drive the classic bars ---------- */
   function syncCam() { const v = $("usCam").value; if ($("findCam")) $("findCam").value = v; if ($("redactCam")) $("redactCam").value = v; }
   U.find = (q) => {
     q = (q != null ? q : $("usQuery").value).trim();
     if (!q) { $("usQuery").focus(); return; }
+    if (U.open) setTab("find");
     syncCam(); $("findQuery").value = q; U.mode = "find"; $("btnFind").click(); refresh();
   };
   U.redact = (q) => {
     q = (q != null ? q : $("usQuery").value).trim();
     if (!q) { $("usQuery").focus(); return; }
+    if (U.open) setTab("redact");
     syncCam(); $("redactQuery").value = q; U.mode = "redact"; $("btnRedact").click(); refresh();
   };
   U.stop = () => { const a = $("btnFindStop"), b = $("btnRedactStop"); if (a && !a.hidden) a.click(); if (b && !b.hidden) b.click(); };
@@ -261,20 +310,21 @@
     const runs = U.redactRuns();
     let h = "";
     if (hits.length) {
-      h += '<div class="us-group">Find matches <span>' + hits.length + "</span></div>";
+      h += '<div class="us-group us-r-find">Find matches <span>' + hits.length + "</span></div>";
       hits.forEach((x, i) => {
-        if (x.timeJump) { h += '<button type="button" class="us-item us-time' + (x.inRange === false ? " out" : "") + '" role="option" data-kind="find" data-i="' + i + '"><span class="us-t">⏱ ' + esc(fmt(x.t)) + "</span><span>" + esc(x.text) + "</span></button>"; return; }
-        h += '<button type="button" class="us-item' + (x.best ? " best" : "") + (x.thumb ? " has-thumb" : "") + '" role="option" data-kind="find" data-i="' + i + '">' + (x.thumb ? '<img class="us-thumb" alt="" src="' + esc(x.thumb) + '">' : "") + '<span class="us-t">' + esc(fmt(x.t)) + "</span><span>" + (x.termColor ? '<i class="term-dot" style="background:' + esc(x.termColor) + '"></i>' : "") + esc(CAM[x.cam] || x.cam) + (x.term ? " · " + esc(x.term) : "") + (x.text ? " · " + esc(x.text) : "") + (x.weak ? ' <em>weak</em>' : "") + "</span></button>";
+        if (x.timeJump) { h += '<button type="button" class="us-r-find us-item us-time' + (x.inRange === false ? " out" : "") + '" role="option" data-kind="find" data-i="' + i + '"><span class="us-t">⏱ ' + esc(fmt(x.t)) + "</span><span>" + esc(x.text) + "</span></button>"; return; }
+        h += '<button type="button" class="us-r-find us-item' + (x.best ? " best" : "") + (x.thumb ? " has-thumb" : "") + '" role="option" data-kind="find" data-i="' + i + '">' + (x.thumb ? '<img class="us-thumb" alt="" src="' + esc(x.thumb) + '">' : "") + '<span class="us-t">' + esc(fmt(x.t)) + "</span><span>" + (x.termColor ? '<i class="term-dot" style="background:' + esc(x.termColor) + '"></i>' : "") + esc(CAM[x.cam] || x.cam) + (x.term ? " · " + esc(x.term) : "") + (x.text ? " · " + esc(x.text) : "") + (x.weak ? ' <em>weak</em>' : "") + "</span></button>";
       });
     }
     if (runs.length) {
-      h += '<div class="us-group">' + (T.redact.action === "remove" ? "Removed" : "Blurred") + " text / regions <span>" + runs.length + "</span></div>";
+      h += '<div class="us-group us-r-redact">' + (T.redact.action === "remove" ? "Removed" : "Blurred") + " text / regions <span>" + runs.length + "</span></div>";
       runs.forEach((r, i) => {
-        h += '<button type="button" class="us-item" role="option" data-kind="redact" data-i="' + i + '"><span class="us-t">' + esc(fmt(r.t)) + "</span><span>" + esc(CAM[r.cam] || r.cam) + " · " + r.spots + " spot" + (r.spots === 1 ? "" : "s") + (r.end > r.t ? " · to " + esc(fmt(r.end)) : "") + "</span></button>";
+        h += '<button type="button" class="us-r-redact us-item" role="option" data-kind="redact" data-i="' + i + '"><span class="us-t">' + esc(fmt(r.t)) + "</span><span>" + esc(CAM[r.cam] || r.cam) + " · " + r.spots + " spot" + (r.spots === 1 ? "" : "s") + (r.end > r.t ? " · to " + esc(fmt(r.end)) : "") + "</span></button>";
       });
     }
     box.innerHTML = h;
     box.hidden = !h;
+    box.classList.toggle("us-empty", U.tab === "redact" ? !runs.length : !hits.length);   // nothing for this tab: no empty strip
     $("usClear").hidden = !h;
     const n = hits.length + runs.length;
     $("usBtn").classList.toggle("has", n > 0);
@@ -350,28 +400,36 @@
     const clock = $("clockLabel");
     clock.parentNode.insertBefore(btn, clock.nextSibling);
     built.push(btn);
+    const rsvg = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="15" rx="2.5"/><path d="M7 10h10M7 14.5h6" stroke-width="3"/></svg>';
+    const rbtn = el("button", { class: "chip us-btn rd-btn", id: "rdBtn", type: "button", "aria-haspopup": "dialog", "aria-expanded": "false", "aria-controls": "usPanel", title: "Redact: hide plates, faces and text, or draw your own region" },
+      rsvg + '<span class="us-lbl">Redact</span>');
+    btn.parentNode.insertBefore(rbtn, btn.nextSibling);
+    built.push(rbtn);
 
     const presets = [...document.querySelectorAll(".redact-presets button")].map((b) => '<button type="button" class="us-chip' + (b.classList.contains("text-only") ? " text-only" : "") + '" data-q="' + esc(b.getAttribute("data-q")) + '">' + esc(b.textContent) + "</button>").join("");
     const p = el("div", { class: "us-panel", id: "usPanel", role: "dialog", "aria-label": "Search the video", hidden: "" },
       '<div class="us-grab" aria-hidden="true"></div>' +
-      '<div class="us-head" id="usHead"><span class="us-grip" id="usGrip" role="button" tabindex="-1" aria-label="Move the search window (arrow keys, Shift for bigger steps)" title="Drag to move · arrow keys move it">' +
-      '<svg viewBox="0 0 10 16" aria-hidden="true"><circle cx="3" cy="3" r="1.4"/><circle cx="7" cy="3" r="1.4"/><circle cx="3" cy="8" r="1.4"/><circle cx="7" cy="8" r="1.4"/><circle cx="3" cy="13" r="1.4"/><circle cx="7" cy="13" r="1.4"/></svg>Search</span>' +
+      '<div class="us-head" id="usHead"><span class="us-grip" id="usGrip" role="button" tabindex="-1" aria-label="Move the window (arrow keys, Shift for bigger steps)" title="Drag to move · arrow keys move it">' +
+      '<svg viewBox="0 0 10 16" aria-hidden="true"><circle cx="3" cy="3" r="1.4"/><circle cx="7" cy="3" r="1.4"/><circle cx="3" cy="8" r="1.4"/><circle cx="7" cy="8" r="1.4"/><circle cx="3" cy="13" r="1.4"/><circle cx="7" cy="13" r="1.4"/></svg><span id="usHeadLbl" class="us-headlbl">Search</span></span>' +
+      '<div class="us-tabs" id="usTabs" role="tablist" aria-label="Search or redact"><button type="button" role="tab" class="us-tab" id="usTabFind" aria-selected="true" aria-controls="usPanel">Find</button><button type="button" role="tab" class="us-tab" id="usTabRedact" aria-selected="false" aria-controls="usPanel" tabindex="-1">Redact</button></div>' +
       '<button type="button" class="btn icon sm us-float" id="usFloat" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true" class="i-float"><rect x="3" y="12" width="18" height="9" rx="2"/><rect x="7" y="3" width="12" height="7" rx="1.5"/></svg><svg viewBox="0 0 24 24" aria-hidden="true" class="i-dock"><rect x="3" y="3" width="18" height="11" rx="2"/><path d="M3 19h18"/></svg></button>' +
       '<button type="button" class="btn icon sm us-pin" id="usPin" aria-pressed="false" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3h6l-1 6 3 3v2H7v-2l3-3z"/><path d="M12 14v7"/></svg></button>' +
       '<button type="button" class="btn icon sm us-x" id="usClose" aria-label="Close search (Esc)" title="Close (Esc)"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>' +
       '<div class="us-row">' + svg + '<input id="usQuery" type="search" enterkeyhint="search" autocomplete="off" spellcheck="false" placeholder="A cyclist in the bike lane · text Oak Ave · 20:53:46 · 2:30" aria-label="Search"></div>' +
       '<div class="us-actions"><select id="usCam" class="select small" aria-label="Cameras"><option value="front">Front camera</option><option value="around">All cameras</option></select>' +
-      '<button type="button" class="btn primary small" id="usFind" title="Find the moment that matches the words (Enter)">Find moment</button>' +
-      '<button type="button" class="btn small text-only" id="usRedact" title="Blur this text wherever it appears, on every camera (Shift+Enter)">Blur text</button>' +
+      '<button type="button" class="btn primary small us-t-find" id="usFind" title="Find the moment that matches the words (Enter)">Find moment</button>' +
+      '<button type="button" class="btn small text-only us-t-redact" id="usRedact" title="Blur this text wherever it appears, on every camera (Shift+Enter)">Blur text</button>' +
       '<button type="button" class="btn ghost small" id="usStop" hidden>Stop</button></div>' +
-      '<div class="us-style res-style" role="group" aria-label="How matches look"><span class="res-style-lbl">Matches</span>' +
+      '<div class="us-style res-style us-t-find" role="group" aria-label="How matches look"><span class="res-style-lbl">Matches</span>' +
       '<button type="button" class="style-tgl" data-style="hl" id="usHl" aria-pressed="true"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2.5" y="3.5" width="11" height="9" rx="1"/></svg>Highlight</button>' +
       '<button type="button" class="style-tgl" data-style="rd" id="usRd" aria-pressed="false"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2.5" y="3.5" width="11" height="9" rx="1" class="fill"/></svg>Redact</button>' +
-      '<button type="button" class="style-tgl blur-shown" id="usRedactShow" aria-pressed="true" hidden title="Show or hide the blur from Blur text, Blur plates, Blur faces, Street signs and All text (the export follows)">Show blur</button></div>' +
-      '<div class="us-presets">' + presets + "</div>" +
-      '<div class="q-chips" id="usChips" hidden></div>' +
+      '</div>' +
+      '<div class="us-auto-h us-t-redact" id="usAutoH">Automatic: hide text, plates and faces</div>' +
+      '<div class="us-presets us-t-redact">' + presets + "</div>" +
+      '<div class="us-style res-style us-t-redact" id="usShowRow"><button type="button" class="style-tgl blur-shown" id="usRedactShow" aria-pressed="true" hidden title="Show or hide the blur from Blur text, Blur plates, Blur faces, Street signs and All text (the export follows)">Show blur</button></div>' +
+      '<div class="q-chips us-t-find" id="usChips" hidden></div>' +
       '<div class="us-status" id="usStatus" hidden></div>' +
-      '<label class="us-best" id="usBestWrap" hidden title="Show only the best-matching plate or text (best text match × read confidence)"><input type="checkbox" id="usBest"> Best match only <span id="usBestN"></span></label>' +
+      '<label class="us-best us-t-find" id="usBestWrap" hidden title="Show only the best-matching plate or text (best text match × read confidence)"><input type="checkbox" id="usBest"> Best match only <span id="usBestN"></span></label>' +
       '<div class="us-results" id="usResults" role="listbox" aria-label="Results" hidden></div>' +
       '<div class="us-foot"><label title="Show the original Find and Redact bars under the video"><input type="checkbox" id="usClassic"> Classic search bars</label><button type="button" class="btn ghost small" id="usClear" hidden>Clear results</button></div>');
     // dock: a strip in normal page flow between the video area and the transport (never over a camera)
@@ -391,7 +449,15 @@
       $("setClassicSearch").addEventListener("change", (e) => U.setClassic(e.target.checked));
     }
 
-    btn.addEventListener("click", () => U.toggle());
+    btn.addEventListener("click", () => U.toggleTab("find"));
+    rbtn.addEventListener("click", () => U.toggleTab("redact"));
+    $("usTabFind").addEventListener("click", () => setTab("find"));
+    $("usTabRedact").addEventListener("click", () => setTab("redact"));
+    $("usTabs").addEventListener("keydown", (e) => {   // tabs: Left / Right / Home / End move between them
+      const k = e.key; if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(k)) return;
+      e.preventDefault(); e.stopPropagation();
+      const t = k === "ArrowLeft" || k === "Home" ? "find" : "redact"; setTab(t); const b = $(t === "find" ? "usTabFind" : "usTabRedact"); if (b) b.focus();
+    });
     $("usClose").addEventListener("click", () => U.hide());
     $("usFloat").addEventListener("click", () => U.setMode(W.mode === "float" ? "dock" : "float"));
     $("usPin").addEventListener("click", () => U.setPinned(!W.pinned));
@@ -417,8 +483,8 @@
     // shortcuts (capture phase, so Esc closes search before ui.js leaves focus/full screen)
     window.addEventListener("keydown", (e) => {
       const typing = e.target.matches && e.target.matches("input, textarea, select, [contenteditable]");
-      if ((e.metaKey || e.ctrlKey) && !e.altKey && (e.key === "k" || e.key === "K")) { e.preventDefault(); e.stopImmediatePropagation(); U.open && document.activeElement === $("usQuery") ? U.hide() : U.show(); }
-      else if (e.key === "/" && !typing && !e.metaKey && !e.ctrlKey && !e.altKey) { e.preventDefault(); e.stopImmediatePropagation(); U.show(); }
+      if ((e.metaKey || e.ctrlKey) && !e.altKey && (e.key === "k" || e.key === "K")) { e.preventDefault(); e.stopImmediatePropagation(); U.open && U.tab === "find" && document.activeElement === $("usQuery") ? U.hide() : U.show(true, "find"); }
+      else if (e.key === "/" && !typing && !e.metaKey && !e.ctrlKey && !e.altKey) { e.preventDefault(); e.stopImmediatePropagation(); U.show(true, "find"); }
       else if (e.key === "Escape" && U.open) { e.preventDefault(); e.stopImmediatePropagation(); U.hide(); }
     }, true);
     // (no tap-outside close: docked and floating panels stay until closed with × / Esc / the Search button)
@@ -443,6 +509,7 @@
       U.setClassic(U.classic());
       if (T.search && T.search.syncStyle) T.search.syncStyle();
       document.body.classList.add("usearch");
+      setTab(U.tab, { remember: false });
       applyMode();
       placeSheet();
       refresh();

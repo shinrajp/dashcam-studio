@@ -75,7 +75,7 @@ async function nearStroke(p, where, natural, shape) {
 async function run(b, dev, tag) {
   const ctx = await b.newContext(dev.ctx); const p = await ctx.newPage(); const errs = []; p.on("pageerror", (e) => errs.push(e.message));
   await openEvent(p);
-    await p.click("#usBtn"); await W(400);
+    await p.click("#rdBtn"); await W(400);
   await p.evaluate(() => { document.getElementById("crSec").open = true; }); await W(200);
   await startDraw(p, "free");
   await p.evaluate(() => { if (!TDC.searchUI.narrow() && TDC.searchUI.hide) TDC.searchUI.hide(); }); await W(500);   // wide window: the panel stays open while drawing and shrinks the picture; hide it to draw on the big picture
@@ -207,7 +207,7 @@ async function run(b, dev, tag) {
 async function touchRun(b, dev, tag) {
   const ctx = await b.newContext(dev.ctx); const p = await ctx.newPage();
   await openEvent(p);
-  await p.click("#usBtn"); await W(400);
+  await p.click("#rdBtn"); await W(400);
   await p.evaluate(() => { document.getElementById("crSec").open = true; }); await W(200);
   await startDraw(p, "free");
   const cdp = await ctx.newCDPSession(p);

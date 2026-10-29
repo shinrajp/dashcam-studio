@@ -667,3 +667,12 @@ Rollback point: tag `pre-bar-fix` (= ui-quick, 10bf875).
 - A grip handle on the left drags the bar anywhere on screen (kept inside the viewport, Up / Down keys pin it to the top / bottom); the spot is remembered for the session only (`sessionStorage` key `dcs.crBarPos.v1`, nothing in `localStorage`).
 - Also fixed while testing: while you draw (`body.cr-drawing`), the HUD / map / car-view floating panels and the camera bar's empty parts no longer grab a stroke that begins over them (they used to start dragging the panel instead). The camera bar's buttons and grip still work.
 - Region semantics and export are untouched. Test: `test/bar-fix.js` (Chromium + WebKit, desktop, 390x844 phone, 844x390 landscape; real touch on Chromium phone).
+
+## redact-button: a separate Redact button and Find / Redact tabs (tag redact-button)
+Rollback point: tag `pre-redact-button` (= bar-fix, 8a9a176).
+- New top-level `#rdBtn` ("Redact", `chip us-btn rd-btn`) inserted right after `#usBtn` (`js/search-ui.js`), same styling; on phones both are labelled pills in `.tp-controls` / `body.mbar .transport` (`js/mobile-bar.js` parks and unparks both). While the draw bar is up on a phone only the Redact circle stays so the bar never covers a button.
+- `#usPanel` gets a tablist (`#usTabs`: `#usTabFind`, `#usTabRedact`, roving tabindex, Left/Right/Home/End). `U.tab` / `U.setTab` / `U.toggleTab` / `U.show(focus, tab)`; tab is kept in `sessionStorage` (`tdc.us.tab`). `U.find()` and `/` / Ctrl+K open Find; `U.redact()` and `#rdBtn` open Redact.
+- Content is moved, not copied (all ids and handlers kept): the automatic redaction controls (`#usAutoH`, plate / face / text presets, `#usShowRow`) and the Custom regions section (`#crSec`, now a `<details>` that is always open on this tab) show on the Redact tab; `#usDrawRow` with `#crActions` (primary **Draw region**, Save region) sits at the top of it. Find shows only the search box, filters and results (`us-t-find` / `us-t-redact`, `data-tab` on the panel).
+- Compact: docked / sheet / floating default max-height 45% of the screen (a floating window's corner drag lifts it); the Redact tab uses two columns for Custom regions' form and, docked on a wide screen, a two-column grid.
+- Drawing: the panel hides at every screen size (was phone only) and `S.hid` makes Save / Cancel always bring it back on the Redact tab; `body.cr-bar-on` marks the bar being shown.
+- Region semantics, export and the bar-fix bar behaviour are untouched. Test: `test/redact-button.js` (Chromium + WebKit, desktop + 390x844 phone).

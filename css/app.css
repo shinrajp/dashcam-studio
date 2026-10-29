@@ -1059,3 +1059,64 @@ body.cr-drawing .stage-bar button, body.cr-drawing .stage-bar select, body.cr-dr
 .cr-grip:active, .cr-grip.on { cursor: grabbing; color: #ffd27a; }
 .cr-grip svg { width: 14px; height: 22px; fill: currentColor; pointer-events: none; }
 @media (max-width: 440px) { .cr-bar { padding: 3px 4px; gap: 2px; } .cr-bar .btn { padding: 0 7px; font-size: 12px; } .cr-bar-btns { gap: 3px; } .cr-grip { width: 22px; } }
+
+/* ---------- redact-button: one panel, two tabs (Find / Redact), a Redact button beside Search ---------- */
+.us-headlbl { display: none; }
+.us-head .us-grip { flex: 0 0 auto; padding: 0 4px; }
+.us-tabs { display: inline-flex; gap: 2px; flex: none; margin: 0 auto 0 2px; padding: 2px; border-radius: 10px; background: rgba(255,255,255,.07); }
+.us-tab { appearance: none; height: 26px; min-width: 58px; padding: 0 12px; border: 0; border-radius: 8px; background: transparent; color: var(--dim); font: 650 12.5px/1 system-ui, sans-serif; cursor: pointer; }
+.us-tab:hover { color: var(--text); }
+.us-tab[aria-selected="true"] { background: var(--blue); color: #fff; }
+.us-tab:focus-visible { outline: 2px solid var(--blue2); outline-offset: 1px; }
+@media (pointer: coarse) { .us-tab { height: 32px; } }
+.us-panel[data-tab="find"] .us-t-redact, .us-panel[data-tab="redact"] .us-t-find { display: none !important; }
+.us-panel[data-tab="find"] .us-r-redact, .us-panel[data-tab="redact"] .us-r-find { display: none; }
+.us-results.us-empty { display: none; }
+.us-auto-h { font-size: 11px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--faint); padding-top: 2px; }
+.us-drawrow { flex: none; }
+.us-drawrow .cr-actions { margin: 0; }
+.us-drawrow #crDraw { flex: 1 1 150px; min-height: 42px; font-size: 14px; font-weight: 700; }
+.us-panel .cr-sec { border-top: 0; margin-top: 0; padding-top: 0; flex: none; }
+.us-panel .cr-sec > summary { cursor: default; list-style: none; min-height: 22px; padding: 2px 0 4px; font-size: 11px; letter-spacing: .05em; text-transform: uppercase; color: var(--faint); }
+.us-panel .cr-sec > summary::-webkit-details-marker { display: none; }
+.us-panel .cr-sec > summary::marker { content: ""; }
+.us-panel .cr-hint { margin: 0 0 6px; font-size: 11.5px; line-height: 1.35; }
+.us-panel .cr-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 10px; align-items: end; }
+.us-panel .cr-list { max-height: 110px; overflow-y: auto; }
+/* compact: about 45% of the screen at most, scrolling inside */
+.us-panel.docked { max-height: max(200px, min(45vh, calc(100vh - 190px))); max-height: max(200px, min(45dvh, calc(100dvh - 190px))); }
+.us-panel.docked.sheet { max-height: min(45vh, calc(var(--us-vvh, 100vh) - 56px)); }
+.us-panel.sheet { max-height: min(45vh, calc(var(--us-vvh, 100vh) - 56px)); }
+@media (min-width: 900px) {
+  .us-panel.docked[data-tab="redact"] > #usAutoH { grid-column: 2; grid-row: 1; }
+  .us-panel.docked[data-tab="redact"] > #usDrawRow { grid-column: 1; grid-row: 2; }
+  .us-panel.docked[data-tab="redact"] > .us-row { grid-column: 2; grid-row: 2; }
+  .us-panel.docked[data-tab="redact"] > #crSec { grid-column: 1; grid-row: 3 / span 7; }
+  .us-panel.docked[data-tab="redact"] > .us-actions { grid-column: 2; grid-row: 3; }
+  .us-panel.docked[data-tab="redact"] > .us-presets { grid-column: 2; grid-row: 4; }
+  .us-panel.docked[data-tab="redact"] > #usShowRow { grid-column: 2; grid-row: 5; }
+  .us-panel.docked[data-tab="redact"] > #usStatus { grid-column: 2; grid-row: 6; }
+  .us-panel.docked[data-tab="redact"] > .us-results { grid-column: 2; grid-row: 7 / span 3; max-height: 130px; }
+  .us-panel.docked[data-tab="redact"] > .us-foot { grid-column: 1 / -1; grid-row: 10; }
+}
+/* the Redact button: same chip as Search; on phones both float as small labelled pills (icons alone were not obvious) */
+.us-btn.rd-btn svg { stroke-width: 1.8; }
+@media (max-width: 760px) {
+  .tp-controls .us-btn { width: 88px; padding: 0 10px; gap: 5px; }
+  .tp-controls .us-btn .us-lbl { display: inline; font-size: 12.5px; }
+  .tp-controls .us-btn svg { width: 18px; height: 18px; }
+  .tp-controls .us-btn.rd-btn { right: max(12px, env(safe-area-inset-right)); }
+  .tp-controls #usBtn { right: calc(max(12px, env(safe-area-inset-right)) + 96px); }
+  body.cr-bar-on .tp-controls .us-btn .us-lbl { display: none; }
+  body.cr-bar-on .tp-controls .us-btn { width: 44px; padding: 0; }
+  body.cr-bar-on .tp-controls #usBtn { display: none; }   /* while the draw bar is up, only the Redact circle stays (Search would sit under the bar) */
+}
+body.mbar .transport > .us-btn { width: 88px; padding: 0 10px; gap: 5px; }
+body.mbar .transport > .us-btn .us-lbl { display: inline; font-size: 12.5px; }
+body.mbar .transport > .us-btn svg { width: 18px; height: 18px; }
+body.mbar .transport > .us-btn.rd-btn { right: max(12px, env(safe-area-inset-right)); }
+body.mbar .transport > #usBtn { right: calc(max(12px, env(safe-area-inset-right)) + 96px); }
+body.mbar.cr-bar-on .transport > .us-btn .us-lbl { display: none; }
+body.mbar.cr-bar-on .transport > .us-btn { width: 44px; padding: 0; }
+body.mbar.cr-bar-on .transport > #usBtn { display: none; }
+body.mbar.us-open .transport > .us-btn, body.mbar.no-event .transport > .us-btn, body.mbar.us-docked .transport > .us-btn, body.mbar .transport.mb-open > .us-btn { display: none; }

@@ -85,8 +85,9 @@
   }
   // the floating search button (js/search-ui.js puts it in the controls row and floats it on phones): out of the
   // transformed sheet, so position: fixed stays relative to the screen
-  function usBtnOut() { const b = $("usBtn"); if (b && sheet && sheet.contains(b)) { park(b); tp.insertBefore(b, bar); } }
-  function usBtnIn() { const b = $("usBtn"); if (b) unpark(b); }
+  const US_BTNS = ["usBtn", "rdBtn"];   // Search and Redact (redact-button)
+  function usBtnOut() { for (const id of US_BTNS) { const b = $(id); if (b && sheet && sheet.contains(b)) { park(b); tp.insertBefore(b, bar); } } }
+  function usBtnIn() { for (const id of US_BTNS) { const b = $(id); if (b) unpark(b); } }
   function sizeBar() { if (M.on) document.documentElement.style.setProperty("--mb-bar", bar.offsetHeight + "px"); }
 
   function wireHandle(h) {

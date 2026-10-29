@@ -543,3 +543,11 @@ Rollback: `git checkout pre-bar-fix` (tip before this change, `ui-quick`, 10bf87
 - When your stroke gets close to it, the bar hops to the opposite edge of the screen (top or bottom). Drag the **⋮⋮ grip** at its left end to put it anywhere; it remembers the spot until you close the tab.
 - The HUD, map, car view and the camera bar's empty parts also stop catching the stroke while you draw.
 - Test: `node test/bar-fix.js` (see test/README.md).
+
+## A separate Redact button (tag `redact-button`)
+Rollback: `git checkout pre-redact-button` (tip before this change, `bar-fix`, 8a9a176).
+- **Redact** is now its own button right beside **Search** (same look, icon plus label; on phones both are small labelled pills over the picture). Both open the same window, which now has two tabs: **Find** (search) and **Redact**. Search opens Find, Redact opens Redact; it remembers the tab for the visit.
+- The **Redact** tab holds everything for hiding things: the automatic controls (plates, faces, text, street signs) and **Custom regions**, already open, with a big **Draw region** button at the top. **Find** only searches.
+- The window is compact (at most 45% of the screen height; scroll inside it, or drag the corner of a floating window to make it taller). While you draw a region the window steps aside so the whole picture is free and the draw bar shows; **Save region**, **Cancel** or the **Redact** button bring it back.
+- Region behaviour, the export and the draw bar are unchanged. Keys: `/` and Ctrl+K open Find; the tabs use Left / Right / Home / End.
+- Test: `node test/redact-button.js` (see test/README.md).

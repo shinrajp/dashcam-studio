@@ -364,14 +364,14 @@
     if ($("crWhole")) $("crWhole").checked = true;
     msg("");
   }
-  /** Phone / narrow window: the Redact panel covers the picture, so it steps aside while you draw and a small bar (Save / Draw again / Cancel / Options) sits over the video instead. */
+  /** The Redact panel steps aside while you draw (any screen size), so the whole picture is free, and a small bar (Save / Draw again / Cancel / Options) sits over the video instead. The Redact button, Save and Cancel bring it back. */
   function hidePanelForDrawing() {
     const U = T.searchUI;
-    if (U && U.ok && U.open && U.narrow && U.narrow() && U.hide) { U.hide(); S.reopen = true; }
+    if (U && U.ok && U.open && U.hide) { U.hide(); S.reopen = true; S.hid = true; }
   }
   function reopenPanel() {
     const U = T.searchUI;
-    if (S.reopen && U && U.show) { S.reopen = false; U.show(false); const s = $("crSec"); if (s) s.open = true; }
+    if ((S.reopen || S.hid) && U && U.show) { S.reopen = false; S.hid = false; U.show(false, "redact"); const s = $("crSec"); if (s) s.open = true; }
   }
   function ensureBar() {
     let b = $("crBar");
@@ -491,7 +491,7 @@
   function syncBar() {
     const b = ensureBar(), show = !!(S.drawing || S.draft);
     drawClass();
-    b.hidden = !show;
+    b.hidden = !show; document.body.classList.toggle("cr-bar-on", !!show);
     if (!show) return;
     applyPos(false);
     $("crBarSave").disabled = !S.draft || S.drawing; $("crBarSave").textContent = S.editId ? "Save changes" : "Save region";
@@ -576,6 +576,8 @@
   };
   function bind() {
     const sec = $("crSec");
+    sec.addEventListener("toggle", () => { if (!sec.open) sec.open = true; });   // the section never folds away
+    const sm = sec.querySelector("summary"); if (sm) sm.addEventListener("click", (e) => e.preventDefault());
     $("crCam").addEventListener("change", () => { S.cam = $("crCam").value; S.draft = null; UI.sync(); });
     $("crShape").addEventListener("click", (e) => { const b = e.target.closest("button"); if (!b) return; S.shape = b.dataset.v; if (!S.editId) S.draft = null; if (S.drawing) UI.draw(); UI.sync(); });
     $("crMode").addEventListener("click", (e) => { const b = e.target.closest("button"); if (!b) return; S.mode = b.dataset.v; UI.sync(); });
@@ -619,10 +621,10 @@
   }
   function build() {
     const sec = document.createElement("details");
-    sec.className = "cr-sec"; sec.id = "crSec";
+    sec.className = "cr-sec us-t-redact"; sec.id = "crSec"; sec.open = true;   // always open: no accordion click needed (redact-button)
     sec.innerHTML =
       '<summary>Custom regions <span id="crCount"></span></summary>' +
-      '<p class="cr-hint">Hide something the automatic redaction misses, such as a curved plate on the rear camera. Pick the camera, press <b>Draw region</b>, then drag on the picture. Hidden regions stay in the same place on the picture and are burned into the export.</p>' +
+      '<p class="cr-hint">For what automatic redaction misses, like a curved plate. Pick a camera, press <b>Draw region</b>, drag on the picture. Regions stay put on the picture and are burned into the export.</p>' +
       '<div class="cr-grid">' +
       '<label class="cr-f"><span>Camera</span><select id="crCam" class="select small" aria-label="Camera for the region"></select></label>' +
       '<div class="cr-f"><span>Shape</span><div class="seg" id="crShape" role="group" aria-label="Shape"><button type="button" data-v="rect" aria-pressed="true">Box</button><button type="button" data-v="free" aria-pressed="false">Freehand</button></div></div>' +
@@ -632,7 +634,7 @@
       '<div class="cr-times" id="crTimes" hidden><label>From <input id="crFrom" type="text" inputmode="decimal" autocomplete="off" spellcheck="false" placeholder="0:00.0" aria-label="Start time"></label><button type="button" class="btn small ghost" id="crFromNow" title="Use the current position">Now</button>' +
       '<label>to <input id="crTo" type="text" inputmode="decimal" autocomplete="off" spellcheck="false" placeholder="0:05.0" aria-label="End time"></label><button type="button" class="btn small ghost" id="crToNow" title="Use the current position">Now</button>' +
       '<button type="button" class="btn small ghost" id="crTrim" hidden title="Use the time span of your sections">Use my sections</button></div>' +
-      '<div class="cr-actions"><button type="button" class="btn primary small" id="crDraw">Draw region</button><button type="button" class="btn small" id="crSave" disabled>Save region</button><button type="button" class="btn ghost small" id="crCancel" hidden>Cancel</button></div>' +
+      '<div class="cr-actions" id="crActions"><button type="button" class="btn primary small" id="crDraw">Draw region</button><button type="button" class="btn small" id="crSave" disabled>Save region</button><button type="button" class="btn ghost small" id="crCancel" hidden>Cancel</button></div>' +
       '<div class="cr-msg" id="crMsg" aria-live="polite"></div>' +
       '<ul class="cr-list" id="crList" hidden></ul>' +
       '<div class="cr-actions" id="crFileRow"><button type="button" class="btn ghost small" id="crExportFile" title="Save the regions as a small file">Save as file</button><button type="button" class="btn ghost small" id="crImportFile" title="Add regions from a file">Load from file</button><input type="file" id="crFile" accept=".json,application/json" hidden></div>' +
@@ -644,12 +646,21 @@
     let sec = $("crSec"), fresh = false;
     const panel = $("usPanel");
     if (!sec) { sec = build(); fresh = true; }
+    const acts = sec.querySelector("#crActions") || $("crActions");
     if (panel && T.searchUI && T.searchUI.ok) {
-      const foot = panel.querySelector(".us-foot");
-      if (sec.parentNode !== panel) panel.insertBefore(sec, foot || null);
+      // the Redact tab: Draw region / Save / Cancel on top, then the Custom regions form (always open), then the automatic controls
+      let row = $("usDrawRow");
+      if (!row) { row = document.createElement("div"); row.id = "usDrawRow"; row.className = "us-drawrow us-t-redact"; }
+      const head = $("usHead");
+      if (row.parentNode !== panel) panel.insertBefore(row, head ? head.nextSibling : panel.firstChild);
+      if (sec.parentNode !== panel) panel.insertBefore(sec, row.nextSibling);
+      if (acts && acts.parentNode !== row) row.appendChild(acts);
+      sec.classList.add("us-t-redact");
     } else {
       const st = $("redactStatus");
       if (st && sec.parentNode !== st.parentNode) st.parentNode.insertBefore(sec, st.nextSibling);
+      sec.classList.remove("us-t-redact");
+      if (acts && acts.parentNode !== sec) { const msgEl = $("crMsg"); sec.insertBefore(acts, msgEl); }
     }
     if (fresh) bind();
     return sec;

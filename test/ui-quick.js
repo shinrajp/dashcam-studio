@@ -105,7 +105,7 @@ async function partB(b, dev, tag) {
   const ctx = await b.newContext(dev.ctx); const p = await ctx.newPage(); const errs = []; p.on("pageerror", (e) => errs.push(e.message));
   await openEvent(p, "");
   ok(tag + " B0 saved 3+ regions", (await addRegions(p, 4)) === 4);
-  await p.click("#usBtn"); await W(500);
+  await p.click("#rdBtn"); await W(500);
   await p.evaluate(() => { document.getElementById("crSec").open = true; }); await W(400);
   let g = await geo(p);
   ok(tag + " B1 docked: panel scrolls (overflow-y auto) and the file row is within the viewport after scrolling to the bottom", g.ov === "auto", g);
@@ -165,7 +165,7 @@ async function partB(b, dev, tag) {
 async function partC(b, dev, tag) {
   const ctx = await b.newContext(dev.ctx); const p = await ctx.newPage();
   await openEvent(p, "");
-  await p.click("#usBtn"); await W(400);
+  await p.click("#rdBtn"); await W(400);
   await p.evaluate(() => { document.getElementById("crSec").open = true; }); await W(200);
   await p.evaluate(() => document.getElementById("crDraw").click()); await W(500);
   const narrow = await p.evaluate(() => TDC.searchUI.narrow());

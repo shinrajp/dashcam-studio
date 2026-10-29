@@ -255,7 +255,7 @@ async function openEvent(p, URL0) {
       }
 
       // helpers shared by parts 3-5
-      const open = () => p.evaluate(() => { if (TDC.searchUI && TDC.searchUI.show) TDC.searchUI.show(false); const s = document.getElementById("crSec"); if (s) s.open = true; });
+      const open = () => p.evaluate(() => { if (TDC.searchUI && TDC.searchUI.show) TDC.searchUI.show(false, "redact"); const s = document.getElementById("crSec"); if (s) s.open = true; });
       const shot = async (rect) => {   // PNG of a client rect -> {w,h,data:Uint8 luma-ish rgba as base64-free stats}
         const buf = await p.screenshot({ clip: { x: Math.max(0, rect.x), y: Math.max(0, rect.y), width: Math.max(2, rect.w), height: Math.max(2, rect.h) } });
         return p.evaluate(async (b64) => {
