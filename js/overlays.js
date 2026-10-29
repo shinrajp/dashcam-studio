@@ -126,9 +126,10 @@
   function setFloatPos(p, x, y, save, live) {
     const s = floatSpan(p.w, p.h, O.floatFloor());
     x = T.clamp(x, s.x0, s.x0 + s.sx); y = T.clamp(y, s.y0, s.y0 + s.sy);
-    if (!live && p.id === "map") { const c = clearOfBar(x, y, p.w, p.h, s); x = c.x; y = c.y; }
+    // the map steps clear of the docked camera bar by itself, but a spot you chose (drag / keys: pin) is kept; the bar stays on top there
+    if (!live && !save && p.id === "map" && !(T.prefs.mapFloat && T.prefs.mapFloat.pin)) { const c = clearOfBar(x, y, p.w, p.h, s); x = c.x; y = c.y; }
     p.el.style.transform = `translate(${Math.round(x)}px, ${Math.round(y)}px)`;
-    if (save) { T.prefs.mapFloat = { fx: s.sx ? +((x - s.x0) / s.sx).toFixed(4) : 0, fy: s.sy ? +((y - s.y0) / s.sy).toFixed(4) : 0 }; T.savePrefs(); }
+    if (save) { T.prefs.mapFloat = { fx: s.sx ? +((x - s.x0) / s.sx).toFixed(4) : 0, fy: s.sy ? +((y - s.y0) / s.sy).toFixed(4) : 0, pin: 1 }; T.savePrefs(); }
     return { x, y };
   }
   /** dock spot = the right edge of the video area, where the docked map sits (body.map-aside puts it there) */
