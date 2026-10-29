@@ -166,9 +166,9 @@ async function run(b, BR, dev) {
   if (touch) await shot(p, dev.name + "-map");
   ok(tag + " 12 the floated map never covers the camera bar" + (dev.w === 390 ? " (390 phone: it steps clear)" : ""), !mo.noMap && mo.allHit && (dev.w === 390 ? !mo.over : true), mo);
   await p.evaluate(() => TDC.setPref("mapDock", "over")); await W(400);
-  // 13 beside-the-video dock
+  // 13 beside-the-video dock (desktop: lifted upward over the top bar; since ui-glass-7 a pill pulled down onto the video docks below it, test/pill-dock.js)
   await p.evaluate(() => TDC.focus.setBarDock("beside", "top")); await W(500);
-  const g13 = await R(p, "#barGrip"), st13 = await R(p, "#stage"), tg13 = land ? [st13.r + 60, st13.t + 60] : touch ? [g13.cx + 20, st13.b + 60] : [g13.cx - 100, st13.b + 40];
+  const g13 = await R(p, "#barGrip"), st13 = await R(p, "#stage"), tg13 = land ? [st13.r + 60, st13.t + 60] : touch ? [g13.cx + 20, st13.b + 60] : [g13.cx - 100, Math.max(24, g13.cy - 70)];
   await drag(p, [g13.cx, g13.cy], tg13); await W(300);
   const s13 = await ST(p);
   await p.evaluate(() => TDC.focus.dockBar(true)); await W(500);
