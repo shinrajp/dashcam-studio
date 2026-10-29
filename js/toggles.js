@@ -30,17 +30,22 @@
     if ("inert" in pop) pop.inert = true;
     document.body.appendChild(pop);
   }
-  /** the eye lives in the slim row, before ⌃ (the row is rebuilt each time the phone layout starts) */
+  /** the eye lives in the slim row, just before ⌃, and only while folded (the row is rebuilt each time the phone layout starts; the timeline
+   *  moves in and out of it, so the row is watched to keep the eye beside ⌃) */
+  let rowSeen = null;
   function place() {
     const row = $("mbRow");
-    if (!row) { if (G.open) close(true); if (eye && eye.parentNode) eye.remove(); return; }
-    if (eye.parentNode !== row) { const more = $("mbMore"); row.insertBefore(eye, more && more.parentNode === row ? more : null); }
-    if (!folded() && G.open) close(true);
+    if (!row || !folded()) { if (G.open) close(true); if (eye && eye.parentNode) eye.remove(); return; }
+    if (row !== rowSeen && typeof MutationObserver === "function") { rowSeen = row; new MutationObserver(() => { if (eye.parentNode === row) put(row); }).observe(row, { childList: true }); }
+    put(row);
   }
+  function put(row) { const more = $("mbMore"); const ref = more && more.parentNode === row ? more : null; if (eye.parentNode !== row || eye.nextSibling !== ref) row.insertBefore(eye, ref); }
   function position() {
     const r = eye.getBoundingClientRect(), de = document.documentElement, W = de.clientWidth, H = de.clientHeight;
+    const bar = $("mbBar"), top = Math.min(r.top, bar ? bar.getBoundingClientRect().top : r.top);   // above the whole bar (its grip strip too)
     pop.style.right = Math.max(8, Math.round(W - r.right)) + "px";
-    pop.style.bottom = Math.max(8, Math.round(H - r.top + 8)) + "px";
+    pop.style.bottom = Math.max(8, Math.round(H - top + 8)) + "px";
+    pop.style.maxHeight = Math.max(60, Math.round(top - 16)) + "px";
   }
   function chipsBack() {
     clearTimeout(backT); backT = 0;
