@@ -510,11 +510,11 @@ Automatic redaction only blurs the plates, faces and text the models find. A pla
 
 **How to use it**
 1. Open **Search** ▸ **Redact**, then open **Custom regions** (at the bottom of that panel).
-2. Pick the **Camera** (for example Back).
+2. There is no camera menu: you pick the camera on the picture itself (step 6).
 3. Choose the **Shape**: **Box**, or **Freehand** for a bent plate (draw round it with a finger or the mouse).
 4. Choose **Hide with**: **Blur** (strong, the text cannot be read) or **Remove** (solid black).
 5. **When**: it is the **Whole clip** by default. Untick it to type a *From* and *to* time, press **Now** to take the current playhead position, or **Use my sections** to take the span of your trim.
-6. Press **Draw region**, drag on the picture (the camera comes up large for you), then **Save region**. On a phone the panel steps aside while you draw and a small bar at the bottom holds **Save region / Draw again / Cancel**.
+6. Press **Draw region**. With several cameras on screen it says **Tap the camera you want to redact**: tap (or click) that camera, for example the right pillar in the 6-camera view, and it comes up large; drag on it, then **Save region**. With one camera on screen it goes straight to drawing. On a phone the panel steps aside while you draw and a small bar at the bottom holds **Save region / Draw again / Cancel**.
 7. The list shows each region with a tick (on/off), **Show** (jump to it), **Edit** and **Delete**.
 
 **What it does**
@@ -551,3 +551,11 @@ Rollback: `git checkout pre-redact-button` (tip before this change, `bar-fix`, 8
 - The window is compact (docked or as the phone sheet it is at most 45% of the screen height and scrolls inside; a floating window can be dragged and resized by its corner). While you draw a region the window steps aside so the whole picture is free and the draw bar shows; **Save region**, **Cancel** or the **Redact** button bring it back.
 - Region behaviour, the export and the draw bar are unchanged. Keys: `/` and Ctrl+K open Find; the tabs use Left / Right / Home / End.
 - Test: `node test/redact-button.js` (see test/README.md).
+
+## Tap the camera to redact (tag `tap-redact`)
+Rollback: `git checkout pre-tap-redact` (tip before this change, `redact-button`, d2ad533).
+- The **Camera** dropdown in Custom regions is gone. Press **Draw region** (or the **Redact** tab's big button) and, when several cameras are on screen, the picture says **Tap the camera you want to redact**. Tap or click one (for example the right pillar in the 6-camera view): it comes up large and you draw on it straight away. With one camera on screen it skips the question.
+- The draw bar shows which camera you are on (a small chip, for example **Right pillar**); tap the chip to choose another. Keyboard: Tab to a camera and press Enter; Escape cancels.
+- Saved regions, the list and the export are unchanged (same storage, same burn-in).
+- The bottom bar no longer gets crowded by the Redact button: on narrower desktop windows (below 1200 px) Search and Redact show as icons (with tooltips), the row of toggle chips scrolls sideways with a fade instead of pushing things off screen, the clock hides at 1000-1199 px, messages (toasts) move up or to the side so they never sit on the buttons, the draw bar or the Redact window, and on phones the Redact circle steps aside while the draw bar is up (its **Options** brings the window back).
+- Tests: `node test/tap-redact.js`, `node test/bottom-overlap.js` (see test/README.md).
