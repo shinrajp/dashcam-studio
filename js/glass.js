@@ -57,7 +57,7 @@
     const ls = document.getElementById("segLite");
     if (ls) ls.querySelectorAll("button").forEach((b) => { b.classList.toggle("on", b.dataset.v === G.liteMode); b.setAttribute("aria-pressed", String(b.dataset.v === G.liteMode)); });
     const ln = document.getElementById("liteNote");
-    if (ln) ln.textContent = G.liteOverride() ? "Set by ?lite= in the address for this visit." : G.liteMode !== "auto" ? "" : G.autoLite === "slow" ? "On now: playback was dropping frames." : G.autoLite === "low-memory" ? "On now: this device has little memory." : "";
+    if (ln) ln.hidden = !(ln.textContent = G.liteOverride() ? "Set by ?lite= in the address for this visit." : G.liteMode !== "auto" ? "" : G.autoLite === "slow" ? "On now: playback was dropping frames." : G.autoLite === "low-memory" ? "On now: this device has little memory." : "");
     const seg = document.getElementById("segGlass");
     if (seg) seg.querySelectorAll("button").forEach((b) => { b.classList.toggle("on", b.dataset.v === G.mode); b.setAttribute("aria-pressed", String(b.dataset.v === G.mode)); });
     const note = document.getElementById("glassNote");
@@ -200,7 +200,7 @@
     const rgb = cur ? cur.rgb.map((c, i) => (Math.abs(want[i] - c) < 1.5 ? c : c + (want[i] - c) * 0.3)) : want;
     const need = G.alphaNeeded(rgb, g.max, floor);
     let a = !cur ? need : need >= cur.a ? need : Math.max(need, cur.a - Math.min(0.04, (cur.a - need) * 0.3));
-    if (cur && Math.abs(a - cur.a) < 0.006 && a >= need) a = cur.a;   // dead band: no shimmer from noise
+    if (cur && Math.abs(a - cur.a) < 0.006 && cur.a >= need) a = cur.a;   // dead band: no shimmer from noise
     const rs = rgb.map((c) => Math.round(c)).join(", "), as = a.toFixed(3);
     if (!cur || cur.as !== as) e.style.setProperty("--g-a", as);
     if (!cur || cur.rs !== rs) e.style.setProperty("--g-rgb", rs);
