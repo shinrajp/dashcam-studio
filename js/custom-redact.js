@@ -93,8 +93,20 @@
       l = mem[G.key] || (readAll().events[G.key] || {}).regions || [];
     }
     G.list = l.map((o) => G.clean(o, true)).filter(Boolean).slice(0, G.MAX);
+    G.resetHistory();
     rebuild();
   };
+  /* ui-glass-7: undo / redo of region changes (add, edit, move, delete, on/off, clear, load from file) for this session and this event.
+     Snapshots of the list (at most 40 small objects); the stored format and the burn-in are untouched. A new event starts a fresh history. */
+  const H = (G.hist = { u: [], r: [], MAX: 60 });
+  const snap = () => JSON.stringify(G.list);
+  function record() { H.u.push(snap()); if (H.u.length > H.MAX) H.u.shift(); H.r.length = 0; }
+  G.canUndo = () => H.u.length > 0;
+  G.canRedo = () => H.r.length > 0;
+  function restore(json) { G.list = JSON.parse(json).map((o) => G.clean(o, true)).filter(Boolean).slice(0, G.MAX); changed(); }
+  G.undo = () => { if (!H.u.length) return false; H.r.push(snap()); restore(H.u.pop()); return true; };
+  G.redo = () => { if (!H.r.length) return false; H.u.push(snap()); restore(H.r.pop()); return true; };
+  G.resetHistory = () => { H.u.length = 0; H.r.length = 0; };
   function changed(keepUi) {
     rebuild(); G.save();
     if (R && R.paint) R.paint();
@@ -105,26 +117,27 @@
     const r = G.clean(o);
     if (!r) return null;
     if (G.list.length >= G.MAX) return null;
-    G.list.push(r); changed(); return r;
+    record(); G.list.push(r); changed(); return r;
   };
   G.update = (id, o) => {
     const i = G.list.findIndex((r) => r.id === id);
     if (i < 0) return null;
     const r = G.clean(Object.assign({}, G.list[i], o, { id }), true);
     if (!r) return null;
-    G.list[i] = r; changed(); return r;
+    if (JSON.stringify(r) === JSON.stringify(G.list[i])) return r;   // nothing changed: no history step
+    record(); G.list[i] = r; changed(); return r;
   };
-  G.remove = (id) => { const n = G.list.length; G.list = G.list.filter((r) => r.id !== id); if (G.list.length !== n) changed(); };
-  G.clear = () => { if (G.list.length) { G.list = []; changed(); } };
+  G.remove = (id) => { if (!G.list.some((r) => r.id === id)) return; record(); G.list = G.list.filter((r) => r.id !== id); changed(); };
+  G.clear = () => { if (G.list.length) { record(); G.list = []; changed(); } };
   G.toJSON = () => JSON.stringify({ type: "dashcam-studio-regions", version: 1, regions: G.list.map((r) => { const o = Object.assign({}, r); delete o.id; return o; }) }, null, 2);
   /** Add regions from a JSON file's text. Returns { added, skipped } or throws a plain-English Error. */
   G.fromJSON = (text) => {
     let o; try { o = JSON.parse(text); } catch (_) { throw new Error("That file is not a Dashcam Studio regions file."); }
     const arr = Array.isArray(o) ? o : o && o.type === "dashcam-studio-regions" && Array.isArray(o.regions) ? o.regions : null;
     if (!arr) throw new Error("That file is not a Dashcam Studio regions file.");
-    let added = 0, skipped = 0;
+    let added = 0, skipped = 0; const before = snap();
     for (const x of arr) { const r = G.clean(x); if (r && G.list.length < G.MAX) { G.list.push(r); added++; } else skipped++; }
-    if (added) changed();
+    if (added) { H.u.push(before); if (H.u.length > H.MAX) H.u.shift(); H.r.length = 0; changed(); }
     return { added, skipped };
   };
 
