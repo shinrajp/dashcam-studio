@@ -1,0 +1,92 @@
+/* glass.css — ui-glass-1: Liquid Glass material for today's controls. Look only: no size, position or behaviour changes (no padding, margin,
+ * width, height or border-width is touched; only colours, radii, shadows and backdrop blur). js/glass.js sets html.glass, html[data-glass=auto|clear|solid]
+ * (effective mode), --g-a (Automatic tint opacity) and .g-blur on at most 3 pieces at a time.
+ * Rules: blur <= 22 px; at most 3 blurred pieces; nothing blurred inside a blurred piece; always -webkit-backdrop-filter beside backdrop-filter. */
+:root {
+  --g-rgb: 16, 18, 24;          /* tint colour */
+  --g-a: .70;                   /* tint opacity (Automatic: js/glass.js, 0.62 .. 0.9) */
+  --g-blur: 22px;
+  --g-sheen: radial-gradient(140% 100% at 0% 0%, rgba(255,255,255,.10), rgba(255,255,255,0) 55%);
+  --g-rim: inset 0 1px 0 rgba(255,255,255,.20), inset 0 0 0 1px rgba(255,255,255,.07);
+  --g-shadow: 0 10px 30px rgba(0,0,0,.34), 0 2px 8px rgba(0,0,0,.24);
+  --g-text-shadow: 0 1px 2px rgba(0,0,0,.45);
+}
+html.glass[data-glass="clear"] { --g-a: .42; }
+html.glass[data-glass="solid"] { --g-a: .97; --g-rgb: 27, 30, 37; --g-sheen: linear-gradient(rgba(255,255,255,0), rgba(255,255,255,0)); }
+
+/* ── blur: only on the pieces js/glass.js picked; every other piece (and everything inside a blurred one) gets none ── */
+html.glass .tile-label, html.glass .tile-expand, html.glass .stage-bar, html.glass .transport, html.glass .us-strip, html.glass .us-panel, html.glass .us-btn,
+html.glass .car-view, html.glass .modal, html.glass .drawer, html.glass .cr-bar, html.glass .toast, html.glass .g-blur * {
+  -webkit-backdrop-filter: none !important; backdrop-filter: none !important;
+}
+html.glass .g-blur { -webkit-backdrop-filter: blur(var(--g-blur)) saturate(170%) !important; backdrop-filter: blur(var(--g-blur)) saturate(170%) !important; }
+html.glass .modal.g-blur { -webkit-backdrop-filter: blur(3px) !important; backdrop-filter: blur(3px) !important; }   /* the dialog backdrop keeps its light blur */
+html.glass[data-glass="solid"] .g-blur { -webkit-backdrop-filter: none !important; backdrop-filter: none !important; }
+
+/* ── pieces over the video: tint + sheen + specular rim + soft shadow, capsule radii ── */
+html.glass .stage-bar, html.glass .cr-bar, html.glass .car-view {
+  background: var(--g-sheen), rgba(var(--g-rgb), var(--g-a)); box-shadow: var(--g-rim), var(--g-shadow); text-shadow: var(--g-text-shadow);
+}
+html.glass .stage-bar { border-color: rgba(255,255,255,.12); border-radius: 22px; }
+html.glass .stage-bar.dragging { box-shadow: var(--g-rim), 0 18px 40px rgba(0,0,0,.55); border-color: rgba(62,106,225,.7); }
+html.glass .stage-bar .btn { border-radius: 999px; }
+html.glass .cr-bar { border-radius: 24px; }   /* keeps its yellow edge: you are drawing */
+html.glass .cr-bar .btn { border-radius: 999px; }
+html.glass .cr-bar-msg { background: rgba(var(--g-rgb), max(var(--g-a), .9)); border-radius: 999px; box-shadow: var(--g-rim); }
+html.glass .car-view { border-radius: 16px; }
+html.glass .tile-label { background: rgba(var(--g-rgb), max(var(--g-a), .66)); border-radius: 999px; box-shadow: inset 0 0 0 1px rgba(255,255,255,.08); text-shadow: var(--g-text-shadow); }
+html.glass .tile-expand { border-radius: 999px; background: rgba(var(--g-rgb), max(var(--g-a), .7)); box-shadow: inset 0 0 0 1px rgba(255,255,255,.1); }
+
+/* floating Search / Redact buttons (phones, floating mode) */
+html.glass .tp-controls .us-btn:not([aria-expanded="true"]), html.glass body.mbar .transport > .us-btn:not([aria-expanded="true"]) { background: var(--g-sheen), rgba(var(--g-rgb), max(var(--g-a), .72)); box-shadow: var(--g-rim), var(--g-shadow); }
+@media (min-width: 761px) { html.glass body:not(.mbar) .tp-controls .us-btn:not([aria-expanded="true"]) { background: rgba(255,255,255,.04); box-shadow: inset 0 1px 0 rgba(255,255,255,.10); } }
+
+/* Search / Redact window: a sheet (dense tint; nothing inside is blurred) */
+html.glass .us-panel:not(.docked) { background: var(--g-sheen), rgba(var(--g-rgb), max(var(--g-a), .88)); border-color: rgba(255,255,255,.14); border-radius: 22px; box-shadow: var(--g-rim), 0 22px 56px rgba(0,0,0,.55); --us-bg: rgb(26, 28, 34); }
+html.glass .us-panel.sheet:not(.docked), html.glass .us-panel.docked.sheet { border-radius: 22px 22px 0 0; }
+html.glass .us-panel.docked { box-shadow: inset 0 1px 0 rgba(255,255,255,.06); }
+
+/* Settings drawer: a sheet (sections stay plain) */
+html.glass .drawer { background: var(--g-sheen), rgba(var(--g-rgb), max(var(--g-a), .9)); border-left-color: rgba(255,255,255,.12); border-radius: 22px 0 0 22px; box-shadow: var(--g-rim), -14px 0 40px rgba(0,0,0,.45); }
+html.glass .drawer .drawer-head { border-bottom-color: rgba(255,255,255,.07); }
+
+/* toast */
+html.glass .toast { background: var(--g-sheen), rgba(var(--g-rgb), max(var(--g-a), .9)); border-radius: 22px; box-shadow: var(--g-rim), var(--g-shadow); text-shadow: var(--g-text-shadow); }
+html.glass .toast:not(.ok):not(.err) { border-color: rgba(255,255,255,.12); }
+
+/* map frame (the map itself is drawn on its canvas, shared with export: untouched) */
+html.glass .float-panel { filter: drop-shadow(0 10px 24px rgba(0,0,0,.42)) drop-shadow(0 2px 4px rgba(0,0,0,.3)); }
+html.glass .float-panel.dragging { filter: drop-shadow(0 18px 36px rgba(0,0,0,.58)); }
+html.glass .map-grip, html.glass .map-move { background: rgba(var(--g-rgb), max(var(--g-a), .8)); box-shadow: var(--g-rim); border-radius: 999px; }
+
+/* ── bars that sit beside the video (not over it): material without blur ── */
+html.glass .topbar { background: linear-gradient(180deg, rgba(255,255,255,.035), rgba(255,255,255,0) 70%), var(--bg2); border-bottom-color: rgba(255,255,255,.07); box-shadow: inset 0 -1px 0 rgba(0,0,0,.35); }
+html.glass .transport, html.glass .mb-bar { background: linear-gradient(180deg, rgba(255,255,255,.04), rgba(255,255,255,0) 60%), var(--bg2); border-top-color: rgba(255,255,255,.09); box-shadow: inset 0 1px 0 rgba(255,255,255,.05); }
+html.glass body.fs .transport { background: var(--g-sheen), rgba(var(--g-rgb), max(var(--g-a), .8)); }
+html.glass body.fs .us-strip { background: rgba(var(--g-rgb), max(var(--g-a), .8)); }
+html.glass .topbar .btn, html.glass .transport .btn, html.glass .mb-bar .btn, html.glass .transport .select, html.glass .topbar .select { border-radius: 999px; }
+html.glass .topbar .btn:not(.primary):not(.icon), html.glass .transport .btn:not(.primary):not(.icon) { background: rgba(255,255,255,.05); border-color: rgba(255,255,255,.10); box-shadow: inset 0 1px 0 rgba(255,255,255,.08); }
+html.glass .topbar .btn:not(.primary):not(.icon):hover, html.glass .transport .btn:not(.primary):not(.icon):hover { background: rgba(255,255,255,.10); }
+html.glass .btn.primary { box-shadow: inset 0 1px 0 rgba(255,255,255,.28), 0 4px 14px rgba(62,106,225,.35); }
+
+/* chips: capsule glass; text >= 4.5:1 on the bar */
+html.glass .chip { background: rgba(255,255,255,.04); border-color: rgba(255,255,255,.11); color: #aeb6c2; box-shadow: inset 0 1px 0 rgba(255,255,255,.06); border-radius: 999px; }
+html.glass .chip:hover { background: rgba(255,255,255,.08); }
+html.glass .chip.on { background: linear-gradient(180deg, rgba(120,150,255,.22), rgba(62,106,225,.22)); border-color: rgba(110,145,240,.75); color: #e6ecff; box-shadow: inset 0 1px 0 rgba(255,255,255,.18); }
+html.glass .seg { border-radius: 999px; }
+html.glass .seg button { border-radius: 999px; }
+
+/* ── fallbacks ── */
+/* no backdrop-filter at all (old browsers): solid look even before js/glass.js runs */
+@supports not ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+  html.glass { --g-a: .97 !important; --g-rgb: 27, 30, 37 !important; }
+}
+/* the system asks for less transparency: solid fills, no blur */
+@media (prefers-reduced-transparency: reduce) {
+  html.glass { --g-a: .97 !important; --g-rgb: 27, 30, 37 !important; --g-sheen: linear-gradient(rgba(255,255,255,0), rgba(255,255,255,0)) !important; }
+  html.glass .g-blur { -webkit-backdrop-filter: none !important; backdrop-filter: none !important; }
+}
+/* the system asks for less motion: the glass pieces change instantly (positions are unchanged, so nothing reads them mid-animation) */
+@media (prefers-reduced-motion: reduce) {
+  html.glass .stage-bar, html.glass .toast, html.glass .us-panel, html.glass .cr-bar, html.glass .chip, html.glass .btn, html.glass .mb-more svg { transition-duration: .01ms !important; animation-duration: .01ms !important; }
+}

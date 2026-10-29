@@ -30,6 +30,7 @@
     mapStyle: "osm",
     mapFollow: false,
     mapDock: "over",   // over (on the video) | aside (docked beside it) | float (anywhere in the window, js/overlays.js)
+    glass: "auto",   // ui-glass-1: Settings ▸ Appearance ▸ Glass — "auto" (tint follows the video) | "clear" | "solid"; ?glass= overrides for one visit
     mapFloat: { fx: -1, fy: -1 },   // floating map: left / top as fractions of the free window area (-1 = default spot); export never uses this
     panels: {
       hud: { fx: 0.5, fy: 0.975 },
