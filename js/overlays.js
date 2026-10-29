@@ -110,9 +110,23 @@
     const fx = f.fx >= 0 ? f.fx : 1, fy = f.fy >= 0 ? f.fy : 0.08;   // default: top right
     return { x: s.x0 + T.clamp(fx, 0, 1) * s.sx, y: s.y0 + T.clamp(fy, 0, 1) * s.sy };
   }
-  function setFloatPos(p, x, y, save) {
+  /** ui-glass-5: the floating map never covers the camera bar while that sits on (or beside) the video: it steps above or below the bar
+   *  (else beside it), whichever is closer and fits. While the map is being dragged it goes where the finger is; it is placed again on drop. */
+  function clearOfBar(x, y, w, h, s) {
+    const b = T.$("stageBar");
+    if (!b || b.hidden || b.classList.contains("bar-floating") || !b.getClientRects().length) return { x, y };
+    const r = b.getBoundingClientRect(), m = 6;
+    if (r.width < 2 || !(x < r.right + m && x + w > r.left - m && y < r.bottom + m && y + h > r.top - m)) return { x, y };
+    const fitsY = (v) => v >= s.y0 - 0.5 && v <= s.y0 + s.sy + 0.5, fitsX = (v) => v >= s.x0 - 0.5 && v <= s.x0 + s.sx + 0.5;
+    const ys = [r.top - m - h, r.bottom + m].filter(fitsY).sort((a, c) => Math.abs(a - y) - Math.abs(c - y));
+    if (ys.length) return { x, y: ys[0] };
+    const xs = [r.left - m - w, r.right + m].filter(fitsX).sort((a, c) => Math.abs(a - x) - Math.abs(c - x));
+    return xs.length ? { x: xs[0], y } : { x, y };
+  }
+  function setFloatPos(p, x, y, save, live) {
     const s = floatSpan(p.w, p.h, O.floatFloor());
     x = T.clamp(x, s.x0, s.x0 + s.sx); y = T.clamp(y, s.y0, s.y0 + s.sy);
+    if (!live && p.id === "map") { const c = clearOfBar(x, y, p.w, p.h, s); x = c.x; y = c.y; }
     p.el.style.transform = `translate(${Math.round(x)}px, ${Math.round(y)}px)`;
     if (save) { T.prefs.mapFloat = { fx: s.sx ? +((x - s.x0) / s.sx).toFixed(4) : 0, fy: s.sy ? +((y - s.y0) / s.sy).toFixed(4) : 0 }; T.savePrefs(); }
     return { x, y };
@@ -161,7 +175,7 @@
           d.l = e.clientX - 20; d.t = e.clientY - 18; d.x = e.clientX; d.y = e.clientY;   // grip (top-left) stays under the pointer
         }
       }
-      setFloatPos(p, d.l + (e.clientX - d.x), d.t + (e.clientY - d.y), false);
+      setFloatPos(p, d.l + (e.clientX - d.x), d.t + (e.clientY - d.y), false, true);
       d.near = nearDock(e.clientX, e.clientY); showDockHint(d.near); p.el.classList.toggle("dock-near", d.near);
     });
     const end = (e) => {
@@ -341,7 +355,7 @@
       const dx = e.clientX - start.x, dy = e.clientY - start.y;
       if (!start.moved && Math.hypot(dx, dy) < 4) return;
       start.moved = true;
-      if (p.id === "map" && floatWanted()) { const fr = start.fr || (start.fr = p.el.getBoundingClientRect()); setFloatPos(p, fr.left + dx, fr.top + dy, false); return; }
+      if (p.id === "map" && floatWanted()) { const fr = start.fr || (start.fr = p.el.getBoundingClientRect()); setFloatPos(p, fr.left + dx, fr.top + dy, false, true); return; }
       const g = grid();
       const pos = T.prefs.panels[p.id];
       pos.fx = T.clamp(start.fx + dx / Math.max(1, g.w - p.w), 0, 1);
