@@ -13,8 +13,10 @@
 //   7 auto-hide: never hides while the fan is open, a faint dot when the controls hide; 8 glass modes and the 3-blur budget, none in Solid;
 //   9 reduced motion; 10 steps away while drawing / picking a region; 11 floating map drags to the window bottom (grip above the bar);
 //   12 phone event picker: 44 px, chevron, label, no overlap in the top bar; 13 no page errors.
-//   14 docked Search/Redact panel (Mac Safari ~1024 px feedback), desktop 1024x553 / 1280x720 / 1440x900, both tabs: at most 30% of the window,
-//   no overlap with the video or the controls, no sideways overflow, every control still reachable, help behind (i), saved list scrolls (small max height).
+//   14 docked Search/Redact panel is a thin strip (Mac Safari ~1024 px feedback), desktop 1024x553 / 1280x720 / 1440x900, both tabs: at most 20% of the
+//   window (<= 110 px at 1024), <= 2 lines, content fills >= 85% (no empty band), no overlap / sideways overflow, every control reachable (mouse and Tab),
+//   help behind (i), saved regions behind "Regions (n)" (one-line rows), Save / Load file and Classic bars in the ⋯ menu, Esc / outside click fold popovers;
+//   camera pill: icon-only chips drop the 1–6 badges (title / aria-label / key keep working).
 //   DEV=dock runs only part 14; SHOTS also writes <prefix>redact-docked-<w>x<h>.png and <prefix>find-docked-<w>x<h>.png.
 //   SHOTS=dir PREFIX=after- writes <prefix><dev>-closed.png, -fan.png and (desktop) -events.png, plus <prefix>events-pick-<dev>.png (top bar).
 const fs = require("fs"), path = require("path"), http = require("http"), { execFileSync } = require("child_process");
@@ -198,6 +200,14 @@ async function run(b, BR, dev) {
 async function dock(b, BR, w, h) {
   const tag = BR + " dock-" + w + "x" + h, ctx = await b.newContext({ viewport: { width: w, height: h } }), p = await ctx.newPage(), errs = []; p.on("pageerror", (e) => errs.push(e.message));
   await open(p);
+  if (w === 1440) {   // camera pill: icon-only (compact) chips drop the 1–6 badges; title / aria-label keep the camera and its key; keys still work
+    const k = await p.evaluate(async () => { const S = (ms) => new Promise((r) => setTimeout(r, ms)), bar = document.getElementById("stageBar"), vis = () => [...bar.querySelectorAll(".cam-chip kbd")].filter((e) => e.getClientRects().length).length;
+      const o = { full: vis(), compact0: bar.classList.contains("pill-compact") }; bar.classList.add("pill-compact"); o.compact = vis();
+      const c = bar.querySelector('.cam-chip[data-cam="back"]'); o.lbl = c.getAttribute("aria-label"); o.title = c.title; o.ks = c.getAttribute("aria-keyshortcuts"); bar.classList.remove("pill-compact"); return o; });
+    ok(BR + " dock-1440 14 full camera pill keeps the 1–6 badges; icon-only chips drop them; aria-label / title still name the camera and key", k.full === 6 && k.compact === 0 && /Back camera, key 2/.test(k.lbl) && /key 2/.test(k.title) && k.ks === "2", k);
+    await p.keyboard.press("2"); await W(400); const kc = await p.evaluate(() => TDC.focus.cam); await p.keyboard.press("g"); await W(400);
+    ok(BR + " dock-1440 14 ... the key 2 still picks the back camera", kc === "back", kc);
+  }
   await p.evaluate(() => { for (let i = 0; i < 4; i++) TDC.regions.add({ cam: ["back", "front", "left_repeater", "right_repeater"][i], shape: "rect", mode: i % 2 ? "remove" : "blur", x: 0.1 + 0.05 * i, y: 0.2, w: 0.2, h: 0.1 }); });
   const M = () => p.evaluate(() => { const r = (id) => { const e = document.getElementById(id); if (!e || !e.getClientRects().length) return null; const b = e.getBoundingClientRect(); return { l: b.left, t: b.top, r: b.right, b: b.bottom, h: b.height, w: b.width }; };
     const pn = document.getElementById("usPanel"); return { dock: r("usDock"), panel: r("usPanel"), stage: r("stage"), tp: r("transport"), vh: innerHeight, vw: innerWidth, docked: document.body.classList.contains("us-docked") && pn.classList.contains("docked"), sw: pn.scrollWidth, cw: pn.clientWidth, dw: document.documentElement.scrollWidth }; });
@@ -207,18 +217,61 @@ async function dock(b, BR, w, h) {
       e.scrollIntoView({ block: "nearest", inline: "nearest" }); const b = e.getBoundingClientRect(), q = pn.getBoundingClientRect();
       if (b.width < 8 || b.height < 8 || b.top < q.top - 1 || b.bottom > q.bottom + 1 || b.left < q.left - 1 || b.right > q.right + 1 || b.bottom > innerHeight || b.right > innerWidth) bad.push(s + " " + [b.left, b.top, b.width, b.height].map(Math.round)); }
     pn.scrollTop = 0; return bad; }, ids);
+  // a popover above the strip: fully on screen, over the video (not under the window edge), not hidden
+  const onScreen = (ids) => p.evaluate((ids) => { const bad = [];
+    for (const s of ids) { const e = document.querySelector(s); if (!e) { bad.push(s + " missing"); continue; } const b = e.getBoundingClientRect();
+      if (!e.getClientRects().length || b.width < 8 || b.height < 8 || b.top < 0 || b.left < 0 || b.bottom > innerHeight || b.right > innerWidth) { bad.push(s + " " + [b.left, b.top, b.width, b.height].map(Math.round)); continue; }
+      const h = document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2); if (!h || !(e === h || e.contains(h) || h.contains(e))) bad.push(s + " covered by " + (h && (h.id || h.className))); }
+    return bad; }, ids);
+  // strip fill: the visible pieces' boxes cover >= 85% of the panel's content height (no empty band) and the first line spans >= 85% of its width
+  const fill = () => p.evaluate(() => { const pn = document.getElementById("usPanel"), q = pn.getBoundingClientRect(), cs = getComputedStyle(pn);
+    const top = q.top + parseFloat(cs.paddingTop) + parseFloat(cs.borderTopWidth), bot = q.bottom - parseFloat(cs.paddingBottom) - parseFloat(cs.borderBottomWidth);
+    const L = q.left + parseFloat(cs.paddingLeft), Rr = q.right - parseFloat(cs.paddingRight);
+    const leaf = [...pn.querySelectorAll("button, select, input, label, .seg, .us-row")].filter((e) => { if (!e.getClientRects().length || e.closest("#crList, #crHint, #crFileRow, #usFoot, #crMsg")) return false; const b = e.getBoundingClientRect(); return b.width > 4 && b.height > 4 && b.bottom > top && b.top < bot; }).map((e) => e.getBoundingClientRect());
+    const iv = leaf.map((b) => [Math.max(top, b.top), Math.min(bot, b.bottom)]).sort((a, b) => a[0] - b[0]); let cov = 0, cur = null;
+    for (const [a, b] of iv) { if (!cur || a > cur[1]) { if (cur) cov += cur[1] - cur[0]; cur = [a, b]; } else cur[1] = Math.max(cur[1], b); } if (cur) cov += cur[1] - cur[0];
+    const t0 = Math.min(...leaf.map((b) => b.top)), row1 = leaf.filter((b) => b.top < t0 + 12), rows = new Set(leaf.map((b) => Math.round((b.top + b.bottom) / 2 / 20)));
+    const x0 = Math.min(...row1.map((b) => b.left)), x1 = Math.max(...row1.map((b) => b.right));
+    const lines = []; for (const b of leaf.slice().sort((a, b) => a.top - b.top)) { const m = (b.top + b.bottom) / 2, l = lines.find((x) => Math.abs(x - m) < 12); if (!l) lines.push(m); }
+    return { h: Math.round(bot - top), vfill: Math.round(cov / (bot - top) * 100), hfill: Math.round((x1 - x0) / (Rr - L) * 100), lines: lines.length, n: leaf.length }; });
   for (const tab of ["redact", "find"]) {
     await p.evaluate((t) => TDC.searchUI.show(false, t), tab); await W(700);
     const m = await M(), t = tag + " " + tab;
     ok(t + " 14 docked below the video", m.docked && !!m.dock, m);
-    ok(t + " 14 the dock takes at most 30% of the window height", m.dock.h <= m.vh * 0.30 + 1, { dock: m.dock.h, vh: m.vh, pct: Math.round(m.dock.h / m.vh * 1000) / 10 });
+    ok(t + " 14 the dock is a thin strip: at most 20% of the window height" + (w <= 1024 ? " (and <= 110 px)" : ""), m.dock.h <= m.vh * 0.20 + 1 && (w > 1024 || m.dock.h <= 110), { dock: m.dock.h, vh: m.vh, pct: Math.round(m.dock.h / m.vh * 1000) / 10 });
+    const f = await fill();
+    ok(t + " 14 no empty band: at most 2 lines, content covers >= 85% of the strip's height and the first line >= 85% of its width", f.lines <= 2 && f.vfill >= 85 && f.hfill >= 85, f);
     ok(t + " 14 the video keeps the rest: no overlap with the video area or the controls", !X(m.dock, m.stage) && !X(m.dock, m.tp) && m.dock.b <= m.tp.t + 1, m);
     ok(t + " 14 no sideways overflow (panel and page)", m.sw <= m.cw + 1 && m.dw <= m.vw + 1, m);
     if (tab === "redact") {
-      const bad = await reach(["#usTabFind", "#usTabRedact", "#usFloat", "#usClose", "#crDraw", "#crSave", "#crShape button[data-v=free]", "#crMode button[data-v=remove]", "#crWhole", "#crInfo", "#crExportFile", "#crImportFile", "#crList li:last-child [data-act]", "#usQuery", "#usCam", "#usRedact", "#usPanel .us-presets .us-chip:last-child", "#usClassic"]);
-      ok(t + " 14 every Redact control is reachable inside the panel", bad.length === 0, bad);
-      const lst = await p.evaluate(() => { const l = document.getElementById("crList"), cs = getComputedStyle(l); return { mh: parseFloat(cs.maxHeight), oy: cs.overflowY, sh: l.scrollHeight, ch: l.clientHeight, n: l.children.length }; });
-      ok(t + " 14 the saved regions list scrolls, small max height (<= 90 px)", lst.n === 4 && lst.mh <= 90 && ["auto", "scroll"].includes(lst.oy) && lst.sh > lst.ch, lst);
+      const bad = await reach(["#usTabFind", "#usTabRedact", "#usMore", "#usFloat", "#usClose", "#crDraw", "#crShape button[data-v=free]", "#crMode button[data-v=remove]", "#crWhole", "#crInfo", "#crRegBtn", "#usQuery", "#usCam", "#usRedact", "#usPanel .us-presets .us-chip:last-child"]);
+      ok(t + " 14 every Redact control is reachable inside the strip", bad.length === 0, bad);
+      ok(t + " 14 Save region shows only when there is something to save", await p.evaluate(() => { const b = document.getElementById("crSave"); return b.disabled === !b.getClientRects().length; }));
+      // keyboard: Tab from the Find tab reaches the strip's controls in order
+      const tabs = await p.evaluate(async () => { document.getElementById("usTabRedact").focus(); return true; }) && [];
+      for (let i = 0; i < 40; i++) { await p.keyboard.press("Tab"); const id = await p.evaluate(() => { const a = document.activeElement; return a && (a.id || (a.closest("[id]") || {}).id || a.className); }); if (tabs.includes(id) && id !== "crShape" && id !== "crMode") break; tabs.push(id); }   // DOM order: the head buttons (⋯ / dock / ×) come right after the tabs
+      const need = ["crDraw", "crShape", "crMode", "crWhole", "crInfo", "crRegBtn", "usCam", "usRedact", "usQuery", "usMore", "usClose"], miss = need.filter((x) => !tabs.includes(x));
+      ok(t + " 14 the keyboard (Tab) reaches every strip control", miss.length === 0, { miss, tabs });
+      // saved regions: folded behind "Regions (n)", one-line rows with Show / Edit / Delete in a popover; Esc / a click outside fold it
+      const r0 = await p.evaluate(() => { const b = document.getElementById("crRegBtn"), l = document.getElementById("crList"); return { txt: b.textContent.trim(), exp: b.getAttribute("aria-expanded"), ctl: b.getAttribute("aria-controls"), shown: !!l.getClientRects().length }; });
+      ok(t + " 14 the saved regions fold behind a Regions (4) button (aria-expanded false)", /Regions\s*\(4\)/.test(r0.txt) && r0.exp === "false" && r0.ctl === "crList" && !r0.shown, r0);
+      await p.click("#crRegBtn"); await W(200);
+      const r1 = await p.evaluate(() => { const l = document.getElementById("crList"), li = [...l.children], pr = document.getElementById("usPanel").getBoundingClientRect(), lb = l.getBoundingClientRect();
+        return { exp: document.getElementById("crRegBtn").getAttribute("aria-expanded"), n: li.length, maxH: Math.max(...li.map((x) => x.getBoundingClientRect().height)), above: lb.bottom <= pr.top + 1,
+          one: li.every((x) => x.querySelector(".cr-desc").getClientRects().length === 1), txt: li[0].querySelector(".cr-desc").textContent.replace(/\s+/g, " ").trim(), acts: li.every((x) => ["on", "go", "edit", "del"].every((a) => x.querySelector('[data-act="' + a + '"]'))) }; });
+      ok(t + " 14 Regions opens a popover above the strip: one-line rows (checkbox, \"Rear · Blur · box\", Show / Edit / Delete)", r1.exp === "true" && r1.n === 4 && r1.above && r1.one && r1.maxH <= 46 && r1.acts && /^Rear · Blur · box/.test(r1.txt), r1);
+      const badL = await onScreen(["#crList li:first-child [data-act=on]", "#crList li:last-child [data-act=go]", "#crList li:last-child [data-act=edit]", "#crList li:last-child [data-act=del]"]);
+      ok(t + " 14 ... every row's actions are on screen and clickable", badL.length === 0, badL);
+      await p.focus("#crList li:last-child [data-act=go]"); await p.keyboard.press("Escape"); await W(200);
+      ok(t + " 14 ... Esc folds the popover first (focus back on Regions, the panel stays open)", await p.evaluate(() => TDC.searchUI.open && !document.getElementById("crList").getClientRects().length && document.activeElement.id === "crRegBtn" && document.getElementById("crRegBtn").getAttribute("aria-expanded") === "false"));
+      await p.click("#crRegBtn"); await W(150); await p.mouse.click(Math.round(m.stage.l + 20), Math.round(m.stage.t + 20)); await W(200);
+      ok(t + " 14 ... a click outside folds it too", await p.evaluate(() => !document.getElementById("crList").getClientRects().length && TDC.searchUI.open));
+      // the more menu: Save as file / Load from file / Classic search bars
+      await p.click("#usMore"); await W(200);
+      const badM = await onScreen(["#crExportFile", "#crImportFile", "#usClassic"]);
+      ok(t + " 14 the ⋯ menu holds Save as file, Load from file and Classic search bars (aria-expanded true)", badM.length === 0 && await p.evaluate(() => document.getElementById("usMore").getAttribute("aria-expanded") === "true"), badM);
+      await p.click("#usMore"); await W(150);
+      ok(t + " 14 ... the ⋯ button folds it again", await p.evaluate(() => !document.getElementById("usFoot").getClientRects().length && document.getElementById("usMore").getAttribute("aria-expanded") === "false"));
       const hint0 = await p.evaluate(() => { const h = document.getElementById("crHint"), i = document.getElementById("crInfo"); return { hint: getComputedStyle(h).display !== "none", exp: i.getAttribute("aria-expanded"), ctl: i.getAttribute("aria-controls"), lbl: i.getAttribute("aria-label") }; });
       ok(t + " 14 the long help text is folded behind (i) (aria-expanded false, labelled)", !hint0.hint && hint0.exp === "false" && hint0.ctl === "crHint" && !!hint0.lbl, hint0);
       await p.click("#crInfo"); await W(200);
@@ -226,9 +279,9 @@ async function dock(b, BR, w, h) {
       ok(t + " 14 (i) shows the help (aria-expanded true) and hides it again", hint1.hint && hint1.exp === "true" && hint1.txt, hint1);
       await p.keyboard.press("Enter"); await W(200);
       ok(t + " 14 ... the (i) works from the keyboard too", await p.evaluate(() => document.activeElement.id === "crInfo" && getComputedStyle(document.getElementById("crHint")).display === "none"));
-      const auto = await p.evaluate(() => { const c = [...document.querySelectorAll("#usPanel .us-presets .us-chip")].filter((e) => e.getClientRects().length), tops = [...new Set(c.map((e) => Math.round(e.getBoundingClientRect().top)))];
-        const q = document.getElementById("usQuery").getBoundingClientRect(), d = document.getElementById("crDraw").getBoundingClientRect(); return { rows: tops.length, n: c.length, qTop: q.top, drawTop: d.top, qL: q.left, dR: d.right }; });
-      ok(t + " 14 automatic options sit in a compact block beside the custom regions (presets in <= 2 rows, side by side, not below)", auto.n >= 4 && auto.rows <= 2 && auto.qL > auto.dR && Math.abs(auto.qTop - auto.drawTop) < 60, auto);
+      const auto = await p.evaluate(() => { const c = [...document.querySelectorAll("#usPanel .us-presets .us-chip")].filter((e) => e.getClientRects().length), d = document.getElementById("crDraw").getBoundingClientRect(), pr = document.getElementById("usPanel").getBoundingClientRect();
+        return { n: c.length, inside: c.every((e) => { const b = e.getBoundingClientRect(); return b.top >= pr.top - 1 && b.bottom <= pr.bottom + 1; }), h: Math.max(...c.map((e) => e.getBoundingClientRect().height)) }; });
+      ok(t + " 14 the automatic chips sit in the strip (compact, <= 36 px with a mouse)", auto.n >= 4 && auto.inside && auto.h <= 36, auto);
       // behaviour unchanged: Draw region hides the panel, Cancel brings it back on Redact
       await p.click("#crDraw"); await W(700);
       ok(t + " 14 Draw region still hides the panel for drawing", await p.evaluate(() => !TDC.searchUI.open && !document.getElementById("crBar").hidden));
@@ -239,8 +292,10 @@ async function dock(b, BR, w, h) {
       ok(t + " 14 time span fields (Whole clip off) are reachable too", bad2.length === 0, bad2);
       await p.evaluate(() => { const c = document.getElementById("crWhole"); if (!c.checked) c.click(); }); await W(300);
     } else {
-      const bad = await reach(["#usTabFind", "#usTabRedact", "#usFloat", "#usClose", "#usQuery", "#usCam", "#usFind", "#usHl", "#usRd", "#usClassic"]);
-      ok(t + " 14 every Find control is reachable inside the panel", bad.length === 0, bad);
+      const bad = await reach(["#usTabFind", "#usTabRedact", "#usMore", "#usFloat", "#usClose", "#usQuery", "#usCam", "#usFind", "#usHl", "#usRd"]);
+      ok(t + " 14 every Find control is reachable inside the strip", bad.length === 0, bad);
+      await p.click("#usMore"); await W(200); const badF = await onScreen(["#usClassic"]); await p.keyboard.press("Escape"); await W(150);
+      ok(t + " 14 Find: Classic search bars sits in the ⋯ menu; Esc folds the menu and keeps the panel", badF.length === 0 && await p.evaluate(() => TDC.searchUI.open && !document.getElementById("usFoot").getClientRects().length), badF);
       await p.fill("#usQuery", "a cyclist"); await W(100);
       ok(t + " 14 Find still types and keeps the Find tab", await p.evaluate(() => document.getElementById("usQuery").value === "a cyclist" && document.getElementById("usPanel").dataset.tab === "find"));
       await p.fill("#usQuery", "");
