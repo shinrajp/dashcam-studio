@@ -216,9 +216,11 @@
       </section>
       <section id="appearSec"><h3>Appearance</h3>
         <div class="row"><span>Glass</span><div class="seg" id="segGlass" role="group" aria-label="Glass"><button data-v="auto">Automatic</button><button data-v="clear">Clear</button><button data-v="solid">Solid</button></div></div>
-        <p class="hint">How the controls look over the video. Automatic darkens the glass over bright video so text stays readable; Clear is more see-through; Solid has no transparency (also used when your system asks to reduce transparency). <span id="glassNote"></span></p>
+        <p class="hint">How the controls look over the video. Automatic tints each control with the colour of the video under it and darkens it over bright video so text stays readable; Clear is more see-through; Solid has no transparency (also used when your system asks to reduce transparency). <span id="glassNote"></span></p>
         <div class="row"><span>Auto-hide</span><div class="seg" id="segAutohide" role="group" aria-label="Auto-hide controls"><button data-v="2">2 s</button><button data-v="3">3 s</button><button data-v="5">5 s</button><button data-v="never">Never</button></div></div>
         <p class="hint">While a video plays, the controls over it fade after this long without input; a thin line shows the progress. Move the mouse, tap or press a key to bring them back. They never hide while paused, while a panel or Settings is open, while you draw a redaction or during an export. <span id="autohideNote"></span></p>
+        <div class="row"><span>Lite mode</span><div class="seg" id="segLite" role="group" aria-label="Lite mode"><button data-v="auto">Auto</button><button data-v="on">On</button><button data-v="off">Off</button></div></div>
+        <p class="hint">Lite mode drops the blur and the video-following tint and uses solid controls, for smoother playback on slower devices. Auto turns it on when playback keeps dropping frames or the device has little memory. <span id="liteNote"></span></p>
       </section>
       <section><h3>Labs (beta)</h3>
         <div class="row"><span>Show 360 view (beta)</span><input type="checkbox" id="show360"></div>
