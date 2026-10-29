@@ -1039,6 +1039,20 @@ body.portrait .cv-chip { min-height: 28px; padding: 3px 5px; gap: 3px; font-size
 .tile .cr-overlay { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 7; pointer-events: none; touch-action: none; cursor: crosshair; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
 .export-regions-note { color: #ffe3a3; margin-top: 4px; }
 
+/* tap-redact: "Tap the camera you want to redact". One real button per camera tile (keyboard: Tab / Enter), pointer-transparent: the tile's drawing canvas takes the tap or the drag. */
+.tile .cr-pick { position: absolute; inset: 0; z-index: 8; margin: 0; padding: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; box-sizing: border-box; border: 3px dashed rgba(255,210,122,0.95); border-radius: 0; background: rgba(230,180,80,0.14); color: #fff; font: 700 15px/1.2 system-ui, -apple-system, sans-serif; text-align: center; pointer-events: none; -webkit-appearance: none; appearance: none; -webkit-tap-highlight-color: transparent; cursor: pointer; transition: background .12s; }
+.cr-pick-n { padding: 6px 14px; border-radius: 999px; background: rgba(20,24,32,0.88); border: 1px solid #e6b450; max-width: 92%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cr-pick-h { padding: 2px 8px; border-radius: 8px; background: rgba(20,24,32,0.6); font-size: 12px; font-weight: 600; color: #ffe3a3; }
+.tile .cr-pick.hot, .tile .cr-pick:focus-visible { background: rgba(230,180,80,0.38); border-style: solid; border-color: #ffd27a; }
+.tile .cr-pick:focus-visible { outline: 3px solid #fff; outline-offset: -7px; }
+body.cr-picking .tile-expand { display: none; }
+body.cr-picking .tile .cr-overlay { cursor: pointer; }
+@media (max-width: 520px) { .tile .cr-pick { font-size: 13px; gap: 4px; border-width: 2px; } .cr-pick-n { padding: 4px 10px; } .cr-pick-h { font-size: 11px; } }
+.cr-bar .cr-chip { flex: 0 1 auto; min-width: 0; max-width: 34vw; overflow: hidden; text-overflow: ellipsis; background: rgba(230,180,80,0.18); border: 1px solid #e6b450; color: #ffe3a3; font-weight: 700; }
+.cr-bar .cr-chip:disabled { opacity: 1; cursor: default; }
+.cr-bar.picking .cr-bar-msg { font-size: 14px; font-weight: 700; color: #fff; background: rgba(20,24,32,0.96); border: 1px solid #e6b450; }
+
+
 /* custom regions: bar over the video while drawing (the panel steps aside on phones) */
 /* Draw bar (custom redaction). One compact row, click-through except for its grip and buttons, so it never blocks drawing; it moves to the opposite screen edge when you draw near it (js/custom-redact.js, "bar-fix"). */
 .cr-bar { position: fixed; left: 0; right: 0; bottom: 100px; z-index: 70; display: flex; flex-wrap: nowrap; align-items: center; gap: 4px; padding: 4px 6px; border-radius: 12px; background: rgba(20,24,32,0.94); border: 1px solid #e6b450; color: var(--text); font-size: 13px; box-shadow: 0 6px 24px rgba(0,0,0,0.5); width: max-content; max-width: calc(100vw - 16px); margin: 0 auto; box-sizing: border-box; pointer-events: none; }

@@ -12,13 +12,16 @@
  * Blur uses redact.js' own shrink-and-enlarge blur (no canvas filter: Safari has none) with a radius tied to the region's short side, so text
  * inside can't be read; Remove fills the shape with opaque black. 360 (flat equirect) export: the regions are burned into the camera frames
  * before they are projected (prepareFrames). Not covered: the live 360 "look around" view.
+ * tap-redact: no camera dropdown. "Draw region" asks you to TAP the camera (several cameras on screen) and then draws on it: a tap enlarges that
+ * camera and arms the drag, a drag starting on a camera draws right there. One camera on screen: it is the camera, no question asked. The draw bar
+ * shows the chosen camera as a chip; tapping the chip picks again.
  * Storage: localStorage "tdc.regions.v1" keyed by a hash of the event's file names and sizes (nothing leaves the device); JSON file import / export. */
 (function () {
   "use strict";
   const T = window.TDC;
   const R = T.redact;
   const $ = (id) => document.getElementById(id);
-  const G = (T.regions = { list: [], key: null, MAX: 40, MAX_PTS: 96, KEY: "tdc.regions.v1", ui: { cam: null, shape: "rect", mode: "blur", whole: true, from: 0, to: 0, draft: null, editId: null, drawing: false } });
+  const G = (T.regions = { list: [], key: null, MAX: 40, MAX_PTS: 96, KEY: "tdc.regions.v1", ui: { cam: null, shape: "rect", mode: "blur", whole: true, from: 0, to: 0, draft: null, editId: null, drawing: false, pick: false } });
   const EMPTY = [];
   let byCam = {};
 
@@ -245,7 +248,29 @@
     }
     return o;
   }
-  function removeOverlays() { for (const c of Object.keys(overlays)) { overlays[c].cv.remove(); delete overlays[c]; } }
+  function removeOverlays() { for (const c of Object.keys(overlays)) { overlays[c].cv.remove(); delete overlays[c]; } syncPicks([]); }
+  /** Cameras showing on screen right now (present in the event, tile not hidden, laid out). */
+  function visibleCams() {
+    const P = T.player, ev = P && P.ev; if (!ev || !P.tiles) return [];
+    return T.GRID.filter((c) => { const t = P.tiles[c]; if (!t || !(ev.cams || []).includes(c) || t.tile.classList.contains("off")) return false; const r = t.tile.getBoundingClientRect(); return r.width > 4 && r.height > 4; });
+  }
+  /** Several cameras on screen (grid / 6-up): the user has to say which one. One big camera: that one is it. */
+  const isMulti = () => !(T.focus && T.focus.cam) && visibleCams().length > 1;
+  // the pick layer: one real <button> per camera tile (Tab / Enter work, a label says what to do). It lets the pointer through: the tile's drawing canvas takes the tap or the drag.
+  const picks = {};
+  function syncPicks(want) {
+    for (const c of Object.keys(picks)) if (!want.includes(c) || picks[c].parentNode !== (T.player.tiles[c] || {}).tile) { picks[c].remove(); delete picks[c]; }
+    for (const c of want) {
+      if (picks[c]) continue;
+      const tile = T.player.tiles[c]; if (!tile) continue;
+      const b = document.createElement("button"); b.type = "button"; b.className = "cr-pick"; b.dataset.cam = c;
+      b.setAttribute("aria-label", "Redact the " + camName(c) + " camera");
+      b.innerHTML = '<span class="cr-pick-n">' + esc(camName(c)) + '</span><span class="cr-pick-h">Tap to redact</span>';
+      b.addEventListener("click", (e) => { e.stopPropagation(); choose(c, "key"); });   // keyboard Enter / Space (a pointer tap lands on the canvas instead)
+      tile.tile.appendChild(b); picks[c] = b;
+    }
+  }
+  const hot = (cam, on) => { const b = picks[cam]; if (b) b.classList.toggle("hot", !!on); };
   function shapeOf(o) { return o ? (o.shape === "poly" ? { shape: "poly", pts: o.pts } : { shape: "rect", x: o.x, y: o.y, w: o.w, h: o.h }) : null; }
 
   function drawOutline(ctx, f, tr, sh, strong, label) {
@@ -257,20 +282,27 @@
     ctx.lineWidth = strong ? 1.5 : 1; ctx.strokeStyle = strong ? "#ffd27a" : "rgba(255,255,255,0.8)"; ctx.setLineDash(strong ? [] : [5, 4]); ctx.stroke(); ctx.setLineDash([]);
   }
   let raf = 0;
-  const drawClass = () => document.body.classList.toggle("cr-drawing", !!S.drawing);   // while you draw, the HUD / map / car-view panels let the pointer through (they used to grab a stroke that began over them)
+  const drawClass = () => { document.body.classList.toggle("cr-drawing", !!(S.drawing || S.pick)); document.body.classList.toggle("cr-picking", !!S.pick); };   // while you draw, the HUD / map / car-view panels let the pointer through (they used to grab a stroke that began over them)
   function frame() {
     raf = 0; drawClass();
     const cams = new Set();
+    let multi = false;
+    if (S.pick || S.drawing) {
+      multi = isMulti();
+      if (S.pick && !multi) { const one = (T.focus && T.focus.cam) || visibleCams()[0]; if (one) choose(one, "auto"); }   // the user showed one camera some other way (camera bar, number key): that is the camera
+    }
+    if (multi) visibleCams().forEach((c) => cams.add(c));
     if (S.cam && (S.drawing || S.draft || S.editId)) cams.add(S.cam);
     if (S.peek) cams.add(S.peek.cam);
+    syncPicks(S.pick && multi ? [...cams] : []);
     for (const c of Object.keys(overlays)) if (!cams.has(c)) { const o = overlays[c]; if (o.sig !== "") { const x = o.cv.getContext("2d"); x.clearRect(0, 0, o.cv.width, o.cv.height); o.sig = ""; } o.cv.style.pointerEvents = "none"; }
     for (const cam of cams) {
       const o = overlayFor(cam), f = G.screenFit(cam); if (!o) continue;
       const tr = f ? f.tile.getBoundingClientRect() : o.cv.parentNode.getBoundingClientRect();
       const dpr = Math.min(2, window.devicePixelRatio || 1), w = Math.max(1, Math.round(tr.width * dpr)), h = Math.max(1, Math.round(tr.height * dpr));
       const live = S.live;   // the shape being dragged
-      const sig = [w, h, f ? [f.x, f.y, f.w, f.h, f.mirrored].map((v) => Math.round(v)).join(",") : "x", JSON.stringify(shapeOf(S.draft)), S.peek ? JSON.stringify(S.peek.sh) : "", live ? live.pts.length + ":" + live.pts[live.pts.length - 1] + live.pts[live.pts.length - 2] : "", G.list.length, S.editId, S.drawing].join("|");
-      o.cv.style.pointerEvents = S.drawing && f ? "auto" : "none";
+      const sig = [w, h, f ? [f.x, f.y, f.w, f.h, f.mirrored].map((v) => Math.round(v)).join(",") : "x", JSON.stringify(shapeOf(S.draft)), S.peek ? JSON.stringify(S.peek.sh) : "", live ? live.pts.length + ":" + live.pts[live.pts.length - 1] + live.pts[live.pts.length - 2] : "", G.list.length, S.editId, S.drawing, S.pick, S.cam].join("|");
+      o.cv.style.pointerEvents = (S.pick && multi) || (S.drawing && f && (cam === S.cam || multi)) ? "auto" : "none";
       if (o.sig === sig) continue;
       o.sig = sig;
       if (o.cv.width !== w || o.cv.height !== h) { o.cv.width = w; o.cv.height = h; }
@@ -285,27 +317,51 @@
         else { ctx.beginPath(); live.pts.forEach((v, i) => { if (i % 2) return; const [x, y] = G.toScreen(f, v, live.pts[i + 1]); i ? ctx.lineTo(x - tr.left, y - tr.top) : ctx.moveTo(x - tr.left, y - tr.top); }); ctx.lineWidth = 2; ctx.strokeStyle = "#ffd27a"; ctx.stroke(); }
       }
     }
-    if (S.drawing || S.draft || S.editId || S.peek) raf = requestAnimationFrame(frame);
+    if ((S.drawing || S.pick || S.draft || S.editId || S.peek) && !raf) raf = requestAnimationFrame(frame);
   }
   function kick() { if (!raf) raf = requestAnimationFrame(frame); }
 
   function wirePointer(cam, cv) {
-    let id = null;
+    let id = null, pend = null;
     const stop = (e) => { e.stopPropagation(); };
+    const SLOP = (e) => (e.pointerType === "mouse" ? 6 : 12);
     cv.addEventListener("click", stop); cv.addEventListener("dblclick", stop);
+    /** A stroke begins at client point (x, y) on this camera: raw coordinates, mirror undone. */
+    function begin(x, y) {
+      const f = G.screenFit(cam); if (!f) return false;
+      const [u, v] = G.toRaw(f, x, y);
+      S.live = { pts: [u, v, u, v], f, c0: [x, y], cb: [x, y, x, y] };
+      UI.avoidBar(x, y, S.live.cb);
+      kick(); return true;
+    }
+    cv.addEventListener("pointerover", (e) => { if (S.pick && e.pointerType === "mouse") hot(cam, true); });
+    cv.addEventListener("pointerout", (e) => { if (e.pointerType === "mouse" && id === null) hot(cam, false); });
     cv.addEventListener("pointerdown", (e) => {
       e.stopPropagation();
-      if (!S.drawing || S.cam !== cam || id !== null || (e.pointerType === "mouse" && e.button !== 0)) return;
+      if (id !== null || (e.pointerType === "mouse" && e.button !== 0)) return;
+      if (S.pick || (S.drawing && S.cam !== cam)) {   // no camera chosen yet (or another camera of the grid): wait to see whether this is a tap or a drag
+        if (!S.pick && !S.drawing) return;
+        e.preventDefault(); id = e.pointerId; try { cv.setPointerCapture(id); } catch (_) {}
+        pend = { x: e.clientX, y: e.clientY }; hot(cam, true); return;
+      }
+      if (!S.drawing) return;
       const f = G.screenFit(cam); if (!f) return;
       e.preventDefault(); id = e.pointerId;
       try { cv.setPointerCapture(id); } catch (_) {}
-      const [u, v] = G.toRaw(f, e.clientX, e.clientY);
-      S.live = { pts: [u, v, u, v], f, c0: [e.clientX, e.clientY], cb: [e.clientX, e.clientY, e.clientX, e.clientY] };
-      UI.avoidBar(e.clientX, e.clientY, S.live.cb);
-      kick();
+      begin(e.clientX, e.clientY);
     });
     cv.addEventListener("pointermove", (e) => {
-      if (id !== e.pointerId || !S.live) return;
+      if (id !== e.pointerId) return;
+      if (pend) {   // a drag that starts on a camera: that camera is the one, and the stroke goes on right there
+        e.stopPropagation(); e.preventDefault();
+        if (Math.hypot(e.clientX - pend.x, e.clientY - pend.y) < SLOP(e)) return;
+        const p0 = pend; pend = null;
+        S.cam = cam; S.pick = false; S.draft = null; S.drawing = true; hot(cam, false);
+        msg(camName(cam) + ": " + (S.shape === "free" ? "keep dragging around the area." : "keep dragging to draw the box."));
+        UI.sync();
+        if (!begin(p0.x, p0.y)) { id = null; try { cv.releasePointerCapture(e.pointerId); } catch (_) {} return; }
+      }
+      if (!S.live) return;
       e.stopPropagation(); e.preventDefault();
       const f = G.screenFit(cam) || S.live.f, [u, v] = G.toRaw(f, e.clientX, e.clientY), p = S.live.pts;
       if (S.shape === "free") {
@@ -322,13 +378,31 @@
       if (id !== e.pointerId) return;
       e.stopPropagation(); id = null;
       try { cv.releasePointerCapture(e.pointerId); } catch (_) {}
+      if (pend) {   // a tap: this camera is the one. It is enlarged (easier to aim, easier on a phone) and the drag is armed on it
+        pend = null; hot(cam, false);
+        if (e.type !== "pointercancel") choose(cam, "tap");
+        return;
+      }
       const live = S.live; S.live = null;
       if (!live || e.type === "pointercancel") return;
       finishShape(cam, live);
     };
     cv.addEventListener("pointerup", end); cv.addEventListener("pointercancel", end);
-    cv.addEventListener("touchmove", (e) => { if (S.drawing) e.preventDefault(); }, { passive: false });   // iOS Safari: no page scroll / rubber band while drawing
+    cv.addEventListener("touchmove", (e) => { if (S.drawing || S.pick) e.preventDefault(); }, { passive: false });   // iOS Safari: no page scroll / rubber band while drawing or picking
     cv.addEventListener("contextmenu", (e) => e.preventDefault());
+  }
+  /** A camera was chosen (tap, key, drag or the only one on screen): enlarge it when it was a tap / key (not a drag, which draws in place), arm the drag. */
+  function choose(cam, how) {
+    if (!cam) return;
+    S.cam = cam; S.pick = false; S.draft = S.editId ? S.draft : null; S.live = null;
+    if ((how === "tap" || how === "key") && T.focus && T.focus.focus && T.focus.cam !== cam) T.focus.focus(cam);
+    S.drawing = true;
+    for (const c of Object.keys(picks)) hot(c, false);
+    syncPicks([]);
+    hidePanelForDrawing();
+    msg(camName(cam) + ": " + (S.shape === "free" ? "drag on the picture to draw around the area." : "drag on the picture to draw a box."));
+    UI.sync(); kick();
+    setTimeout(() => { if (S.drawing && S.cam === cam && !G.screenFit(cam)) msg("The camera picture isn't showing yet. Play or seek the video, then press Draw region again.", true); }, 600);
   }
   /** The drag ended: turn the points into a rectangle or a simplified freehand polygon. */
   function finishShape(cam, live) {
@@ -359,8 +433,8 @@
     return { start: a, end: Math.min(b, dur() || b) };
   }
   function resetForm() {
-    S.drawing = false; S.draft = null; S.editId = null; S.live = null; S.peek = null;
-    S.whole = true;
+    S.drawing = false; S.pick = false; S.cam = null; S.draft = null; S.editId = null; S.live = null; S.peek = null;
+    S.whole = true; syncPicks([]);
     if ($("crWhole")) $("crWhole").checked = true;
     msg("");
   }
@@ -378,6 +452,7 @@
     if (b) return b;
     b = document.createElement("div"); b.id = "crBar"; b.className = "cr-bar"; b.hidden = true; b.setAttribute("role", "group"); b.setAttribute("aria-label", "Custom region");
     b.innerHTML = '<button type="button" class="cr-grip" id="crBarGrip" aria-label="Move this bar (drag, or press Up / Down)" title="Drag to move this bar"><svg viewBox="0 0 14 22" aria-hidden="true"><circle cx="4" cy="4" r="1.7"/><circle cx="10" cy="4" r="1.7"/><circle cx="4" cy="11" r="1.7"/><circle cx="10" cy="11" r="1.7"/><circle cx="4" cy="18" r="1.7"/><circle cx="10" cy="18" r="1.7"/></svg></button>' +
+      '<button type="button" class="btn small cr-chip" id="crBarCam" hidden></button>' +
       '<span class="cr-bar-btns">' +
       '<button type="button" class="btn small primary" id="crBarSave">Save region</button>' +
       '<button type="button" class="btn small" id="crBarAgain">Draw again</button>' +
@@ -388,6 +463,7 @@
     $("crBarSave").addEventListener("click", () => UI.save());
     $("crBarAgain").addEventListener("click", () => UI.draw());
     $("crBarCancel").addEventListener("click", () => UI.cancel());
+    $("crBarCam").addEventListener("click", () => UI.draw(true));   // the chip names the camera; tapping it picks another one (no dropdown)
     $("crBarOpts").addEventListener("click", () => {   // a toggle: Options opens the Redact panel, "Back to drawing" tucks it away again (the picture is never left covered with no way back)
       const U = T.searchUI;
       if (U && U.open) { if (U.hide) U.hide(); S.reopen = true; } else { S.reopen = true; reopenPanel(); }
@@ -489,13 +565,18 @@
     o.title = open ? "Hide the panel so you can draw" : "Back to the Redact panel";
   }
   function syncBar() {
-    const b = ensureBar(), show = !!(S.drawing || S.draft);
+    const b = ensureBar(), show = !!(S.drawing || S.draft || S.pick);
     drawClass();
     b.hidden = !show; document.body.classList.toggle("cr-bar-on", !!show);
     if (!show) return;
     applyPos(false);
     $("crBarSave").disabled = !S.draft || S.drawing; $("crBarSave").textContent = S.editId ? "Save changes" : "Save region";
-    $("crBarAgain").hidden = !!S.drawing;
+    $("crBarSave").hidden = !!S.pick;
+    $("crBarAgain").hidden = !!S.drawing || !!S.pick;
+    const chip = $("crBarCam"), has = !!S.cam && !S.pick;
+    chip.hidden = !has;
+    if (has) { chip.textContent = camName(S.cam); chip.disabled = !!S.editId; chip.title = S.editId ? "The camera of the region you are editing" : "Redacting the " + camName(S.cam) + " camera. Tap to pick a different camera"; chip.setAttribute("aria-label", chip.title); }
+    b.classList.toggle("picking", !!S.pick);
     optsLabel();
   }
   UI.save = () => {
@@ -510,25 +591,43 @@
     resetForm(); changed(); reopenPanel(); msg(was ? "Region updated." : "Region saved. It is hidden in the viewer and in the export.");
     return r;
   };
-  UI.draw = () => {
+  /** Draw region. With several cameras on screen: "tap the camera you want to redact" (a tap enlarges it and arms the drag, a drag starts drawing on it).
+   *  With one camera on screen: that is the camera. `repick` (the chip) forgets the camera and asks again. */
+  UI.draw = (repick) => {
     if (!T.player || !T.player.ev) { msg("Open an event first.", true); return; }
-    const cam = S.cam;
-    if (T.player.ev.cams && !T.player.ev.cams.includes(cam)) { msg("This event has no " + camName(cam).toLowerCase() + " footage.", true); return; }
-    if (T.focus && T.focus.focus && T.focus.cam !== cam) T.focus.focus(cam);   // one big camera: easier to aim, and easier on a phone
-    S.drawing = true; S.draft = S.editId ? S.draft : null; S.live = null;
-    hidePanelForDrawing();
-    msg(S.shape === "free" ? "Drag on the picture to draw around the area (freehand)." : "Drag on the picture to draw a box.");
-    UI.sync(); kick();
-    setTimeout(() => { if (S.drawing && !G.screenFit(cam)) msg("The camera picture isn't showing yet. Play or seek the video, then press Draw region again.", true); }, 600);
+    repick = repick === true && !S.editId;
+    if (repick) { S.draft = null; S.live = null; S.cam = null; S.drawing = false; }
+    const redo = !repick && !!S.cam && (S.editId || S.draft || (S.drawing && !S.pick));   // Draw again / a shape change keeps the camera
+    if (redo) {
+      if (T.player.ev.cams && !T.player.ev.cams.includes(S.cam)) { msg("This event has no " + camName(S.cam).toLowerCase() + " footage.", true); return; }
+      if (!isMulti() && T.focus && T.focus.focus && T.focus.cam !== S.cam) T.focus.focus(S.cam);
+      S.pick = false; S.drawing = true; S.draft = S.editId ? S.draft : null; S.live = null;
+      hidePanelForDrawing();
+      msg(camName(S.cam) + ": " + (S.shape === "free" ? "drag on the picture to draw around the area (freehand)." : "drag on the picture to draw a box."));
+      UI.sync(); kick();
+      return;
+    }
+    if (repick && T.focus && T.focus.cam && T.focus.grid) T.focus.grid();   // back to all the cameras, so there is something to tap
+    const vis = visibleCams();
+    if (!vis.length) { msg("The cameras aren't showing yet. Play or seek the video, then press Draw region again.", true); return; }
+    S.cam = null; S.draft = null; S.live = null; S.drawing = false;
+    if (isMulti()) {
+      S.pick = true;
+      hidePanelForDrawing();
+      msg("Tap the camera you want to redact", false);
+      UI.sync(); kick();
+      setTimeout(() => { const b = document.querySelector(".cr-pick"); if (S.pick && b && !b.matches(":focus")) { try { b.focus({ preventScroll: true }); } catch (_) {} } }, 120);   // keyboard: Tab moves between the cameras, Enter picks, Esc cancels
+    } else choose((T.focus && T.focus.cam) || vis[0], "auto");
   };
   UI.cancel = () => { resetForm(); reopenPanel(); UI.sync(); kick(); if (R && R.paint) R.paint(); };
   UI.edit = (id) => {
     const r = G.list.find((x) => x.id === id); if (!r) return;
+    S.pick = false; syncPicks([]);
     S.editId = id; S.cam = r.cam; S.shape = r.shape === "poly" ? "free" : "rect"; S.mode = r.mode; S.draft = shapeOf(r); S.drawing = false;
     S.whole = r.start == null && r.end == null;
     $("crWhole").checked = S.whole; $("crFrom").value = fmt(r.start || 0); $("crTo").value = fmt(r.end == null ? dur() : r.end);
     if (T.focus && T.focus.focus && T.focus.cam !== r.cam) T.focus.focus(r.cam);
-    msg("Editing. Change the settings, or press Draw region to redraw the shape, then Save changes.");
+    msg("Editing the " + camName(r.cam).toLowerCase() + " region. Change the settings, or press Draw region to redraw the shape, then Save changes.");
     UI.sync(); kick();
   };
   function listHtml() {
@@ -545,23 +644,16 @@
   UI.sync = () => {
     const sec = $("crSec"); if (!sec) return;
     const ev = T.player && T.player.ev, cams = ev && ev.cams ? T.GRID.filter((c) => ev.cams.includes(c)) : [];
-    const sel = $("crCam");
-    const sig = cams.join();
-    if (sel.dataset.sig !== sig) {
-      sel.innerHTML = cams.map((c) => '<option value="' + c + '">' + esc(camName(c)) + "</option>").join(""); sel.dataset.sig = sig;
-      if (!cams.includes(S.cam)) S.cam = cams.includes("back") ? "back" : cams[0] || null;
-    }
-    if (S.cam) sel.value = S.cam;
-    sel.disabled = !!S.editId;
+    if (S.cam && !cams.includes(S.cam)) S.cam = null;
     document.querySelectorAll("#crShape button").forEach((b) => { b.setAttribute("aria-pressed", String(b.dataset.v === S.shape)); b.classList.toggle("on", b.dataset.v === S.shape); });
     document.querySelectorAll("#crMode button").forEach((b) => { b.setAttribute("aria-pressed", String(b.dataset.v === S.mode)); b.classList.toggle("on", b.dataset.v === S.mode); });
     $("crTimes").hidden = S.whole;
     $("crTrim").hidden = !(T.ui && T.ui.activeSegs && T.ui.activeSegs().length);
-    $("crDraw").textContent = S.drawing ? "Drawing… drag on the picture" : S.draft ? "Draw again" : "Draw region";
+    $("crDraw").textContent = S.pick ? "Tap a camera…" : S.drawing ? "Drawing… drag on the picture" : S.draft ? "Draw again" : "Draw region";
     $("crDraw").disabled = !ev || !cams.length;
     $("crSave").disabled = !S.draft || S.drawing;
     $("crSave").textContent = S.editId ? "Save changes" : "Save region";
-    $("crCancel").hidden = !(S.drawing || S.draft || S.editId);
+    $("crCancel").hidden = !(S.drawing || S.pick || S.draft || S.editId);
     syncBar();
     const n = G.list.length, on = G.list.filter((r) => r.on).length;
     $("crCount").textContent = n ? "(" + n + ")" : "";
@@ -572,13 +664,12 @@
     // Export dialog note
     const note = $("exportRegionsNote");
     if (note) { note.hidden = !on; note.textContent = on ? on + " custom region" + (on === 1 ? "" : "s") + " will be hidden in the export (Redact ▸ Custom regions)." : ""; }
-    if (S.drawing || S.draft || S.editId || S.peek) kick();
+    if (S.drawing || S.pick || S.draft || S.editId || S.peek) kick();
   };
   function bind() {
     const sec = $("crSec");
     sec.addEventListener("toggle", () => { if (!sec.open) sec.open = true; });   // the section never folds away
     const sm = sec.querySelector("summary"); if (sm) sm.addEventListener("click", (e) => e.preventDefault());
-    $("crCam").addEventListener("change", () => { S.cam = $("crCam").value; S.draft = null; UI.sync(); });
     $("crShape").addEventListener("click", (e) => { const b = e.target.closest("button"); if (!b) return; S.shape = b.dataset.v; if (!S.editId) S.draft = null; if (S.drawing) UI.draw(); UI.sync(); });
     $("crMode").addEventListener("click", (e) => { const b = e.target.closest("button"); if (!b) return; S.mode = b.dataset.v; UI.sync(); });
     $("crWhole").addEventListener("change", () => {
@@ -589,7 +680,7 @@
     $("crFromNow").addEventListener("click", () => { $("crFrom").value = fmt(T.player.time || 0); });
     $("crToNow").addEventListener("click", () => { $("crTo").value = fmt(T.player.time || 0); });
     $("crTrim").addEventListener("click", () => { try { const r = T.ui.range(); $("crFrom").value = fmt(r[0]); $("crTo").value = fmt(r[1]); } catch (_) {} });
-    $("crDraw").addEventListener("click", UI.draw);
+    $("crDraw").addEventListener("click", () => UI.draw());
     $("crSave").addEventListener("click", UI.save);
     $("crCancel").addEventListener("click", UI.cancel);
     $("crList").addEventListener("click", (e) => {
@@ -624,9 +715,8 @@
     sec.className = "cr-sec us-t-redact"; sec.id = "crSec"; sec.open = true;   // always open: no accordion click needed (redact-button)
     sec.innerHTML =
       '<summary>Custom regions <span id="crCount"></span></summary>' +
-      '<p class="cr-hint">For what automatic redaction misses, like a curved plate. Pick a camera, press <b>Draw region</b>, drag on the picture. Regions stay put on the picture and are burned into the export.</p>' +
+      '<p class="cr-hint">For what automatic redaction misses, like a curved plate. Press <b>Draw region</b>, tap the camera you want, then drag over the area. Regions stay put on the picture and are burned into the export.</p>' +
       '<div class="cr-grid">' +
-      '<label class="cr-f"><span>Camera</span><select id="crCam" class="select small" aria-label="Camera for the region"></select></label>' +
       '<div class="cr-f"><span>Shape</span><div class="seg" id="crShape" role="group" aria-label="Shape"><button type="button" data-v="rect" aria-pressed="true">Box</button><button type="button" data-v="free" aria-pressed="false">Freehand</button></div></div>' +
       '<div class="cr-f"><span>Hide with</span><div class="seg" id="crMode" role="group" aria-label="How to hide"><button type="button" data-v="blur" aria-pressed="true" title="A strong blur: the text can\'t be read">Blur</button><button type="button" data-v="remove" aria-pressed="false" title="A solid black shape">Remove (black)</button></div></div>' +
       '<div class="cr-f"><span>When</span><label class="cr-chk"><input type="checkbox" id="crWhole" checked> Whole clip</label></div>' +
@@ -673,7 +763,7 @@
         T.on("layout", () => { if (R && R.paintSoon && G.any()) R.paintSoon(); kick(); });   // only with regions: with none the viewer paints exactly as before
       }
       window.addEventListener("resize", () => { if (R && R.paintSoon && G.any()) R.paintSoon(); kick(); });
-      window.addEventListener("keydown", (e) => { if (e.key === "Escape" && (S.drawing || S.draft || S.editId) && !(e.target.matches && e.target.matches("input, textarea, select"))) { UI.cancel(); } });
+      window.addEventListener("keydown", (e) => { if (e.key === "Escape" && (S.drawing || S.pick || S.draft || S.editId) && !(e.target.matches && e.target.matches("input, textarea, select"))) { UI.cancel(); } });
       G.load(); UI.sync();
       G.ready = true;
     } catch (err) { G.error = String((err && err.message) || err); console.warn("[custom-redact] UI failed; regions still burn in:", err); }
