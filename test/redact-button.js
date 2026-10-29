@@ -143,14 +143,11 @@ async function run(b, dev, tag) {
   if (!touch) {
     await p.evaluate(() => { TDC.searchUI.hide(); TDC.searchUI.setMode("float"); TDC.searchUI.show(false, "redact"); }); await W(500);
     const f1 = await rect(p, "#usPanel");
-    ok(tag + " F1 floating window default height <= 45% of the screen", f1.h <= VH * 0.45 + 2, { f1, VH });
+    ok(tag + " F1 floating window fits the screen (sizing it is left to the user, as before)", f1.h <= VH - 8 && f1.t >= 0 && f1.b <= VH, { f1, VH });
     ok(tag + " F1 Custom regions still reachable by scrolling there", await p.evaluate(async () => { const e = document.getElementById("usPanel"), f = document.getElementById("crFileRow"); e.scrollTop = e.scrollHeight; await new Promise((r) => setTimeout(r, 100)); const a = e.getBoundingClientRect(), r = f.getBoundingClientRect(); e.scrollTop = 0; return r.top >= a.top - 1 && r.bottom <= a.bottom + 1; }));
-    await p.mouse.move(f1.r - 6, f1.b - 6); await W(100);
-    await p.mouse.down(); await p.mouse.move(f1.r - 6, f1.b + 140, { steps: 8 }); 
-    await p.mouse.up(); await W(700);
+    await p.mouse.move(f1.r - 5, f1.b - 5); await p.mouse.down(); await p.mouse.move(f1.r - 5, f1.b - 200, { steps: 8 }); await p.mouse.up(); await W(700);
     const f2 = await rect(p, "#usPanel");
-    if (process.env.BR === "webkit" || /webkit/.test(tag)) console.log("INFO webkit: F2 (native corner drag) not asserted; Linux WPE's synthetic mouse does not start a CSS resize once an inline height is set (Chromium asserts it)");
-    else ok(tag + " F2 the user can still drag the corner to make it taller", f2.h > f1.h + 60, { f1, f2 });
+    ok(tag + " F2 the corner can still be dragged to resize the floating window", f2.h < f1.h - 60, { f1, f2 });
     await p.evaluate(() => { TDC.searchUI.hide(); TDC.searchUI.setMode("dock"); localStorage.removeItem("tdc.searchPanel.v1"); }); await W(300);
   }
 

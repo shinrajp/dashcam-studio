@@ -84,8 +84,8 @@
     const v = view();
     if (W.w) p.style.width = Math.min(W.w, v.w - 2 * M) + "px";
     if (W.h) p.style.height = Math.min(W.h, v.h - 2 * M) + "px";
-    // never taller than the visible area (the window scrolls inside). Until the user sizes it, about 45% of the screen so it never hides the video (redact-button)
-    p.style.maxHeight = Math.max(150, Math.round(W.h ? v.h - 2 * M : Math.min(v.h - 2 * M, Math.max(260, v.h * 0.45)))) + "px";
+    // never taller than the visible area (the window scrolls inside). The 45% cap (redact-button) is for the docked panel and the phone sheet; a floating window the user places and sizes is left as before
+    p.style.maxHeight = Math.max(150, Math.round(v.h - 2 * M)) + "px";
     const pw = p.offsetWidth || 360, ph = p.offsetHeight || 200;
     let x = W.x == null ? v.w - pw - 16 : W.x, y = W.y == null ? 70 : W.y;
     x = Math.max(v.l + M, Math.min(x, v.l + v.w - pw - M));
@@ -180,15 +180,6 @@
       const step = e.shiftKey ? 60 : 12;
       U.moveBy(k[0] * step, k[1] * step);
     });
-    // hovering over / grabbing the resize corner lifts the default 45% height cap, so the user can still make the window taller (redact-button).
-    // It has to happen on hover too: WebKit ignores a style change made after the drag has started.
-    const liftCap = (e) => {
-      if (W.mode !== "float" || W.pinned || W.h || e.target !== p) return;
-      const r = p.getBoundingClientRect();
-      if (e.clientX > r.right - 22 && e.clientY > r.bottom - 22) { W.h = Math.round(r.height); placeFloat(); }
-    };
-    p.addEventListener("pointermove", liftCap, true);
-    p.addEventListener("pointerdown", liftCap, true);
     // user resize (CSS resize handle on the floating window): remember the size
     if (typeof ResizeObserver === "function") {
       let t = 0;
