@@ -41,3 +41,6 @@ body.map-float .float-panel.map-panel.map-floating { z-index: 28; }
 body.cr-drawing .stage-bar.pill-wrap:not(.bar-floating), body.cr-drawing .stage-bar.pill-wrap:not(.bar-floating) * { pointer-events: none !important; }
 body.cr-drawing .stage-bar.pill-wrap:not(.bar-floating) { opacity: 0.25; transition: opacity .15s; }
 @media (prefers-reduced-motion: reduce) { body.cr-drawing .stage-bar.pill-wrap { transition: none; } }
+/* ui-glass-6: a floating map you drag down to the window bottom passes behind the desktop transport bar (its grip stays above it),
+   so the timeline and buttons stay usable; the Settings drawer (30), bubble, dialogs and toasts stay on top */
+body.map-float:not(.mbar) .transport { position: relative; z-index: 29; }

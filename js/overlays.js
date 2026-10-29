@@ -106,10 +106,23 @@
   }
   /** spans the floating map can move in (left / top ranges) */
   const floatSpan = (w, h, floor) => ({ x0: FM, y0: FM, sx: Math.max(0, vw() - w - 2 * FM), sy: Math.max(0, floor - h - 2 * FM) });
+  /** ui-glass-6: a map you place yourself may go further down than the floor, to the bottom of the window: only its grip (top left) has to stay
+   *  above the bottom controls (transport bar / phone bar), so it can always be picked up again. Automatic placement still keeps above the floor. */
+  const GRIP_KEEP = 44;
+  O.deepFloor = () => {
+    const H = vh(); let f = H;
+    for (const id of ["transport", "mbBar"]) {
+      const e = T.$(id); if (!e || e.hidden || !e.getClientRects().length) continue;
+      const r = e.getBoundingClientRect(); if (r.height > 1 && r.top > H * 0.4 && r.top < f) f = r.top;
+    }
+    return f;
+  };
+  const deepMaxY = (s) => Math.max(s.y0 + s.sy, O.deepFloor() - GRIP_KEEP);
   function floatXY(w, h, floor) {
     const f = T.prefs.mapFloat || {}, s = floatSpan(w, h, floor);
     const fx = f.fx >= 0 ? f.fx : 1, fy = f.fy >= 0 ? f.fy : 0.08;   // default: top right
-    return { x: s.x0 + T.clamp(fx, 0, 1) * s.sx, y: s.y0 + T.clamp(fy, 0, 1) * s.sy };
+    const below = f.pin && f.below > 0 ? Math.min(f.below, deepMaxY(s) - s.y0 - s.sy) : 0;   // px you placed it below the floor
+    return { x: s.x0 + T.clamp(fx, 0, 1) * s.sx, y: s.y0 + T.clamp(fy, 0, 1) * s.sy + Math.max(0, below) };
   }
   /** ui-glass-5: the floating map never covers the camera bar while that sits on (or beside) the video: it steps above or below the bar
    *  (else beside it), whichever is closer and fits. While the map is being dragged it goes where the finger is; it is placed again on drop. */
@@ -126,11 +139,17 @@
   }
   function setFloatPos(p, x, y, save, live) {
     const s = floatSpan(p.w, p.h, O.floatFloor());
-    x = T.clamp(x, s.x0, s.x0 + s.sx); y = T.clamp(y, s.y0, s.y0 + s.sy);
+    const deep = live || save || (p.id === "map" && T.prefs.mapFloat && T.prefs.mapFloat.pin);   // placed by you: down to the window bottom, grip kept reachable
+    x = T.clamp(x, s.x0, s.x0 + s.sx); y = T.clamp(y, s.y0, deep ? deepMaxY(s) : s.y0 + s.sy);
     // the map steps clear of the docked camera bar by itself, but a spot you chose (drag / keys: pin) is kept; the bar stays on top there
     if (!live && !save && p.id === "map" && !(T.prefs.mapFloat && T.prefs.mapFloat.pin)) { const c = clearOfBar(x, y, p.w, p.h, s); x = c.x; y = c.y; }
     p.el.style.transform = `translate(${Math.round(x)}px, ${Math.round(y)}px)`;
-    if (save) { T.prefs.mapFloat = { fx: s.sx ? +((x - s.x0) / s.sx).toFixed(4) : 0, fy: s.sy ? +((y - s.y0) / s.sy).toFixed(4) : 0, pin: 1 }; T.savePrefs(); }
+    if (save) {
+      const below = Math.round(y - s.y0 - s.sy);
+      T.prefs.mapFloat = { fx: s.sx ? +((x - s.x0) / s.sx).toFixed(4) : 0, fy: below > 0 ? 1 : s.sy ? +((y - s.y0) / s.sy).toFixed(4) : 0, pin: 1 };
+      if (below > 0) T.prefs.mapFloat.below = below;
+      T.savePrefs();
+    }
     return { x, y };
   }
   /** dock spot = the right edge of the video area, where the docked map sits (body.map-aside puts it there) */
@@ -189,7 +208,7 @@
         const r = p.el.getBoundingClientRect(), s = floatSpan(p.w, p.h, O.floatFloor());
         let x = r.left, y = r.top; const SNAP = 18;
         if (x - s.x0 < SNAP) x = s.x0; else if (s.x0 + s.sx - x < SNAP) x = s.x0 + s.sx;
-        if (y - s.y0 < SNAP) y = s.y0; else if (s.y0 + s.sy - y < SNAP) y = s.y0 + s.sy;
+        if (y - s.y0 < SNAP) y = s.y0; else if (Math.abs(s.y0 + s.sy - y) < SNAP) y = s.y0 + s.sy;   // ui-glass-6: further down than the floor is kept (no snap back)
         setFloatPos(p, x, y, true); T.savePrefs();
       } else if (e.type === "pointerup") {
         const now = performance.now();
