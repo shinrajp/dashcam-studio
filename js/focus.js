@@ -443,7 +443,13 @@
   function fitPill() {
     const bar = $("stageBar");
     if (!bar || bar.hidden) return;
-    bar.classList.remove("pill-compact", "pill-wrap");
+    const w0 = bar.offsetWidth, h0 = bar.offsetHeight;
+    shapePill(bar);
+    // the pill changed size (another row, the focus-view tools): a floating map steps clear of it again (overlays.js clearOfBar)
+    if ((bar.offsetWidth !== w0 || bar.offsetHeight !== h0) && T.prefs.mapDock === "float" && T.overlays && T.overlays.invalidate) T.overlays.invalidate();
+  }
+  function shapePill(bar) {
+    bar.classList.remove("pill-compact", "pill-wrap", "pill-scroll");
     bar.style.width = bar.style.height = "";
     const fl = F.barFloating();
     const kids = () => [...bar.children].filter((c) => c.id !== "barHint" && c.getClientRects().length);
@@ -456,9 +462,17 @@
     const cs = getComputedStyle(bar), padH = parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight) + 2, g = gapOf("columnGap");
     const sw = $("camSwitch"), rest = kids().filter((c) => c !== sw);
     const restW = rest.reduce((a, c) => a + c.offsetWidth, 0) + g * Math.max(0, rest.length - 1);
-    const maxW = fl ? winW() - 2 * FM : stage().clientWidth - 16, camsW = sw.scrollWidth;   // measured on one line, before wrapping
+    const camsW = sw.scrollWidth;   // measured on one line, before wrapping
+    const dock = $("barDock"), room = fl ? winW() - 2 * FM : F.barDocked() && dock ? dock.clientWidth - 8 : stage().clientWidth - 16;
+    // never narrower than the cameras' row (a video area that is hidden or still being laid out must not fold the pill into a column)
+    const maxW = Math.max(room, Math.min(winW() - 2 * FM, camsW + padH));
     bar.classList.add("pill-wrap");
     bar.style.width = Math.ceil(Math.min(maxW, Math.max(camsW, restW) + padH)) + "px";
+    // a very small video area (a panel open beside it, a split-screen window): if even two rows would cover most of the video, keep one
+    // short row and let the cameras scroll there instead (the old bar), rather than a pill taller than the video
+    if (!fl && bar.offsetHeight > Math.max(110, (F.barDocked() && dock ? 1e9 : stage().clientHeight * 0.6))) {
+      bar.classList.remove("pill-wrap"); bar.style.width = ""; bar.classList.add("pill-scroll");
+    }
   }
   F.fitPill = fitPill;
   function syncBarDock() {

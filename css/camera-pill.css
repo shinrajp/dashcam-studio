@@ -16,6 +16,9 @@
 }
 .stage-bar.pill-wrap { flex-wrap: wrap; justify-content: center; row-gap: 4px; border-radius: 24px; }
 .stage-bar.pill-wrap .cam-switch { order: -1; flex: 1 0 100%; justify-content: center; flex-wrap: wrap; }
+/* fallback for a very small video area only (fitPill): one short row, the cameras scroll as before */
+.stage-bar.pill-scroll { max-width: calc(100% - 16px); }
+.stage-bar.pill-scroll .cam-switch { flex: 0 1 auto; min-width: 0; overflow-x: auto; }
 /* floating: window level, above the video, the floating map and the docked panels, under the Settings drawer and dialogs */
 .stage-bar.bar-floating { position: fixed; transform: none; z-index: 29; max-width: calc(100vw - 16px); box-shadow: 0 18px 44px rgba(0,0,0,.6), 0 2px 8px rgba(0,0,0,.35); }
 html.glass .stage-bar.bar-floating { box-shadow: var(--g-rim, 0 0 0 transparent), 0 18px 44px rgba(0,0,0,.6); }
