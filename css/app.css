@@ -1086,6 +1086,28 @@ body.cr-drawing .stage-bar button, body.cr-drawing .stage-bar select, body.cr-dr
 .cr-grip:active, .cr-grip.on { cursor: grabbing; color: #ffd27a; }
 .cr-grip svg { width: 14px; height: 22px; fill: currentColor; pointer-events: none; }
 @media (max-width: 440px) { .cr-bar { padding: 3px 4px; gap: 2px; } .cr-bar .btn { padding: 0 7px; font-size: 12px; } .cr-bar-btns { gap: 3px; } .cr-grip { width: 22px; } }
+/* ui-glass-7: the Redact tray (the draw bar rebuilt like the iOS markup pen tray). One capsule over the video, click-through between its buttons;
+   it wraps to two rows of icons on phones; 44 px targets on touch; it rises and springs in (a fade with Reduce motion). */
+.cr-tray { flex-wrap: wrap; justify-content: center; gap: 4px; padding: 4px 6px; border-radius: 22px; }
+.cr-tray .cr-bar-btns { display: contents; }   /* one flat row of items, so a phone wraps it into two even rows */
+.cr-tray .cr-tb { display: inline-flex; align-items: center; gap: 5px; }
+.cr-ico { width: 18px; height: 18px; flex: 0 0 auto; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; pointer-events: none; }
+.cr-tray .cr-io { padding: 0 8px; }
+.cr-tray .cr-io .t { display: none; }
+.cr-tray .cr-tseg { display: inline-flex; padding: 2px; gap: 0; border-radius: 999px; background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.12); pointer-events: none; }
+.cr-tray .cr-tseg .cr-tb { pointer-events: auto; min-height: 36px; background: transparent; border: 0; color: #c9d1dc; border-radius: 999px; padding: 0 9px; box-shadow: none; }
+.cr-tray .cr-tseg .cr-tb.on { background: rgba(255,210,122,.2); color: #ffe3a3; box-shadow: inset 0 0 0 1px rgba(230,180,80,.7); }
+.cr-tray .btn:disabled { opacity: .38; cursor: default; }
+.cr-tray #crBarMove.on { background: rgba(255,210,122,.22); color: #ffe3a3; border-color: #e6b450; }
+.cr-tray .cr-done { font-weight: 700; }
+.cr-tray.moving { border-color: #ffd27a; }
+.cr-tray:not([hidden]) { animation: crRise .34s cubic-bezier(.2, .9, .3, 1.25); }
+@keyframes crRise { from { opacity: 0; transform: translateY(16px) scale(.96); } to { opacity: 1; transform: none; } }
+@keyframes crFade { from { opacity: 0; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .cr-tray:not([hidden]) { animation: crFade .18s ease-out; } }
+@media (max-width: 760px), (pointer: coarse) and (max-height: 500px) { .cr-tray .cr-tb:not(.cr-done) .t { display: none; } .cr-tray .cr-tb { padding: 0 9px; min-width: 40px; justify-content: center; } .cr-tray .cr-tseg .cr-tb { padding: 0 8px; min-width: 38px; } }
+@media (max-width: 440px) { .cr-tray { gap: 3px; padding: 4px 5px; } .cr-tray .cr-bar-btns { gap: 3px; } }
+@media (pointer: coarse) { .cr-tray .btn, .cr-tray .cr-tseg .cr-tb, .cr-tray .cr-grip { min-height: 44px; } .cr-tray .cr-tb, .cr-tray .cr-tseg .cr-tb { min-width: 44px; } .cr-tray .cr-grip { min-width: 30px; } }
 
 /* ---------- redact-button: one panel, two tabs (Find / Redact), a Redact button beside Search ---------- */
 .us-headlbl { display: none; }
