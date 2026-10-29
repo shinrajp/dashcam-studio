@@ -155,7 +155,7 @@
     fboW = w; fboH = h;
   }
   canvas.addEventListener('webglcontextlost', function (e) { e.preventDefault(); glOK = false; applyMode(); showNote('GPU context lost: CSS glass until it returns'); });
-  canvas.addEventListener('webglcontextrestored', function () { initGL(); applyMode(); });
+  canvas.addEventListener('webglcontextrestored', function () { initGL(); reallocs = 0; layoutDirty = true; applyMode(); showNote('GPU context restored', 1500); });
 
   /* ---------------- video ---------------- */
   function setSix(on) {
@@ -205,44 +205,77 @@
     P(cam, (W - cam.offsetWidth) / 2, phone && H >= 500 ? 64 : 18);
     P(fan, W - 60 - (phone ? 16 : 28), Math.max(290, tly - 60 - (phone && H >= 500 ? 64 : 16)));
   }
-  function draggable(el, handleTap) {
-    var sx, sy, ox, oy, id = null, moved = false;
+  // Drag vs click: no preventDefault and no pointer capture on pointerdown, so a click always reaches the
+  // button under the pointer (mouse, pen, touch, keyboard). A drag starts only after 6 px of movement; the
+  // click that follows a drag is swallowed. (Capturing on pointerdown retargeted pointerup/click to the
+  // capsule, so Mac Safari never saw a button click.)
+  var dragging = null;
+  function draggable(el) {
     el.addEventListener('pointerdown', function (e) {
-      id = e.pointerId; moved = false; sx = e.clientX; sy = e.clientY; ox = el.offsetLeft; oy = el.offsetTop;
-      try { el.setPointerCapture(id); } catch (x) {}
-      el.style.cursor = 'grabbing';
+      if (e.button > 0 || e.target.closest('.track, input, select, textarea')) return;
+      el._dragEnd = 0;
+      dragging = { el: el, id: e.pointerId, x: e.clientX, y: e.clientY, ox: el.offsetLeft, oy: el.offsetTop, moved: false };
     });
-    el.addEventListener('pointermove', function (e) {
-      if (e.pointerId !== id) return;
-      var dx = e.clientX - sx, dy = e.clientY - sy;
-      if (!moved && dx * dx + dy * dy < 36) return;
-      moved = true; el.dataset.moved = '1';
-      var S = stageWH();
-      var x = Math.max(-el.offsetWidth / 2, Math.min(S.W - el.offsetWidth / 2, ox + dx));
-      var y = Math.max(0, Math.min(S.H - 40, oy + dy));
-      place(el, x, y);
-    });
-    function up(e) {
-      if (e.pointerId !== id) return; id = null; el.style.cursor = '';
-      if (!moved && handleTap) handleTap(e);
-    }
-    el.addEventListener('pointerup', up); el.addEventListener('pointercancel', function () { id = null; });
+    el.addEventListener('click', function (e) {
+      // swallow only the pointer click that ends a drag (keyboard clicks have detail 0)
+      if (e.detail !== 0 && el._dragEnd && performance.now() - el._dragEnd < 400) { el._dragEnd = 0; e.stopPropagation(); e.preventDefault(); }
+    }, true);
   }
-  draggable($('cam'), function (e) {
-    var b = e.target.closest('button'); if (!b) return;
-    var bs = Array.prototype.slice.call($('cam').querySelectorAll('button')), i = bs.indexOf(b);
-    if (i >= 0 && i < 5) bs.forEach(function (x, j) { if (j < 5) x.classList.toggle('on', x === b); });
+  addEventListener('pointermove', function (e) {
+    var d = dragging; if (!d || e.pointerId !== d.id) return;
+    var dx = e.clientX - d.x, dy = e.clientY - d.y;
+    if (!d.moved) {
+      if (dx * dx + dy * dy < 36) return;
+      d.moved = true; d.el.dataset.moved = '1'; d.el.classList.add('dragging');
+      try { d.el.setPointerCapture(d.id); } catch (x) {} // only once it is really a drag
+    }
+    var S = stageWH(), el = d.el;
+    place(el, Math.max(-el.offsetWidth / 2, Math.min(S.W - el.offsetWidth / 2, d.ox + dx)), Math.max(0, Math.min(S.H - 40, d.oy + dy)));
   });
-  draggable($('tg'), function (e) { var b = e.target.closest('button'); if (b) b.classList.toggle('on'); });
-  draggable($('tl'), function (e) {
-    if (e.target.closest('#playBtn')) { if (videos[0].paused) playAll(); else pauseAll(); return; }
-    var tr = e.target.closest('.track');
-    if (tr && videos[0].duration) { var r = tr.getBoundingClientRect(); var f = (e.clientX - r.left) / r.width; videos.forEach(function (v, i) { try { v.currentTime = ((f * v.duration) + i * 2) % v.duration; } catch (x) {} }); }
+  function dragEnd(e) {
+    var d = dragging; if (!d || e.pointerId !== d.id) return;
+    dragging = null; d.el.classList.remove('dragging');
+    if (d.moved) d.el._dragEnd = performance.now();
+  }
+  addEventListener('pointerup', dragEnd); addEventListener('pointercancel', dragEnd);
+  ['cam', 'tg', 'tl', 'fan'].forEach(function (id) { draggable($(id)); });
+
+  // Buttons: plain click handlers (fire for mouse, touch, pen, Enter and Space)
+  var camBtns = Array.prototype.slice.call($('cam').querySelectorAll('button')).slice(0, 5);
+  camBtns.forEach(function (b) { b.addEventListener('click', function () { camBtns.forEach(function (x) { x.classList.toggle('on', x === b); x.setAttribute('aria-pressed', x === b); }); }); });
+  Array.prototype.forEach.call($('tg').querySelectorAll('button'), function (b) {
+    b.setAttribute('aria-pressed', b.classList.contains('on'));
+    b.addEventListener('click', function () { b.setAttribute('aria-pressed', b.classList.toggle('on')); });
+  });
+  $('playBtn').addEventListener('click', function () { if (videos[0].paused) playAll(); else pauseAll(); });
+  $('tl').querySelector('.track').addEventListener('click', function (e) {
+    if (!videos[0].duration) return;
+    var r = this.getBoundingClientRect(), f = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width));
+    videos.forEach(function (v, i) { try { v.currentTime = ((f * v.duration) + i * 2) % v.duration; } catch (x) {} });
   });
   var fanOpen = true;
-  draggable($('fan'), function (e) {
-    if (e.target.closest('#bub')) { fanOpen = !fanOpen; $('fan').querySelectorAll('.sat').forEach(function (s) { s.style.display = fanOpen ? '' : 'none'; }); $('bub').querySelector('svg').style.transform = fanOpen ? 'rotate(45deg)' : 'none'; }
-  });
+  function setFan(open) {
+    fanOpen = open;
+    Array.prototype.forEach.call($('fan').querySelectorAll('.sat'), function (s) { s.style.display = open ? '' : 'none'; });
+    $('bub').querySelector('svg').style.transform = open ? 'rotate(45deg)' : 'none';
+    $('bub').setAttribute('aria-expanded', open); $('bub').setAttribute('aria-label', open ? 'Close tools' : 'Open tools');
+    if (!open) setEvents(false);
+  }
+  $('bub').addEventListener('click', function () { setFan(!fanOpen); });
+  function setEvents(open) {
+    var ev = $('events'); ev.hidden = !open; $('satEvents').setAttribute('aria-expanded', open);
+    if (open) { // sit to the left of the fan, inside the stage
+      var f = $('fan'), S = stageWH();
+      ev.style.left = Math.max(8, Math.min(S.W - ev.offsetWidth - 8, f.offsetLeft - ev.offsetWidth - 110)) + 'px';
+      ev.style.top = Math.max(8, Math.min(S.H - ev.offsetHeight - 8, f.offsetTop - ev.offsetHeight - 12)) + "px";
+    }
+  }
+  $('satEvents').addEventListener('click', function () { setEvents($('events').hidden); });
+  $('evClose').addEventListener('click', function () { setEvents(false); });
+  $('satSettings').addEventListener('click', function () { $('lab').classList.toggle('closed'); });
+  $('satSearch').addEventListener('click', function () { showNote('Search: not part of this glass demo', 1800); });
+  $('satRedact').addEventListener('click', function () { showNote('Redact: not part of this glass demo', 1800); });
+  addEventListener('keydown', function (e) { if (e.key === 'Escape') { if (!$('events').hidden) setEvents(false); else if (fanOpen) setFan(false); } });
 
   /* ---------------- lab panel ---------------- */
   var lab = $('lab');
@@ -281,14 +314,21 @@
   /* ---------------- render ---------------- */
   var glassEls = Array.prototype.slice.call(document.querySelectorAll('.gc'));
   // Backing store comes from the canvas's own CSS box (same box as the controls), at up to 3x, capped in pixels.
-  var MAXPX = 4.5e6;
-  function resize() {
+  // Called only from the rAF callback, right before drawing, so a reallocated (cleared) canvas is always redrawn in
+  // the same frame. While the size/zoom keeps changing, the old backing store is kept (the browser scales it) and
+  // only reallocated once the target has been stable for SETTLE ms. Mapping uses the real ratio, so alignment holds.
+  var MAXPX = 4.5e6, SETTLE = 160, tgtW = 0, tgtH = 0, tgtSince = 0, unstableUntil = 0, reallocs = 0;
+  function resize(now) {
     var r = canvas.getBoundingClientRect(); if (r.width < 1 || r.height < 1) return;
     var d = Math.min(window.devicePixelRatio || 1, 3);
     if (r.width * r.height * d * d > MAXPX) d = Math.sqrt(MAXPX / (r.width * r.height));
     var w = Math.round(r.width * d), h = Math.round(r.height * d);
-    if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
-    cRect = r; sx = w / r.width; sy = h / r.height; dpr = (sx + sy) / 2;
+    if (w !== tgtW || h !== tgtH) { tgtW = w; tgtH = h; tgtSince = now; unstableUntil = now + 1200; }
+    var first = !reallocs;
+    if ((canvas.width !== w || canvas.height !== h) && (first || now - tgtSince >= SETTLE)) {
+      canvas.width = w; canvas.height = h; reallocs++; unstableUntil = now + 1200;
+    }
+    cRect = r; sx = canvas.width / r.width; sy = canvas.height / r.height; dpr = (sx + sy) / 2;
   }
   function radiusPx(el, r) { // computed border-radius in CSS px, clamped like CSS does for a capsule
     var v = getComputedStyle(el).borderTopLeftRadius || '0', n = parseFloat(v) || 0;
@@ -367,14 +407,17 @@
   }
 
   /* ---------------- loop + FPS monitor ---------------- */
-  var last = 0, acc = 0, frames = 0, cpu = 0, worst = 0, winStart = 0, slowSecs = 0, nGlass = 0, stats = window.__glassStats = { fps: 0, frameMs: 0, cpuMs: 0, worstMs: 0, glass: 0, samples: [] };
+  var nFrames = 0, layoutDirty = true, winUnstable = false, last = 0, acc = 0, frames = 0, cpu = 0, worst = 0, winStart = 0, slowSecs = 0, nGlass = 0, stats = window.__glassStats = { fps: 0, frameMs: 0, cpuMs: 0, worstMs: 0, glass: 0, samples: [] };
   function frame(now) {
     requestAnimationFrame(frame);
     if (!winStart) { winStart = now; last = now; }
     var dt = now - last; last = now;
     if (dt > 0 && dt < 1000) { acc += dt; frames++; worst = Math.max(worst, dt); }
-    resize();
+    if (now < unstableUntil) winUnstable = true;
+    if (layoutDirty) { layoutDirty = false; layout(); }
+    resize(now);
     var t0 = performance.now();
+    nFrames++;
     if (glOK) { nGlass = render(); if (Q.has('finish')) gl.finish(); }
     cpu += performance.now() - t0;
     var vd = videos[0].duration;
@@ -391,24 +434,33 @@
         'JS render  ' + stats.cpuMs.toFixed(2) + ' ms\n' +
         'mode       ' + (mqT.matches ? 'solid (reduced transparency)' : state.refr && glOK ? 'SDF refraction, ' + nGlass + ' glass' : 'CSS frosted') + '\n' +
         'videos     ' + videos.length + (videos[0].paused ? ' (paused)' : '') + '\n' +
-        'canvas     ' + canvas.width + '×' + canvas.height + ' @' + dpr.toFixed(2) + 'x (dpr ' + (window.devicePixelRatio || 1) + ')';
+        'canvas     ' + canvas.width + '×' + canvas.height + ' @' + dpr.toFixed(2) + 'x (dpr ' + (window.devicePixelRatio || 1) + ')\n' + 'reallocs   ' + reallocs;
       var playing = !videos[0].paused && !document.hidden;
-      if (state.auto && state.refr && glOK && playing && stats.fps < 40) {
-        if (++slowSecs >= 2) { setRefr(false); slowSecs = 0; showNote('Running below 40 fps: switched to CSS frosted glass. Turn Refraction back on in the lab panel.', 7000); }
+      // resize/zoom/reallocation seconds don't count; needs 3 clean slow seconds in a row; never auto re-enables (no flapping)
+      if (winUnstable) { /* skip this window */ }
+      else if (state.auto && state.refr && glOK && playing && stats.fps < 40) {
+        if (++slowSecs >= 3) { setRefr(false); slowSecs = 0; showNote('Running below 40 fps: switched to CSS frosted glass. Turn Refraction back on in the lab panel.', 7000); }
       } else slowSecs = 0;
-      acc = 0; frames = 0; cpu = 0; worst = 0; winStart = now;
+      acc = 0; frames = 0; cpu = 0; worst = 0; winStart = now; winUnstable = false;
     }
   }
 
   initGL();
   applyMode();
   layout();
-  var relayout = function () { if (window.scrollX || window.scrollY) window.scrollTo(0, 0); layout(); };
-  addEventListener('resize', relayout); addEventListener('orientationchange', function () { setTimeout(relayout, 50); });
-  if (window.visualViewport) { visualViewport.addEventListener('resize', relayout); visualViewport.addEventListener('scroll', relayout); }
-  if (window.ResizeObserver) new ResizeObserver(relayout).observe(stage);
-  addEventListener('scroll', function () { window.scrollTo(0, 0); }, { passive: true });
-  window.__glassDbg = { gl: function () { return gl; }, scale: function () { return [sx, sy]; }, rect: function () { return cRect; } };
+  // Event handlers only mark state dirty; measuring, any canvas reallocation and drawing happen in the next rAF.
+  // (No scrollTo here: in Safari scrollX/Y track the pinch-zoom visual viewport, and snapping it back made the page jump.)
+  var markDirty = function () { layoutDirty = true; unstableUntil = performance.now() + 1200; };
+  addEventListener('resize', markDirty); addEventListener('orientationchange', markDirty);
+  if (window.visualViewport) { visualViewport.addEventListener('resize', markDirty); visualViewport.addEventListener('scroll', function () { unstableUntil = performance.now() + 1200; }); }
+  if (window.ResizeObserver) new ResizeObserver(markDirty).observe(stage);
+  (function watchDpr() { // browser zoom (Cmd +/-) changes devicePixelRatio
+    if (!window.matchMedia) return;
+    var mq = matchMedia('(resolution: ' + (window.devicePixelRatio || 1) + 'dppx)'), done = false;
+    var h = function () { if (done) return; done = true; if (mq.removeEventListener) mq.removeEventListener('change', h); else if (mq.removeListener) mq.removeListener(h); markDirty(); watchDpr(); };
+    if (mq.addEventListener) mq.addEventListener('change', h); else if (mq.addListener) mq.addListener(h);
+  })();
+  window.__glassDbg = { frames: function () { return nFrames; }, reallocs: function () { return reallocs; }, gl: function () { return gl; }, scale: function () { return [sx, sy]; }, rect: function () { return cRect; } };
   body.classList.add('needtap');
   loadSrc(function (u) {
     srcURL = u; videos[0].src = u;

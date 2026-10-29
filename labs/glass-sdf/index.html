@@ -28,14 +28,20 @@
     <span class="spd">1×</span>
   </div>
   <div id="fan">
-    <div class="sat" style="--x:0px;--y:-74px"><span class="l">Redact</span><div class="gc circ" data-r="cap"><svg viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="12" rx="3"/><path d="M7 10h4M7 14h7"/></svg></div></div>
-    <div class="sat" style="--x:-14px;--y:-138px"><span class="l">Search</span><div class="gc circ" data-r="cap"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6"/><path d="M20 20l-4.5-4.5"/></svg></div></div>
-    <div class="sat" style="--x:-34px;--y:-198px"><span class="l">Events</span><div class="gc circ" data-r="cap"><svg viewBox="0 0 24 24"><path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01"/></svg></div></div>
-    <div class="sat" style="--x:-60px;--y:-254px"><span class="l">Settings</span><div class="gc circ" data-r="cap"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"/></svg></div></div>
-    <div class="gc circ big" id="bub" data-r="cap" aria-label="Tools"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></div>
+    <div class="sat" style="--x:0px;--y:-74px"><span class="l">Redact</span><button class="gc circ" id="satRedact" aria-label="Redact"><svg viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="12" rx="3"/><path d="M7 10h4M7 14h7"/></svg></button></div>
+    <div class="sat" style="--x:-14px;--y:-138px"><span class="l">Search</span><button class="gc circ" id="satSearch" aria-label="Search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6"/><path d="M20 20l-4.5-4.5"/></svg></button></div>
+    <div class="sat" style="--x:-34px;--y:-198px"><span class="l">Events</span><button class="gc circ" id="satEvents" aria-label="Events" aria-expanded="false" aria-controls="events"><svg viewBox="0 0 24 24"><path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01"/></svg></button></div>
+    <div class="sat" style="--x:-60px;--y:-254px"><span class="l">Settings</span><button class="gc circ" id="satSettings" aria-label="Settings (glass lab panel)"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"/></svg></button></div>
+    <button class="gc circ big" id="bub" aria-label="Close tools" aria-expanded="true"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button>
+  </div>
+  <div class="gc sheet" id="events" role="dialog" aria-label="Events (mock)" hidden>
+    <div class="sh-head"><b>Events</b><button id="evClose" aria-label="Close events">✕</button></div>
+    <button class="ev"><span class="dot r"></span>Sentry · motion near rear<small>2:14 PM</small></button>
+    <button class="ev"><span class="dot y"></span>Hard brake<small>1:52 PM</small></button>
+    <button class="ev"><span class="dot b"></span>Saved clip<small>12:30 PM</small></button>
+    <button class="ev"><span class="dot y"></span>Honk<small>11:08 AM</small></button>
   </div>
 </div>
-
 </div><!-- /stage -->
 <div id="lab" class="closed">
   <button id="labBtn"><b>Glass lab</b> <span id="fpsChip">– fps</span></button>
