@@ -121,7 +121,7 @@
     t.style.bottom = ""; t.style.left = ""; t.style.maxWidth = "";
     try {
       const vw = innerWidth, vh = innerHeight, seen = (e) => { if (!e || e.hidden) return null; const cs = getComputedStyle(e); if (cs.display === "none" || cs.visibility === "hidden") return null; const r = e.getBoundingClientRect(); return r.width > 1 && r.height > 1 ? r : null; };
-      const obs = []; ["crBar", "usBtn", "rdBtn", "usPanel"].forEach((id) => { const e = T.$(id), r = seen(e); if (r) obs.push(r); if (id === "crBar" && r) [...e.children].forEach((c) => { const q = seen(c); if (q) obs.push(q); }); });
+      const obs = []; ["crBar", "usBtn", "rdBtn", "usPanel", "stageBar"].forEach((id) => { const e = T.$(id), r = id === "stageBar" && !(e && e.closest("#stage")) ? null : seen(e); if (r && id === "stageBar" && +getComputedStyle(e).opacity < 0.05) return; if (r) obs.push(r); if (id === "crBar" && r) [...e.children].forEach((c) => { const q = seen(c); if (q) obs.push(q); }); });
       if (!obs.length) return;
       let w = t.offsetWidth; const h = t.offsetHeight; let bottom = parseFloat(getComputedStyle(t).bottom) || 0, cx = vw / 2;
       for (let k = 0; k < 6; k++) {
