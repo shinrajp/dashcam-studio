@@ -56,7 +56,7 @@ async function run(b, BR, dev) {
   const before = await p.evaluate(RECTS);
   await play(p); await W(2400); s = await S(p);
   ok(tag + " 3 playing: still shown at 2.4 s", !s.idle && s.playing, s);
-  let r = await until(p, (x) => x.gone, 2500); s = r.s;
+  let r = await until(p, (x) => x.gone, 2500); await W(350); s = await S(p);   // let the .25 s fade finish (slow software rendering here)
   ok(tag + " 3 playing: hidden by ~3.6 s (camera bar + timeline fade, then visibility: hidden; taps go through)", r.t >= 0 && s.idle && s.bar.v === "hidden" && s.bar.pe === "none" && s.tp.v === "hidden" && s.tp.pe === "none" && s.bar.o < 0.05, s);
   ok(tag + " 3 a 2 px progress line shows at the bottom of the video", s.line && s.line.o > 0.9 && s.line.h === 2 && Math.abs(s.line.b - s.line.stB) <= 1 && /scaleX\(0\.[0-9]*[1-9]/.test(s.line.f), s.line);
   await W(300); s = await S(p);
