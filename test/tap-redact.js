@@ -36,6 +36,16 @@ const st = (p) => p.evaluate(() => { const S = TDC.regions.ui, b = document.getE
 const tileC = (p, cam) => rectOf(p, ".tile[data-cam=" + cam + "]");
 // true box of a raw 0..1 rectangle on screen, from the <video> element itself (independent of custom-redact.js); mirrored from the tile class
 const screenBox = (p, cam, b) => p.evaluate(([cam, b]) => { const t = TDC.player.tiles[cam], v = t.vids[TDC.player.active], vr = v.getBoundingClientRect(), s = Math.min(vr.width / v.videoWidth, vr.height / v.videoHeight), w = v.videoWidth * s, h = v.videoHeight * s, x0 = vr.left + (vr.width - w) / 2, y0 = vr.top + (vr.height - h) / 2, m = t.tile.classList.contains("mirrored"); const xa = m ? 1 - (b.x + b.w) : b.x; return { x: x0 + xa * w, y: y0 + b.y * h, w: b.w * w, h: b.h * h, mirrored: m }; }, [cam, b]);
+// a raw box of size w x h on this camera whose whole path is over the drawing canvas (not under the camera bar's buttons, which stay clickable while drawing)
+const freeBox = async (p, cam, w, h) => {
+  for (const y of [0.5, 0.62, 0.3, 0.42, 0.15, 0.7]) for (const x of [0.1, 0.4, 0.25, 0.5]) {
+    const raw = { x, y, w, h }, sb = await screenBox(p, cam, raw);
+    const okp = await p.evaluate(([sb]) => [[0, 0], [1, 1], [0.5, 0.5], [0.25, 0.25], [0.75, 0.75], [1, 0], [0, 1]].every(([fx, fy]) => { const e = document.elementFromPoint(sb.x + sb.w * fx, sb.y + sb.h * fy); return !!e && e.classList.contains("cr-overlay"); }), [sb]);
+    if (okp) return { raw, sb };
+  }
+  const raw = { x: 0.2, y: 0.5, w, h }; return { raw, sb: await screenBox(p, cam, raw) };
+};
+const freePt = (p, cam) => p.evaluate((cam) => { const r = document.querySelector(".tile[data-cam=" + cam + "]").getBoundingClientRect(); for (const [fx, fy] of [[.5, .5], [.3, .7], [.7, .7], [.3, .3], [.7, .3], [.5, .85]]) { const x = r.left + r.width * fx, y = r.top + r.height * fy, e = document.elementFromPoint(x, y); if (e && e.classList.contains("cr-overlay")) return { cx: x, cy: y }; } return { cx: r.left + r.width / 2, cy: r.top + r.height / 2 }; }, cam);
 const iou = (r, b) => { const x1 = Math.max(r.x, b.x), y1 = Math.max(r.y, b.y), x2 = Math.min(r.x + r.w, b.x + b.w), y2 = Math.min(r.y + r.h, b.y + b.h), i = Math.max(0, x2 - x1) * Math.max(0, y2 - y1); return i / (r.w * r.h + b.w * b.h - i); };
 
 async function run(b, dev, tag) {
@@ -54,7 +64,8 @@ async function run(b, dev, tag) {
     }
     await W(250);
   };
-  const boxDrag = (bx) => drag([[bx.x, bx.y], ...[1, 2, 3, 4, 5, 6].map((k) => [bx.x + (bx.w * k) / 6, bx.y + (bx.h * k) / 6])]);
+  const boxDrag = async (bx) => { if (process.env.DBG) await p.evaluate(() => { window.__l = []; for (const t of ["pointerdown", "pointermove", "pointerup", "pointercancel"]) document.addEventListener(t, (e) => window.__l.push(t + ":" + e.pointerType + ":" + (e.target.className || e.target.id)), true); }); await boxDrag0(bx); if (process.env.DBG) console.log("DBG", JSON.stringify(await p.evaluate(() => window.__l.slice(0, 12)))); };
+  const boxDrag0 = (bx) => drag([[bx.x, bx.y], ...[1, 2, 3, 4, 5, 6].map((k) => [bx.x + (bx.w * k) / 6, bx.y + (bx.h * k) / 6])]);
   const lastRegion = () => p.evaluate(() => { const l = TDC.regions.list; return JSON.parse(JSON.stringify(l[l.length - 1] || null)); });
   const grid = async () => { await p.evaluate(() => { TDC.focus.grid(); }); await W(400); };
   const startDraw = async () => { if (!(await p.evaluate(() => TDC.searchUI.open))) await p.evaluate(() => TDC.searchUI.show(false, "redact")); await W(250); if (touch && !(await vis(p, "#crDraw"))) await p.evaluate(() => TDC.searchUI.show(false, "redact")); await W(150); const r = await rectOf(p, "#crDraw"); if (touch) await p.touchscreen.tap(r.cx, r.cy); else await p.mouse.click(r.cx, r.cy); await W(450); };
@@ -79,7 +90,7 @@ async function run(b, dev, tag) {
   ok(tag + " B6 every tile centre and corner (HUD / map / car panels included) hands the tap to that tile's own pick canvas", await p.evaluate(() => {
     const bad = []; for (const c of TDC.GRID) { const t = document.querySelector(".tile[data-cam=" + c + "]"), r = t.getBoundingClientRect(); for (const [fx, fy] of [[.5, .5], [.1, .1], [.9, .1], [.1, .9], [.9, .9]]) { const e = document.elementFromPoint(r.left + r.width * fx, r.top + r.height * fy); if (!e || !e.classList.contains("cr-overlay") || e.parentNode !== t) bad.push(c + "@" + fx + "," + fy + ":" + (e && (e.id || e.className))); } }
     const fps = [...document.querySelectorAll(".float-panel")].filter((e) => e.offsetParent !== null).map((e) => { const r = e.getBoundingClientRect(), x = r.left + r.width / 2, y = r.top + r.height / 2, hit = document.elementFromPoint(x, y); return hit && hit.closest && !!hit.closest(".float-panel"); });
-    window.__fpHit = fps; return bad.length === 0 && fps.every((h) => !h); }), await p.evaluate(() => window.__fpHit));
+    window.__fpHit = { bad, fps }; return bad.length === 0 && fps.every((h) => !h); }), await p.evaluate(() => window.__fpHit));
   ok(tag + " B7 the tile's own expand button is out of the way while picking", await p.evaluate(() => [...document.querySelectorAll(".tile-expand")].every((e) => getComputedStyle(e).display === "none")));
   await shot("pick-mode-6up");
 
@@ -91,10 +102,10 @@ async function run(b, dev, tag) {
   ok(tag + " C2 the chip names the camera (no dropdown)", s.chip === "Right Pillar" && s.bar && !s.panel, s);
   ok(tag + " C3 message tells what to do on the chosen camera", /Right Pillar/.test(s.msg) && /drag/i.test(s.msg), s);
   await shot("drawing-after-tap");
-  const want1 = { x: 0.2, y: 0.3, w: 0.4, h: 0.3 }, sb1 = await screenBox(p, "right_pillar", want1);
+  const { raw: want1, sb: sb1 } = await freeBox(p, "right_pillar", 0.4, 0.25);
   await boxDrag(sb1); await W(250);
   s = await st(p);
-  ok(tag + " C4 the drag drew a box (draft, Save region enabled)", s.draft && !s.drawing && await p.evaluate(() => !document.getElementById("crBarSave").disabled), s);
+  ok(tag + " C4 the drag drew a box (draft, Save region enabled)", s.draft && !s.drawing && await p.evaluate(() => !document.getElementById("crBarSave").disabled), { s, sb1, tile: await tileC(p, "right_pillar"), vp: await p.evaluate(() => [innerWidth, innerHeight]), bar: await rectOf(p, "#crBar"), top: await p.evaluate(([x, y]) => { const e = document.elementFromPoint(x, y); return e && (e.id || e.className); }, [sb1.x + 5, sb1.y + 5]) });
   await p.click("#crBarSave") .catch(async () => { await p.evaluate(() => TDC.regions.UI.save()); }); await W(400);
   let r1 = await lastRegion();
   ok(tag + " C5 saved region is on the right pillar with raw-frame coordinates (IoU > 0.85 with the box that was dragged; mirrored=" + sb1.mirrored + ")", r1 && r1.cam === "right_pillar" && r1.shape === "rect" && iou(r1, want1) > 0.85, { r1, want1 });
@@ -108,7 +119,7 @@ async function run(b, dev, tag) {
   await startDraw(); await W(300);
   const bk = await tileC(p, "back"); await tap(bk.cx, bk.cy);
   s = await st(p);
-  const want2 = { x: 0.1, y: 0.55, w: 0.3, h: 0.25 }, sb2 = await screenBox(p, "back", want2);
+  const { raw: want2, sb: sb2 } = await freeBox(p, "back", 0.3, 0.2);
   ok(tag + " C9 mirror layout: rear camera picked and enlarged (tile mirrored=" + sb2.mirrored + ")", s.cam === "back" && s.focus === "back" && s.drawing, s);
   await boxDrag(sb2); await p.evaluate(() => TDC.regions.UI.save()); await W(300);
   const r2 = await lastRegion();
@@ -117,7 +128,7 @@ async function run(b, dev, tag) {
   // ── D. drag from the grid ──
   await p.evaluate(() => { TDC.regions.clear(); TDC.layout.set("current"); TDC.focus.grid(); }); await W(500);
   await startDraw(); await W(300);
-  const want3 = { x: 0.15, y: 0.35, w: 0.5, h: 0.3 }, sb3 = await screenBox(p, "left_repeater", want3);
+  const { raw: want3, sb: sb3 } = await freeBox(p, "left_repeater", 0.5, 0.3);
   await boxDrag(sb3); await W(200);
   s = await st(p);
   ok(tag + " D1 a drag that starts on a tile of the grid picks it and draws in place (grid stays, no pick layer, draft)", s.cam === "left_repeater" && s.focus === null && s.draft && s.picks === 0 && !s.pick, s);
@@ -127,13 +138,13 @@ async function run(b, dev, tag) {
   ok(tag + " D3 saved on that camera, coordinates right (IoU > 0.8: the small grid tile)", r3 && r3.cam === "left_repeater" && iou(r3, want3) > 0.8, { r3, want3 });
   // armed in the grid: tapping another tile switches camera
   await p.evaluate(() => TDC.regions.clear()); await startDraw(); await W(200);
-  const sb4 = await screenBox(p, "front", { x: 0.2, y: 0.2, w: 0.3, h: 0.3 }); await boxDrag(sb4);
+  const { sb: sb4 } = await freeBox(p, "front", 0.3, 0.3); await boxDrag(sb4);
   s = await st(p);
   ok(tag + " D4 (setup) drew on the front camera in the grid", s.cam === "front" && s.draft && s.focus === null, s);
   await p.evaluate(() => TDC.regions.UI.draw()); await W(300);   // Draw again keeps the camera
   s = await st(p);
   ok(tag + " D5 Draw again keeps the camera: no new pick, drawing armed on the front camera", s.cam === "front" && s.drawing && !s.pick && s.picks === 0, s);
-  const sc = await tileC(p, "back"); await tap(sc.cx, sc.cy);
+  const sc = await freePt(p, "back"); await tap(sc.cx, sc.cy);
   s = await st(p);
   ok(tag + " D6 armed in the grid, a tap on another tile makes that tile the camera (enlarged)", s.cam === "back" && s.focus === "back" && s.drawing, s);
   await cancel();

@@ -1046,6 +1046,8 @@ body.portrait .cv-chip { min-height: 28px; padding: 3px 5px; gap: 3px; font-size
 .tile .cr-pick.hot, .tile .cr-pick:focus-visible { background: rgba(230,180,80,0.38); border-style: solid; border-color: #ffd27a; }
 .tile .cr-pick:focus-visible { outline: 3px solid #fff; outline-offset: -7px; }
 body.cr-picking .tile-expand { display: none; }
+body.cr-picking .stage-bar, body.cr-picking .stage-bar * { pointer-events: none !important; }   /* while picking, the camera bar (it can sit over the middle of the picture) neither blocks a tap nor hides a label */
+body.cr-picking .stage-bar { opacity: 0.12; transition: opacity .15s; }
 body.cr-picking .tile .cr-overlay { cursor: pointer; }
 @media (max-width: 520px) { .tile .cr-pick { font-size: 13px; gap: 4px; border-width: 2px; } .cr-pick-n { padding: 4px 10px; } .cr-pick-h { font-size: 11px; } }
 .cr-bar .cr-chip { flex: 0 1 auto; min-width: 0; max-width: 34vw; overflow: hidden; text-overflow: ellipsis; background: rgba(230,180,80,0.18); border: 1px solid #e6b450; color: #ffe3a3; font-weight: 700; }
