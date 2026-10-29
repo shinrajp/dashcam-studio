@@ -649,3 +649,12 @@ Rollback: `git checkout pre-ui-glass-8` (tip before this change, `ui-glass-7`, 1
 - On a desktop it is a floating card at the top right; on a phone it slides up as a bottom sheet. With touch every row, button and the search field is at least 44 px and tapping a setting's name flips its switch. The arrow keys move through the groups; it works with VoiceOver (a labelled dialog).
 - Every setting, its saved value, its `?glass=` / `?autohide=` / `?show360=` style address override and what it does are unchanged; the × still folds it. **Export…** and **Unlock encrypted clips…** in their groups open the same dialogs as the toolbar buttons.
 - Tests: `node test/ui-glass-8.js` (see test/README.md).
+
+## Liquid Glass, step 9: glass that follows the video, and Lite mode (tag `ui-glass-9`)
+Rollback: `git checkout pre-ui-glass-9` (tip before this change, `ui-glass-8`, 50f1bc0).
+- **Automatic glass now takes its colour from the video under it.** Each control over the video (camera labels, the camera bar, the transport, the map handles, toasts) gets a dark tint of the colour under it and gets more opaque over bright video (sky, snow, headlights) and clearer over dark video, so the text on it always stays at least 4.5:1 against the brightest spot under it. Changes are gradual (darker eases in over about a second, brighter is at once so text never gets hard to read) and a still picture never flickers.
+- It is cheap: a tiny copy of the picture (one cell per 16 px) a few times a second while a video plays, refreshing only a few cameras at a time; once after a pause, seek or new clip; nothing with the tab in the background or while exporting. If a device is slow at it, it samples once a second, then only the overall tint. Exports are not affected (the tint is only on screen).
+- Reduce motion: one fixed, dark tint. Reduce transparency: solid, as before.
+- **Lite mode** (Settings ▸ Appearance ▸ Lite mode: Auto / On / Off) drops all blur and the video tint and uses the solid controls, for smoother playback. **Auto** turns it on for the session when playback keeps running below ~40 frames a second for 3 s (never because of a seek, a resize or a single stall), saying so once, or on a device with little memory. `?lite=on` / `?lite=off` (or `1` / `0`) override it for one visit.
+- On touch the Glass, Auto-hide and Lite choices are 44 px targets.
+- Tests: `node test/ui-glass-9.js` (see test/README.md).
