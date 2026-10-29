@@ -34,6 +34,10 @@ body.focused .stage-bar.bar-floating .grid-only { display: none; }
 .cam-dock-hint { position: fixed; z-index: 28; box-sizing: border-box; border: 2px dashed rgba(143,176,255,.8); border-radius: 26px; background: rgba(62,106,225,.10); pointer-events: none; transition: background .15s, border-color .15s; }
 .cam-dock-hint.near { background: rgba(62,106,225,.26); border-color: #8fb0ff; }
 .cam-dock-hint[hidden] { display: none; }
+/* ui-glass-7: the bottom dock strip (release on the lower part of the video → docked below it), labelled so it reads as a target */
+.cam-dock-hint.dock-bottom { border-radius: 14px; display: flex; align-items: center; justify-content: center; }
+.cam-dock-hint.dock-bottom::after { content: "Release to dock below the video"; font: 600 12px/1 system-ui, -apple-system, sans-serif; color: #dce6ff; background: rgba(20,28,48,.72); padding: 5px 10px; border-radius: 999px; }
+.cam-dock-hint.dock-bottom.near::after { background: rgba(62,106,225,.85); color: #fff; }
 .bar-grip:focus-visible { outline: 2px solid #8fb0ff; outline-offset: 1px; }
 @media (prefers-reduced-motion: reduce) { .cam-dock-hint, .stage-bar.bar-floating { transition: none !important; } }
 /* a floating map that cannot step clear of the docked bar (short landscape) goes under it, never over it */

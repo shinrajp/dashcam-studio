@@ -455,6 +455,9 @@
     const kids = () => [...bar.children].filter((c) => c.id !== "barHint" && c.getClientRects().length);
     const gapOf = (prop) => parseFloat(getComputedStyle(bar)[prop]) || 0;
     const over = () => bar.scrollWidth > bar.clientWidth + 1;
+    // ui-glass-7: a floating pill is always the compact one (icon-only chips, no 1–6 badges): over the video it must stay small,
+    // never the full labelled strip (the window is wider than the video, so the full layout would fit and sprawl over the cameras)
+    if (fl) bar.classList.add("pill-compact");
     if (!over()) return;
     bar.classList.add("pill-compact");
     if (!over()) return;
@@ -594,17 +597,44 @@
     if (pos && pos.fx >= 0) return { l: sr.left + MARGIN + T.clamp(pos.fx, 0, 1) * Math.max(0, sr.width - bw - 2 * MARGIN), t: sr.top + MARGIN + T.clamp(pos.fy, 0, 1) * Math.max(0, sr.height - bh - 2 * MARGIN), w: bw, h: bh };
     return { l: sr.left + (sr.width - bw) / 2, t: sr.top + (innerWidth <= 760 ? 6 : 48), w: bw, h: Math.min(bh, sr.height - 12) };
   }
-  let spotEl = null;
-  function showSpot(on, near) {
-    if (on && !spotEl) { spotEl = T.el("div", "cam-dock-hint"); spotEl.setAttribute("aria-hidden", "true"); document.body.appendChild(spotEl); }
-    if (!spotEl) return;
-    const d = on ? dockSpot() : null;
-    spotEl.hidden = !d;
-    if (!d) return;
-    Object.assign(spotEl.style, { left: Math.round(d.l) + "px", top: Math.round(d.t) + "px", width: Math.round(d.w) + "px", height: Math.round(d.h) + "px" });
-    spotEl.classList.toggle("near", !!near);
+  /** ui-glass-7: the bottom dock zone. Pulling the floating pill down onto the lower part of the video docks it below the video
+   *  (beside, bottom) instead of leaving it over the rear camera. Generous: the lower 30 % of the video (64–160 px), as wide as it.
+   *  zone = where the pointer docks; strip = the dashed outline shown while dragging (where the docked pill will sit). */
+  function bottomZone() {
+    const st = stage(); if (!st) return null;
+    const sr = st.getBoundingClientRect(); if (sr.width < 40 || sr.height < 40) return null;
+    const z = T.clamp(sr.height * 0.3, 64, 160), bh = Math.max(44, $("stageBar").offsetHeight);
+    return { l: sr.left, r: sr.right, top: sr.bottom - z, bottom: sr.bottom, strip: { l: sr.left, t: sr.bottom - bh - 4, w: sr.width, h: bh + 4 } };
   }
-  const nearSpot = (x, y) => { const d = dockSpot(), m = 28; return !!d && x >= d.l - m && x <= d.l + d.w + m && y >= d.t - m && y <= d.t + d.h + m; };
+  /** Would a release here leave the floating pill over the lower part of the video? (pointer in the zone, or the pill covering it) */
+  function nearBottom(x, y) {
+    const z = bottomZone(); if (!z) return false;
+    const inX = x >= z.l - 24 && x <= z.r + 24;
+    if (inX && y >= z.top && y <= z.bottom + 8) return true;
+    const b = $("stageBar").getBoundingClientRect();
+    return b.right > z.l + 8 && b.left < z.r - 8 && b.bottom > z.top + 8 && b.top < z.bottom - 4;
+  }
+  let spotEl = null, spotEl2 = null;
+  const mkSpot = (cls) => { const e = T.el("div", cls); e.setAttribute("aria-hidden", "true"); document.body.appendChild(e); return e; };
+  const putSpot = (el, d, near) => {
+    el.hidden = !d; if (!d) return;
+    Object.assign(el.style, { left: Math.round(d.l) + "px", top: Math.round(d.t) + "px", width: Math.round(d.w) + "px", height: Math.round(d.h) + "px" });
+    el.classList.toggle("near", !!near);
+  };
+  /** near: false | "spot" (where it came from) | "bottom" (below the video). Both spots show while dragging. */
+  function showSpot(on, near) {
+    if (on && !spotEl) { spotEl = mkSpot("cam-dock-hint"); spotEl2 = mkSpot("cam-dock-hint dock-bottom"); }
+    if (!spotEl) return;
+    const d = on ? dockSpot() : null, z = on ? bottomZone() : null;
+    const same = d && z && (CB().from || "over") === "beside" && CB().side === "bottom";   // it came from the bottom strip: one outline
+    putSpot(spotEl, same ? null : d, near === "spot");
+    putSpot(spotEl2, z ? z.strip : null, near === "bottom" || (same && near === "spot"));
+  }
+  // (it came from the strip below the video: anything below that spot counts too, so pulling it down past the video docks it back)
+  const nearSpot = (x, y) => { const d = dockSpot(), m = 28, down = (CB().from || "over") === "beside" && CB().side === "bottom";
+    return !!d && x >= d.l - m && x <= d.l + d.w + m && y >= d.t - m && (down || y <= d.t + d.h + m); };
+  const nearWhich = (x, y) => (nearSpot(x, y) ? "spot" : nearBottom(x, y) ? "bottom" : false);
+  F.nearDock = nearWhich;   // tests
   /** Lift the pill off its dock into the window (keyboard: where it is now). */
   function floatHere(quiet) {
     const bar = $("stageBar"), r = bar.getBoundingClientRect(), was = CB().dock;
@@ -640,7 +670,7 @@
       e.preventDefault();
       const r = bar.getBoundingClientRect(), sr = stage().getBoundingClientRect();
       d = { id: e.pointerId, x: e.clientX, y: e.clientY, l: r.left - sr.left, t: r.top - sr.top, fl: F.barFloating(), fx0: r.left, fy0: r.top, moved: false, grip: !!grip, near: false };
-      try { bar.setPointerCapture(e.pointerId); } catch (_) {}
+      // no pointer capture (Mac Safari): the move / up listeners are on the window, and the pill is re-parented when it floats
       F.dragging = true; bar.classList.add("dragging"); wake();
     });
     // move / up are read on the window: floating re-parents the bar (out of the video or the dock strip), which drops pointer capture
@@ -650,6 +680,8 @@
     };
     const move = (e) => {
       if (!d || e.pointerId !== d.id) return;
+      // a mouse released outside the window (no pointerup reached us): finish the drag on the next move
+      if (e.pointerType === "mouse" && e.buttons === 0 && d.moved) { end(e); return; }
       const dx = e.clientX - d.x, dy = e.clientY - d.y;
       if (!d.moved && Math.hypot(dx, dy) < 5) return;
       d.moved = true;
@@ -679,8 +711,8 @@
       }
       e.preventDefault();
       setFloatXY(bar, d.fx0 + (e.clientX - d.x), d.fy0 + (e.clientY - d.y), false);
-      d.near = nearSpot(e.clientX, e.clientY);
-      showSpot(true, d.near); bar.classList.toggle("dock-near", d.near);
+      d.near = nearWhich(e.clientX, e.clientY); d.lx = e.clientX; d.ly = e.clientY;
+      showSpot(true, d.near); bar.classList.toggle("dock-near", !!d.near);
       if (F.camMenuOpen()) placeCamMenu(true);
       wake();
     };
@@ -690,7 +722,10 @@
       F.dragging = false; bar.classList.remove("dragging", "dock-near"); showSpot(false);
       if (was.moved && F.barFloating()) {
         F.dragEnd = performance.now();
-        if (was.near) { F.dockBar(true); wake(); return; }
+        // the release decides (Safari may not send a last move at the release point); pointercancel keeps the last move's answer
+        const near = e.type === "pointerup" && Number.isFinite(e.clientX) && (e.clientX || e.clientY) ? nearWhich(e.clientX, e.clientY) || was.near : was.near;
+        if (near === "spot") { F.dockBar(true); wake(); return; }
+        if (near === "bottom") { F.setBarDock("beside", "bottom"); mapAgain(); hideHint(true); T.toast("Camera bar docked below the video", "ok", 2200); wake(); return; }
         const s = floatSpan(bar);
         let x = parseFloat(bar.style.left) || 0, y = parseFloat(bar.style.top) || 0;
         if (x - s.x0 < SNAP) x = s.x0; else if (s.x0 + s.sx - x < SNAP) x = s.x0 + s.sx;
