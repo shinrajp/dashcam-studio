@@ -20,6 +20,7 @@
     try { if (T.wb) T.wb.init(); } catch (e) { console.warn("wb init", e); }   // live white balance (viewer only)
     if (T.searchStrip) { try { T.searchStrip.init(); } catch (e) { console.warn(e); } }   // phones: thumbnail strip in full screen
     try { if (T.mobileBar) T.mobileBar.init(); } catch (e) { console.warn("mobile bar init", e); }   // phones: slim bar + pull-up sheet
+    try { if (T.bubble) T.bubble.init(); } catch (e) { console.warn("tools bubble init", e); }   // ui-glass-6: Redact, Search, Events, Settings in one bubble
     if (T.auto.companion) T.auto.runCompanion().catch((e) => { console.error(e); document.title = "TDC-ERROR " + e.message; fetch("/api/progress?token=" + encodeURIComponent(T.auto.token), { method: "POST", headers: { "Content-Type": "application/json", "X-TDC-Token": T.auto.token }, body: JSON.stringify({ state: "fatal", error: String(e.message || e) }) }).catch(() => {}); });
   }
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", start); else start();

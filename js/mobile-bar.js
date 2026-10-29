@@ -87,7 +87,7 @@
   // transformed sheet, so position: fixed stays relative to the screen
   const US_BTNS = ["usBtn", "rdBtn"];   // Search and Redact (redact-button)
   function usBtnOut() { for (const id of US_BTNS) { const b = $(id); if (b && sheet && sheet.contains(b)) { park(b); tp.insertBefore(b, bar); } } }
-  function usBtnIn() { for (const id of US_BTNS) { const b = $(id); if (b) unpark(b); } }
+  function usBtnIn() { for (const id of US_BTNS) { const b = $(id); if (!b) continue; if (b.closest("#toolBubble")) { const c = homes.get(b); if (c) { c.remove(); homes.delete(b); } continue; } unpark(b); } }   // ui-glass-6: the bubble owns them
   function sizeBar() { if (M.on) document.documentElement.style.setProperty("--mb-bar", bar.offsetHeight + "px"); }
 
   function wireHandle(h) {

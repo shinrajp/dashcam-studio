@@ -32,7 +32,8 @@
     mapDock: "over",   // over (on the video) | aside (docked beside it) | float (anywhere in the window, js/overlays.js)
     autohide: "3",   // ui-glass-2: Settings ▸ Appearance ▸ Auto-hide — "2" | "3" | "5" seconds | "never"; ?autohide= overrides for one visit
     glass: "auto",   // ui-glass-1: Settings ▸ Appearance ▸ Glass — "auto" (tint follows the video) | "clear" | "solid"; ?glass= overrides for one visit
-    mapFloat: { fx: -1, fy: -1, pin: 0 },   // floating map: left / top as fractions of the free window area (-1 = default spot); export never uses this
+    mapFloat: { fx: -1, fy: -1, pin: 0 },
+    bubble: { corner: "br" },   // ui-glass-6: the tools bubble corner (tl | tr | bl | br)   // floating map: left / top as fractions of the free window area (-1 = default spot); export never uses this
     panels: {
       hud: { fx: 0.5, fy: 0.975 },
       map: { fx: 0.985, fy: 0.975, wu: 400, hu: 300 },
@@ -121,7 +122,7 @@
     t.style.bottom = ""; t.style.left = ""; t.style.maxWidth = "";
     try {
       const vw = innerWidth, vh = innerHeight, seen = (e) => { if (!e || e.hidden) return null; const cs = getComputedStyle(e); if (cs.display === "none" || cs.visibility === "hidden") return null; const r = e.getBoundingClientRect(); return r.width > 1 && r.height > 1 ? r : null; };
-      const obs = []; ["crBar", "usBtn", "rdBtn", "usPanel", "stageBar"].forEach((id) => { const e = T.$(id), r = id === "stageBar" && !(e && (e.closest("#stage") || e.classList.contains("bar-floating"))) ? null : seen(e); if (r && id === "stageBar" && +getComputedStyle(e).opacity < 0.05) return; if (r) obs.push(r); if (id === "crBar" && r) [...e.children].forEach((c) => { const q = seen(c); if (q) obs.push(q); }); });
+      const obs = []; ["crBar", "usBtn", "rdBtn", "usPanel", "stageBar", "toolBubble"].forEach((id) => { const e = T.$(id), r = id === "stageBar" && !(e && (e.closest("#stage") || e.classList.contains("bar-floating"))) ? null : seen(e); if (r && id === "stageBar" && +getComputedStyle(e).opacity < 0.05) return; if (r) obs.push(r); if (id === "crBar" && r) [...e.children].forEach((c) => { const q = seen(c); if (q) obs.push(q); }); });
       if (!obs.length) return;
       let w = t.offsetWidth; const h = t.offsetHeight; let bottom = parseFloat(getComputedStyle(t).bottom) || 0, cx = vw / 2;
       for (let k = 0; k < 6; k++) {

@@ -15,7 +15,7 @@
   const mRM = (() => { try { return matchMedia("(prefers-reduced-motion: reduce)"); } catch (_) { return null; } })();
   // the pieces that hide (CSS in css/autohide.css uses the same list); the docked camera bar and the redaction draw bar stay
   A.SEL = ".stage .stage-bar, .stage-bar.bar-floating, .tile-expand, .map-panel.map-floating, .map-grip, .map-move, #transport";
-  const CTL = ".stage-bar, .transport, .map-panel, .tile-expand, .cam-menu, .us-btn, #usBtn, #rdBtn, .bar-hint, .us-strip";
+  const CTL = ".stage-bar, .transport, .map-panel, .tile-expand, .cam-menu, .us-btn, #usBtn, #rdBtn, .bar-hint, .us-strip, .tool-bubble, .library";
   A.override = () => { try { const m = /(?:[?&#])autohide=(2|3|5|never)\b/.exec(location.search + location.hash); return m ? m[1] : null; } catch (_) { return null; } };
   A.pref = () => { const v = String(T.prefs.autohide); return VALUES.includes(v) ? v : "3"; };
   A.isHidden = (el) => !!(A.hidden && el && el.matches && (el.matches(A.SEL) || (el.closest && el.closest("#transport"))));
@@ -38,7 +38,8 @@
     if ([...document.querySelectorAll(".modal, dialog[open]")].some(shown)) return "dialog";
     if (shown($("usPanel"))) return "panel";
     const tp = $("transport"); if (tp && tp.classList.contains("mb-open")) return "sheet";
-    if (T.toggles && T.toggles.open) return "toggles";   // ui-glass-4: the eye popover (phone landscape)
+    if (T.toggles && T.toggles.open) return "toggles";
+    if (T.bubble && (T.bubble.open || T.bubble.sheet)) return "tools";   // ui-glass-6: the fan or the Events sheet is open   // ui-glass-4: the eye popover (phone landscape)
     if (F.holdControls && F.holdControls()) return "camera-bar";
     if (over) return "pointer-over";
     if (typing()) return "typing";

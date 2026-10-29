@@ -89,8 +89,9 @@
   /** y above which the floating map must stay: the top of the bottom controls (transport bar / phone bar, Search / Redact buttons, camera-bar chip). */
   O.floatFloor = () => {
     const H = vh(); let floor = H;
-    for (const id of ["transport", "mbBar", "usBtn", "rdBtn", "chipCamBar", "btnFullscreen"]) {
+    for (const id of ["transport", "mbBar", "usBtn", "rdBtn", "chipCamBar", "btnFullscreen", "toolBubble"]) {
       const e = T.$(id); if (!e || e.hidden || !e.offsetParent && getComputedStyle(e).position !== "fixed") continue;
+      if (id === "usBtn" || id === "rdBtn" ? !!e.closest("#toolBubble") : id === "toolBubble" && getComputedStyle(e).visibility === "hidden") continue;   // ui-glass-6: the bubble counts, not its fan
       const r = e.getBoundingClientRect(); if (r.width < 1 || r.height < 1 || r.top < H * 0.4 || r.top >= H) continue;
       floor = Math.min(floor, r.top);
     }

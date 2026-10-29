@@ -49,10 +49,14 @@
     out.push($("crBar"));
     const up = $("usPanel"); if (up && !up.classList.contains("docked")) out.push(up);
     out.push($("settings"));
+    if (T.bubble && T.bubble.open) document.querySelectorAll("#tbFan .tb-item").forEach((e) => out.push(e));   // ui-glass-6: the fan is on top while it is out
     out.push($("tgPop"));   // ui-glass-4: the toggles popover (phone landscape), only while it is open
     document.querySelectorAll(".stage-bar").forEach((e) => out.push(e));
     if (b.classList.contains("fs")) { out.push($("transport")); document.querySelectorAll(".us-strip").forEach((e) => out.push(e)); }
     ["usBtn", "rdBtn"].forEach((id) => { const e = $(id); if (e && getComputedStyle(e).position === "fixed") out.push(e); });
+    const tb = $("toolBubble");   // ui-glass-6: the tools bubble (not while it is a faint idle dot); its fan items only while they are out
+    if (tb && !b.classList.contains("idle")) { out.push($("tbMain")); if (T.bubble && T.bubble.open) tb.querySelectorAll(".tb-item").forEach((e) => out.push(e)); }
+    if (b.classList.contains("lib-open")) out.push($("library"));
     document.querySelectorAll(".car-view").forEach((e) => out.push(e));
     const t = $("toast"); if (t && t.classList.contains("show")) out.push(t);
     return out.filter(Boolean);
