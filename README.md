@@ -605,3 +605,12 @@ Rollback: `git checkout pre-ui-glass-4` (tip before this change, `ui-glass-3`, e
 - Touch targets are at least 44 px. It follows the Glass setting (Automatic / Clear / Solid), Reduce transparency and Reduce motion (no fan animation); the controls do not auto-hide while the popover is open.
 - The exported video is unchanged.
 - Tests: `node test/ui-glass-4.js` (see test/README.md).
+## Liquid Glass, step 5: camera pill that docks and floats (tag `ui-glass-5`)
+Rollback: `git checkout pre-ui-glass-5` (tip before this change, `ui-glass-4`, 1158342).
+- The camera bar is a short glass **pill**. Every camera chip is always visible, so you never scroll it to pick a camera. When room is short the chips lose their names (icons only). On a phone held upright the pill uses two rows, with the cameras on the top row.
+- **Float it:** drag the ⋮⋮ grip off the video and the pill floats anywhere in the window, including outside the video, just like the map. A dashed outline shows where it docks. The spot is remembered and the pill stays on screen when the window gets smaller. It never covers the play bar, Search or Redact.
+- **Dock it again:** drop it on the dashed spot, double-tap (or double-click) the grip, press the Dock button, or Tab to the grip and press Enter. With a keyboard, Enter or Space on the grip floats it and the arrow keys move it (hold Shift for bigger steps). A pill that was docked beside the video goes back beside it.
+- Picking cameras, tap-to-redact camera picking, export and saved settings are unchanged. Touch targets are at least 44 px. A floating pill hides and returns with the other controls under Auto-hide. It follows the Glass setting and Reduce motion.
+- On a 390-wide phone, the floated map now moves above or below the camera bar instead of covering it. Where it cannot fit, as on a phone held sideways, the camera bar stays on top of the map.
+- The exported video is unchanged.
+- Tests: `node test/ui-glass-5.js` (see test/README.md).
