@@ -1,5 +1,8 @@
 /* overlays.js — live floating panels (HUD, map, self-driving badge) over the grid: drag to move, map resize,
- * click the route to seek. Positions are saved as fractions of the grid's free space (shared with export). */
+ * click the route to seek. Positions are saved as fractions of the grid's free space (shared with export).
+ * The map has three homes (prefs.mapDock): "over" the video, "aside" (docked beside it) or "float": a window-level panel you drag by its
+ * ⋮⋮ grip anywhere in the window (above the bottom controls), dropped near its dock spot (the right edge of the video area) it snaps back
+ * to the dock. Its float position (prefs.mapFloat) is separate from the on-video position, so export is unchanged. */
 (function () {
   "use strict";
   const T = window.TDC;
@@ -25,13 +28,19 @@
     grip.title = "Drag to resize the map";
     map.el.appendChild(grip);
     enableResize(map, grip);
+    // grip: drag to float the map anywhere in the window (mouse, pen, touch); keyboard: Enter / Space floats or docks, arrows move it
+    const mg = T.el("button", "map-grip");
+    mg.type = "button"; mg.id = "mapGrip";
+    mg.innerHTML = '<svg viewBox="0 0 14 22" aria-hidden="true"><circle cx="4" cy="4" r="1.7"/><circle cx="10" cy="4" r="1.7"/><circle cx="4" cy="11" r="1.7"/><circle cx="10" cy="11" r="1.7"/><circle cx="4" cy="18" r="1.7"/><circle cx="10" cy="18" r="1.7"/></svg>';
+    map.el.appendChild(mg);
+    wireFloat(map, mg);
     const move = T.el("button", "map-move", "Beside video");
     move.type = "button";
     move.title = "Move the map off the video. Export can still burn it in.";
     move.addEventListener("pointerdown", (e) => e.stopPropagation());
     move.addEventListener("click", (e) => {
       e.stopPropagation();
-      T.setPref("mapDock", T.prefs.mapDock === "aside" ? "over" : "aside");
+      T.setPref("mapDock", T.prefs.mapDock === "float" ? "aside" : T.prefs.mapDock === "aside" ? "over" : "aside");
       if (T.ui && T.ui.fit) T.ui.fit();
       O.invalidate();
     });
@@ -39,6 +48,8 @@
     makePanel("fsd", "fsd-panel");
     ["time", "telemetry", "prefs", "map-tile", "player-open", "library", "layout"].forEach((e) => T.on(e, O.invalidate));
     new ResizeObserver(O.invalidate).observe(stage);
+    addEventListener("resize", O.invalidate); addEventListener("orientationchange", () => setTimeout(O.invalidate, 60));
+    if (window.visualViewport) visualViewport.addEventListener("resize", O.invalidate);
   };
 
   /** Free area for the panels: the stage, minus the bottom bars that float over it in full screen
@@ -70,6 +81,121 @@
     p.ctx.clearRect(0, 0, cw, ch);
   }
   function asideWanted() { return T.prefs.mapDock === "aside"; }
+  const floatWanted = () => T.prefs.mapDock === "float";
+
+  // ── floating map (window level) ──
+  const FM = 8;   // margin to the window edges and the bottom controls
+  const vw = () => document.documentElement.clientWidth || innerWidth, vh = () => innerHeight;
+  /** y above which the floating map must stay: the top of the bottom controls (transport bar / phone bar, Search / Redact buttons, camera-bar chip). */
+  O.floatFloor = () => {
+    const H = vh(); let floor = H;
+    for (const id of ["transport", "mbBar", "usBtn", "rdBtn", "chipCamBar", "btnFullscreen"]) {
+      const e = T.$(id); if (!e || e.hidden || !e.offsetParent && getComputedStyle(e).position !== "fixed") continue;
+      const r = e.getBoundingClientRect(); if (r.width < 1 || r.height < 1 || r.top < H * 0.4 || r.top >= H) continue;
+      floor = Math.min(floor, r.top);
+    }
+    return floor;
+  };
+  function floatBox() {
+    const mp = T.prefs.panels.map, W = vw(), floor = O.floatFloor(), phone = Math.min(W, vh()) < 600, portrait = vh() > W;
+    const maxW = Math.max(160, Math.min(W - 2 * FM, phone ? (portrait ? W * 0.92 : W * 0.42) : Math.max(260, W * 0.36)));
+    const maxH = Math.max(110, Math.min(floor - 2 * FM, phone ? (portrait ? vh() * 0.34 : (floor - 2 * FM)) : vh() * 0.5));
+    const sc = Math.min(1, maxW / mp.wu, maxH / mp.hu);
+    return { w: Math.round(mp.wu * sc), h: Math.round(mp.hu * sc), sc, floor };
+  }
+  /** spans the floating map can move in (left / top ranges) */
+  const floatSpan = (w, h, floor) => ({ x0: FM, y0: FM, sx: Math.max(0, vw() - w - 2 * FM), sy: Math.max(0, floor - h - 2 * FM) });
+  function floatXY(w, h, floor) {
+    const f = T.prefs.mapFloat || {}, s = floatSpan(w, h, floor);
+    const fx = f.fx >= 0 ? f.fx : 1, fy = f.fy >= 0 ? f.fy : 0.08;   // default: top right
+    return { x: s.x0 + T.clamp(fx, 0, 1) * s.sx, y: s.y0 + T.clamp(fy, 0, 1) * s.sy };
+  }
+  function setFloatPos(p, x, y, save) {
+    const s = floatSpan(p.w, p.h, O.floatFloor());
+    x = T.clamp(x, s.x0, s.x0 + s.sx); y = T.clamp(y, s.y0, s.y0 + s.sy);
+    p.el.style.transform = `translate(${Math.round(x)}px, ${Math.round(y)}px)`;
+    if (save) { T.prefs.mapFloat = { fx: s.sx ? +((x - s.x0) / s.sx).toFixed(4) : 0, fy: s.sy ? +((y - s.y0) / s.sy).toFixed(4) : 0 }; T.savePrefs(); }
+    return { x, y };
+  }
+  /** dock spot = the right edge of the video area, where the docked map sits (body.map-aside puts it there) */
+  function dockSpot() {
+    const vp = T.$("viewport"); if (!vp) return null;
+    const r = vp.getBoundingClientRect(); if (r.width < 50) return null;
+    const w = Math.min(260, r.width * 0.3);
+    return { l: r.right - w, t: r.top + r.height * 0.15, r: r.right, b: r.bottom - r.height * 0.15 };
+  }
+  const nearDock = (cx, cy) => { const d = dockSpot(); return !!d && cx >= d.l && cx <= d.r + 40 && cy >= d.t && cy <= d.b; };
+  let dockHint = null;
+  function showDockHint(on) {
+    if (on && !dockHint) { dockHint = T.el("div", "map-dock-hint"); dockHint.textContent = "Release to dock the map"; document.body.appendChild(dockHint); }
+    if (!dockHint) return;
+    const d = dockSpot(); dockHint.hidden = !on || !d;
+    if (on && d) Object.assign(dockHint.style, { left: d.l + "px", top: d.t + "px", width: (d.r - d.l - 6) + "px", height: (d.b - d.t) + "px" });
+  }
+  O.setMapHome = (home, quiet) => {
+    T.setPref("mapDock", home);
+    if (T.ui && T.ui.fit) T.ui.fit();
+    O.invalidate();
+    if (!quiet) T.toast(home === "float" ? "Map floats: drag ⋮⋮ anywhere, drop it at the right edge of the video to dock it" : home === "aside" ? "Map docked beside the video" : "Map is on the video", "ok", 2600);
+  };
+  /** grip drag (same feel as the camera bar's ⋮⋮: 5 px before it moves, edges snap, double-click / double-tap docks or floats) */
+  function wireFloat(p, g) {
+    let d = null, lastTap = 0, swallow = false;
+    g.addEventListener("pointerdown", (e) => {
+      if (e.pointerType === "mouse" && e.button !== 0) return;
+      e.stopPropagation(); e.preventDefault();
+      const r = p.el.getBoundingClientRect();
+      d = { id: e.pointerId, x: e.clientX, y: e.clientY, l: r.left, t: r.top, moved: false };
+      try { g.setPointerCapture(e.pointerId); } catch (_) {}
+    });
+    // move / up are read on the window: lifting the map re-parents it (out of the video or the dock), which drops pointer capture
+    addEventListener("pointermove", (e) => {
+      if (!d || e.pointerId !== d.id) return;
+      e.preventDefault();
+      const dx = e.clientX - d.x, dy = e.clientY - d.y;
+      if (!d.moved) {
+        if (Math.hypot(dx, dy) < 5) return;
+        d.moved = true; p.el.classList.add("dragging");
+        if (!floatWanted()) {   // lift it out of the video / dock, keeping it under the finger
+          T.prefs.mapDock = "float"; T.savePrefs(); T.emit("prefs", "mapDock"); if (T.ui && T.ui.fit) T.ui.fit(); O.render();
+          d.l = e.clientX - 20; d.t = e.clientY - 18; d.x = e.clientX; d.y = e.clientY;   // grip (top-left) stays under the pointer
+        }
+      }
+      setFloatPos(p, d.l + (e.clientX - d.x), d.t + (e.clientY - d.y), false);
+      d.near = nearDock(e.clientX, e.clientY); showDockHint(d.near); p.el.classList.toggle("dock-near", d.near);
+    });
+    const end = (e) => {
+      if (!d || e.pointerId !== d.id) return;
+      const was = d; d = null; p.el.classList.remove("dragging", "dock-near"); showDockHint(false);
+      if (was.moved) {
+        swallow = true; setTimeout(() => { swallow = false; }, 0);
+        if (was.near) { O.setMapHome("aside"); return; }
+        const r = p.el.getBoundingClientRect(), s = floatSpan(p.w, p.h, O.floatFloor());
+        let x = r.left, y = r.top; const SNAP = 18;
+        if (x - s.x0 < SNAP) x = s.x0; else if (s.x0 + s.sx - x < SNAP) x = s.x0 + s.sx;
+        if (y - s.y0 < SNAP) y = s.y0; else if (s.y0 + s.sy - y < SNAP) y = s.y0 + s.sy;
+        setFloatPos(p, x, y, true); T.savePrefs();
+      } else if (e.type === "pointerup") {
+        const now = performance.now();
+        if (now - lastTap < 400) { lastTap = 0; O.setMapHome(floatWanted() ? "aside" : "float"); } else lastTap = now;
+      }
+    };
+    addEventListener("pointerup", end); addEventListener("pointercancel", end);
+    g.addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (swallow) return;
+      if (e.detail === 0) O.setMapHome(floatWanted() ? "aside" : "float");   // keyboard Enter / Space (pointer taps use double-tap above)
+    });
+    g.addEventListener("dblclick", (e) => e.stopPropagation());
+    g.addEventListener("keydown", (e) => {
+      const k = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[e.key];
+      if (!k) return;
+      e.preventDefault(); e.stopPropagation();
+      if (!floatWanted()) { O.setMapHome("float", true); O.render(); }
+      const r = p.el.getBoundingClientRect(), st = e.shiftKey ? 64 : 16;
+      setFloatPos(p, r.left + k[0] * st, r.top + k[1] * st, true);
+    });
+  }
   O.dockWidth = (maxH, maxW) => {
     if (!asideWanted() || !T.prefs.show.map || !T.player.ev) return 0;
     const mp = T.prefs.panels.map;
@@ -90,15 +216,24 @@
     document.body.classList.toggle("map-aside", aside);
     const dock = T.$("mapDock");
     const map = O.panels.map;
+    const fl = mapOn && floatWanted();
+    map.el.classList.toggle("map-floating", fl);
+    document.body.classList.toggle("map-float", fl);
     if (dock) {
       dock.hidden = !aside;
       if (aside) { if (map.el.parentElement !== dock) dock.appendChild(map.el); }
+      else if (fl) { if (map.el.parentElement !== document.body) document.body.appendChild(map.el); }
       else if (map.el.parentElement !== O.layer) O.layer.appendChild(map.el);
+    }
+    const mg = T.$("mapGrip");
+    if (mg) {
+      const lbl = fl ? "Move the map (drag, or arrow keys). Enter docks it beside the video; drop it at the right edge of the video to dock" : "Float the map: drag it anywhere in the window (or press Enter, then arrow keys)";
+      mg.setAttribute("aria-label", lbl); mg.title = fl ? "Drag to move · double-click to dock" : "Drag to float the map anywhere · double-click to float";
     }
     const btn = map.el.querySelector(".map-move");
     if (btn) {
-      btn.textContent = aside ? "On video" : "Beside video";
-      btn.title = aside ? "Put the map back on the video" : "Move the map off the video. Export can still burn it in.";
+      btn.textContent = fl ? "Dock" : aside ? "On video" : "Beside video";
+      btn.title = fl ? "Dock the map beside the video" : aside ? "Put the map back on the video" : "Move the map off the video. Export can still burn it in.";
     }
     const cb = T.$("mapAside");
     if (cb && cb.checked !== aside) cb.checked = aside;
@@ -146,7 +281,14 @@
     if (mapOn) {
       const mp = T.prefs.panels.map;
       const aside = asideWanted();
-      if (aside) {
+      if (floatWanted()) {
+        const fb = floatBox();
+        size(map, fb.w, fb.h);
+        const xy = floatXY(fb.w, fb.h, fb.floor);
+        if (!map.el.classList.contains("dragging")) setFloatPos(map, xy.x, xy.y, false);
+        map.ctx.scale(fb.sc * r, fb.sc * r);
+        T.map.draw(map.ctx, mp.wu, mp.hu, fb.sc * r, t);
+      } else if (aside) {
         const box = dockBox();
         size(map, box.w, box.h);
         map.el.style.transform = "none";
@@ -187,6 +329,7 @@
     p.el.addEventListener("pointerdown", (e) => {
       if (e.button !== 0 || e.target.classList.contains("resize-grip") || e.target.classList.contains("map-move")) return;
       if (p.id === "map" && asideWanted()) return;
+      if (e.target.closest(".map-grip")) return;
       e.preventDefault();
       p.el.setPointerCapture(e.pointerId);
       const pos = T.prefs.panels[p.id];
@@ -198,6 +341,7 @@
       const dx = e.clientX - start.x, dy = e.clientY - start.y;
       if (!start.moved && Math.hypot(dx, dy) < 4) return;
       start.moved = true;
+      if (p.id === "map" && floatWanted()) { const fr = start.fr || (start.fr = p.el.getBoundingClientRect()); setFloatPos(p, fr.left + dx, fr.top + dy, false); return; }
       const g = grid();
       const pos = T.prefs.panels[p.id];
       pos.fx = T.clamp(start.fx + dx / Math.max(1, g.w - p.w), 0, 1);
@@ -207,7 +351,8 @@
     const end = (e) => {
       if (!start) return;
       p.el.classList.remove("dragging");
-      if (start.moved) T.savePrefs();
+      if (start.moved && p.id === "map" && floatWanted()) { const r = p.el.getBoundingClientRect(); setFloatPos(p, r.left, r.top, true); }
+      else if (start.moved) T.savePrefs();
       else if (p.id === "map") {
         const rect = p.cv.getBoundingClientRect();
         const r = dpr();

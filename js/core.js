@@ -29,7 +29,8 @@
     mapTiles: true,
     mapStyle: "osm",
     mapFollow: false,
-    mapDock: "over",
+    mapDock: "over",   // over (on the video) | aside (docked beside it) | float (anywhere in the window, js/overlays.js)
+    mapFloat: { fx: -1, fy: -1 },   // floating map: left / top as fractions of the free window area (-1 = default spot); export never uses this
     panels: {
       hud: { fx: 0.5, fy: 0.975 },
       map: { fx: 0.985, fy: 0.975, wu: 400, hu: 300 },
