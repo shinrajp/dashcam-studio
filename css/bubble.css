@@ -4,6 +4,7 @@
  * Always -webkit-backdrop-filter beside backdrop-filter (in glass.css); no :has(). Targets: bubble 52 px, items 48 px. */
 :root { --sa-l: env(safe-area-inset-left, 0px); --sa-r: env(safe-area-inset-right, 0px); --sa-t: env(safe-area-inset-top, 0px); --sa-b: env(safe-area-inset-bottom, 0px); }
 .tool-bubble { position: fixed; left: 0; top: 0; width: 52px; height: 52px; z-index: 34; transition: opacity .25s, transform .25s, visibility 0s; }
+.tool-bubble.open { z-index: 61; }   /* above a toast (60) while the fan is out */
 .tool-bubble.snap { transition: left .3s cubic-bezier(.3,1.35,.5,1), top .3s cubic-bezier(.3,1.35,.5,1), opacity .25s, transform .25s; }
 .tb-main { position: absolute; left: 0; top: 0; width: 52px; height: 52px; padding: 0; margin: 0; border-radius: 50%; border: 1px solid rgba(255,255,255,.16);
   background: rgba(22,25,31,.92); color: #f2f5fa; display: flex; align-items: center; justify-content: center; cursor: pointer; touch-action: none;
