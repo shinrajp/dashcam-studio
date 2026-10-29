@@ -10,3 +10,6 @@ __pycache__/
 tools/mock-stills-raw/
 backups/
 models/yolo11m.onnx
+
+# lab prototype mock loop (generated from tools/mock-stills, no real footage)
+!labs/glass-sdf/mock-loop.mp4
