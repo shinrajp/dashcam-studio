@@ -245,7 +245,20 @@
       try { q.focus({ preventScroll: true }); } catch (e) { q.focus(); }
     }
   };
+  /* ui-glass-6: the thin docked strip (wide screens) keeps a few things in small popovers above it: the saved regions (#crRegBtn),
+     the help (#crInfo) and the ⋯ menu (#usMore: Save / Load regions file, Classic search bars). Elsewhere these buttons are hidden by CSS. */
+  const POPS = [["usMore", "usPanel", "more-open"], ["crRegBtn", "crSec", "list-open"], ["crInfo", "crSec", "hint-open"]];
+  function setPop(id, on) { const d = POPS.find((x) => x[0] === id), b = d && $(d[0]), h = d && $(d[1]); if (!b || !h) return; h.classList.toggle(d[2], on); b.setAttribute("aria-expanded", String(on)); }
+  U.setPop = setPop;
+  U.closePops = (except) => {
+    let any = false;
+    for (const [b, h, c] of POPS) { if (b === except) continue; const host = $(h); if (!host || !host.classList.contains(c)) continue;
+      const a = document.activeElement, pop = { "more-open": ["crFileRow", "usFoot"], "list-open": ["crList"], "hint-open": ["crHint"] }[c].map($);
+      setPop(b, false); any = true; if (a && pop.some((x) => x && x.contains(a))) { const bt = $(b); if (bt) bt.focus({ preventScroll: true }); } }
+    return any;
+  };
   U.hide = () => {
+    U.closePops();
     const p = $("usPanel");
     if (!p) return;
     U.open = false;
@@ -411,6 +424,7 @@
       '<div class="us-head" id="usHead"><span class="us-grip" id="usGrip" role="button" tabindex="-1" aria-label="Move the window (arrow keys, Shift for bigger steps)" title="Drag to move · arrow keys move it">' +
       '<svg viewBox="0 0 10 16" aria-hidden="true"><circle cx="3" cy="3" r="1.4"/><circle cx="7" cy="3" r="1.4"/><circle cx="3" cy="8" r="1.4"/><circle cx="7" cy="8" r="1.4"/><circle cx="3" cy="13" r="1.4"/><circle cx="7" cy="13" r="1.4"/></svg><span id="usHeadLbl" class="us-headlbl">Search</span></span>' +
       '<div class="us-tabs" id="usTabs" role="tablist" aria-label="Search or redact"><button type="button" role="tab" class="us-tab" id="usTabFind" aria-selected="true" aria-controls="usPanel">Find</button><button type="button" role="tab" class="us-tab" id="usTabRedact" aria-selected="false" aria-controls="usPanel" tabindex="-1">Redact</button></div>' +
+      '<button type="button" class="btn icon sm us-more" id="usMore" aria-expanded="false" aria-haspopup="true" aria-label="More: regions file, classic search bars" title="More"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg></button>' +
       '<button type="button" class="btn icon sm us-float" id="usFloat" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true" class="i-float"><rect x="3" y="12" width="18" height="9" rx="2"/><rect x="7" y="3" width="12" height="7" rx="1.5"/></svg><svg viewBox="0 0 24 24" aria-hidden="true" class="i-dock"><rect x="3" y="3" width="18" height="11" rx="2"/><path d="M3 19h18"/></svg></button>' +
       '<button type="button" class="btn icon sm us-pin" id="usPin" aria-pressed="false" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3h6l-1 6 3 3v2H7v-2l3-3z"/><path d="M12 14v7"/></svg></button>' +
       '<button type="button" class="btn icon sm us-x" id="usClose" aria-label="Close search (Esc)" title="Close (Esc)"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>' +
@@ -430,7 +444,7 @@
       '<div class="us-status" id="usStatus" hidden></div>' +
       '<label class="us-best us-t-find" id="usBestWrap" hidden title="Show only the best-matching plate or text (best text match × read confidence)"><input type="checkbox" id="usBest"> Best match only <span id="usBestN"></span></label>' +
       '<div class="us-results" id="usResults" role="listbox" aria-label="Results" hidden></div>' +
-      '<div class="us-foot"><label title="Show the original Find and Redact bars under the video"><input type="checkbox" id="usClassic"> Classic search bars</label><button type="button" class="btn ghost small" id="usClear" hidden>Clear results</button></div>');
+      '<div class="us-foot" id="usFoot"><label title="Show the original Find and Redact bars under the video"><input type="checkbox" id="usClassic"> Classic search bars</label><button type="button" class="btn ghost small" id="usClear" hidden>Clear results</button></div>');
     // dock: a strip in normal page flow between the video area and the transport (never over a camera)
     const dock = el("div", { class: "us-dock", id: "usDock", hidden: "" });
     const tp = $("transport");
@@ -458,6 +472,10 @@
       const t = k === "ArrowLeft" || k === "Home" ? "find" : "redact"; setTab(t); const b = $(t === "find" ? "usTabFind" : "usTabRedact"); if (b) b.focus();
     });
     $("usClose").addEventListener("click", () => U.hide());
+    $("usMore").addEventListener("click", () => { const on = !p.classList.contains("more-open"); U.closePops("usMore"); setPop("usMore", on); });
+    document.addEventListener("click", (e) => {   // a click outside an open popover (and outside its button) folds it
+      const t = e.target; if (!t || !t.closest || t.closest("#usMore, #crRegBtn, #crInfo, #crList, #crHint, #crFileRow, #usFoot")) return; U.closePops();
+    });
     $("usFloat").addEventListener("click", () => U.setMode(W.mode === "float" ? "dock" : "float"));
     $("usPin").addEventListener("click", () => U.setPinned(!W.pinned));
     $("usFind").addEventListener("click", () => U.find());
@@ -484,7 +502,7 @@
       const typing = e.target.matches && e.target.matches("input, textarea, select, [contenteditable]");
       if ((e.metaKey || e.ctrlKey) && !e.altKey && (e.key === "k" || e.key === "K")) { e.preventDefault(); e.stopImmediatePropagation(); U.open && U.tab === "find" && document.activeElement === $("usQuery") ? U.hide() : U.show(true, "find"); }
       else if (e.key === "/" && !typing && !e.metaKey && !e.ctrlKey && !e.altKey) { e.preventDefault(); e.stopImmediatePropagation(); U.show(true, "find"); }
-      else if (e.key === "Escape" && U.open) { e.preventDefault(); e.stopImmediatePropagation(); U.hide(); }
+      else if (e.key === "Escape" && U.open) { e.preventDefault(); e.stopImmediatePropagation(); if (!U.closePops()) U.hide(); }   // Esc folds an open popover first
     }, true);
     // (no tap-outside close: docked and floating panels stay until closed with × / Esc / the Search button)
 

@@ -659,6 +659,7 @@
     syncBar();
     const n = G.list.length, on = G.list.filter((r) => r.on).length;
     $("crCount").textContent = n ? "(" + n + ")" : "";
+    const rb = $("crRegBtn"); if (rb) { $("crRegN").textContent = "(" + n + ")"; rb.hidden = !n; if (!n && sec.classList.contains("list-open")) { sec.classList.remove("list-open"); rb.setAttribute("aria-expanded", "false"); } }
     $("crList").innerHTML = listHtml();
     $("crList").hidden = !n;
     $("crFileRow").hidden = false; $("crExportFile").disabled = !n;
@@ -672,7 +673,8 @@
     const sec = $("crSec");
     sec.addEventListener("toggle", () => { if (!sec.open) sec.open = true; });   // the section never folds away
     const sm = sec.querySelector("summary"); if (sm) sm.addEventListener("click", (e) => e.preventDefault());
-    const info = $("crInfo"); if (info) info.addEventListener("click", () => { const on = !sec.classList.contains("hint-open"); sec.classList.toggle("hint-open", on); info.setAttribute("aria-expanded", String(on)); });
+    const pop = (id, cls) => { const b = $(id); if (b) b.addEventListener("click", () => { const U = T.searchUI, on = !sec.classList.contains(cls); if (U && U.closePops) U.closePops(id); sec.classList.toggle(cls, on); b.setAttribute("aria-expanded", String(on)); }); };
+    pop("crInfo", "hint-open"); pop("crRegBtn", "list-open");
     $("crShape").addEventListener("click", (e) => { const b = e.target.closest("button"); if (!b) return; S.shape = b.dataset.v; if (!S.editId) S.draft = null; if (S.drawing) UI.draw(); UI.sync(); });
     $("crMode").addEventListener("click", (e) => { const b = e.target.closest("button"); if (!b) return; S.mode = b.dataset.v; UI.sync(); });
     $("crWhole").addEventListener("change", () => {
@@ -690,7 +692,7 @@
       const b = e.target.closest("[data-act]"), li = e.target.closest("li[data-id]"); if (!b || !li) return;
       const id = li.dataset.id, r = G.list.find((x) => x.id === id); if (!r) return;
       if (b.dataset.act === "del") { if (S.editId === id) resetForm(); G.remove(id); msg("Region deleted."); }
-      else if (b.dataset.act === "edit") UI.edit(id);
+      else if (b.dataset.act === "edit") { const U = T.searchUI; if (U && U.closePops) U.closePops(); UI.edit(id); }
       else if (b.dataset.act === "go") {
         if (T.focus && T.focus.focus && T.focus.cam !== r.cam) T.focus.focus(r.cam);
         if (T.player && r.start != null && (T.player.time < r.start || (r.end != null && T.player.time > r.end))) T.player.seek(r.start);
@@ -718,13 +720,15 @@
     sec.className = "cr-sec us-t-redact"; sec.id = "crSec"; sec.open = true;   // always open: no accordion click needed (redact-button)
     sec.innerHTML =
       '<summary>Custom regions <span id="crCount"></span></summary>' +
-      '<button type="button" class="cr-info" id="crInfo" aria-expanded="false" aria-controls="crHint" aria-label="How custom regions work" title="How custom regions work">i</button>' +   // ui-glass-6: the wide docked panel folds the help text behind this (i)
       '<p class="cr-hint" id="crHint">For what automatic redaction misses, like a curved plate. Press <b>Draw region</b>, tap the camera you want, then drag over the area. Regions stay put on the picture and are burned into the export.</p>' +
       '<div class="cr-grid">' +
       '<div class="cr-f"><span>Shape</span><div class="seg" id="crShape" role="group" aria-label="Shape"><button type="button" data-v="rect" aria-pressed="true">Box</button><button type="button" data-v="free" aria-pressed="false">Freehand</button></div></div>' +
       '<div class="cr-f"><span>Hide with</span><div class="seg" id="crMode" role="group" aria-label="How to hide"><button type="button" data-v="blur" aria-pressed="true" title="A strong blur: the text can\'t be read">Blur</button><button type="button" data-v="remove" aria-pressed="false" title="A solid black shape">Remove (black)</button></div></div>' +
       '<div class="cr-f"><span>When</span><label class="cr-chk"><input type="checkbox" id="crWhole" checked> Whole clip</label></div>' +
       "</div>" +
+      // ui-glass-6: the thin docked strip folds the help behind (i) and the saved regions behind "Regions (n)" (popovers; hidden by CSS elsewhere)
+      '<button type="button" class="cr-info" id="crInfo" aria-expanded="false" aria-controls="crHint" aria-label="How custom regions work" title="How custom regions work">i</button>' +
+      '<button type="button" class="btn small cr-regbtn" id="crRegBtn" aria-expanded="false" aria-controls="crList" hidden>Regions <span id="crRegN"></span></button>' +
       '<div class="cr-times" id="crTimes" hidden><label>From <input id="crFrom" type="text" inputmode="decimal" autocomplete="off" spellcheck="false" placeholder="0:00.0" aria-label="Start time"></label><button type="button" class="btn small ghost" id="crFromNow" title="Use the current position">Now</button>' +
       '<label>to <input id="crTo" type="text" inputmode="decimal" autocomplete="off" spellcheck="false" placeholder="0:05.0" aria-label="End time"></label><button type="button" class="btn small ghost" id="crToNow" title="Use the current position">Now</button>' +
       '<button type="button" class="btn small ghost" id="crTrim" hidden title="Use the time span of your sections">Use my sections</button></div>' +
