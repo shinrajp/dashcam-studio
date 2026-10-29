@@ -167,7 +167,7 @@ async function partC(b, dev, tag) {
   await openEvent(p, "");
   await p.click("#rdBtn"); await W(400);
   await p.evaluate(() => { document.getElementById("crSec").open = true; }); await W(200);
-  await p.evaluate(() => document.getElementById("crDraw").click()); await W(500);
+  await p.evaluate(() => TDC.focus.focus("front")); await W(300); await p.evaluate(() => document.getElementById("crDraw").click()); await W(500);
   const narrow = await p.evaluate(() => TDC.searchUI.narrow());
   ok(tag + " C1 draw bar is shown while drawing", await vis(p, "#crBar"));
   if (!narrow) { console.log("INFO " + tag + " not a narrow window: the panel stays open while drawing; Options toggle checked on the phone run"); await ctx.close(); return; }

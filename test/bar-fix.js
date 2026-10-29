@@ -34,13 +34,13 @@ const barInfo = (p) => p.evaluate(() => {
 const startDraw = async (p, shape) => {
   await p.evaluate(() => { TDC.regions.ui.shape = "rect"; });
   if (shape) await p.evaluate((s) => { TDC.regions.ui.shape = s; TDC.regions.UI.sync(); }, shape);
-  await p.evaluate(() => document.getElementById("crDraw").click()); await W(500);
+  await p.evaluate(() => TDC.focus.focus("front")); await W(300); await p.evaluate(() => document.getElementById("crDraw").click()); await W(500);
 };
 const resetBar = async (p) => { await p.evaluate(() => { TDC.regions.UI.barReset(); try { sessionStorage.removeItem("dcs.crBarPos.v1"); } catch (_) {} }); };
 const cancelDraw = async (p) => { await p.evaluate(() => { const b = document.getElementById("crBarCancel"); if (b && b.offsetParent) b.click(); else document.getElementById("crCancel").click(); }); await W(250); };
 const drawMouse = async (p, pts, hold) => { await p.mouse.move(pts[0][0], pts[0][1]); await p.mouse.down(); for (const q of pts.slice(1)) { await p.mouse.move(q[0], q[1], { steps: 4 }); await W(30); } if (hold) return; await p.mouse.up(); await W(150); };
 const drawState = (p) => p.evaluate(() => { const S = TDC.regions.ui; return { drawing: S.drawing, draft: S.draft ? JSON.parse(JSON.stringify(S.draft)) : null }; });
-const tileRect = (p) => p.evaluate(() => { const c = TDC.regions.ui.cam, t = TDC.player.tiles[c].tile.getBoundingClientRect(); const f = TDC.regions.screenFit ? null : null; return { l: t.left, t: t.top, r: t.right, b: t.bottom }; });
+const tileRect = (p) => p.evaluate(() => { const c = TDC.regions.ui.cam || TDC.focus.cam, t = TDC.player.tiles[c].tile.getBoundingClientRect(); const f = TDC.regions.screenFit ? null : null; return { l: t.left, t: t.top, r: t.right, b: t.bottom }; });
 
 
 const overlapY = (a, b) => Math.max(0, Math.min(a.b, b.b) - Math.max(a.t, b.t));

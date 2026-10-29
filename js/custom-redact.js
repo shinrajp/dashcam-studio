@@ -608,8 +608,9 @@
       return;
     }
     if (repick && T.focus && T.focus.cam && T.focus.grid) T.focus.grid();   // back to all the cameras, so there is something to tap
-    const vis = visibleCams();
-    if (!vis.length) { msg("The cameras aren't showing yet. Play or seek the video, then press Draw region again.", true); return; }
+    hidePanelForDrawing();   // first: a docked panel (landscape phone) squeezes the pictures to nothing, and we need to see which cameras are really on screen
+    const one = T.focus && T.focus.cam, vis = visibleCams();
+    if (!vis.length && !one) { reopenPanel(); msg("The cameras aren't showing yet. Play or seek the video, then press Draw region again.", true); return; }
     S.cam = null; S.draft = null; S.live = null; S.drawing = false;
     if (isMulti()) {
       S.pick = true;
@@ -617,7 +618,7 @@
       msg("Tap the camera you want to redact", false);
       UI.sync(); kick();
       setTimeout(() => { const b = document.querySelector(".cr-pick"); if (S.pick && b && !b.matches(":focus")) { try { b.focus({ preventScroll: true }); } catch (_) {} } }, 120);   // keyboard: Tab moves between the cameras, Enter picks, Esc cancels
-    } else choose((T.focus && T.focus.cam) || vis[0], "auto");
+    } else choose(one || vis[0], "auto");
   };
   UI.cancel = () => { resetForm(); reopenPanel(); UI.sync(); kick(); if (R && R.paint) R.paint(); };
   UI.edit = (id) => {

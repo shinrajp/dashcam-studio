@@ -302,8 +302,8 @@ async function openEvent(p, URL0) {
       if (PARTS.includes("4")) {
         await p.evaluate(() => { TDC.regions.clear(); TDC.layout.set("mirror"); TDC.focus.grid && TDC.focus.grid(); });
         await open(); await W(300);
-        const ui0 = await p.evaluate(() => ({ cams: [...document.querySelectorAll("#crCam option")].map((o) => o.value).join(), panel: !document.getElementById("usPanel").hidden, secOpen: document.getElementById("crSec").open, hint: document.querySelector("#crSec .cr-hint").textContent.length > 40 }));
-        ok(tag + "Custom regions section opens in the Redact panel; camera list = the event's cameras", ui0.panel && ui0.secOpen && ui0.hint && /front/.test(ui0.cams) && /back/.test(ui0.cams) && !/pillar/.test(ui0.cams), ui0);
+        const ui0 = await p.evaluate(() => ({ cams: [...document.querySelectorAll(".tile[data-cam]")].filter((o) => o.getBoundingClientRect().width > 4 && !o.classList.contains("off")).map((o) => o.dataset.cam).join(), noSel: !document.getElementById("crCam") && !document.querySelector("#crSec select"), panel: !document.getElementById("usPanel").hidden, secOpen: document.getElementById("crSec").open, hint: document.querySelector("#crSec .cr-hint").textContent.length > 40 }));
+        ok(tag + "Custom regions section opens in the Redact panel; no camera dropdown (the camera is picked on the picture); the event's cameras are the tiles", ui0.panel && ui0.secOpen && ui0.hint && /front/.test(ui0.cams) && /back/.test(ui0.cams) && !/pillar/.test(ui0.cams) && ui0.noSel, ui0);
         const sel = (id, v) => p.selectOption("#" + id, v), clk = (sl) => p.click(sl);
         const save = async () => { const bar = await p.evaluate(() => { const b = document.getElementById("crBar"); return !!b && !b.hidden; }); await clk(bar ? "#crBarSave" : "#crSave"); };
         const screenPt = (u, v) => p.evaluate(([u, v]) => { const b = __cr.expect("back", { x: u, y: v, w: 0, h: 0 }); return [b.x, b.y]; }, [u, v]);
@@ -322,7 +322,7 @@ async function openEvent(p, URL0) {
         const lastRegion = () => p.evaluate(() => { const l = TDC.regions.list; return JSON.parse(JSON.stringify(l[l.length - 1] || null)); });
         const iouBox = (r, b) => { const x1 = Math.max(r.x, b.x), y1 = Math.max(r.y, b.y), x2 = Math.min(r.x + r.w, b.x + b.w), y2 = Math.min(r.y + r.h, b.y + b.h), i = Math.max(0, x2 - x1) * Math.max(0, y2 - y1); return i / (r.w * r.h + b.w * b.h - i); };
         // pick camera, Draw region (focuses that camera), drag a box with the MOUSE on a mirrored tile
-        await sel("crCam", "back"); await clk("#crMode button[data-v=remove]"); await clk("#crDraw"); await W(700);
+        await p.evaluate(() => TDC.focus.focus("back")); await W(300); await clk("#crMode button[data-v=remove]"); await clk("#crDraw"); await W(700);
         const st = await p.evaluate(() => ({ focus: TDC.focus.cam, ov: !!document.querySelector(".cr-overlay"), top: (() => { const e = __cr.expect("back", { x: 0.3, y: 0.5, w: 0, h: 0 }); const el = document.elementFromPoint(e.x, e.y); return el && el.className; })(), drawBtn: document.getElementById("crDraw").textContent, mir: TDC.layout.mirrored("back") }));
         ok(tag + "Draw region focuses the chosen camera, shows the drawing layer on top of the picture", st.focus === "back" && st.ov && /cr-overlay/.test(st.top) && /Drawing/.test(st.drawBtn) && st.mir, st);
         const fx0 = await p.evaluate(() => [TDC.focus.x, TDC.focus.y, window.scrollX, window.scrollY, TDC.player.time]);
@@ -397,7 +397,7 @@ async function openEvent(p, URL0) {
         await p.click("#crList li input[data-act=on]"); const off = await p.evaluate(() => [TDC.regions.list[0].on, TDC.regions.at("back", 2).length]);
         await p.click("#crList li input[data-act=on]"); const on = await p.evaluate(() => [TDC.regions.list[0].on, TDC.regions.at("back", 2).length]);
         ok(tag + "list: the tick switches a region off and on (off = not applied)", off[0] === false && off[1] === 0 && on[0] === true && on[1] === 1, { off, on });
-        await p.click("#crList li button[data-act=edit]"); await W(200); await clk("#crMode button[data-v=remove]"); const editing = await p.evaluate(() => ({ save: document.getElementById("crSave").textContent, dis: document.getElementById("crSave").disabled, cam: document.getElementById("crCam").disabled }));
+        await p.click("#crList li button[data-act=edit]"); await W(200); await clk("#crMode button[data-v=remove]"); const editing = await p.evaluate(() => ({ save: document.getElementById("crSave").textContent, dis: document.getElementById("crSave").disabled, noCam: !document.getElementById("crCam") }));
         await save(); await W(150);
         const edited = await p.evaluate(() => ({ n: TDC.regions.list.length, mode: TDC.regions.list[0].mode, s: TDC.regions.list[0].start, e: TDC.regions.list[0].end }));
         ok(tag + "list: Edit keeps the shape + time, lets you change Blur/Remove, 'Save changes' updates in place (no duplicate)", /Save changes/.test(editing.save) && !editing.dis && edited.n === 1 && edited.mode === "remove" && edited.s === 1 && edited.e === 3, { editing, edited });
