@@ -137,7 +137,7 @@ async function run(b, BR, dev) {
   await p.evaluate(() => { TDC.setPref("autohide", "2"); TDC.player.seek(0.5); TDC.player.play(); TDC.autohide.wake(); });
   await W(3300); const ah1 = await p.evaluate(() => ({ gone: document.body.classList.contains("ah-gone") || document.body.classList.contains("idle"), why: TDC.autohide.why, open: TDC.bubble.open }));
   await act("#tbMain"); if (!touch) await p.mouse.move(vw / 2, vh * 0.35); let gone = false; for (let i = 0; i < 60 && !gone; i++) { await W(100); gone = await p.evaluate(() => document.body.classList.contains("idle")); }
-  await W(500); const dot = await p.evaluate(() => { const cs = getComputedStyle(document.getElementById("toolBubble")); return { op: +cs.opacity, vis: cs.visibility }; });
+  let dot = null; for (let i = 0; i < 25; i++) { await W(100); dot = await p.evaluate(() => { const cs = getComputedStyle(document.getElementById("toolBubble")); return { op: +cs.opacity, vis: cs.visibility, idle: document.body.classList.contains("idle") }; }); if (dot.op < 0.8) break; }   // the fade is a transition: poll (slow under load)
   await p.evaluate(() => { TDC.player.pause(); TDC.setPref("autohide", "never"); TDC.autohide.wake(); }); await W(400);
   ok(tag + " 7 auto-hide: nothing hides while the fan is open (hold 'tools')", !ah1.gone && ah1.why === "tools" && ah1.open, ah1);
   ok(tag + " 7 auto-hide: when the controls hide the bubble stays as a faint dot", gone && dot.vis === "visible" && dot.op > 0.2 && dot.op < 0.8, { gone, dot });
@@ -155,7 +155,17 @@ async function run(b, BR, dev) {
   ok(tag + " 9 reduced motion: no springs on the bubble, fan or sheet", rm.every((d) => d.split(",").every((x) => parseFloat(x) <= 0.011)), rm);
   // 10 drawing / picking
   const aw = await p.evaluate(async () => { const o = {}; for (const c of ["cr-picking", "cr-bar-on"]) { document.body.classList.add(c); await new Promise((r) => setTimeout(r, 400)); o[c] = getComputedStyle(document.getElementById("toolBubble")).visibility; document.body.classList.remove(c); await new Promise((r) => setTimeout(r, 400)); } o.back = getComputedStyle(document.getElementById("toolBubble")).visibility; return o; });
-  ok(tag + " 10 steps away while picking / drawing a region (tap-redact, draw bar), back after", aw["cr-picking"] === "hidden" && aw["cr-bar-on"] === "hidden" && aw.back === "visible", aw);
+  // phones: away for both. Desktop: away while picking; while drawing it stays (Redact reopens the panel mid-drawing, as before) unless the draw bar covers its corner
+  ok(tag + " 10 steps away while picking" + (dev.touch ? " / drawing" : "") + " a region (tap-redact, draw bar), back after", aw["cr-picking"] === "hidden" && aw["cr-bar-on"] === (dev.touch ? "hidden" : "visible") && aw.back === "visible", aw);
+  if (!dev.touch) {
+    const cov = await p.evaluate(async () => { const m = document.getElementById("tbMain").getBoundingClientRect(); let bar = document.getElementById("crBar"), made = false;
+      if (!bar) { bar = document.createElement("div"); bar.id = "crBar"; document.body.appendChild(bar); made = true; }
+      const keep = bar.getAttribute("style"), hid = bar.hidden; bar.hidden = false; bar.setAttribute("style", `position:fixed;left:${m.left - 100}px;top:${m.top}px;width:${m.width + 120}px;height:${m.height}px;right:auto;bottom:auto`);
+      document.body.classList.add("cr-bar-on"); await new Promise((r) => setTimeout(r, 400)); const v = getComputedStyle(document.getElementById("toolBubble")).visibility;
+      document.body.classList.remove("cr-bar-on"); if (made) bar.remove(); else { bar.hidden = hid; if (keep == null) bar.removeAttribute("style"); else bar.setAttribute("style", keep); } await new Promise((r) => setTimeout(r, 400));
+      return { covered: v, back: getComputedStyle(document.getElementById("toolBubble")).visibility }; });
+    ok(tag + " 10 desktop: a draw bar over the bubble's corner sends it away", cov.covered === "hidden" && cov.back === "visible", cov);
+  }
   // 11 floating map: down to the window bottom
   await p.evaluate(() => TDC.overlays.setMapHome("float", true)); await W(500);
   const g0 = await R(p, "#mapGrip"); const ctlTop = Math.min(vh, ...tops.filter(([id]) => id !== "topbar").map(([, r]) => r.t));
