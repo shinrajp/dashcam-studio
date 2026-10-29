@@ -568,6 +568,37 @@ Rollback: `git checkout pre-map-float` (tip before this change, glass-sdf v5, 60
 - With **Show 360 view (beta)** off (the default), Settings ▸ **Calibration** is hidden too (along with the 360 button and any open 360 calibration view). Turning 360 on brings it back; your calibration values are kept. `?show360=1|0` and Reset all work as before.
 - Tests: `node test/map-float.js`; `test/ui-quick.js` and `test/bottom-overlap.js` updated (see test/README.md).
 
+## Liquid Glass: overview, settings and address overrides (tags `ui-glass-1` … `ui-glass-10`)
+The controls are frosted glass that floats over the video: a camera **pill** that docks or floats, a **tools bubble** (Redact, Search, Events, Settings), a **Redact tray** with undo, a timeline **capsule**, grouped **Settings**, and glass that takes its tint from the video under it. Nothing in the export changed: an export from before the overhaul (`cee26b8`) and after it is byte-identical for the same clip and settings (checked in ui-glass-10).
+
+![Liquid Glass on a laptop: camera pill, map, HUD and the timeline capsule (mock footage)](screenshots/liquid-glass-desktop.png)
+
+| Setting (Settings ▸ Appearance unless noted) | Choices (default in bold) | Address override for one visit |
+|---|---|---|
+| Glass | **Automatic** (tint follows the video) · Clear · Solid | `?glass=auto` · `?glass=clear` · `?glass=solid` |
+| Auto-hide (controls fade while playing) | 2 s · **3 s** · 5 s · Never | `?autohide=2` · `3` · `5` · `never` |
+| Lite mode (no blur, no video tint) | **Auto** (turns on for the session if playback stays under ~40 fps for 3 s, or on a low-memory device) · On · Off | `?lite=auto` · `?lite=on` / `?lite=1` · `?lite=off` / `?lite=0` |
+| Show 360 view (beta) (Advanced & Labs; also shows Calibration) | On · **Off** | `?show360=1` · `?show360=0` |
+
+- An override wins over the saved choice for that visit only and is not saved (Auto-hide says so in Settings). Settings ▸ Advanced & Labs ▸ Reset all settings clears the saved choices.
+- The system's **Reduce transparency** makes the glass solid; **Reduce motion** turns off fades, springs and the moving tint. A browser that can't blur gets the solid look.
+- **Accessibility (ui-glass-10):** every control in the bubble, tray, Settings, camera pill and map handles has a name for VoiceOver; on touch each is at least 44 px or has a 44 px hit area (the camera pill's small ⋮⋮ grip is the exception: 30 px, with the 44 px More button beside it); the bubble and tray open with Enter and close with Esc, returning focus; Settings is a labelled dialog.
+
+<details>
+<summary>More Liquid Glass screenshots (mock footage)</summary>
+
+![Tools bubble open: Redact, Search, Events and Settings fanned out](screenshots/liquid-glass-bubble.png)
+![Redact tray while drawing on the front camera](screenshots/liquid-glass-tray.png)
+![Grouped Settings on a laptop](screenshots/liquid-glass-settings.png)
+![Lite mode: solid controls, no blur](screenshots/liquid-glass-lite.png)
+![Phone (430x932): camera pill on two rows, slim play bar, bubble](screenshots/liquid-glass-phone.png)
+![Phone: Settings ▸ Appearance with Glass, Auto-hide and Lite mode](screenshots/liquid-glass-phone-settings.png)
+</details>
+
+Screenshots: `python3 tools/make-photo-footage.py tools/mock-stills /tmp/photo-mock`, then `FIX=/tmp/photo-mock node test/glass-shots.js` (Chromium; writes `screenshots/liquid-glass-*.png`). The footage is made from AI-generated stills; no real drive or plates.
+
+Known issues: see CHANGES-v2.md ▸ "Liquid Glass: summary".
+
 ## Liquid Glass, step 1: the material (tag `ui-glass-1`)
 Rollback: `git checkout pre-ui-glass-1` (tip before this change, `map-float`, 14da42e).
 - The controls look like frosted glass: the top bar, the bottom bar and its chips, the camera bar, the Search / Redact window, the draw bar, the map frame, the Settings drawer and the toasts. They have rounded capsule shapes, a thin light edge along the top and a soft shadow. **Nothing moved**: every button is where it was and works the same way.
@@ -658,3 +689,10 @@ Rollback: `git checkout pre-ui-glass-9` (tip before this change, `ui-glass-8`, 5
 - **Lite mode** (Settings ▸ Appearance ▸ Lite mode: Auto / On / Off) drops all blur and the video tint and uses the solid controls, for smoother playback. **Auto** turns it on for the session when playback keeps running below ~40 frames a second for 3 s (never because of a seek, a resize or a single stall), saying so once, or on a device with little memory. `?lite=on` / `?lite=off` (or `1` / `0`) override it for one visit.
 - On touch the Glass, Auto-hide and Lite choices are 44 px targets.
 - Tests: `node test/ui-glass-9.js` (see test/README.md).
+
+## Liquid Glass, step 10: tests, accessibility and docs (tag `ui-glass-10`)
+Rollback: `git checkout pre-ui-glass-10` (tip before this change, `ui-glass-9`, 1f2d5ca).
+- Accessibility pass: Settings controls written as "name + switch" rows now carry the row's name for VoiceOver (overlay size, map tiles, map follow, 360 view, detection and plate confidence, and others). On touch, the white-balance side pickers, the recognition switches and folded notes in Settings are 44 px tall, and the floated map's grip and move handle have 44 px hit areas (nothing moved).
+- The export is byte-identical to before the Liquid Glass work (same clip, same settings, three presets).
+- The overview above lists every setting and address override; new mock-footage screenshots.
+- Tests: `node test/ui-glass-10.js` (accessibility), `node test/glass-shots.js` (screenshots); `test/ui-glass-1.js` and `test/ui-glass-5.js` timing fixes (see test/README.md).

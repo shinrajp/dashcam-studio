@@ -65,7 +65,7 @@ body.fs .drawer.set-panel { top: 8px; }
   .set-panel .seg { padding: 0; border-width: 0; }   /* the 44 px buttons are the whole control; keeps the rows at 44 px */
   .set-panel select { min-height: 44px; }
   .set-panel .set-sec label:has(> input[type="checkbox"]) { min-height: 44px; }   /* recognition switches written as a label (detect.js, plates.js, vehicle.js) */   /* ui-glass-10: white-balance side pickers were 19 px */
-  .set-panel:not(.set-filtering) .set-sec p.hint.set-clamp { min-height: 44px; box-sizing: border-box; padding-top: 5px; padding-bottom: 5px; margin-top: 7px; margin-bottom: 7px; }   /* a folded note is a tap target */
+  .set-panel:not(.set-filtering) .set-sec p.hint.set-clamp { min-height: 44px; box-sizing: border-box; border-top: 5px solid transparent; border-bottom: 5px solid transparent; margin-top: 7px; margin-bottom: 7px; }   /* a folded note is a tap target (a clear border, not padding, so the clamped third line stays clipped) */
 }
 @media (prefers-reduced-motion: reduce) { .drawer.set-panel:not([hidden]) { animation: setFade .15s linear; } @keyframes setFade { from { opacity: 0; } to { opacity: 1; } } }
 /* long hints fold to two lines inside a group (tap / Enter shows all); searching shows them in full */
