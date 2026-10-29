@@ -111,12 +111,36 @@
   T.canShareFiles = (files) => { try { return !!(navigator.canShare && navigator.share && navigator.canShare({ files })); } catch (_) { return false; } };
   T.blobReader = (blob) => ({ size: blob.size, read: async (a, b) => new Uint8Array(await blob.slice(a, b).arrayBuffer()) });
 
-  let toastTimer = 0;
+  let toastTimer = 0, placeTimer = 0, toastWatch = null;
+  /** tap-redact: the toast never sits on the draw bar, the floating Search / Redact buttons or the Redact panel. It moves up above the one in
+   *  the way (or to the free side of a tall docked panel). Measured from its layout box, so the slide-in transform does not matter. */
+  function placeToast(t) {
+    t.style.bottom = ""; t.style.left = ""; t.style.maxWidth = "";
+    try {
+      const vw = innerWidth, vh = innerHeight, seen = (e) => { if (!e || e.hidden) return null; const cs = getComputedStyle(e); if (cs.display === "none" || cs.visibility === "hidden") return null; const r = e.getBoundingClientRect(); return r.width > 1 && r.height > 1 ? r : null; };
+      const obs = []; ["crBar", "usBtn", "rdBtn", "usPanel"].forEach((id) => { const e = T.$(id), r = seen(e); if (r) obs.push(r); if (id === "crBar" && r) [...e.children].forEach((c) => { const q = seen(c); if (q) obs.push(q); }); });
+      if (!obs.length) return;
+      let w = t.offsetWidth; const h = t.offsetHeight; let bottom = parseFloat(getComputedStyle(t).bottom) || 0, cx = vw / 2;
+      for (let k = 0; k < 6; k++) {
+        const L = cx - w / 2, R = cx + w / 2, B = vh - bottom, Tp = B - h;
+        const o = obs.find((r) => r.left < R + 6 && r.right > L - 6 && r.top < B + 6 && r.bottom > Tp - 6); if (!o) break;
+        const up = vh - o.top + 8;
+        if (vh - up - h >= 56 && o.height <= vh * 0.7) { bottom = up; continue; }
+        const left = o.left, right = vw - o.right, room = Math.max(left, right);   // a tall panel: use the free side
+        if (room < Math.min(w, 220) + 16) break;
+        cx = left >= right ? left / 2 : o.right + right / 2; t.style.maxWidth = Math.round(room - 16) + "px"; w = t.offsetWidth;
+      }
+      if (bottom !== (parseFloat(getComputedStyle(t).bottom) || 0)) t.style.bottom = Math.round(bottom) + "px";
+      if (cx !== vw / 2) t.style.left = Math.round(cx) + "px";
+    } catch (_) {}
+  }
   T.toast = (text, kind, ms) => {
     const t = T.$("toast");
     if (!t) return;
     t.textContent = text;
     t.className = "toast show" + (kind ? " " + kind : "");
+    if (!toastWatch && typeof MutationObserver === "function" && document.body) { toastWatch = new MutationObserver(() => { if (t.classList.contains("show")) placeToast(t); }); toastWatch.observe(document.body, { attributes: true, attributeFilter: ["class"] }); }   // a panel / draw bar opening while it shows
+    placeToast(t); clearTimeout(placeTimer); placeTimer = setTimeout(() => { if (t.classList.contains("show")) placeToast(t); }, 300);   // again once a bar / panel that was just opened has settled
     clearTimeout(toastTimer);
     toastTimer = setTimeout(() => { t.className = "toast"; }, ms || 3800);
   };

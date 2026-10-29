@@ -386,16 +386,24 @@
     if (!$("findQuery") || !$("redactQuery") || !$("btnFind") || !$("btnRedact")) throw new Error("classic search bars missing");
     if (typeof MutationObserver !== "function") throw new Error("MutationObserver unavailable");
     const svg = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></svg>';
-    const btn = el("button", { class: "chip us-btn", id: "usBtn", type: "button", "aria-haspopup": "dialog", "aria-expanded": "false", "aria-controls": "usPanel", title: "Search: find a moment, or hide text, plates and faces (/ or Ctrl+K)" },
+    const btn = el("button", { class: "chip us-btn", id: "usBtn", type: "button", "aria-label": "Search", "aria-haspopup": "dialog", "aria-expanded": "false", "aria-controls": "usPanel", title: "Search: find a moment, or hide text, plates and faces (/ or Ctrl+K)" },
       svg + '<span class="us-lbl">Search</span><span class="us-count" id="usCount"></span>');
     const clock = $("clockLabel");
     clock.parentNode.insertBefore(btn, clock.nextSibling);
     built.push(btn);
     const rsvg = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="15" rx="2.5"/><path d="M7 10h10M7 14.5h6" stroke-width="3"/></svg>';
-    const rbtn = el("button", { class: "chip us-btn rd-btn", id: "rdBtn", type: "button", "aria-haspopup": "dialog", "aria-expanded": "false", "aria-controls": "usPanel", title: "Redact: hide plates, faces and text, or draw your own region" },
+    const rbtn = el("button", { class: "chip us-btn rd-btn", id: "rdBtn", type: "button", "aria-label": "Redact", "aria-haspopup": "dialog", "aria-expanded": "false", "aria-controls": "usPanel", title: "Redact: hide plates, faces and text, or draw your own region" },
       rsvg + '<span class="us-lbl">Redact</span>');
     btn.parentNode.insertBefore(rbtn, btn.nextSibling);
     built.push(rbtn);
+    // tap-redact: when the show chips scroll inside their strip (narrow window), fade the right edge so it is clear there is more
+    const chips = $("chips");
+    if (chips) {
+      const more = () => chips.classList.toggle("more-r", chips.scrollWidth - chips.clientWidth - chips.scrollLeft > 2);
+      chips.addEventListener("scroll", more, { passive: true });
+      if (typeof ResizeObserver === "function") new ResizeObserver(more).observe(chips); else window.addEventListener("resize", more);
+      more();
+    }
 
     const presets = [...document.querySelectorAll(".redact-presets button")].map((b) => '<button type="button" class="us-chip' + (b.classList.contains("text-only") ? " text-only" : "") + '" data-q="' + esc(b.getAttribute("data-q")) + '">' + esc(b.textContent) + "</button>").join("");
     const p = el("div", { class: "us-panel", id: "usPanel", role: "dialog", "aria-label": "Search the video", hidden: "" },

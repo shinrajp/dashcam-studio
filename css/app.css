@@ -1137,3 +1137,24 @@ body.mbar.cr-bar-on .transport > .us-btn .us-lbl { display: none; }
 body.mbar.cr-bar-on .transport > .us-btn { width: 44px; padding: 0; }
 body.mbar.cr-bar-on .transport > #usBtn { display: none; }
 body.mbar.us-open .transport > .us-btn, body.mbar.no-event .transport > .us-btn, body.mbar.us-docked .transport > .us-btn, body.mbar .transport.mb-open > .us-btn { display: none; }
+
+/* ---------- tap-redact: the bottom bar keeps its size with the Redact button (Mac Safari 1024-1439 px windows, phones) ----------
+   Search and Redact become icon chips (tooltip + aria-label keep the name) until the window is wide enough for their labels; the show chips
+   scroll sideways inside their own strip instead of sliding under "Camera bar"; on a 1000-1199 px window the clock (also on the timeline's
+   tooltip) makes room. Nothing wraps (the bar never gets taller) and nothing runs past the right edge (the page never scrolls sideways). */
+@media (pointer: fine) and (min-width: 761px) and (max-width: 1199px) {
+  .tp-controls .us-btn .us-lbl { display: none; }
+  .tp-controls .us-btn { padding: 0 8px; gap: 0; justify-content: center; }
+}
+@media (pointer: fine) and (min-width: 761px) {
+  .tp-controls .chips { min-width: 0; flex-shrink: 1; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; overscroll-behavior-x: contain; }
+  .tp-controls .chips::-webkit-scrollbar { display: none; }
+  .tp-controls .chips.more-r { -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 22px), transparent); mask-image: linear-gradient(to right, #000 calc(100% - 22px), transparent); }
+}
+@media (pointer: fine) and (min-width: 1000px) and (max-width: 1199px) and (min-height: 501px) {
+  body.simple .tp-clock { display: none; }
+}
+/* phones: while the draw bar is up it has Options (the panel) itself, so the floating Redact circle steps aside instead of sitting under the bar */
+@media (max-width: 760px) { body.cr-bar-on .tp-controls .us-btn { display: none; } }
+body.mbar.cr-bar-on .transport > .us-btn { display: none; }
+.toast { transition: opacity .2s, transform .2s; }   /* not "all": js/core.js lifts it above the draw bar / panel / buttons, and reads its resting place */

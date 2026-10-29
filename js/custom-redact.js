@@ -443,9 +443,10 @@
     const U = T.searchUI;
     if (U && U.ok && U.open && U.hide) { U.hide(); S.reopen = true; S.hid = true; }
   }
-  function reopenPanel() {
+  function reopenPanel(busy) {
     const U = T.searchUI;
-    if ((S.reopen || S.hid) && U && U.show) { S.reopen = false; S.hid = false; U.show(false, "redact"); const s = $("crSec"); if (s) s.open = true; }
+    if ((S.reopen || S.hid || (busy && U && U.narrow && U.narrow())) && U && U.show) {   // phones: Save / Cancel of a drawing always bring the panel back (also after Options, then the panel's X)
+      S.reopen = false; S.hid = false; U.show(false, "redact"); const s = $("crSec"); if (s) s.open = true; }
   }
   function ensureBar() {
     let b = $("crBar");
@@ -588,7 +589,7 @@
     else { if (G.list.length >= G.MAX) { msg("That is the most regions for one event (" + G.MAX + "). Delete one first.", true); return null; } r = G.add(o); }
     if (!r) { msg("Couldn't save that region. Draw it again.", true); return null; }
     const was = S.editId;
-    resetForm(); changed(); reopenPanel(); msg(was ? "Region updated." : "Region saved. It is hidden in the viewer and in the export.");
+    resetForm(); changed(); reopenPanel(true); msg(was ? "Region updated." : "Region saved. It is hidden in the viewer and in the export.");
     return r;
   };
   /** Draw region. With several cameras on screen: "tap the camera you want to redact" (a tap enlarges it and arms the drag, a drag starts drawing on it).
@@ -620,7 +621,7 @@
       setTimeout(() => { const b = document.querySelector(".cr-pick"); if (S.pick && b && !b.matches(":focus")) { try { b.focus({ preventScroll: true }); } catch (_) {} } }, 120);   // keyboard: Tab moves between the cameras, Enter picks, Esc cancels
     } else choose(one || vis[0], "auto");
   };
-  UI.cancel = () => { resetForm(); reopenPanel(); UI.sync(); kick(); if (R && R.paint) R.paint(); };
+  UI.cancel = () => { const busy = !!(S.drawing || S.pick || S.draft || S.editId); resetForm(); reopenPanel(busy); UI.sync(); kick(); if (R && R.paint) R.paint(); };
   UI.edit = (id) => {
     const r = G.list.find((x) => x.id === id); if (!r) return;
     S.pick = false; syncPicks([]);
