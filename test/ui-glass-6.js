@@ -169,6 +169,10 @@ async function run(b, BR, dev) {
       const kids = [...document.querySelectorAll(".topbar .brand, .topbar .top-actions > *")].filter((x) => x.getClientRects().length && getComputedStyle(x).display !== "none").map((x) => { const q = x.getBoundingClientRect(); return { id: x.id || x.className, l: q.left, t: q.top, r: q.right, b: q.bottom }; });
       return { r: { l: r.left, t: r.top, r: r.right, b: r.bottom, w: r.width, h: r.height }, app: cs.webkitAppearance || cs.appearance, bg: cs.backgroundImage.slice(0, 30), txt: e.options[e.selectedIndex] && e.options[e.selectedIndex].textContent, vw: innerWidth, kids }; });
     const hit = ep.kids.filter((k) => X(ep.r, k));
+    const adv = await p.evaluate(async () => { const a = document.getElementById("advToggle"); const was = a.checked; if (!was) { a.checked = true; a.dispatchEvent(new Event("change", { bubbles: true })); } await new Promise((r) => setTimeout(r, 400));
+      const e = document.getElementById("eventPick").getBoundingClientRect(), o = { sw: document.documentElement.scrollWidth, vw: innerWidth, h: e.height, w: e.width, r: e.right };
+      if (!was) { a.checked = false; a.dispatchEvent(new Event("change", { bubbles: true })); } return o; });
+    ok(tag + " 12 Advanced mode too: the top bar fits (no sideways overflow), picker still >= 44 px", adv.sw <= adv.vw + 0.5 && adv.h >= 44 && adv.w >= 88, adv);
     ok(tag + " 12 the event picker is a >= 44 px target (>= 88 px wide) with a drawn chevron", ep.r.h >= 44 && ep.r.w >= 88 && /svg/.test(ep.bg) && ep.app === "none", ep);
     ok(tag + " 12 ... showing the date and time, on screen, overlapping nothing in the top bar", /\d\d-\d\d \d\d:\d\d/.test(ep.txt || "") && ep.r.l >= 0 && ep.r.r <= ep.vw && hit.length === 0, { r: ep.r, hit });
     const ti = await p.evaluate(() => { const e = document.getElementById("tbEvents"); return e ? e.getAttribute("aria-label") : null; });

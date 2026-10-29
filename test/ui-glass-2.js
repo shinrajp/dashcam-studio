@@ -61,7 +61,7 @@ async function run(b, BR, dev) {
   ok(tag + " 3 a 2 px progress line shows at the bottom of the video", s.line && s.line.o > 0.9 && s.line.h === 2 && Math.abs(s.line.b - s.line.stB) <= 1 && /scaleX\(0\.[0-9]*[1-9]/.test(s.line.f), s.line);
   await W(300); s = await S(p);
   ok(tag + " 3 hidden controls are out of the blur budget", !s.blurred.includes("stageBar") && !s.blurred.includes("transport"), s.blurred);
-  const after = await p.evaluate(RECTS), moved = Object.keys(before).filter((k) => after[k] && before[k].some((v, i) => Math.abs(v - after[k][i]) > 0.6) && !/^(ahLine|timeline|tl|hud|panel-|wb)/.test(k));
+  const after = await p.evaluate(RECTS), moved = Object.keys(before).filter((k) => after[k] && before[k].some((v, i) => Math.abs(v - after[k][i]) > 0.6) && !/^(ahLine|timeline|tl|hud|panel-|wb)/.test(k) && !/^(toolBubble|tbFan|tbMain|tbEvents|tbSettings|rdBtn|usBtn)$/.test(k));   // ui-glass-6: the tools bubble shrinks to a dot with a transform (no layout change)
   ok(tag + " 3 no layout change when the controls hide (same boxes for every element with an id)", moved.length === 0, moved.slice(0, 8));
   const hit = await p.evaluate(() => { const r = document.getElementById("stageBar").getBoundingClientRect(); const e = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); return e ? (e.closest("#stageBar") ? "bar" : e.closest("#stage") ? "video" : e.tagName) : null; });
   ok(tag + " 3 the hidden camera bar does not block a tap on the video under it", hit === "video", hit);

@@ -28,7 +28,7 @@ const MEASURE = () => {
   const name = (e) => (e.id ? "#" + e.id : e.tagName.toLowerCase() + (typeof e.className === "string" && e.className.trim() ? "." + e.className.trim().split(/\s+/)[0] : "") + (e.dataset && e.dataset.show ? "[" + e.dataset.show + "]" : ""));
   const items = [];
   const add = (e, grp) => { if (shown(e)) items.push(Object.assign({ n: name(e), g: grp, el: e }, box(e))); };
-  ["rdBtn", "usBtn", "crBar", "usPanel", "btnFullscreen", "chipCamBar"].forEach((id) => add(document.getElementById(id), "main"));
+  ["rdBtn", "usBtn", "crBar", "usPanel", "btnFullscreen", "chipCamBar", "tbMain"].forEach((id) => add(document.getElementById(id), "main"));
   const fm = document.querySelector(".map-floating"); if (fm) add(fm, "main");   // map-float: the floating map counts as a corner item
   const toast = document.getElementById("toast"); if (toast && toast.classList.contains("show")) add(toast, "main");
   document.querySelectorAll(".stage-bar").forEach((e) => add(e, "main"));

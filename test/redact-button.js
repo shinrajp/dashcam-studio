@@ -33,7 +33,10 @@ async function openEvent(p, q) {
 }
 const vis = (p, sel) => p.evaluate((s) => { const e = document.querySelector(s); if (!e) return false; const r = e.getBoundingClientRect(); return !e.hidden && getComputedStyle(e).display !== "none" && getComputedStyle(e).visibility !== "hidden" && r.width > 0 && r.height > 0; }, sel);
 const rect = (p, sel) => p.evaluate((s) => { const e = document.querySelector(s); if (!e) return null; const r = e.getBoundingClientRect(); return { l: r.left, t: r.top, r: r.right, b: r.bottom, w: r.width, h: r.height }; }, sel);
-const tap = async (p, sel, touch) => { if (touch) { const r = await rect(p, sel); await p.touchscreen.tap(r.l + r.w / 2, r.t + r.h / 2); } else await p.click(sel); await W(450); };
+// ui-glass-6: Redact and Search live in the tools bubble's fan; open the fan first (a no-op while the bubble is away: the tests fall back to the API there)
+const inFan = (p, sel) => p.evaluate((s) => { const e = document.querySelector(s); return !!(e && e.closest("#tbFan")) ? { away: !!TDC.bubble.away, open: !!TDC.bubble.open } : null; }, sel);
+const fanFor = async (p, sel, touch) => { const f = await inFan(p, sel); if (!f) return true; if (f.away) return false; if (!f.open) { const r = await rect(p, "#tbMain"); if (touch) await p.touchscreen.tap(r.l + r.w / 2, r.t + r.h / 2); else await p.click("#tbMain"); await W(700); } return true; };
+const tap = async (p, sel, touch) => { if (!(await fanFor(p, sel, touch))) { await W(450); return; } if (touch) { const r = await rect(p, sel); await p.touchscreen.tap(r.l + r.w / 2, r.t + r.h / 2); } else await p.click(sel); await W(450); };
 const tabOf = (p) => p.evaluate(() => document.getElementById("usPanel").dataset.tab);
 const open = (p) => p.evaluate(() => TDC.searchUI.open);
 const drawMouse = async (p, pts) => { await p.mouse.move(pts[0][0], pts[0][1]); await p.mouse.down(); for (const q of pts.slice(1)) { await p.mouse.move(q[0], q[1], { steps: 4 }); await W(30); } await p.mouse.up(); await W(200); };
@@ -44,15 +47,17 @@ async function run(b, dev, tag) {
   const touch = !!dev.ctx.hasTouch, shot = async (n) => { if (SHOTS) { await W(250); await p.screenshot({ path: SHOTS + "/" + n + "-" + tag.replace(/\W+/g, "-") + ".png" }); } };
   await openEvent(p);
   const VH = await p.evaluate(() => innerHeight);
-  // A. at rest
+  // A. at rest (ui-glass-6: one tap on the tools bubble shows Redact and Search, side by side on its fan)
+  const fanned = !!(await inFan(p, "#rdBtn")); await fanFor(p, "#rdBtn", touch);
   const us = await rect(p, "#usBtn"), rd = await rect(p, "#rdBtn");
-  ok(tag + " A1 Redact button is visible without opening anything", await vis(p, "#rdBtn") && await vis(p, "#usBtn"));
-  ok(tag + " A1 it is a real button with the label Redact (icon + label), right beside Search", !!rd && !!us && (await p.evaluate(() => { const b = document.getElementById("rdBtn"); return b.tagName === "BUTTON" && /Redact/.test(b.textContent) && !!b.querySelector("svg"); })) && Math.abs((us.t + us.h / 2) - (rd.t + rd.h / 2)) < 8 && Math.abs(rd.l - us.r) < 40 && rd.l >= us.l, { us, rd });
+  ok(tag + " A1 Redact button is visible " + (fanned ? "after one tap on the tools bubble" : "without opening anything"), await vis(p, "#rdBtn") && await vis(p, "#usBtn"));
+  ok(tag + " A1 it is a real button with the label Redact (icon + label), right beside Search", !!rd && !!us && (await p.evaluate(() => { const b = document.getElementById("rdBtn"); return b.tagName === "BUTTON" && /Redact/.test(b.textContent) && !!b.querySelector("svg"); })) && (fanned ? Math.hypot((us.l + us.r - rd.l - rd.r) / 2, (us.t + us.b - rd.t - rd.b) / 2) < 90 : Math.abs((us.t + us.h / 2) - (rd.t + rd.h / 2)) < 8 && Math.abs(rd.l - us.r) < 40 && rd.l >= us.l), { us, rd });
   ok(tag + " A1 the label is visible (not an icon alone)", await p.evaluate(() => { const l = document.querySelector("#rdBtn .us-lbl"); return !!l && getComputedStyle(l).display !== "none" && l.getBoundingClientRect().width > 20; }));
   ok(tag + " A1 within the screen, 44px-ish tall touch target on phones", !!rd && rd.l >= 0 && rd.r <= (await p.evaluate(() => innerWidth)) && (!touch || rd.h >= 36), rd);
   ok(tag + " A2 nothing is open, no redaction controls on screen", !(await open(p)) && !(await vis(p, "#usPanel")) && !(await vis(p, "#crSec")) && !(await vis(p, "#crDraw")));
   ok(tag + " A3 both buttons start collapsed (aria-expanded false)", await p.evaluate(() => ["usBtn", "rdBtn"].every((i) => document.getElementById(i).getAttribute("aria-expanded") === "false")));
   await shot("toolbar-redact-beside-search");
+  if (fanned) { await p.keyboard.press("Escape"); await W(300); }
 
   // B. Redact button
   await tap(p, "#rdBtn", touch);
@@ -105,7 +110,9 @@ async function run(b, dev, tag) {
   await p.evaluate(() => TDC.searchUI.hide()); await W(200);
 
   // D. keyboard
-  await p.focus("#rdBtn"); await p.keyboard.press("Enter"); await W(400);
+  if (await inFan(p, "#rdBtn")) { await p.focus("#tbMain"); await p.keyboard.press("Enter"); await W(400); }   // Enter on the bubble opens the fan on Redact
+  else await p.focus("#rdBtn");
+  await p.keyboard.press("Enter"); await W(400);
   ok(tag + " D1 focus + Enter on the Redact button opens the Redact tab", (await open(p)) && (await tabOf(p)) === "redact");
   ok(tag + " D1 focus moves into the panel (Draw region)", await p.evaluate(() => document.activeElement && document.getElementById("usPanel").contains(document.activeElement)));
   await p.focus("#usTabRedact"); await p.keyboard.press("ArrowLeft"); await W(200);

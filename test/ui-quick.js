@@ -106,11 +106,13 @@ const geo = (p) => p.evaluate(() => {
   return { l: r.left, t: r.top, r: r.right, b: r.bottom, h: r.height, scrollTop: e.scrollTop, scrollH: e.scrollHeight, clientH: e.clientHeight, headTop: h.top, headH: h.height, fileTop: f.top, fileBottom: f.bottom, vw: innerWidth, vh: innerHeight, hx: e.scrollWidth > e.clientWidth + 1, ov: cs.overflowY, cls: e.className };
 });
 const scrollPanel = (p, y) => p.evaluate((y) => { const e = document.getElementById("usPanel"); e.scrollTop = y; return e.scrollTop; }, y);
+// ui-glass-6: the Redact button sits in the tools bubble's fan; open the fan first, then click it like a user would
+const clickRd = async (p) => { if (await p.evaluate(() => !!document.getElementById("rdBtn").closest("#tbFan") && !TDC.bubble.open)) { await p.click("#tbMain"); await p.waitForTimeout(700); } await p.click("#rdBtn"); };
 async function partB(b, dev, tag) {
   const ctx = await b.newContext(dev.ctx); const p = await ctx.newPage(); const errs = []; p.on("pageerror", (e) => errs.push(e.message));
   await openEvent(p, "");
   ok(tag + " B0 saved 3+ regions", (await addRegions(p, 4)) === 4);
-  await p.click("#rdBtn"); await W(500);
+  await clickRd(p); await W(500);
   await p.evaluate(() => { document.getElementById("crSec").open = true; }); await W(400);
   let g = await geo(p);
   ok(tag + " B1 docked: panel scrolls (overflow-y auto) and the file row is within the viewport after scrolling to the bottom", g.ov === "auto", g);
@@ -170,7 +172,7 @@ async function partB(b, dev, tag) {
 async function partC(b, dev, tag) {
   const ctx = await b.newContext(dev.ctx); const p = await ctx.newPage();
   await openEvent(p, "");
-  await p.click("#rdBtn"); await W(400);
+  await clickRd(p); await W(400);
   await p.evaluate(() => { document.getElementById("crSec").open = true; }); await W(200);
   await p.evaluate(() => TDC.focus.focus("front")); await W(300); await p.evaluate(() => document.getElementById("crDraw").click()); await W(500);
   const narrow = await p.evaluate(() => TDC.searchUI.narrow());
