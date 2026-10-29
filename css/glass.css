@@ -90,3 +90,5 @@ html.glass .seg button { border-radius: 999px; }
 @media (prefers-reduced-motion: reduce) {
   html.glass .stage-bar, html.glass .toast, html.glass .us-panel, html.glass .cr-bar, html.glass .chip, html.glass .btn, html.glass .mb-more svg { transition-duration: .01ms !important; animation-duration: .01ms !important; }
 }
+/* ui-glass-9 Lite mode (js/glass.js sets html[data-lite] and the Solid look): no blur anywhere, solid tints, no video-following tint */
+html[data-lite] *, html[data-lite] *::before, html[data-lite] *::after, html.glass[data-lite] .g-blur { -webkit-backdrop-filter: none !important; backdrop-filter: none !important; }
