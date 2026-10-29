@@ -1129,63 +1129,63 @@ body.cr-drawing .stage-bar button, body.cr-drawing .stage-bar select, body.cr-dr
 }
 /* ui-glass-6: a compact docked panel (Mac Safari ~1024 px: the Redact tab took half the window and left big empty areas).
    Redact, wide screens: three dense columns sized to their content: [tabs + Draw region] [custom regions: options in one row, help behind (i), saved list scrolls] [automatic: text, camera, presets].
-   Find: the Classic-bars switch moves up beside the tabs. Both stay at or under ~30% of the window; anything taller scrolls inside. */
+   (Not the phone typing sheet, which keeps its own layout.) Find: the Classic-bars switch moves up beside the tabs. Both stay at or under ~30% of the window; anything taller scrolls inside. */
 .cr-info { display: none; }
 @media (min-width: 900px) {
-  .us-panel.docked[data-tab="find"] > .us-foot { grid-column: 2; grid-row: 1; align-self: center; justify-self: end; border-top: 0; margin: 0; padding: 0; }
-  .us-panel.docked[data-tab="find"] > .us-results { grid-row: 2 / span 5; }
-  .us-panel.docked[data-tab="find"] > .us-style { margin: 0; }
-  .us-panel.docked { row-gap: 4px; }
-  .us-panel.docked[data-tab="redact"] { grid-template-columns: minmax(200px, .55fr) minmax(360px, 1.25fr) minmax(300px, 1fr); column-gap: 14px; row-gap: 4px;
+  .us-panel.docked:not(.sheet)[data-tab="find"] > .us-foot { grid-column: 2; grid-row: 1; align-self: center; justify-self: end; border-top: 0; margin: 0; padding: 0; }
+  .us-panel.docked:not(.sheet)[data-tab="find"] > .us-results { grid-row: 2 / span 5; }
+  .us-panel.docked:not(.sheet)[data-tab="find"] > .us-style { margin: 0; }
+  .us-panel.docked:not(.sheet) { row-gap: 4px; }
+  .us-panel.docked:not(.sheet)[data-tab="redact"] { grid-template-columns: minmax(200px, .55fr) minmax(360px, 1.25fr) minmax(300px, 1fr); column-gap: 14px; row-gap: 4px;
     max-height: max(140px, calc(30vh - 16px)); max-height: max(140px, calc(30dvh - 16px)); }
-  .us-panel.docked[data-tab="redact"] > .us-head { grid-column: 1; grid-row: 1; }
-  .us-panel.docked[data-tab="redact"] > #usDrawRow { grid-column: 1; grid-row: 2; }
-  .us-panel.docked[data-tab="redact"] > .us-foot { grid-column: 1; grid-row: 3; border-top: 0; margin: 0; padding: 0; }
-  .us-panel.docked[data-tab="redact"] > #crSec { grid-column: 2; grid-row: 1 / span 6; position: relative; min-width: 0; }
-  .us-panel.docked[data-tab="redact"] > #usAutoH { grid-column: 3; grid-row: 1; }
-  .us-panel.docked[data-tab="redact"] > .us-row { grid-column: 3; grid-row: 2; }
-  .us-panel.docked[data-tab="redact"] > .us-actions { grid-column: 3; grid-row: 3; }
-  .us-panel.docked[data-tab="redact"] > .us-presets { grid-column: 3; grid-row: 4; }
-  .us-panel.docked[data-tab="redact"] > #usShowRow { grid-column: 3; grid-row: 5; }
-  .us-panel.docked[data-tab="redact"] > #usStatus { grid-column: 3; grid-row: 6; }
-  .us-panel.docked[data-tab="redact"] > .us-results { grid-column: 3; grid-row: 7; max-height: 96px; border-left: 0; padding: 0; }
-  .us-panel.docked[data-tab="redact"] > .us-head { margin: -4px 0 0 -4px; }
-  .us-panel.docked[data-tab="redact"] .us-drawrow .cr-actions { flex-wrap: nowrap; gap: 6px; }
-  .us-panel.docked[data-tab="redact"] .us-drawrow #crDraw { flex: 1 1 auto; min-height: 36px; font-size: 13.5px; padding: 0 10px; white-space: nowrap; }
-  .us-panel.docked[data-tab="redact"] .us-drawrow .btn { min-height: 36px; white-space: nowrap; }
-  .us-panel.docked[data-tab="redact"] .us-row { min-height: 34px; }
-  .us-panel.docked[data-tab="redact"] .us-actions { margin: 0; }
-  .us-panel.docked[data-tab="redact"] .us-presets { gap: 4px; }
-  .us-panel.docked[data-tab="redact"] .us-chip { height: 26px; padding: 0 8px; }
+  .us-panel.docked:not(.sheet)[data-tab="redact"] > .us-head { grid-column: 1; grid-row: 1; }
+  .us-panel.docked:not(.sheet)[data-tab="redact"] > #usDrawRow { grid-column: 1; grid-row: 2; }
+  .us-panel.docked:not(.sheet)[data-tab="redact"] > .us-foot { grid-column: 1; grid-row: 3; border-top: 0; margin: 0; padding: 0; }
+  .us-panel.docked:not(.sheet)[data-tab="redact"] > #crSec { grid-column: 2; grid-row: 1 / span 6; position: relative; min-width: 0; }
+  .us-panel.docked:not(.sheet)[data-tab="redact"] > #usAutoH { grid-column: 3; grid-row: 1; }
+  .us-panel.docked:not(.sheet)[data-tab="redact"] > .us-row { grid-column: 3; grid-row: 2; }
+  .us-panel.docked:not(.sheet)[data-tab="redact"] > .us-actions { grid-column: 3; grid-row: 3; }
+  .us-panel.docked:not(.sheet)[data-tab="redact"] > .us-presets { grid-column: 3; grid-row: 4; }
+  .us-panel.docked:not(.sheet)[data-tab="redact"] > #usShowRow { grid-column: 3; grid-row: 5; }
+  .us-panel.docked:not(.sheet)[data-tab="redact"] > #usStatus { grid-column: 3; grid-row: 6; }
+  .us-panel.docked:not(.sheet)[data-tab="redact"] > .us-results { grid-column: 3; grid-row: 7; max-height: 96px; border-left: 0; padding: 0; }
+  .us-panel.docked:not(.sheet)[data-tab="redact"] > .us-head { margin: -4px 0 0 -4px; }
+  .us-panel.docked:not(.sheet)[data-tab="redact"] .us-drawrow .cr-actions { flex-wrap: nowrap; gap: 6px; }
+  .us-panel.docked:not(.sheet)[data-tab="redact"] .us-drawrow #crDraw { flex: 1 1 auto; min-height: 36px; font-size: 13.5px; padding: 0 10px; white-space: nowrap; }
+  .us-panel.docked:not(.sheet)[data-tab="redact"] .us-drawrow .btn { min-height: 36px; white-space: nowrap; }
+  .us-panel.docked:not(.sheet)[data-tab="redact"] .us-row { min-height: 34px; }
+  .us-panel.docked:not(.sheet)[data-tab="redact"] .us-actions { margin: 0; }
+  .us-panel.docked:not(.sheet)[data-tab="redact"] .us-presets { gap: 4px; }
+  .us-panel.docked:not(.sheet)[data-tab="redact"] .us-chip { height: 26px; padding: 0 8px; }
   /* custom regions: title, (i) and the file buttons on one line; the help text folds behind (i) */
-  .us-panel.docked .cr-sec > summary { float: left; min-height: 26px; padding: 0; margin-right: 6px; display: flex; align-items: center; }
-  .us-panel.docked .cr-info { display: inline-flex; float: left; align-items: center; justify-content: center; width: 26px; height: 26px; margin: 0 6px 0 0; padding: 0; border-radius: 50%;
+  .us-panel.docked:not(.sheet) .cr-sec > summary { float: left; min-height: 26px; padding: 0; margin-right: 6px; display: flex; align-items: center; }
+  .us-panel.docked:not(.sheet) .cr-info { display: inline-flex; float: left; align-items: center; justify-content: center; width: 26px; height: 26px; margin: 0 6px 0 0; padding: 0; border-radius: 50%;
     border: 1px solid var(--line); background: transparent; color: var(--dim); font: italic 700 13px/1 Georgia, serif; cursor: pointer; }
-  .us-panel.docked .cr-info:hover, .us-panel.docked .cr-info[aria-expanded="true"] { color: var(--text); border-color: rgba(255,255,255,.3); }
-  .us-panel.docked .cr-info:focus-visible { outline: 2px solid var(--blue2); outline-offset: 1px; }
-  .us-panel.docked .cr-sec:not(.hint-open) > #crHint { display: none; }
-  .us-panel.docked .cr-sec > #crHint { clear: both; margin: 0 0 4px; padding-top: 4px; }
-  .us-panel.docked .cr-sec > #crFileRow { position: absolute; top: 0; right: 0; margin: 0; gap: 4px; }
-  .us-panel.docked .cr-sec > #crFileRow .btn { min-height: 26px; height: 26px; padding: 0 8px; font-size: 12px; }
-  .us-panel.docked .cr-sec > .cr-grid { clear: both; display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; padding-top: 4px; }
-  .us-panel.docked .cr-sec .cr-f { flex-direction: row; align-items: center; }
-  .us-panel.docked .cr-sec .cr-f > span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }   /* Shape / Hide with / When: kept for screen readers, the groups are labelled */
-  .us-panel.docked .cr-sec .seg button { min-height: 28px; padding: 0 9px; }
-  .us-panel.docked .cr-sec .cr-chk { min-height: 28px; }
-  .us-panel.docked .cr-sec .cr-times { margin: 4px 0 0; }
-  .us-panel.docked .cr-sec .cr-times input { height: 28px; }
-  .us-panel.docked .cr-sec .cr-msg { min-height: 0; }
-  .us-panel.docked .cr-sec .cr-msg:not(:empty) { margin-top: 2px; }
-  .us-panel.docked .cr-sec .cr-list { max-height: 76px; margin: 4px 0 0; gap: 4px; }
-  .us-panel.docked .cr-sec .cr-item { padding: 2px 6px; }
-  .us-panel.docked .cr-sec .cr-item .btn { min-height: 28px; height: 28px; }
-  .us-panel.docked .cr-sec .cr-on { min-height: 28px; }
+  .us-panel.docked:not(.sheet) .cr-info:hover, .us-panel.docked:not(.sheet) .cr-info[aria-expanded="true"] { color: var(--text); border-color: rgba(255,255,255,.3); }
+  .us-panel.docked:not(.sheet) .cr-info:focus-visible { outline: 2px solid var(--blue2); outline-offset: 1px; }
+  .us-panel.docked:not(.sheet) .cr-sec:not(.hint-open) > #crHint { display: none; }
+  .us-panel.docked:not(.sheet) .cr-sec > #crHint { clear: both; margin: 0 0 4px; padding-top: 4px; }
+  .us-panel.docked:not(.sheet) .cr-sec > #crFileRow { position: absolute; top: 0; right: 0; margin: 0; gap: 4px; }
+  .us-panel.docked:not(.sheet) .cr-sec > #crFileRow .btn { min-height: 26px; height: 26px; padding: 0 8px; font-size: 12px; }
+  .us-panel.docked:not(.sheet) .cr-sec > .cr-grid { clear: both; display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; padding-top: 4px; }
+  .us-panel.docked:not(.sheet) .cr-sec .cr-f { flex-direction: row; align-items: center; }
+  .us-panel.docked:not(.sheet) .cr-sec .cr-f > span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }   /* Shape / Hide with / When: kept for screen readers, the groups are labelled */
+  .us-panel.docked:not(.sheet) .cr-sec .seg button { min-height: 28px; padding: 0 9px; }
+  .us-panel.docked:not(.sheet) .cr-sec .cr-chk { min-height: 28px; }
+  .us-panel.docked:not(.sheet) .cr-sec .cr-times { margin: 4px 0 0; }
+  .us-panel.docked:not(.sheet) .cr-sec .cr-times input { height: 28px; }
+  .us-panel.docked:not(.sheet) .cr-sec .cr-msg { min-height: 0; }
+  .us-panel.docked:not(.sheet) .cr-sec .cr-msg:not(:empty) { margin-top: 2px; }
+  .us-panel.docked:not(.sheet) .cr-sec .cr-list { max-height: 76px; margin: 4px 0 0; gap: 4px; }
+  .us-panel.docked:not(.sheet) .cr-sec .cr-item { padding: 2px 6px; }
+  .us-panel.docked:not(.sheet) .cr-sec .cr-item .btn { min-height: 28px; height: 28px; }
+  .us-panel.docked:not(.sheet) .cr-sec .cr-on { min-height: 28px; }
 }
 @media (min-width: 900px) and (max-width: 1199px) {   /* ~1024 px: the presets need two rows, so the "Automatic" heading goes (the placeholder and the chips say it; screen readers still get it) */
-  .us-panel.docked[data-tab="redact"] > #usAutoH { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; padding: 0; }
-  .us-panel.docked[data-tab="redact"] > .us-row { grid-row: 1; }
-  .us-panel.docked[data-tab="redact"] > .us-actions { grid-row: 2; }
-  .us-panel.docked[data-tab="redact"] > .us-presets { grid-row: 3 / span 2; }
+  .us-panel.docked:not(.sheet)[data-tab="redact"] > #usAutoH { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; padding: 0; }
+  .us-panel.docked:not(.sheet)[data-tab="redact"] > .us-row { grid-row: 1; }
+  .us-panel.docked:not(.sheet)[data-tab="redact"] > .us-actions { grid-row: 2; }
+  .us-panel.docked:not(.sheet)[data-tab="redact"] > .us-presets { grid-row: 3 / span 2; }
 }
 /* the Redact button: same chip as Search; on phones both float as small labelled pills (icons alone were not obvious) */
 .us-btn.rd-btn svg { stroke-width: 1.8; }
