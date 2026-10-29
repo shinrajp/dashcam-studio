@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="robots" content="noindex">
+<title>Glass SDF lab · Dashcam Studio (mock data)</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="glass.css">
+</head>
+<body>
+<!-- Lab prototype: SDF-based glass refraction in WebGL over a mock video loop. Not part of the app (not linked, not cached by the service worker). -->
+<canvas id="c"></canvas>
+
+<div id="ui">
+  <div class="gc cap" id="cam" data-r="cap">
+    <span class="grip">⋮⋮</span><button class="on">All</button><button>F</button><button>R</button><button>L</button><button>Rt</button><span class="sep"></span><button>−</button><button>1×</button><button>+</button>
+  </div>
+  <div class="gc cap" id="tg" data-r="cap">
+    <button class="on">Labels</button><button class="on">HUD</button><button>Map</button><button class="on">Self-Driving</button><button>Time</button><button>Hand-off</button>
+  </div>
+  <div class="gc cap" id="tl" data-r="cap">
+    <button class="play" id="playBtn" aria-label="Play or pause"><svg viewBox="0 0 24 24"><path id="playIc" d="M7 4l13 8-13 8z"/></svg></button>
+    <span class="tm" id="tNow">0:00</span>
+    <div class="track"><div class="rail"></div><div class="done" id="tDone"></div><div class="trim"></div><div class="head" id="tHead"></div></div>
+    <span class="tm" id="tEnd">0:12</span>
+    <span class="spd">1×</span>
+  </div>
+  <div id="fan">
+    <div class="sat" style="--x:0px;--y:-74px"><span class="l">Redact</span><div class="gc circ" data-r="cap"><svg viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="12" rx="3"/><path d="M7 10h4M7 14h7"/></svg></div></div>
+    <div class="sat" style="--x:-14px;--y:-138px"><span class="l">Search</span><div class="gc circ" data-r="cap"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6"/><path d="M20 20l-4.5-4.5"/></svg></div></div>
+    <div class="sat" style="--x:-34px;--y:-198px"><span class="l">Events</span><div class="gc circ" data-r="cap"><svg viewBox="0 0 24 24"><path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01"/></svg></div></div>
+    <div class="sat" style="--x:-60px;--y:-254px"><span class="l">Settings</span><div class="gc circ" data-r="cap"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"/></svg></div></div>
+    <div class="gc circ big" id="bub" data-r="cap" aria-label="Tools"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></div>
+  </div>
+</div>
+
+<div id="lab" class="closed">
+  <button id="labBtn"><b>Glass lab</b> <span id="fpsChip">– fps</span></button>
+  <div class="body">
+    <label class="row"><input type="checkbox" id="oRefr" checked> Refraction (WebGL SDF) <small>off = CSS frosted glass</small></label>
+    <label class="row sl">Strength <input type="range" id="oStr" min="0" max="2" step="0.05" value="1"><output id="vStr">1.00</output></label>
+    <label class="row sl">Blur <input type="range" id="oBlur" min="0" max="12" step="0.5" value="4"><output id="vBlur">4</output></label>
+    <label class="row"><input type="checkbox" id="oCA" checked> Chromatic edge</label>
+    <label class="row"><input type="checkbox" id="oSix"> 6 videos (6 tiles, 6 decoders)</label>
+    <label class="row"><input type="checkbox" id="oAuto" checked> Auto-fallback below 40 fps</label>
+    <div class="stats" id="stats">starting…</div>
+    <p class="hint">Drag any capsule or the bubble over the picture. Mock footage only.</p>
+  </div>
+</div>
+<button id="tap">▶ Tap to play</button>
+<div id="note" role="status"></div>
+
+<video id="v0" src="mock-loop.mp4" muted playsinline loop preload="auto" crossorigin="anonymous"></video>
+<script src="glass.js"></script>
+</body>
+</html>
