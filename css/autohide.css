@@ -1,0 +1,21 @@
+/* autohide.css — ui-glass-2 (js/autohide.js). body.idle = controls hidden while playing: they fade and let taps through;
+   body.ah-gone (after the fade) = visibility: hidden, so they paint nothing and cost no blur. The redaction draw bar and the
+   docked camera bar never hide. A 2 px progress line shows at the bottom of the video while hidden. */
+.map-panel.map-floating, .map-grip, .map-move { transition: opacity .25s; }
+.transport { transition: opacity .25s; }
+body.idle .stage .stage-bar:not(.dragging), body.idle .tile-expand, body.idle .map-panel.map-floating:not(.dragging), body.idle .map-grip, body.idle .map-move,
+body.idle #transport:not(.mb-open) { opacity: 0 !important; pointer-events: none !important; }
+body.idle #transport:not(.mb-open) * { pointer-events: none !important; }
+body.ah-gone .stage .stage-bar:not(.dragging), body.ah-gone .tile-expand, body.ah-gone .map-panel.map-floating:not(.dragging), body.ah-gone .map-grip, body.ah-gone .map-move,
+body.ah-gone #transport:not(.mb-open), body.ah-gone #transport:not(.mb-open) * { visibility: hidden !important; }
+/* the docked camera bar sits off the video: it stays (it used to fade) */
+body.idle .bar-dock .stage-bar { opacity: 1 !important; pointer-events: auto !important; visibility: visible !important; }
+body.idle.fs, body.idle.fs * { cursor: none; }
+/* progress line */
+.ah-line { position: absolute; left: 0; right: 0; bottom: 0; height: 2px; z-index: 7; pointer-events: none; opacity: 0; transition: opacity .25s; background: rgba(255,255,255,0.18); }
+.ah-line > i { display: block; height: 100%; width: 100%; transform-origin: 0 50%; transform: scaleX(0); background: #4f86ff; box-shadow: 0 0 6px rgba(79,134,255,0.8); }
+body.idle .ah-line { opacity: 1; }
+body.fs .ah-line { position: fixed; bottom: env(safe-area-inset-bottom, 0px); z-index: 41; }
+@media (prefers-reduced-motion: reduce) {
+  .stage .stage-bar, .tile-expand, .map-panel.map-floating, .map-grip, .map-move, .transport, .ah-line { transition: none !important; }
+}

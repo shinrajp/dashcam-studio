@@ -227,11 +227,13 @@
   // ── auto-hiding controls (stage bar always; transport too in full screen) ──
   let idleTimer = 0, overBar = false;
   function wake() {
+    if (T.autohide) return T.autohide.wake();   // ui-glass-2: js/autohide.js decides (only while playing, Settings ▸ Appearance ▸ Auto-hide)
     document.body.classList.remove("idle");
     clearTimeout(idleTimer);
     idleTimer = setTimeout(() => { if (!overBar && !F.dragging && hintHidden() && !($("camMenu") && !$("camMenu").hidden)) document.body.classList.add("idle"); }, 2800);
   }
   F.wake = wake;
+  F.holdControls = () => overBar || !!F.dragging || !hintHidden() || !!($("camMenu") && !$("camMenu").hidden);   // autohide.js: keep the controls up
 
   // ── stage bar UI ──
   function buildBar() {
@@ -587,7 +589,9 @@
       // only taps on the video wake-and-swallow (or anywhere in full screen, where every control fades);
       // the top bar and the transport never fade outside full screen, so taps there always act
       const onVideo = e.target && e.target.closest && e.target.closest("#stage");
-      if (e.pointerType !== "mouse" && document.body.classList.contains("idle") && (F.isFullscreen() || (F.barOn() && onVideo))) F.tapWoke = performance.now();
+      // ui-glass-2: the timeline and other controls hide too, so any tap that lands where they were (they let taps through) only wakes
+      const offChrome = e.target && e.target.closest && !e.target.closest(".topbar, .library, .drawer, .modal, .us-panel, .cr-bar, .toast");
+      if (e.pointerType !== "mouse" && document.body.classList.contains("idle") && (F.isFullscreen() || onVideo || offChrome)) F.tapWoke = performance.now();
       else F.tapWoke = 0; // controls already visible: the next tap acts normally
     }, { capture: true, passive: true });
     // the waking tap only wakes: the bar fades back in under the finger, so its click must not press a bar button

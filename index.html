@@ -16,6 +16,7 @@
   <link rel="icon" href="icons/icon-192.png" type="image/png">
   <link rel="stylesheet" href="css/app.css?v=ui-glass-1">
   <link rel="stylesheet" href="css/glass.css?v=ui-glass-1">
+  <link rel="stylesheet" href="css/autohide.css?v=ui-glass-1">
 </head>
 <body class="simple">
   <div class="slow-note" id="slowNote" role="status" hidden><span class="sn-text"><b>Slow mode:</b> this page is on plain http, so decrypting your clips takes longer. The https / installed version is much faster.</span><button class="btn small" id="slowNoteHow" type="button">How</button><button class="btn icon sm" id="slowNoteX" type="button" title="Dismiss" aria-label="Dismiss"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
@@ -211,6 +212,8 @@
       <section id="appearSec"><h3>Appearance</h3>
         <div class="row"><span>Glass</span><div class="seg" id="segGlass" role="group" aria-label="Glass"><button data-v="auto">Automatic</button><button data-v="clear">Clear</button><button data-v="solid">Solid</button></div></div>
         <p class="hint">How the controls look over the video. Automatic darkens the glass over bright video so text stays readable; Clear is more see-through; Solid has no transparency (also used when your system asks to reduce transparency). <span id="glassNote"></span></p>
+        <div class="row"><span>Auto-hide</span><div class="seg" id="segAutohide" role="group" aria-label="Auto-hide controls"><button data-v="2">2 s</button><button data-v="3">3 s</button><button data-v="5">5 s</button><button data-v="never">Never</button></div></div>
+        <p class="hint">While a video plays, the controls over it fade after this long without input; a thin line shows the progress. Move the mouse, tap or press a key to bring them back. They never hide while paused, while a panel or Settings is open, while you draw a redaction or during an export. <span id="autohideNote"></span></p>
       </section>
       <section><h3>Labs (beta)</h3>
         <div class="row"><span>Show 360 view (beta)</span><input type="checkbox" id="show360"></div>
@@ -461,6 +464,7 @@
   <script src="js/compositor.js?v=ui-glass-1"></script>
   <script src="js/overlays.js?v=ui-glass-1"></script>
   <script src="js/focus.js?v=ui-glass-1"></script>
+  <script src="js/autohide.js?v=ui-glass-1"></script>
   <script src="js/export.js?v=ui-glass-1"></script>
   <script src="js/search.js?v=ui-glass-1"></script>
   <script src="js/redact.js?v=ui-glass-1"></script>
