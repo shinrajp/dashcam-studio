@@ -596,3 +596,12 @@ Rollback: `git checkout pre-ui-glass-3` (tip before this change, `ui-glass-2`, 7
 - It follows the Glass setting (Automatic / Clear / Solid), Reduce transparency and Reduce motion, hides with the other controls while playing (Auto-hide), and in full screen the blur sits on the capsule only.
 - The exported video is unchanged.
 - Tests: `node test/ui-glass-3.js` (see test/README.md).
+
+## Liquid Glass, step 4: toggles capsule and eye button (tag `ui-glass-4`)
+Rollback: `git checkout pre-ui-glass-4` (tip before this change, `ui-glass-3`, e479950).
+- The toggles (Labels, HUD, Map, Self-Driving, Time, Hand-off, Car view, White balance) sit in their own small glass **capsule**: in the controls row on a computer or tablet, and in the pull-up sheet on a phone held upright. They are where they were before and still scroll sideways when the window is narrow.
+- iPhone sideways (landscape): there is no room for both, so the slim play bar gets an **eye** button beside ⌃. Tap it and the toggles fan out in a glass popover above the bar; tap a toggle (the popover stays open so you can flip several), then tap the eye again, tap the video or press Esc to fold them back. Opening the sheet closes the popover and the other way round. The toggles are also still in the sheet.
+- Every toggle does exactly what it did and is remembered the same way; H, M and D still work. With a keyboard: Tab to the eye, Enter opens it and moves to the first toggle, Esc closes and returns to the eye.
+- Touch targets are at least 44 px. It follows the Glass setting (Automatic / Clear / Solid), Reduce transparency and Reduce motion (no fan animation); the controls do not auto-hide while the popover is open.
+- The exported video is unchanged.
+- Tests: `node test/ui-glass-4.js` (see test/README.md).
