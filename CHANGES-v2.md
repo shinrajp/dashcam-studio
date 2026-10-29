@@ -730,4 +730,5 @@ Rollback point: tag `pre-tap-redact` (= redact-button, d2ad533).
   - A touch pointerenter no longer sets the bar-hover hold, which could stick after the re-parent.
 - `js/autohide.js` / `css/autohide.css`: `.stage-bar.bar-floating` is in `A.SEL` and in the idle / ah-gone rules. `js/core.js`: toasts also avoid a floating bar.
 - `js/overlays.js`: `clearOfBar()` moves a floating map above or below (else beside) a visible docked camera bar, whichever is closer and fits. It is skipped during live drags. Where nothing fits, `body.map-float` puts the bar above the map instead.
+- Fallback: in a very small video area, where even two rows would cover more than 60% of the video's height, the docked pill keeps one short row and the cameras scroll there as before (`pill-scroll`). The pill is never narrower than the cameras' row. When the pill changes size, a floating map is re-placed so it steps clear again.
 - Not done: an upright (vertical) pill. In phone landscape, 8 × 44 px is taller than the room above the slim bar.
