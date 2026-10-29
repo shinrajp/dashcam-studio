@@ -784,7 +784,13 @@
       hidePanelForDrawing();
       msg("Tap the camera you want to redact", false);
       UI.sync(); kick();
-      setTimeout(() => { const b = document.querySelector(".cr-pick"); if (S.pick && b && !b.matches(":focus")) { try { b.focus({ preventScroll: true }); } catch (_) {} } }, 120);   // keyboard: Tab moves between the cameras, Enter picks, Esc cancels
+      const fp = (n) => {   // the camera buttons appear on the next painted frame: wait for them (up to ~1 s on a busy page) instead of giving up
+        if (!S.pick) return;
+        const b = document.querySelector(".cr-pick"), a = document.activeElement;
+        if (!b) { if (n < 12) setTimeout(() => fp(n + 1), 80); return; }
+        if (!(a && a.classList && a.classList.contains("cr-pick"))) { try { b.focus({ preventScroll: true }); } catch (_) {} }
+      };
+      setTimeout(() => fp(0), 120);   // keyboard: Tab moves between the cameras, Enter picks, Esc cancels
     } else choose(one || vis[0], "auto");
   };
   UI.cancel = () => { const busy = !!(S.drawing || S.pick || S.draft || S.editId || S.move); resetForm(); reopenPanel(busy); UI.sync(); kick(); if (R && R.paint) R.paint(); };
