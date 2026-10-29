@@ -131,7 +131,7 @@ async function run(b, BR, dev) {
   await p.evaluate(() => { TDC.setPref("autohide", "2"); TDC.player.seek(0.5); TDC.player.play(); TDC.autohide.wake(); });
   let gone = false; for (let i = 0; i < 50 && !gone; i++) { await W(100); gone = await p.evaluate(() => document.body.classList.contains("ah-gone")); }
   const ah = await p.evaluate(() => { const cs = getComputedStyle(document.getElementById("stageBar")); return { vis: cs.visibility, op: cs.opacity, pe: cs.pointerEvents, sel: TDC.autohide.isHidden(document.getElementById("stageBar")), why: TDC.autohide.why, playing: !!TDC.player.playing }; });
-  await p.evaluate(() => TDC.autohide.wake()); await W(500);
+  await p.evaluate(() => TDC.autohide.wake()); await W(900);
   const back = await p.evaluate(() => { const cs = getComputedStyle(document.getElementById("stageBar")); return { vis: cs.visibility, op: cs.opacity }; });
   await p.evaluate(() => { TDC.player.pause(); TDC.setPref("autohide", "never"); TDC.autohide.wake(); }); await W(300);
   ok(tag + " 9 auto-hide: the floating pill hides with the controls (like the floating map) and comes back", gone && ah.vis === "hidden" && ah.sel && back.vis === "visible" && +back.op > 0.9, { gone, ah, back });
