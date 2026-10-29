@@ -111,7 +111,9 @@ body.simple .adv-only { display: none !important; }
 .map-grip:hover { background: rgba(0,0,0,0.82); }
 .map-grip:focus-visible { outline: 2px solid var(--accent, #4c8dff); outline-offset: 2px; }
 .map-panel.dragging .map-grip { cursor: grabbing; }
-@media (pointer: coarse) { .map-grip { width: 36px; height: 36px; } .map-move { left: 48px; height: 30px; } }
+@media (pointer: coarse) { .map-grip { width: 36px; height: 36px; } .map-move { left: 48px; height: 30px; }
+  .map-grip::after, .map-move::after { content: ""; position: absolute; }   /* ui-glass-10: 44 px hit areas without moving anything */
+  .map-grip::after { inset: -5px; } .map-move::after { inset: -8px 0; } }   /* from the padding box: 4 / 7 px outside the 1 px border */
 .float-panel.map-panel.map-floating { position: fixed; left: 0; top: 0; z-index: 29; border-radius: 14px; }   /* under the Settings drawer (30), bottom bars (35+), dialogs, toasts */
 .map-floating.dock-near { opacity: 0.75; }
 .map-dock-hint { position: fixed; z-index: 28; border: 2px dashed rgba(120,170,255,0.9); border-radius: 14px; background: rgba(70,120,255,0.14); color: #fff; font: 600 12px/1.3 inherit; display: grid; place-items: center; text-align: center; padding: 6px; pointer-events: none; }

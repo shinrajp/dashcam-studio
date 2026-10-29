@@ -163,8 +163,18 @@
     empty.hidden = !filtering || any;
     if (filtering && !any) empty.textContent = "No settings match “" + S.q + "”.";
   }
+  // ui-glass-10: a control in a "<span>Name</span><input>" row has no label element; give it the row's name for screen readers (once)
+  function names() {
+    if (!body) return;
+    body.querySelectorAll(".row > input:not([aria-label]):not([aria-labelledby]), .row > select:not([aria-label]):not([aria-labelledby])").forEach((e) => {
+      if (e.labels && e.labels.length) return;
+      const sp = e.parentElement.querySelector(":scope > span"); const t = sp && sp.textContent.trim(); if (t) e.setAttribute("aria-label", t);
+    });
+  }
+  S.names = names;
   function show(g, focus) {
     S.view = g || "home";
+    names();
     apply();
     if (body) body.scrollTop = 0;
     if (focus && S.view !== "home") { try { title.focus({ preventScroll: true }); } catch (_) {} }
