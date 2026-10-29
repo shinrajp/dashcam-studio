@@ -577,3 +577,13 @@ Rollback: `git checkout pre-ui-glass-1` (tip before this change, `map-float`, 14
 - The exported video is unchanged.
 - The SDF/WebGL refraction from `labs/glass-sdf` is not in this step. It is planned for a later step, as the default with this frosted glass as its fallback.
 - Tests: `node test/ui-glass-1.js` (see test/README.md).
+
+## Liquid Glass, step 2: controls hide while playing (tag `ui-glass-2`)
+Rollback: `git checkout pre-ui-glass-2` (tip before this change, `ui-glass-1`, e3926f2).
+- While a video plays, the controls (camera bar, bottom bar with the timeline, Search / Redact buttons, the floated map and the enlarge buttons on each camera) fade out after **3 seconds** without input. A thin blue line at the bottom of the video shows where you are.
+- Move the mouse, tap, press a key or move focus to bring them back. On a phone, the tap that brings them back does only that: it doesn't pause, enlarge a camera or press a button.
+- They **never hide** while paused, while you hold the mouse or a finger down (seeking, trimming, dragging), while you draw or pick a camera for redaction (the draw bar always stays), while a panel, the bottom sheet, Settings or a dialog is open, while you type in a field, while the mouse is over a control, or during an export.
+- **Settings ▸ Appearance ▸ Auto-hide**: 2 s, **3 s** (default), 5 s or Never. For one visit, add `?autohide=never` (or 2, 3, 5) to the address.
+- With **Reduce motion** on they switch at once, without fading. Hidden controls don't block taps on the video and don't cost blur.
+- The camera bar no longer fades while paused (it used to fade after about 3 s in any state). The exported video is unchanged.
+- Tests: `node test/ui-glass-2.js` (see test/README.md).
