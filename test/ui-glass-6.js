@@ -13,6 +13,9 @@
 //   7 auto-hide: never hides while the fan is open, a faint dot when the controls hide; 8 glass modes and the 3-blur budget, none in Solid;
 //   9 reduced motion; 10 steps away while drawing / picking a region; 11 floating map drags to the window bottom (grip above the bar);
 //   12 phone event picker: 44 px, chevron, label, no overlap in the top bar; 13 no page errors.
+//   14 docked Search/Redact panel (Mac Safari ~1024 px feedback), desktop 1024x553 / 1280x720 / 1440x900, both tabs: at most 30% of the window,
+//   no overlap with the video or the controls, no sideways overflow, every control still reachable, help behind (i), saved list scrolls (small max height).
+//   DEV=dock runs only part 14; SHOTS also writes <prefix>redact-docked-<w>x<h>.png and <prefix>find-docked-<w>x<h>.png.
 //   SHOTS=dir PREFIX=after- writes <prefix><dev>-closed.png, -fan.png and (desktop) -events.png, plus <prefix>events-pick-<dev>.png (top bar).
 const fs = require("fs"), path = require("path"), http = require("http"), { execFileSync } = require("child_process");
 const ROOT = path.join(__dirname, ".."), FIX = process.env.FIX || "/tmp/ho-mock", PORT = +(process.env.PORT || 8816), SHOTS = process.env.SHOTS || "", PREFIX = process.env.PREFIX || "";
@@ -182,6 +185,63 @@ async function run(b, BR, dev) {
   ok(tag + " 13 no page errors", errs.length === 0, errs.slice(0, 3));
   await ctx.close();
 }
+async function dock(b, BR, w, h) {
+  const tag = BR + " dock-" + w + "x" + h, ctx = await b.newContext({ viewport: { width: w, height: h } }), p = await ctx.newPage(), errs = []; p.on("pageerror", (e) => errs.push(e.message));
+  await open(p);
+  await p.evaluate(() => { for (let i = 0; i < 4; i++) TDC.regions.add({ cam: ["back", "front", "left_repeater", "right_repeater"][i], shape: "rect", mode: i % 2 ? "remove" : "blur", x: 0.1 + 0.05 * i, y: 0.2, w: 0.2, h: 0.1 }); });
+  const M = () => p.evaluate(() => { const r = (id) => { const e = document.getElementById(id); if (!e || !e.getClientRects().length) return null; const b = e.getBoundingClientRect(); return { l: b.left, t: b.top, r: b.right, b: b.bottom, h: b.height, w: b.width }; };
+    const pn = document.getElementById("usPanel"); return { dock: r("usDock"), panel: r("usPanel"), stage: r("stage"), tp: r("transport"), vh: innerHeight, vw: innerWidth, docked: document.body.classList.contains("us-docked") && pn.classList.contains("docked"), sw: pn.scrollWidth, cw: pn.clientWidth, dw: document.documentElement.scrollWidth }; });
+  // reachable: on screen inside the panel after scrolling the panel to it (never clipped by the window)
+  const reach = (ids) => p.evaluate((ids) => { const pn = document.getElementById("usPanel"), bad = [];
+    for (const s of ids) { const e = document.querySelector(s); if (!e) { bad.push(s + " missing"); continue; } const cs = getComputedStyle(e); if (e.hidden || cs.display === "none" || cs.visibility === "hidden") { bad.push(s + " hidden"); continue; }
+      e.scrollIntoView({ block: "nearest", inline: "nearest" }); const b = e.getBoundingClientRect(), q = pn.getBoundingClientRect();
+      if (b.width < 8 || b.height < 8 || b.top < q.top - 1 || b.bottom > q.bottom + 1 || b.left < q.left - 1 || b.right > q.right + 1 || b.bottom > innerHeight || b.right > innerWidth) bad.push(s + " " + [b.left, b.top, b.width, b.height].map(Math.round)); }
+    pn.scrollTop = 0; return bad; }, ids);
+  for (const tab of ["redact", "find"]) {
+    await p.evaluate((t) => TDC.searchUI.show(false, t), tab); await W(700);
+    const m = await M(), t = tag + " " + tab;
+    ok(t + " 14 docked below the video", m.docked && !!m.dock, m);
+    ok(t + " 14 the dock takes at most 30% of the window height", m.dock.h <= m.vh * 0.30 + 1, { dock: m.dock.h, vh: m.vh, pct: Math.round(m.dock.h / m.vh * 1000) / 10 });
+    ok(t + " 14 the video keeps the rest: no overlap with the video area or the controls", !X(m.dock, m.stage) && !X(m.dock, m.tp) && m.dock.b <= m.tp.t + 1, m);
+    ok(t + " 14 no sideways overflow (panel and page)", m.sw <= m.cw + 1 && m.dw <= m.vw + 1, m);
+    if (tab === "redact") {
+      const bad = await reach(["#usTabFind", "#usTabRedact", "#usFloat", "#usClose", "#crDraw", "#crSave", "#crShape button[data-v=free]", "#crMode button[data-v=remove]", "#crWhole", "#crInfo", "#crExportFile", "#crImportFile", "#crList li:last-child [data-act]", "#usQuery", "#usCam", "#usRedact", "#usPanel .us-presets .us-chip:last-child", "#usClassic"]);
+      ok(t + " 14 every Redact control is reachable inside the panel", bad.length === 0, bad);
+      const lst = await p.evaluate(() => { const l = document.getElementById("crList"), cs = getComputedStyle(l); return { mh: parseFloat(cs.maxHeight), oy: cs.overflowY, sh: l.scrollHeight, ch: l.clientHeight, n: l.children.length }; });
+      ok(t + " 14 the saved regions list scrolls, small max height (<= 90 px)", lst.n === 4 && lst.mh <= 90 && ["auto", "scroll"].includes(lst.oy) && lst.sh > lst.ch, lst);
+      const hint0 = await p.evaluate(() => { const h = document.getElementById("crHint"), i = document.getElementById("crInfo"); return { hint: getComputedStyle(h).display !== "none", exp: i.getAttribute("aria-expanded"), ctl: i.getAttribute("aria-controls"), lbl: i.getAttribute("aria-label") }; });
+      ok(t + " 14 the long help text is folded behind (i) (aria-expanded false, labelled)", !hint0.hint && hint0.exp === "false" && hint0.ctl === "crHint" && !!hint0.lbl, hint0);
+      await p.click("#crInfo"); await W(200);
+      const hint1 = await p.evaluate(() => ({ hint: getComputedStyle(document.getElementById("crHint")).display !== "none" && document.getElementById("crHint").getBoundingClientRect().height > 10, exp: document.getElementById("crInfo").getAttribute("aria-expanded"), txt: /tap the camera/i.test(document.getElementById("crHint").textContent) }));
+      ok(t + " 14 (i) shows the help (aria-expanded true) and hides it again", hint1.hint && hint1.exp === "true" && hint1.txt, hint1);
+      await p.keyboard.press("Enter"); await W(200);
+      ok(t + " 14 ... the (i) works from the keyboard too", await p.evaluate(() => document.activeElement.id === "crInfo" && getComputedStyle(document.getElementById("crHint")).display === "none"));
+      const auto = await p.evaluate(() => { const c = [...document.querySelectorAll("#usPanel .us-presets .us-chip")].filter((e) => e.getClientRects().length), tops = [...new Set(c.map((e) => Math.round(e.getBoundingClientRect().top)))];
+        const q = document.getElementById("usQuery").getBoundingClientRect(), d = document.getElementById("crDraw").getBoundingClientRect(); return { rows: tops.length, n: c.length, qTop: q.top, drawTop: d.top, qL: q.left, dR: d.right }; });
+      ok(t + " 14 automatic options sit in a compact block beside the custom regions (presets in <= 2 rows, side by side, not below)", auto.n >= 4 && auto.rows <= 2 && auto.qL > auto.dR && Math.abs(auto.qTop - auto.drawTop) < 60, auto);
+      // behaviour unchanged: Draw region hides the panel, Cancel brings it back on Redact
+      await p.click("#crDraw"); await W(700);
+      ok(t + " 14 Draw region still hides the panel for drawing", await p.evaluate(() => !TDC.searchUI.open && !document.getElementById("crBar").hidden));
+      await p.evaluate(() => document.getElementById("crBarCancel").click()); await W(600);
+      ok(t + " 14 Cancel brings the docked panel back on Redact", await p.evaluate(() => TDC.searchUI.open && document.getElementById("usPanel").dataset.tab === "redact"));
+      await p.evaluate(() => { const c = document.getElementById("crWhole"); if (c.checked) c.click(); }); await W(300);
+      const bad2 = await reach(["#crFrom", "#crTo", "#crFromNow", "#crToNow"]);
+      ok(t + " 14 time span fields (Whole clip off) are reachable too", bad2.length === 0, bad2);
+      await p.evaluate(() => { const c = document.getElementById("crWhole"); if (!c.checked) c.click(); }); await W(300);
+    } else {
+      const bad = await reach(["#usTabFind", "#usTabRedact", "#usFloat", "#usClose", "#usQuery", "#usCam", "#usFind", "#usHl", "#usRd", "#usClassic"]);
+      ok(t + " 14 every Find control is reachable inside the panel", bad.length === 0, bad);
+      await p.fill("#usQuery", "a cyclist"); await W(100);
+      ok(t + " 14 Find still types and keeps the Find tab", await p.evaluate(() => document.getElementById("usQuery").value === "a cyclist" && document.getElementById("usPanel").dataset.tab === "find"));
+      await p.fill("#usQuery", "");
+    }
+    await shot(p, tab + "-docked-" + w + "x" + h);
+  }
+  await p.keyboard.press("Escape"); await W(300);
+  ok(tag + " 14 Esc still closes the docked panel and the dock goes away", await p.evaluate(() => !TDC.searchUI.open && document.getElementById("usDock").hidden));
+  ok(tag + " 14 no page errors", errs.length === 0, errs.slice(0, 3));
+  await ctx.close();
+}
 (async () => {
   if (!fs.existsSync(FIX + "/TeslaCam")) execFileSync("python3", [path.join(ROOT, "tools/make-mock-footage.py"), FIX], { stdio: "inherit" });
   const srv = await server(); const pw = require("playwright");
@@ -191,6 +251,7 @@ async function run(b, BR, dev) {
     try { b = BR === "webkit" ? await pw.webkit.launch() : await pw.chromium.launch({ executablePath: process.env.CHROME || "/usr/bin/google-chrome", args: ["--no-sandbox", "--autoplay-policy=no-user-gesture-required", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] }); }
     catch (e) { console.log("SKIP " + BR + ": cannot launch (" + e.message.split("\n")[0] + ")"); continue; }
     for (const d of DEVS.filter((d) => !process.env.DEV || d.name.startsWith(process.env.DEV))) { try { await run(b, BR, d); } catch (e) { ok(BR + " " + d.name + " run threw: " + e.message.split("\n")[0], false); } }
+    if (!process.env.DEV || process.env.DEV === "dock") for (const [w, h] of [[1024, 553], [1280, 720], [1440, 900]]) { try { await dock(b, BR, w, h); } catch (e) { ok(BR + " dock-" + w + "x" + h + " run threw: " + e.message.split("\n")[0], false); } }
     await b.close();
   }
   srv.close(); console.log(fails ? "FAILED " + fails : "ALL PASSED"); process.exit(fails ? 1 : 0);
