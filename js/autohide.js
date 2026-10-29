@@ -38,6 +38,7 @@
     if ([...document.querySelectorAll(".modal, dialog[open]")].some(shown)) return "dialog";
     if (shown($("usPanel"))) return "panel";
     const tp = $("transport"); if (tp && tp.classList.contains("mb-open")) return "sheet";
+    if (T.toggles && T.toggles.open) return "toggles";   // ui-glass-4: the eye popover (phone landscape)
     if (F.holdControls && F.holdControls()) return "camera-bar";
     if (over) return "pointer-over";
     if (typing()) return "typing";

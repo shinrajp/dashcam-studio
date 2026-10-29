@@ -49,6 +49,7 @@
     out.push($("crBar"));
     const up = $("usPanel"); if (up && !up.classList.contains("docked")) out.push(up);
     out.push($("settings"));
+    out.push($("tgPop"));   // ui-glass-4: the toggles popover (phone landscape), only while it is open
     document.querySelectorAll(".stage-bar").forEach((e) => out.push(e));
     if (b.classList.contains("fs")) { out.push($("transport")); document.querySelectorAll(".us-strip").forEach((e) => out.push(e)); }
     ["usBtn", "rdBtn"].forEach((id) => { const e = $(id); if (e && getComputedStyle(e).position === "fixed") out.push(e); });
