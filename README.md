@@ -615,3 +615,17 @@ Rollback: `git checkout pre-ui-glass-5` (tip before this change, `ui-glass-4`, 1
 - While you draw a redaction box, a camera pill that takes two or more rows fades and lets your strokes through. Float the pill off the video if you want its buttons while drawing.
 - The exported video is unchanged.
 - Tests: `node test/ui-glass-5.js` (see test/README.md).
+## Liquid Glass, step 6: tools bubble (tag `ui-glass-6`)
+Rollback: `git checkout pre-ui-glass-6` (tip before this change, `ui-glass-5`, 628fdcd).
+- **Tools bubble:** one round glass button at the bottom right holds **Redact, Search, Events and Settings**. Tap it and they fan out with their names; tap one to use it. **Export** stays in the top bar on its own.
+- It folds back when you tap it again, press Esc, or tap anywhere else (that tap only closes it). With a keyboard: Tab to it, Enter opens it and moves to the first tool, the arrow keys move between tools, Esc closes it.
+- **Move it:** drag the bubble to another corner; it snaps there and remembers it. A click with a mouse or trackpad (Mac Safari too) still just opens it.
+- **Events** opens as a glass sheet that slides in from the left; the video uses the full width otherwise. Esc, a tap outside or picking an event closes it. Settings now opens from the bubble in Simple mode too.
+- Search, Redact, Events and Settings work as before, with the same shortcuts (/ for Search). Tap-to-redact and the draw bar are unchanged; the bubble steps aside while you draw or pick a region and while a panel is open.
+- The controls do not auto-hide while the fan is open; when they hide, the bubble stays as a faint dot. Glass setting, Reduce motion and the blur limit are respected. Targets are at least 44 px.
+- **Floating map:** you can now drag it all the way down to the bottom of the window, past the Search / Redact row; its ⋮⋮ grip always stays above the bottom bar so you can pick it up again.
+- **Docked Search / Redact panel** (under the video on a laptop or desktop): much smaller. The Redact tab is one dense strip: Draw region on the left, your custom regions in the middle (options in one row, the help text behind the small (i) button, the saved list scrolls), the automatic options on the right. It takes about 30% of the window or less, so the video keeps most of the screen. Nothing was removed.
+- **iPhone event picker:** the event selector in the top bar is a proper 44 px button showing the date and time with a clear ⌄ chevron.
+- The exported video is unchanged.
+- Tests: `node test/ui-glass-6.js` (see test/README.md).
+
