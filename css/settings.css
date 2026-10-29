@@ -75,3 +75,5 @@ body.fs .drawer.set-panel { top: 8px; }
 .set-panel.set-filtering .set-more { display: none; }
 .set-panel .set-more { margin-top: 4px; font-size: 13px; }
 .set-panel .set-sec h3 { margin-top: 2px; margin-bottom: 6px; }
+/* mouse: the recognition switches don't need 44 px rows (touch keeps them) */
+@media (pointer: fine) { .set-panel .toggles .rs-switch { min-height: 36px; } }
