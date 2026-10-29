@@ -61,6 +61,8 @@ body.fs .drawer.set-panel { top: 8px; }
   .set-search input { height: 44px; font-size: 16px; }   /* 16 px: iOS does not zoom into it */
   .set-panel .row { min-height: 44px; }
   .set-panel .btn.wide { min-height: 44px; }
+  .set-panel .seg button { min-height: 44px; min-width: 44px; }   /* ui-glass-9: Glass / Lite / Auto-hide choices are 44 px tap targets too */
+  .set-panel .seg { padding: 0; border-width: 0; }   /* the 44 px buttons are the whole control; keeps the rows at 44 px */
 }
 @media (prefers-reduced-motion: reduce) { .drawer.set-panel:not([hidden]) { animation: setFade .15s linear; } @keyframes setFade { from { opacity: 0; } to { opacity: 1; } } }
 /* long hints fold to two lines inside a group (tap / Enter shows all); searching shows them in full */
