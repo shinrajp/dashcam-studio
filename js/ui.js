@@ -981,8 +981,15 @@
     new ResizeObserver(() => { sizeVars(); U.drawTimeline(); }).observe($("transport"));
     sizeVars();
 
-    // transport
-    $("btnPlay").onclick = () => U.toggle();
+    // transport (re-bind on glass/prefs changes so glass mode switch doesn't drop the handler)
+    function bindTransport() {
+      const bp = $("btnPlay"); if (bp) bp.onclick = () => U.toggle();
+      const bs = $("btnStop"); if (bs) bs.onclick = () => U.stop();
+      const bb = $("btnBack"); if (bb) bb.onclick = () => P().step(-1);
+      const bf = $("btnFwd"); if (bf) bf.onclick = () => P().step(1);
+    }
+    bindTransport();
+    if (T.on) T.on("prefs", (k) => { if (k === "glass" || k === "lite" || k === "*") setTimeout(bindTransport, 50); });
     $("btnStop").onclick = () => U.stop();
     $("btnBack").onclick = () => P().step(-1);
     $("btnFwd").onclick = () => P().step(1);

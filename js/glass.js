@@ -35,6 +35,21 @@
 
   // tint opacity for Automatic: >= 0.62 always (white text over a white background stays >= 4.5:1 through it), up to 0.9 over bright video
   G.alphaFor = (luma) => (luma < 0 ? 0.7 : luma > 0.85 ? 0.9 : 0.62 + 0.28 * Math.max(0, luma - 0.15) / 0.7);
+
+  // Manual glass overrides (prefs.glassBlur, glassAlpha, glassTint)
+  G.manual = () => !!(T.prefs.glassManual);
+  G.applyManual = () => {
+    if (!G.manual()) return;
+    const root = document.documentElement;
+    if (T.prefs.glassBlur != null) root.style.setProperty("--g-blur", T.prefs.glassBlur + "px");
+    if (T.prefs.glassAlpha != null) root.style.setProperty("--g-a", (+T.prefs.glassAlpha).toFixed(3));
+    if (T.prefs.glassTint) {
+      const hex = T.prefs.glassTint.replace("#","");
+      const r = parseInt(hex.slice(0,2),16), g = parseInt(hex.slice(2,4),16), b = parseInt(hex.slice(4,6),16);
+      root.style.setProperty("--g-rgb", r+","+g+","+b);
+    }
+  };
+
   G.setLuma = (l) => {
     G.luma = l; G.alpha = G.alphaFor(l);
     if (G.effective === "auto") root.style.setProperty("--g-a", G.alpha.toFixed(3)); else root.style.removeProperty("--g-a");
@@ -63,6 +78,7 @@
     const note = document.getElementById("glassNote");
     if (note) note.textContent = why === "lite" ? "Lite mode is on, so the controls are solid with no blur." : why === "reduced-transparency" ? "Reduce transparency is on in your system, so the controls are solid." : why ? "This browser can't blur behind the controls, so they are solid." : G.override() ? "Set by ?glass= in the address for this visit." : "";
     G.budget();
+    G.applyManual();
   };
 
   // ---- blur budget -------------------------------------------------------------------------------------------------------------------------
@@ -252,6 +268,21 @@
   function mon(ts) { monRaf = 0; if (!monOn()) { LM.reset(); return; } LM.feed(ts); if (!G.lite) monRaf = requestAnimationFrame(mon); }
   function monStart() { if (!monRaf && monOn()) { LM.hold(); monRaf = requestAnimationFrame(mon); } }
   // ---- wiring ------------------------------------------------------------------------------------------------------------------------------
+
+  function wireManual() {
+    const show = () => {
+      const on = G.mode !== "solid";
+      ["glassManual","glassManualA","glassManualT"].forEach(id => { const e = document.getElementById(id); if (e) e.hidden = !on; });
+    };
+    show();
+    const blur = document.getElementById("glassBlur");
+    const alpha = document.getElementById("glassAlpha");
+    const tint = document.getElementById("glassTint");
+    if (blur && !blur._wired) { blur._wired = true; blur.value = T.prefs.glassBlur || 22; blur.addEventListener("input", () => { T.setPref("glassBlur", +blur.value); T.setPref("glassManual", true); G.apply(); }); }
+    if (alpha && !alpha._wired) { alpha._wired = true; alpha.value = T.prefs.glassAlpha || 0.7; alpha.addEventListener("input", () => { T.setPref("glassAlpha", +alpha.value); T.setPref("glassManual", true); G.apply(); }); }
+    if (tint && !tint._wired) { tint._wired = true; tint.value = T.prefs.glassTint || "#101218"; tint.addEventListener("input", () => { T.setPref("glassTint", tint.value); T.setPref("glassManual", true); G.apply(); }); }
+  }
+
   function wireSeg() {
     const seg = document.getElementById("segGlass"); if (!seg || seg._wired) return; seg._wired = true;
     seg.querySelectorAll("button").forEach((b) => b.addEventListener("click", () => { T.setPref("glass", b.dataset.v); }));
@@ -272,7 +303,7 @@
   document.addEventListener("fullscreenchange", () => LM.hold());
   [mRT, mRM].forEach((m) => { if (m) { try { m.addEventListener("change", G.apply); } catch (_) { try { m.addListener(G.apply); } catch (__) {} } } });
   const start = () => {
-    wireSeg(); wireLite(); G.apply(); sched();
+    wireSeg(); wireLite(); wireManual(); G.apply(); sched();
     try { new MutationObserver(budgetSoon).observe(document.body, { subtree: true, attributes: true, attributeFilter: ["hidden", "class"] }); } catch (_) {}
     addEventListener("resize", budgetSoon);
   };

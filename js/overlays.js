@@ -22,7 +22,13 @@
 
   O.init = (stage, layer) => {
     O.stage = stage; O.layer = layer;
-    makePanel("hud", "hud-panel");
+    const hud = makePanel("hud", "hud-panel");
+    // HUD float grip (same idea as map)
+    const hg = T.el("button", "map-grip hud-grip");
+    hg.type = "button"; hg.id = "hudGrip"; hg.title = "Drag to float the HUD";
+    hg.innerHTML = '<svg viewBox="0 0 14 22" aria-hidden="true"><circle cx="4" cy="4" r="1.7"/><circle cx="10" cy="4" r="1.7"/><circle cx="4" cy="11" r="1.7"/><circle cx="10" cy="11" r="1.7"/><circle cx="4" cy="18" r="1.7"/><circle cx="10" cy="18" r="1.7"/></svg>';
+    hud.el.appendChild(hg);
+    wireFloat(hud, hg, "hud");
     const map = makePanel("map", "map-panel");
     const grip = T.el("div", "resize-grip");
     grip.title = "Drag to resize the map";
@@ -174,7 +180,7 @@
     if (!quiet) T.toast(home === "float" ? "Map floats: drag ⋮⋮ anywhere, drop it at the right edge of the video to dock it" : home === "aside" ? "Map docked beside the video" : "Map is on the video", "ok", 2600);
   };
   /** grip drag (same feel as the camera bar's ⋮⋮: 5 px before it moves, edges snap, double-click / double-tap docks or floats) */
-  function wireFloat(p, g) {
+  function wireFloat(p, g, kind) { kind = kind || "map";
     let d = null, lastTap = 0, swallow = false;
     g.addEventListener("pointerdown", (e) => {
       if (e.pointerType === "mouse" && e.button !== 0) return;
