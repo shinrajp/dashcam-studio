@@ -251,7 +251,7 @@
     const pl = playing();
     if (pl) feed(now);
     if (!R.on) return;
-    if (dirty || now < busyUntil || (pl && now - lastR >= 30)) {
+    if (dirty || now < busyUntil || (pl && now - lastR >= Math.max(30, R.stats.avg * 4))) {   // while playing ~30 Hz, slower if a render is costly (main thread <= ~25 % busy)
       dirty = false; lastR = now;
       try { render(now, now - tintAt >= 250 || !pl); } catch (e) { R.err = String(e && e.message || e); }
     }
