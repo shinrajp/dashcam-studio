@@ -381,8 +381,8 @@
       const f = G.screenFit(cam); if (!f) return;
       e.preventDefault(); id = e.pointerId;
       try { cv.setPointerCapture(id); } catch (_) {}
-      // freehand on touch: wait to see if this is a tap (add point) or a drag (continuous stroke)
-      if (S.shape === "free" && e.pointerType !== "mouse") {
+      // freehand: always wait — a short press adds a point, a long drag starts a continuous stroke
+      if (S.shape === "free") {
         pend = { x: e.clientX, y: e.clientY, freeTap: true };
         return;
       }
@@ -392,7 +392,10 @@
       if (id !== e.pointerId) return;
       if (pend) {   // a drag that starts on a camera: that camera is the one, and the stroke goes on right there
         e.stopPropagation(); e.preventDefault();
-        if (Math.hypot(e.clientX - pend.x, e.clientY - pend.y) < SLOP(e)) return;
+        const dist = Math.hypot(e.clientX - pend.x, e.clientY - pend.y);
+        // freehand: require a deliberate drag (40px) before it becomes a continuous stroke; otherwise stay a tap
+        const need = pend.freeTap ? 40 : SLOP(e);
+        if (dist < need) return;
         const p0 = pend; pend = null;
         S.cam = cam; S.pick = false; S.draft = null; S.drawing = true; hot(cam, false);
         msg(camName(cam) + ": " + (S.shape === "free" ? "keep dragging around the area." : "keep dragging to draw the box."));
