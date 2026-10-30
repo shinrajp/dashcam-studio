@@ -204,6 +204,22 @@
   };
   /** Viewer: the redact layer of this camera (tile tw × th css px); video is the <video>. */
   G.live = (ctx, cam, t, video, tw, th) => {
+    // update tracked region from live boxes right before paint
+    if (S.trackId && cam === S.trackCam && T.detect && T.detect.boxesAt) {
+      const bx = T.detect.boxesAt(cam, t);
+      if (bx && bx.length) {
+        const r = G.list.find((x) => x.id === S.trackId);
+        if (r) {
+          let best = null, bestDist = 999;
+          for (const d of bx) {
+            const dist = Math.hypot((d.x + d.w / 2) - (r.x + r.w / 2), (d.y + d.h / 2) - (r.y + r.h / 2));
+            const bonus = (S.trackLabel && d.label === S.trackLabel) ? -0.3 : 0;
+            if (dist + bonus < bestDist) { bestDist = dist + bonus; best = d; }
+          }
+          if (best && bestDist < 1) { r.x = best.x; r.y = best.y; r.w = best.w; r.h = best.h; }
+        }
+      }
+    }
     const rs = G.at(cam, t);
     if (!rs.length) return;
     const iw = video.videoWidth, ih = video.videoHeight, fit = R.contain(iw, ih, { x: 0, y: 0, w: tw, h: th });
