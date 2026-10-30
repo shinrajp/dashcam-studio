@@ -35,7 +35,21 @@
 
   // tint opacity for Automatic: >= 0.62 always (white text over a white background stays >= 4.5:1 through it), up to 0.9 over bright video
   G.alphaFor = (luma) => (luma < 0 ? 0.7 : luma > 0.85 ? 0.9 : 0.62 + 0.28 * Math.max(0, luma - 0.15) / 0.7);
-
+  // adaptive text contrast: light tint → dark text, dark tint → light text
+  G.contrast = (r, g, b, a) => {
+    const lin = (c) => { c /= 255; return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); };
+    const L = 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+    const effective = L * (a || 0.7) + 0.05 * (1 - (a || 0.7));
+    return effective > 0.35 ? "#1a1d24" : "#f0f4fa";
+  };
+  G.applyContrast = () => {
+    const rgb = (getComputedStyle(root).getPropertyValue("--g-rgb") || "16,18,24").split(",").map(s => parseInt(s.trim(), 10) || 0);
+    const a = parseFloat(getComputedStyle(root).getPropertyValue("--g-a")) || 0.7;
+    const c = G.contrast(rgb[0], rgb[1], rgb[2], a);
+    root.style.setProperty("--g-text", c);
+    root.dataset.glassLight = c === "#1a1d24" ? "1" : "";
+  };
+  
   // Manual glass overrides (prefs.glassBlur, glassAlpha, glassTint)
   G.manual = () => !!(T.prefs.glassManual);
   G.applyManual = () => {
@@ -47,6 +61,7 @@
       const hex = T.prefs.glassTint.replace("#","");
       const r = parseInt(hex.slice(0,2),16), g = parseInt(hex.slice(2,4),16), b = parseInt(hex.slice(4,6),16);
       root.style.setProperty("--g-rgb", r+","+g+","+b);
+      G.applyContrast();
     }
   };
 
@@ -91,6 +106,7 @@
     if (note) note.textContent = why === "lite" ? "Lite mode is on, so the controls are solid with no blur." : why === "reduced-transparency" ? "Reduce transparency is on in your system, so the controls are solid." : why ? "This browser can't blur behind the controls, so they are solid." : G.override() ? "Set by ?glass= in the address for this visit." : "";
     G.budget();
     G.applyManual();
+    G.applyContrast();
   };
 
   // ---- blur budget -------------------------------------------------------------------------------------------------------------------------

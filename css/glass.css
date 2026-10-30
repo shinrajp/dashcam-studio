@@ -5,6 +5,7 @@
 :root {
   --g-rgb: 16, 18, 24;          /* tint colour */
   --g-a: .70;                   /* tint opacity (Automatic: js/glass.js, 0.62 .. 0.9) */
+  --g-text: #f0f4fa;            /* adaptive: dark on light tint, light on dark tint */
   --g-blur: 22px;
   --g-sheen: radial-gradient(140% 100% at 0% 0%, rgba(255,255,255,.10), rgba(255,255,255,0) 55%);
   --g-rim: inset 0 1px 0 rgba(255,255,255,.20), inset 0 0 0 1px rgba(255,255,255,.07);
@@ -88,7 +89,7 @@ html.glass .seg {
 }
 html.glass .seg button {
   border-radius: 999px;
-  color: #c5cedc;
+  color: var(--g-text, #c5cedc);
   background: transparent;
 }
 html.glass .seg button.on {
@@ -132,4 +133,54 @@ html.glass .stage-bar.bar-floating,
 html.glass body > .stage-bar {
   background: var(--g-sheen), rgba(var(--g-rgb), var(--g-a)) !important;
   border-color: rgba(255,255,255,.14);
+}
+
+/* light tint: switch to dark text for contrast */
+html.glass[data-glass-light="1"] {
+  --g-text: #1a1d24;
+  --g-text-shadow: 0 1px 1px rgba(255,255,255,.35);
+}
+html.glass[data-glass-light="1"] .stage-bar,
+html.glass[data-glass-light="1"] .drawer,
+html.glass[data-glass-light="1"] .toast,
+html.glass[data-glass-light="1"] .seg button,
+html.glass[data-glass-light="1"] .cam-menu,
+html.glass[data-glass-light="1"] .chip,
+html.glass[data-glass-light="1"] .set-panel,
+html.glass[data-glass-light="1"] .us-panel {
+  color: var(--g-text);
+}
+html.glass .stage-bar, html.glass .drawer, html.glass .toast,
+html.glass .seg button, html.glass .cam-menu, html.glass .chip {
+  color: var(--g-text, #f0f4fa);
+}
+
+html.glass .drawer, html.glass .drawer label, html.glass .drawer .hint,
+html.glass .drawer h2, html.glass .drawer h3, html.glass .set-panel {
+  color: var(--g-text, #e8eef8);
+}
+
+
+:root { --g-text: #f0f4fa; }
+
+/* light tint: switch to dark text for contrast */
+html.glass[data-glass-light="1"] {
+  --g-text: #1a1d24;
+  --g-text-shadow: 0 1px 1px rgba(255,255,255,.35);
+}
+html.glass[data-glass-light="1"] .stage-bar,
+html.glass[data-glass-light="1"] .drawer,
+html.glass[data-glass-light="1"] .toast,
+html.glass[data-glass-light="1"] .seg button,
+html.glass[data-glass-light="1"] .cam-menu,
+html.glass[data-glass-light="1"] .chip,
+html.glass[data-glass-light="1"] .set-panel,
+html.glass[data-glass-light="1"] .us-panel {
+  color: var(--g-text);
+}
+html.glass .stage-bar, html.glass .drawer, html.glass .toast,
+html.glass .seg button, html.glass .cam-menu, html.glass .chip,
+html.glass .drawer label, html.glass .drawer .hint,
+html.glass .drawer h2, html.glass .drawer h3, html.glass .set-panel {
+  color: var(--g-text, #f0f4fa);
 }
