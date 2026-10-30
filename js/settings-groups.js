@@ -128,12 +128,13 @@
       sec.appendChild(btn);
     }
     sec.classList.add("set-fold"); btn.hidden = false;
-    rows.forEach((r, i) => r.classList.toggle("set-x", i >= KEEP));
+    const keep = +sec.dataset.keep || KEEP;   // White balance keeps 4 so Appearance (with ui-glass-11's Glass style row) still fits a phone screen
+    rows.forEach((r, i) => r.classList.toggle("set-x", i >= keep));
     // the hints and buttons after the last shown row fold with it
-    const last = rows[KEEP - 1];
+    const last = rows[keep - 1];
     [...sec.querySelectorAll(":scope p.hint, :scope .btn.wide:not(.set-more)")].forEach((n) => { if (!n.closest("details")) n.classList.toggle("set-x", !!(last.compareDocumentPosition(n) & Node.DOCUMENT_POSITION_FOLLOWING) && !last.contains(n)); });
     const open = sec.classList.contains("open");
-    btn.textContent = open ? "Show fewer" : "Show all " + (sec.querySelector("h3") ? sec.querySelector("h3").textContent.trim().replace(/\s*\(.*\)$/, "").toLowerCase() + " settings" : "settings") + " (" + (rows.length - KEEP) + " more)";
+    btn.textContent = open ? "Show fewer" : "Show all " + (sec.querySelector("h3") ? sec.querySelector("h3").textContent.trim().replace(/\s*\(.*\)$/, "").toLowerCase() + " settings" : "settings") + " (" + (rows.length - keep) + " more)";
     btn.setAttribute("aria-expanded", String(open));
   }
   function apply() {

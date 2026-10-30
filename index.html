@@ -217,9 +217,8 @@
       </section>
       <section id="appearSec"><h3>Appearance</h3>
         <div class="row"><span>Glass</span><div class="seg" id="segGlass" role="group" aria-label="Glass"><button data-v="auto">Automatic</button><button data-v="clear">Clear</button><button data-v="solid">Solid</button></div></div>
-        <p class="hint">How the controls look over the video. Automatic tints each control with the colour of the video under it and darkens it over bright video so text stays readable; Clear is more see-through; Solid has no transparency (also used when your system asks to reduce transparency). <span id="glassNote"></span></p>
         <div class="row"><span>Glass style</span><div class="seg" id="segRefract" role="group" aria-label="Glass style"><button data-v="refract">Refraction</button><button data-v="frost">Frosted</button></div></div>
-        <p class="hint">Refraction bends the video through the edges of each control like real glass (WebGL); Frosted is the plain blurred glass. Refraction switches to Frosted by itself in Lite mode, when playback drops frames, without WebGL or when your system asks to reduce transparency. <span id="refractNote" hidden></span></p>
+        <p class="hint">Automatic tints each control with the video under it, darker over bright video so text stays readable; Clear is more see-through; Solid has no transparency. Refraction bends the video at the edges of each control (WebGL); Frosted is the plain blur, also used by itself in Lite mode, when playback drops frames, without WebGL or when your system asks to reduce transparency. <span id="glassNote"></span> <span id="refractNote" hidden></span></p>
         <div class="row"><span>Auto-hide</span><div class="seg" id="segAutohide" role="group" aria-label="Auto-hide controls"><button data-v="2">2 s</button><button data-v="3">3 s</button><button data-v="5">5 s</button><button data-v="never">Never</button></div></div>
         <p class="hint">While a video plays, the controls over it fade after this long without input; a thin line shows the progress. Move the mouse, tap or press a key to bring them back. They never hide while paused, while a panel or Settings is open, while you draw a redaction or during an export. <span id="autohideNote"></span></p>
         <div class="row"><span>Lite mode</span><div class="seg" id="segLite" role="group" aria-label="Lite mode"><button data-v="auto" title="On when playback keeps dropping frames or the device has little memory">Auto</button><button data-v="on">On</button><button data-v="off">Off</button></div></div>
@@ -235,7 +234,7 @@
         <div class="row"><span>Invert steering</span><input type="checkbox" id="steerInvert"></div>
         <div class="row"><span>Swap accel X/Y axes</span><input type="checkbox" id="accelSwap"></div>
       </section>
-      <section><h3>White balance</h3><div id="setWb" class="toggles"></div></section>
+      <section data-keep="4"><h3>White balance</h3><div id="setWb" class="toggles"></div></section>
       <section id="recogSec"><h3>Recognition (beta)</h3>
         <div id="setRecog" class="toggles"></div>
         <details id="recogAdv" class="recog-adv"><summary>Advanced recognition settings</summary>
