@@ -32,6 +32,7 @@
     mapDock: "over",   // over (on the video) | aside (docked beside it) | float (anywhere in the window, js/overlays.js)
     autohide: "3",   // ui-glass-2: Settings ▸ Appearance ▸ Auto-hide — "2" | "3" | "5" seconds | "never"; ?autohide= overrides for one visit
     lite: "auto",    // ui-glass-9: Settings ▸ Appearance ▸ Lite mode — "auto" (on when frames drop or memory is low) | "on" | "off"; ?lite= overrides for one visit
+    glassStyle: "refract",   // ui-glass-11: Settings ▸ Appearance ▸ Glass style — "refract" (SDF refraction, js/refract.js) | "frost"; ?refract=0|1 overrides for one visit
     glass: "auto",   // ui-glass-1: Settings ▸ Appearance ▸ Glass — "auto" (tint follows the video) | "clear" | "solid"; ?glass= overrides for one visit
     mapFloat: { fx: -1, fy: -1, pin: 0, below: 0 },
     bubble: { corner: "br" },   // ui-glass-6: the tools bubble corner (tl | tr | bl | br)   // floating map: left / top as fractions of the free window area (-1 = default spot); export never uses this
