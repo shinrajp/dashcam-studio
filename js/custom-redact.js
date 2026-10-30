@@ -151,7 +151,7 @@
   };
   G.canUndoRegion = (id) => !!(RH[id] && RH[id].u.length);
   G.canRedoRegion = (id) => !!(RH[id] && RH[id].r.length);
-  G.remove = (id) => { if (!G.list.some((r) => r.id === id)) return; record(); delete RH[id]; G.list = G.list.filter((r) => r.id !== id); changed(); };
+  G.remove = (id) => { if (!G.list.some((r) => r.id === id)) return; record(); delete RH[id]; G.list = G.list.filter((r) => r.id !== id); if (S.trackIds) { S.trackIds = S.trackIds.filter((x) => x !== id); delete S.patches[id]; } changed(); };
   G.clear = () => { if (G.list.length) { record(); G.list = []; changed(); } };
   G.toJSON = () => JSON.stringify({ type: "dashcam-studio-regions", version: 1, regions: G.list.map((r) => { const o = Object.assign({}, r); delete o.id; return o; }) }, null, 2);
   /** Add regions from a JSON file's text. Returns { added, skipped } or throws a plain-English Error. */
@@ -778,6 +778,7 @@
     const playing = T.player.playing || (T.player.tiles && Object.values(T.player.tiles).some(t => { const v = t.video || (t.vids && t.vids[T.player.active]); return v && !v.paused; }));
     if (!playing) return;
     let moved = 0;
+    S.trackIds = S.trackIds.filter((id) => G.list.some((r) => r.id === id));
     for (const id of S.trackIds) {
       const r = G.list.find((x) => x.id === id); if (!r) continue;
       const info = S.patches[id] || {};
