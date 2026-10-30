@@ -413,10 +413,11 @@
         e.preventDefault(); id = e.pointerId; try { cv.setPointerCapture(id); } catch (_) {}
         pend = { x: e.clientX, y: e.clientY }; hot(cam, true); return;
       }
-      if (!S.drawing) return;
+      if (!S.drawing && !S.track) return;
       const f = G.screenFit(cam); if (!f) return;
       e.preventDefault(); id = e.pointerId;
       try { cv.setPointerCapture(id); } catch (_) {}
+      if (S.track) { pend = { x: e.clientX, y: e.clientY, track: true }; return; }
       // freehand: press on a key point moves it; otherwise short press adds a point, drag continues
       if (S.shape === "free") {
         if (S.live && S.live.pts.length >= 2) {
@@ -482,6 +483,15 @@
       e.stopPropagation(); id = null;
       try { cv.releasePointerCapture(e.pointerId); } catch (_) {}
       if (S.live && S.live.dragIdx != null) { S.live.dragIdx = null; kick(); return; }
+      if (pend && pend.track) {
+        const p0 = pend; pend = null;
+        const f = G.screenFit(cam); if (!f) return;
+        const [u, v] = G.toRaw(f, p0.x, p0.y);
+        const [u2, v2] = G.toRaw(f, e.clientX, e.clientY);
+        const x = Math.min(u, u2), y = Math.min(v, v2), w = Math.max(0.05, Math.abs(u2 - u)), h = Math.max(0.05, Math.abs(v2 - v));
+        trackAt(cam, x, y, w, h);
+        return;
+      }
       if (pend) {   // a tap
         const wasFreeTap = pend.freeTap;
         pend = null; hot(cam, false);
@@ -637,6 +647,55 @@
     if (G.redo()) { msg("Redone."); kick(); return true; }
     return false;
   };
+  /** Track mode: tap or circle an object, detect it, redact, and follow it while the video plays. */
+  S.track = false;
+  S.trackId = null;
+  UI.track = (on) => {
+    S.track = on === undefined ? !S.track : !!on;
+    if (S.track) { S.drawing = true; S.pick = false; msg("Track: tap or circle an object. It will be detected and followed."); }
+    else { msg("Track off."); }
+    UI.sync(); kick(); return true;
+  };
+  async function trackAt(cam, x, y, w, h) {
+    const v = T.player && T.player.tiles && T.player.tiles[cam] && T.player.tiles[cam].video;
+    if (!v || !T.detect || !T.detect.detectImage) { msg("Detection not available.", true); return; }
+    msg("Detecting...");
+    try {
+      const dets = await T.detect.detectImage(v, v.videoWidth, v.videoHeight, { conf: 0.25 });
+      if (!dets || !dets.length) { msg("No object found there.", true); return; }
+      // find detection that best overlaps the user's mark
+      const cx = x + w / 2, cy = y + h / 2;
+      let best = null, bestScore = -1;
+      for (const d of dets) {
+        const dx = d.x + d.w / 2, dy = d.y + d.h / 2;
+        const dist = Math.hypot((dx - cx) / Math.max(0.01, w), (dy - cy) / Math.max(0.01, h));
+        const iou = Math.max(0, Math.min(d.x + d.w, x + w) - Math.max(d.x, x)) * Math.max(0, Math.min(d.y + d.h, y + h) - Math.max(d.y, y)) / (d.w * d.h + w * h);
+        const score = iou * 2 - dist;
+        if (score > bestScore) { bestScore = score; best = d; }
+      }
+      if (!best || bestScore < -1) { msg("No clear object in that area.", true); return; }
+      const r = G.add({ cam, shape: "rect", x: best.x, y: best.y, w: best.w, h: best.h, mode: S.mode, on: true });
+      if (r) { S.trackId = r.id; msg("Tracking " + (best.label || "object") + ". It will follow while the video plays."); }
+    } catch (e) { msg("Detection failed: " + (e.message || e), true); }
+  }
+  // update tracked region from live detections while playing
+  function followTrack() {
+    if (!S.trackId || !T.detect || !T.player) return;
+    const r = G.list.find((x) => x.id === S.trackId); if (!r) { S.trackId = null; return; }
+    const t = T.player.time, cam = r.cam;
+    const tracks = T.detect.liveTracks && T.detect.liveTracks[cam];
+    if (!tracks) return;
+    let best = null, bestIou = 0;
+    for (const tr of tracks) {
+      if (Math.abs(tr.t - t) > 0.5) continue;
+      const b = tr.box || tr;
+      const iou = Math.max(0, Math.min(b.x + b.w, r.x + r.w) - Math.max(b.x, r.x)) * Math.max(0, Math.min(b.y + b.h, r.y + r.h) - Math.max(b.y, r.y)) / (b.w * b.h + r.w * r.h);
+      if (iou > bestIou) { bestIou = iou; best = b; }
+    }
+    if (best && bestIou > 0.1) G.update(r.id, { x: best.x, y: best.y, w: best.w, h: best.h });
+  }
+  setInterval(followTrack, 200);
+
   /** Done: saves a drawn shape; in Move it simply closes the tray (the moves are already saved, and undoable). */
   UI.done = () => {
     // freehand in progress: finish the live shape first so it becomes a draft
@@ -720,6 +779,7 @@
     opts: '<path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/>',
     cancel: '<path d="M6 6l12 12M18 6 6 18"/>',
     done: '<path d="m5 12.5 4.5 4.5L19 7"/>',
+    track: '<circle cx="12" cy="12" r="3"/><path d="M12 2a10 10 0 0 1 7 17M12 2a10 10 0 0 0-7 17"/>',
   };
   const ico = (k) => '<svg class="cr-ico" viewBox="0 0 24 24" aria-hidden="true">' + ICON[k] + "</svg>";
   const tb = (id, k, label, extra) => '<button type="button" class="btn small cr-tb' + (extra || "") + '" id="' + id + '" title="' + label + '" aria-label="' + label + '">' + ico(k) + '<span class="t">' + label + "</span></button>";
@@ -735,6 +795,7 @@
       '<span class="seg cr-tseg" id="crBarMode" role="group" aria-label="How to hide">' + tb("crBarBlur", "blur", "Blur", " cr-sv").replace("<button", '<button data-v="blur" aria-pressed="true"') + tb("crBarRemove", "remove", "Remove", " cr-sv").replace("<button", '<button data-v="remove" aria-pressed="false"') + "</span>" +
       tb("crBarUndo", "undo", "Undo (" + mod + "Z)", " ghost cr-io").replace('<span class="t">Undo (' + mod + "Z)", '<span class="t">Undo') +
       tb("crBarRedo", "redo", "Redo (" + (mac ? "⇧⌘Z" : "Ctrl+Shift+Z") + ")", " ghost cr-io").replace(/<span class="t">Redo[^<]*/, '<span class="t">Redo') +
+      tb("crBarTrack", "track", "Track", " ghost").replace("<button", '<button aria-pressed="false"') +
       tb("crBarMove", "move", "Move", " ghost").replace("<button", '<button aria-pressed="false"') +
       tb("crBarAgain", "again", "Draw again", "") +
       '<button type="button" class="btn small ghost cr-tb" id="crBarOpts" title="Back to the Redact panel" aria-expanded="false">' + ico("opts") + '<span class="t">Options</span></button>' +
@@ -749,6 +810,7 @@
     $("crBarUndo").addEventListener("click", () => UI.undo());
     $("crBarRedo").addEventListener("click", () => UI.redo());
     $("crBarMove").addEventListener("click", () => UI.move());
+    $("crBarTrack").addEventListener("click", () => UI.track());
     $("crBarShape").addEventListener("click", (e) => { const x = e.target.closest("button"); if (x && !x.disabled) UI.setShape(x.dataset.v); });
     $("crBarMode").addEventListener("click", (e) => { const x = e.target.closest("button"); if (x && !x.disabled) UI.setMode(x.dataset.v); });
     $("crBarCam").addEventListener("click", () => UI.draw(true));   // the chip names the camera; tapping it picks another one (no dropdown)
@@ -885,6 +947,7 @@
     u.hidden = false; r.hidden = false;
     u.disabled = !UI.canUndo(); r.disabled = !UI.canRedo();
     u.classList.toggle("on", UI.canUndo()); r.classList.toggle("on", UI.canRedo());
+    const trb = $("crBarTrack"); if (trb) { trb.classList.toggle("on", !!S.track); trb.setAttribute("aria-pressed", String(!!S.track)); }
     const mvb = $("crBarMove"), canMove = !!S.cam && !S.pick && !S.draft && !S.editId && G.list.some((r) => r.cam === S.cam);
     mvb.hidden = !!S.pick; mvb.disabled = !S.move && !canMove; mvb.setAttribute("aria-pressed", String(!!S.move)); mvb.classList.toggle("on", !!S.move);
     b.classList.toggle("moving", !!S.move);
