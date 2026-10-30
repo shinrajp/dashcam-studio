@@ -1106,6 +1106,7 @@ body.cr-drawing .stage-bar button, body.cr-drawing .stage-bar select, body.cr-dr
 .cr-tray .cr-tseg { display: inline-flex; padding: 2px; gap: 0; border-radius: 999px; background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.12); pointer-events: none; }
 .cr-tray .cr-tseg .cr-tb { pointer-events: auto; min-height: 36px; min-width: 72px; background: transparent; border: 0; color: #c9d1dc; border-radius: 999px; padding: 0 9px; box-shadow: none; text-align: center; }
 .cr-tray .cr-tseg .cr-tb.on { background: rgba(255,210,122,.2); color: #ffe3a3; box-shadow: inset 0 0 0 1px rgba(230,180,80,.7); }
+#crBarTrack.on, #crBarTrack[aria-pressed="true"] { background: rgba(62,106,225,.35); color: #dbe4ff; box-shadow: inset 0 0 0 1.5px rgba(62,106,225,.8); }
 .cr-tray .btn:disabled { opacity: .38; cursor: default; }
 .cr-tray #crBarMove.on { background: rgba(255,210,122,.22); color: #ffe3a3; border-color: #e6b450; }
 .cr-tray .cr-done { font-weight: 700; }
