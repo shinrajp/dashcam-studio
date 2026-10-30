@@ -775,7 +775,9 @@
   }
   function followPatches() {
     dbg("Track: " + (S.track ? "ON" : "off") + " ids: " + S.trackIds.length + " playing: " + !!(T.player && T.player.playing));
-    if (!S.trackIds.length || !T.player || !T.player.playing) return;
+    if (!S.trackIds.length || !T.player) return;
+    const playing = T.player.playing || (T.player.tiles && Object.values(T.player.tiles).some(t => t.video && !t.video.paused));
+    if (!playing) return;
     let moved = 0;
     for (const id of S.trackIds) {
       const r = G.list.find((x) => x.id === id); if (!r) continue;
@@ -798,9 +800,11 @@
   UI.done = () => {
     if (S.trackIds && S.trackIds.length) {
       const n = S.trackIds.length;
-      S.drawing = false;
+      S.drawing = false; S.pick = false;
+      const b = $("crBar"); if (b) b.hidden = true;
+      document.body.classList.remove("cr-bar-on");
       reopenPanel(true); UI.sync(); kick();
-      msg(n + " region" + (n === 1 ? "" : "s") + " tracking. Track stays on — circle more or turn it off.");
+      msg(n + " region" + (n === 1 ? "" : "s") + " tracking in the background.");
       return true;
     }
     if (S.shape === "free" && S.live && S.live.pts && S.live.pts.length >= 6 && S.cam) {
