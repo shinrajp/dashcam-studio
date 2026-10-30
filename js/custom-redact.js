@@ -1022,8 +1022,6 @@
         '<label class="cr-on" title="Switch this region on or off (off: not hidden in the viewer or the export)"><input type="checkbox" data-act="on"' + (r.on ? " checked" : "") + ' aria-label="Region ' + (i + 1) + ' on"></label>' +
         '<span class="cr-desc"><b>' + esc(camName(r.cam)) + "</b> · " + (r.mode === "remove" ? "Remove" : "Blur") + " · " + (r.shape === "poly" ? "freehand" : "box") + "<br><small>" + esc(when) + "</small></span>" +
         '<button type="button" class="btn small ghost" data-act="go" title="Show this region in the video">Show</button>' +
-        '<button type="button" class="btn small ghost" data-act="undo" title="Undo last change to this region"' + (G.canUndoRegion(r.id) ? "" : " disabled") + '>Undo</button>' +
-        '<button type="button" class="btn small ghost" data-act="redo" title="Redo last change to this region"' + (G.canRedoRegion(r.id) ? "" : " disabled") + '>Redo</button>' +
         '<button type="button" class="btn small ghost" data-act="edit">Edit</button>' +
         '<button type="button" class="btn small ghost" data-act="del" aria-label="Delete region ' + (i + 1) + '">Delete</button></li>';
     }).join("");
@@ -1078,9 +1076,7 @@
     $("crList").addEventListener("click", (e) => {
       const b = e.target.closest("[data-act]"), li = e.target.closest("li[data-id]"); if (!b || !li) return;
       const id = li.dataset.id, r = G.list.find((x) => x.id === id); if (!r) return;
-      if (b.dataset.act === "del") { if (S.editId === id) resetForm(); G.remove(id); msg("Region deleted."); }
-      else if (b.dataset.act === "undo") { if (G.undoRegion(id)) { msg("Region undone."); UI.sync(); } }
-      else if (b.dataset.act === "redo") { if (G.redoRegion(id)) { msg("Region redone."); UI.sync(); } }
+      if (b.dataset.act === "del") { if (S.editId === id) resetForm(); G.remove(id); msg("Region deleted. Undo brings it back."); }
       else if (b.dataset.act === "edit") { const U = T.searchUI; if (U && U.closePops) U.closePops(); UI.edit(id); }
       else if (b.dataset.act === "go") {
         if (T.focus && T.focus.focus && T.focus.cam !== r.cam) T.focus.focus(r.cam);
