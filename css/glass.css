@@ -70,8 +70,8 @@ html.glass .transport, html.glass .mb-bar { background: linear-gradient(180deg, 
 html.glass body.fs .transport { background: var(--g-sheen), rgba(var(--g-rgb), max(var(--g-a), .8)); }
 html.glass body.fs .us-strip { background: rgba(var(--g-rgb), max(var(--g-a), .8)); }
 html.glass .topbar .btn, html.glass .transport .btn, html.glass .mb-bar .btn, html.glass .transport .select, html.glass .topbar .select { border-radius: 999px; }
-html.glass .topbar .btn:not(.primary):not(.icon), html.glass .transport .btn:not(.primary):not(.icon) { background: rgba(255,255,255,.05); border-color: rgba(255,255,255,.10); box-shadow: inset 0 1px 0 rgba(255,255,255,.08); }
-html.glass .topbar .btn:not(.primary):not(.icon):hover, html.glass .transport .btn:not(.primary):not(.icon):hover { background: rgba(255,255,255,.10); }
+html.glass .topbar .btn:not(.primary):not(.icon):not(.tesla), html.glass .transport .btn:not(.primary):not(.icon):not(.tesla) { background: rgba(255,255,255,.05); border-color: rgba(255,255,255,.10); box-shadow: inset 0 1px 0 rgba(255,255,255,.08); }
+html.glass .topbar .btn:not(.primary):not(.icon):not(.tesla):hover, html.glass .transport .btn:not(.primary):not(.icon):not(.tesla):hover { background: rgba(255,255,255,.10); }
 html.glass .btn.primary { box-shadow: inset 0 1px 0 rgba(255,255,255,.28), 0 4px 14px rgba(62,106,225,.35); }
 
 /* chips: capsule glass; text >= 4.5:1 on the bar */
@@ -184,3 +184,13 @@ html.glass .drawer label, html.glass .drawer .hint,
 html.glass .drawer h2, html.glass .drawer h3, html.glass .set-panel {
   color: var(--g-text, #f0f4fa);
 }
+
+/* unlock / keys button: always bright, never tinted */
+html.glass .btn.tesla, html.glass .btn.tesla:hover {
+  background: #fff !important;
+  color: #111 !important;
+  border-color: #fff !important;
+  text-shadow: none !important;
+  box-shadow: 0 1px 3px rgba(0,0,0,.25) !important;
+}
+html.glass[data-glass-light="1"] .btn.tesla { color: #111 !important; }
