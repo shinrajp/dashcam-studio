@@ -672,7 +672,7 @@
       }
       if (!best || bestDist > 0.4) { msg("No object close enough to your circle. Try circling it more tightly.", true); return; }
       const r = G.add({ cam, shape: "rect", x: best.x, y: best.y, w: best.w, h: best.h, mode: S.mode, on: true });
-      if (r) { S.trackId = r.id; msg("Tracking " + (best.label || "object") + " (" + Math.round(best.conf * 100) + "%). It follows while the video plays."); UI.sync(); kick(); }
+      if (r) { S.trackId = r.id; S.trackLabel = best.label; msg("Tracking " + (best.label || "object") + " (" + Math.round(best.conf * 100) + "%). Play the video — it follows."); UI.sync(); kick(); }
     } catch (e) { msg("Detection failed: " + (e.message || e), true); }
   }
   // update tracked region from live detections while playing
@@ -681,14 +681,17 @@
     const r = G.list.find((x) => x.id === S.trackId); if (!r) { S.trackId = null; return; }
     const cam = r.cam;
     const live = T.detect.live && T.detect.live[cam];
-    if (!live || !live.dets || !live.dets.length) return;
-    // pick the detection closest to the current region (same object as it moves)
-    let best = null, bestDist = 999;
-    for (const d of live.dets) {
+    const dets = (live && live.dets) || [];
+    if (!dets.length) return;
+    // prefer same label, then closest center
+    let best = null, bestScore = -999;
+    for (const d of dets) {
       const dist = Math.hypot((d.x + d.w / 2) - (r.x + r.w / 2), (d.y + d.h / 2) - (r.y + r.h / 2));
-      if (dist < bestDist) { bestDist = dist; best = d; }
+      const labelBonus = (S.trackLabel && d.label === S.trackLabel) ? 0.5 : 0;
+      const score = labelBonus - dist;
+      if (score > bestScore && dist < 0.6) { bestScore = score; best = d; }
     }
-    if (best && bestDist < 0.35) G.update(r.id, { x: best.x, y: best.y, w: best.w, h: best.h });
+    if (best) G.update(r.id, { x: best.x, y: best.y, w: best.w, h: best.h });
   }
   setInterval(followTrack, 200);
 
