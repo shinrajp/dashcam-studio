@@ -474,7 +474,7 @@
   const EMA_POS = 0.7, BETA = 0.5, EMA_SIZE = 0.4, VMAX = 2.5;   // VMAX: picture widths per second
   D.camGap = {};   // seconds between two looks at a camera (event time, smoothed)
   const gapOf = (cam) => { const n = Math.max(1, D.liveCams().length); return Math.max(D.camGap[cam] || 0, Math.min(3, n * D.liveEvery() / 1000)); };
-  const expiry = (cam) => Math.max(0.5, 1.5 * gapOf(cam) + 0.15);
+  const expiry = (cam) => Math.max(1.2, 2.2 * gapOf(cam) + 0.4);   // ui-det: longer hold so boxes survive slow looks
   // a track whose latest looks were SECOND looks (zoomed windows, 0.5-2 s apart) must outlive the gap between them, or it flickers and every look starts a new track
   const exOf = (tr, ex) => ((tr.ls != null ? tr.ls : tr.seeded === true) ? Math.max(ex, Math.min(3, 1.5 * 10 / Math.max(1, D.seed.budget().per10) + 0.3)) : ex);
   /** Prediction on (default) or off (?pred=0 or localStorage "tdc.livePredict" = "off": boxes stay where the detector saw them). */
@@ -484,7 +484,7 @@
   const predictAt = (tr, t, gap) => {
     let dt = t - tr.t;
     if (dt < 0) dt = Math.max(-0.3, dt);
-    else { const h = Math.max(0.25, 1.3 * (gap || 0.5)); if (dt > h) dt = h + 0.3 * (1 - Math.exp(-(dt - h) / 0.3)); dt = Math.min(2, dt); }
+    else { const h = Math.max(0.4, 1.8 * (gap || 0.5)); if (dt > h) dt = h + 0.4 * (1 - Math.exp(-(dt - h) / 0.4)); dt = Math.min(4, dt); }   // ui-det: predict up to 4s
     let cx = tr.x + tr.w / 2 + tr.vx * dt, cy = tr.y + tr.h / 2 + tr.vy * dt;
     cx = Math.max(-0.02, Math.min(1.02, cx)); cy = Math.max(-0.02, Math.min(1.02, cy));
     return { x: cx - tr.w / 2, y: cy - tr.h / 2, w: tr.w, h: tr.h };
@@ -870,6 +870,7 @@
   D.liveRVFC = () => { const cams = D.liveCams(), v = cams.length ? visible(cams[0]) : null; return !!(v && typeof v.requestVideoFrameCallback === "function"); };
   /** Called on every player time update: starts the frame loop when playing with live detection on. */
   D.liveTick = () => {
+    if (loopOn && performance.now() - liveLast > 8000 && T.player && T.player.playing) { loopOn = false; loopVid = null; }   // ui-det: stalled loop restarts
     const P = D.prefs();
     if (!P.enabled || !P.live || !T.player || !T.player.playing || !T.player.tiles || loopOn) return;
     if (T.search && (T.search.needBoxes ? !T.search.needBoxes() : T.search.goldShown && !T.search.goldShown()) && !(T.handoff && T.handoff.wantsLive && T.handoff.wantsLive())) return;   // Boxes off (and nothing to redact, no hand-off cue): live detection paused
