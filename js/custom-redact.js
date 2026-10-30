@@ -344,7 +344,7 @@
       if (S.draft && cam === S.cam) drawOutline(ctx, f, tr, shapeOf(S.draft), true);
       if (S.peek && S.peek.cam === cam) drawOutline(ctx, f, tr, S.peek.sh, true);
       if (live) {
-        const sh = S.shape === "free" ? { shape: "poly", pts: live.pts.length >= 6 ? live.pts : null } : { shape: "rect", x: Math.min(live.pts[0], live.pts[live.pts.length - 2]), y: Math.min(live.pts[1], live.pts[live.pts.length - 1]), w: Math.abs(live.pts[live.pts.length - 2] - live.pts[0]), h: Math.abs(live.pts[live.pts.length - 1] - live.pts[1]) };
+        const sh = S.shape === "free" ? { shape: "poly", pts: live.pts.length >= 4 ? live.pts : null } : { shape: "rect", x: Math.min(live.pts[0], live.pts[live.pts.length - 2]), y: Math.min(live.pts[1], live.pts[live.pts.length - 1]), w: Math.abs(live.pts[live.pts.length - 2] - live.pts[0]), h: Math.abs(live.pts[live.pts.length - 1] - live.pts[1]) };
         if (sh.shape === "rect" || sh.pts) drawOutline(ctx, f, tr, sh, true);
         else { ctx.beginPath(); live.pts.forEach((v, i) => { if (i % 2) return; const [x, y] = G.toScreen(f, v, live.pts[i + 1]); i ? ctx.lineTo(x - tr.left, y - tr.top) : ctx.moveTo(x - tr.left, y - tr.top); }); ctx.lineWidth = 2; ctx.strokeStyle = "#ffd27a"; ctx.stroke(); }
         // freehand: show tapped points as draggable handles
@@ -370,7 +370,8 @@
     function begin(x, y) {
       const f = G.screenFit(cam); if (!f) return false;
       const [u, v] = G.toRaw(f, x, y);
-      S.live = { pts: [u, v, u, v], f, c0: [x, y], cb: [x, y, x, y] };
+      // freehand: single point; box: two points for the rect
+      S.live = { pts: S.shape === "free" ? [u, v] : [u, v, u, v], f, c0: [x, y], cb: [x, y, x, y] };
       UI.avoidBar(x, y, S.live.cb);
       kick(); return true;
     }
@@ -472,7 +473,8 @@
             finishShape(cam, S.live);
             return;
           }
-          if (!nearLast && pts.length < 4000) pts.push(u, v);
+          // always add the point; nearLast only skips if it's truly the same spot and we already have points
+          if (pts.length < 4000 && !(nearLast && pts.length > 2)) pts.push(u, v);
           S.live.last = [u, v];
           msg("Tap to add points. Double-tap or tap near the start to finish.");
           UI.sync(); kick();
