@@ -796,9 +796,9 @@
   UI.done = () => {
     if (S.trackIds && S.trackIds.length) {
       const n = S.trackIds.length;
-      S.trackIds = []; S.patches = {}; S.track = false; disarmTrackCapture();
-      resetForm(); reopenPanel(true); UI.sync(); kick();
-      msg(n + " tracked region" + (n === 1 ? "" : "s") + " saved.");
+      S.drawing = false;
+      reopenPanel(true); UI.sync(); kick();
+      msg(n + " region" + (n === 1 ? "" : "s") + " tracking. Track stays on — circle more or turn it off.");
       return true;
     }
     if (S.shape === "free" && S.live && S.live.pts && S.live.pts.length >= 6 && S.cam) {
