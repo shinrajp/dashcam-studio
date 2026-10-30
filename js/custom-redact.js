@@ -675,10 +675,16 @@
       if (!cam) return;
       e.preventDefault(); e.stopPropagation();
       const p0 = { x: e.clientX, y: e.clientY, cam };
-      const move = (ev) => { p0.x2 = ev.clientX; p0.y2 = ev.clientY; };
+      const ring = document.createElement("div"); ring.style.cssText = "position:fixed;border:2px solid #e6b450;border-radius:50%;pointer-events:none;z-index:90;"; document.body.appendChild(ring);
+      const move = (ev) => {
+        p0.x2 = ev.clientX; p0.y2 = ev.clientY;
+        const x = Math.min(p0.x, p0.x2), y = Math.min(p0.y, p0.y2), w = Math.abs(p0.x2 - p0.x), h = Math.abs(p0.y2 - p0.y);
+        ring.style.left = x + "px"; ring.style.top = y + "px"; ring.style.width = w + "px"; ring.style.height = h + "px";
+      };
       const up = (ev) => {
         document.removeEventListener("pointermove", move);
         document.removeEventListener("pointerup", up);
+        ring.remove();
         const f = G.screenFit(cam); if (!f) { dbg("no fit for " + cam); return; }
         const [u, v] = G.toRaw(f, p0.x, p0.y);
         const [u2, v2] = G.toRaw(f, p0.x2 || p0.x, p0.y2 || p0.y);
@@ -975,7 +981,7 @@
     o.title = open ? "Hide the panel so you can draw" : "Back to the Redact panel";
   }
   function syncBar() {
-    const b = ensureBar(), show = !!(S.drawing || S.draft || S.pick || S.move || (S.live && S.live.pts && S.live.pts.length));
+    const b = ensureBar(), show = !!(S.drawing || S.draft || S.pick || S.move || S.track || (S.live && S.live.pts && S.live.pts.length));
     drawClass();
     b.hidden = !show; document.body.classList.toggle("cr-bar-on", !!show);
     if (!show) return;
@@ -983,7 +989,8 @@
     const sv = $("crBarSave"), what = S.move ? "Done moving" : S.editId ? "Save changes" : "Save region";
     const freeReady = S.shape === "free" && S.live && S.live.pts && S.live.pts.length >= 6;
     sv.disabled = !(S.move || (S.draft && !S.drawing) || freeReady || S.trackId); sv.title = what; sv.setAttribute("aria-label", "Done: " + what.toLowerCase());
-    sv.hidden = !!S.pick;
+    sv.hidden = !!S.pick && !S.trackId;
+    if (S.trackId) { sv.disabled = false; sv.style.opacity = "1"; }
     $("crBarAgain").hidden = !!S.drawing || !!S.pick || !!S.move;
     const setSeg = (id, v, dis) => document.querySelectorAll("#" + id + " button").forEach((x) => { x.setAttribute("aria-pressed", String(x.dataset.v === v)); x.classList.toggle("on", x.dataset.v === v); x.disabled = dis; });
     const selR = S.move && G.list.find((r) => r.id === S.sel);
