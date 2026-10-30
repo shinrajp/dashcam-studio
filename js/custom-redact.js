@@ -381,6 +381,11 @@
       const f = G.screenFit(cam); if (!f) return;
       e.preventDefault(); id = e.pointerId;
       try { cv.setPointerCapture(id); } catch (_) {}
+      // freehand on touch: wait to see if this is a tap (add point) or a drag (continuous stroke)
+      if (S.shape === "free" && e.pointerType !== "mouse") {
+        pend = { x: e.clientX, y: e.clientY, freeTap: true };
+        return;
+      }
       begin(e.clientX, e.clientY);
     });
     cv.addEventListener("pointermove", (e) => {
@@ -412,20 +417,26 @@
       e.stopPropagation(); id = null;
       try { cv.releasePointerCapture(e.pointerId); } catch (_) {}
       if (pend) {   // a tap
+        const wasFreeTap = pend.freeTap;
         pend = null; hot(cam, false);
         if (e.type === "pointercancel") return;
         // freehand: tap adds a point (non-continuous); double-tap or close to start completes
-        if (S.drawing && S.shape === "free" && S.cam === cam && S.live) {
+        if (S.drawing && S.shape === "free" && (wasFreeTap || S.cam === cam)) {
+          if (!S.live) begin(e.clientX, e.clientY);
+          if (!S.live) return;
           const f = G.screenFit(cam) || S.live.f, [u, v] = G.toRaw(f, e.clientX, e.clientY);
-          const p = S.live.pts;
-          const lx = p[p.length - 2], ly = p[p.length - 1];
-          const nearStart = p.length >= 6 && Math.hypot((u - p[0]) * f.w, (v - p[1]) * f.h) < 16;
+          const pts = S.live.pts;
+          const lx = pts[pts.length - 2], ly = pts[pts.length - 1];
+          const nearStart = pts.length >= 6 && Math.hypot((u - pts[0]) * f.w, (v - pts[1]) * f.h) < 20;
           const nearLast = Math.hypot((u - lx) * f.w, (v - ly) * f.h) < 8;
-          if (nearStart || (e.detail >= 2 && p.length >= 6)) {
+          const now = Date.now(), last = S.live.lastTap || 0;
+          const isDbl = (now - last) < 400 && nearLast;
+          S.live.lastTap = now;
+          if (nearStart || (isDbl && pts.length >= 6)) {
             finishShape(cam, S.live);
             return;
           }
-          if (!nearLast && p.length < 4000) p.push(u, v);
+          if (!nearLast && pts.length < 4000) pts.push(u, v);
           S.live.last = [u, v];
           msg("Tap to add points. Double-tap or tap near the start to finish.");
           UI.sync(); kick();
@@ -518,6 +529,10 @@
   };
   /** Done: saves a drawn shape; in Move it simply closes the tray (the moves are already saved, and undoable). */
   UI.done = () => {
+    // freehand in progress: finish the live shape first so it becomes a draft
+    if (S.shape === "free" && S.live && S.live.pts && S.live.pts.length >= 6 && S.cam) {
+      finishShape(S.cam, S.live);
+    }
     if (S.draft) return UI.save();
     if (S.move) { resetForm(); reopenPanel(true); UI.sync(); kick(); msg("Done."); return true; }
     return null;
@@ -531,7 +546,7 @@
     for (const c of Object.keys(picks)) hot(c, false);
     syncPicks([]);
     hidePanelForDrawing();
-    msg(camName(cam) + ": " + (S.shape === "free" ? "drag on the picture to draw around the area." : "drag on the picture to draw a box."));
+    msg(camName(cam) + ": " + (S.shape === "free" ? "tap to add points, or drag. Double-tap or tap near the start to finish." : "drag on the picture to draw a box."));
     UI.sync(); kick();
     setTimeout(() => { if (S.drawing && S.cam === cam && !G.screenFit(cam)) msg("The camera picture isn't showing yet. Play or seek the video, then press Draw region again.", true); }, 600);
   }
@@ -748,7 +763,8 @@
     if (!show) return;
     applyPos(false);
     const sv = $("crBarSave"), what = S.move ? "Done moving" : S.editId ? "Save changes" : "Save region";
-    sv.disabled = !(S.move || (S.draft && !S.drawing)); sv.title = what; sv.setAttribute("aria-label", "Done: " + what.toLowerCase());
+    const freeReady = S.shape === "free" && S.live && S.live.pts && S.live.pts.length >= 6;
+    sv.disabled = !(S.move || (S.draft && !S.drawing) || freeReady); sv.title = what; sv.setAttribute("aria-label", "Done: " + what.toLowerCase());
     sv.hidden = !!S.pick;
     $("crBarAgain").hidden = !!S.drawing || !!S.pick || !!S.move;
     const setSeg = (id, v, dis) => document.querySelectorAll("#" + id + " button").forEach((x) => { x.setAttribute("aria-pressed", String(x.dataset.v === v)); x.classList.toggle("on", x.dataset.v === v); x.disabled = dis; });
