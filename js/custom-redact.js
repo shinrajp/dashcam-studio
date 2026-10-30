@@ -99,6 +99,7 @@
   /* ui-glass-7: undo / redo of region changes (add, edit, move, delete, on/off, clear, load from file) for this session and this event.
      Snapshots of the list (at most 40 small objects); the stored format and the burn-in are untouched. A new event starts a fresh history. */
   const H = (G.hist = { u: [], r: [], MAX: 60 });
+  const RH = {};   // per-region undo/redo: RH[id] = { u: [snapshots], r: [snapshots] }
   const snap = () => JSON.stringify(G.list);
   function record() { H.u.push(snap()); if (H.u.length > H.MAX) H.u.shift(); H.r.length = 0; }
   G.canUndo = () => H.u.length > 0;
@@ -125,9 +126,32 @@
     const r = G.clean(Object.assign({}, G.list[i], o, { id }), true);
     if (!r) return null;
     if (JSON.stringify(r) === JSON.stringify(G.list[i])) return r;   // nothing changed: no history step
-    record(); G.list[i] = r; changed(); return r;
+    record();
+    if (!RH[id]) RH[id] = { u: [], r: [] };
+    RH[id].u.push(JSON.stringify(G.list[i])); if (RH[id].u.length > 20) RH[id].u.shift(); RH[id].r.length = 0;
+    G.list[i] = r; changed(); return r;
   };
-  G.remove = (id) => { if (!G.list.some((r) => r.id === id)) return; record(); G.list = G.list.filter((r) => r.id !== id); changed(); };
+  G.undoRegion = (id) => {
+    const h = RH[id]; if (!h || !h.u.length) return false;
+    const cur = G.list.find((r) => r.id === id); if (!cur) return false;
+    h.r.push(JSON.stringify(cur));
+    const prev = JSON.parse(h.u.pop());
+    const i = G.list.findIndex((r) => r.id === id);
+    if (i >= 0) G.list[i] = G.clean(Object.assign(prev, { id }), true);
+    changed(); return true;
+  };
+  G.redoRegion = (id) => {
+    const h = RH[id]; if (!h || !h.r.length) return false;
+    const cur = G.list.find((r) => r.id === id); if (!cur) return false;
+    h.u.push(JSON.stringify(cur));
+    const next = JSON.parse(h.r.pop());
+    const i = G.list.findIndex((r) => r.id === id);
+    if (i >= 0) G.list[i] = G.clean(Object.assign(next, { id }), true);
+    changed(); return true;
+  };
+  G.canUndoRegion = (id) => !!(RH[id] && RH[id].u.length);
+  G.canRedoRegion = (id) => !!(RH[id] && RH[id].r.length);
+  G.remove = (id) => { if (!G.list.some((r) => r.id === id)) return; record(); delete RH[id]; G.list = G.list.filter((r) => r.id !== id); changed(); };
   G.clear = () => { if (G.list.length) { record(); G.list = []; changed(); } };
   G.toJSON = () => JSON.stringify({ type: "dashcam-studio-regions", version: 1, regions: G.list.map((r) => { const o = Object.assign({}, r); delete o.id; return o; }) }, null, 2);
   /** Add regions from a JSON file's text. Returns { added, skipped } or throws a plain-English Error. */
@@ -935,6 +959,8 @@
         '<label class="cr-on" title="Switch this region on or off (off: not hidden in the viewer or the export)"><input type="checkbox" data-act="on"' + (r.on ? " checked" : "") + ' aria-label="Region ' + (i + 1) + ' on"></label>' +
         '<span class="cr-desc"><b>' + esc(camName(r.cam)) + "</b> · " + (r.mode === "remove" ? "Remove" : "Blur") + " · " + (r.shape === "poly" ? "freehand" : "box") + "<br><small>" + esc(when) + "</small></span>" +
         '<button type="button" class="btn small ghost" data-act="go" title="Show this region in the video">Show</button>' +
+        '<button type="button" class="btn small ghost" data-act="undo" title="Undo last change to this region"' + (G.canUndoRegion(r.id) ? "" : " disabled") + '>Undo</button>' +
+        '<button type="button" class="btn small ghost" data-act="redo" title="Redo last change to this region"' + (G.canRedoRegion(r.id) ? "" : " disabled") + '>Redo</button>' +
         '<button type="button" class="btn small ghost" data-act="edit">Edit</button>' +
         '<button type="button" class="btn small ghost" data-act="del" aria-label="Delete region ' + (i + 1) + '">Delete</button></li>';
     }).join("");
@@ -990,6 +1016,8 @@
       const b = e.target.closest("[data-act]"), li = e.target.closest("li[data-id]"); if (!b || !li) return;
       const id = li.dataset.id, r = G.list.find((x) => x.id === id); if (!r) return;
       if (b.dataset.act === "del") { if (S.editId === id) resetForm(); G.remove(id); msg("Region deleted."); }
+      else if (b.dataset.act === "undo") { if (G.undoRegion(id)) { msg("Region undone."); UI.sync(); } }
+      else if (b.dataset.act === "redo") { if (G.redoRegion(id)) { msg("Region redone."); UI.sync(); } }
       else if (b.dataset.act === "edit") { const U = T.searchUI; if (U && U.closePops) U.closePops(); UI.edit(id); }
       else if (b.dataset.act === "go") {
         if (T.focus && T.focus.focus && T.focus.cam !== r.cam) T.focus.focus(r.cam);
