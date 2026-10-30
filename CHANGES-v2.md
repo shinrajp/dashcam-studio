@@ -690,7 +690,7 @@ Rollback point: tag `pre-tap-redact` (= redact-button, d2ad533).
 - `js/pano-toggle.js`: `apply360()` hides every `.need360` element (Settings ▸ Calibration, `#calibSec`) and any open `#panoCalibPanel` while 360 is off.
 - Tests: new `test/map-float.js`; `ui-quick` A2/A3/A7/A8 check Calibration with 360; `bottom-overlap` gets a `mapfloat` state (map pushed into the bottom-right corner).
 
-## Liquid Glass: summary (tags `ui-glass-1` … `ui-glass-10`, rollback `pre-ui-glass-1` = 14da42e)
+## Liquid Glass: summary (tags `ui-glass-1` … `ui-glass-11`, rollback `pre-ui-glass-1` = 14da42e)
 What changed, in one place (details per step below):
 | Step | What | New files |
 |---|---|---|
@@ -704,13 +704,25 @@ What changed, in one place (details per step below):
 | 8 | Grouped Settings (iPhone-style groups, search, fits without scrolling) | `js/settings-groups.js`, `css/settings.css` |
 | 9 | Per-piece tint from the video under it (≥ 4.5:1 text); Lite mode (Auto / On / Off, `?lite=`) | `js/glass.js` |
 | 10 | Accessibility pass, export parity check, full test sweep, docs and screenshots | `test/ui-glass-10.js`, `test/glass-shots.js` |
+| 11 | Refraction glass (WebGL, SDF edges bend the video) as the default; frosted is the fallback; Glass style setting (`?refract=`) | `js/refract.js`, `css/refract.css`, `test/ui-glass-11.js` |
 
-- **Settings and overrides:** Glass `?glass=auto|clear|solid`; Auto-hide `?autohide=2|3|5|never`; Lite `?lite=auto|on|off|1|0`; Show 360 `?show360=1|0`. Overrides last one visit and are not saved.
+- **Settings and overrides:** Glass `?glass=auto|clear|solid`; Glass style `?refract=1|0`; Auto-hide `?autohide=2|3|5|never`; Lite `?lite=auto|on|off|1|0`; Show 360 `?show360=1|0`. Overrides last one visit and are not saved.
 - **Unchanged:** every saved setting and its key, region storage (`tdc.regions.v1`) and the regions file, the export (byte-identical mdat for compatFill, compatOverlay and origPanel between `cee26b8` and `ui-glass-9`, same clip and settings), keyboard shortcuts.
 - **Safari / iOS:** no pointer capture on pointerdown; real click handlers (Mac Safari trackpad clicks); 44 px touch targets; `-webkit-backdrop-filter` with a solid fallback.
 
 ### Known issues
-KNOWN_ISSUES_PLACEHOLDER
+- Over a very bright picture the glass behind light text gets fairly dark (frosted and refraction alike): that's what keeps the text at 4.5:1. Over dark video it stays clear.
+- The faintest text (`--faint`, #636b78: counts and small notes) can't reach 4.5:1 on any glass; the main labels and dim text do.
+- Refraction bends only the camera pictures; other things under a control (the map, HUD, page background) show as the page colour inside the glass (the frosted look is unchanged there).
+- Refraction is checked in headless Chromium (SwiftShader WebGL) and WebKit; real iPhone / Mac Safari performance needs a check on the device (it falls back to frosted by itself if playback drops frames).
+
+### ui-glass-11 (tag `ui-glass-11`; rollback `pre-ui-glass-11` = 5827c76)
+- `js/refract.js` (new, after `js/glass.js`): the labs/glass-sdf v5 prototype brought into the app. One shared offscreen WebGL1 canvas draws each piece — bubble, open tray items, camera pill, the timeline capsule (or the phone bar's row), the Events sheet and Settings — with a rounded-box SDF: bevel refraction, light blur, fresnel rim, hairline and top sheen; each piece's band is copied into a `<canvas class="rf-c">` inside the piece (behind its content, `pointer-events: none`, so taps and clicks go to the control as before; no pointer capture).
+- Readable text: the tint colour still follows the video (`T.glass.tintFor`); its strength is the lowest that keeps the piece's text ≥ 4.5:1 over the brightest spot under it (controls: #aeb6c2; sheets: #9aa3b2), never under 0.12 so dark video stays clear; the outer rim keeps 35 % of the tint so the edge reads as clear, bright glass.
+- Cost: renders only when something changes (or ~30 Hz while playing), stops when the tab is hidden or an export runs; canvases are resized only after 160 ms of settled size (no flicker while zooming or rotating); the scene is drawn at ½ size from the camera videos under the pieces only.
+- Falls back to the frosted glass (`css/glass.css`, unchanged) with Lite mode, Glass = Solid, the system's Reduce transparency, no WebGL (or a lost context), playback under 40 fps for 2 s (for the session, with a one-time note), Settings ▸ Appearance ▸ Glass style ▸ Frosted, or `?refract=0`. `?refract=1` turns it on for a visit over a Frosted choice.
+- `js/core.js`: new pref `glassStyle` (default `"refract"`). `js/glass.js`: the blur budget skips pieces drawn by refraction. `index.html`: Glass style row + note.
+- The export path is untouched (byte-identical, see test results in the step notes).
 
 ### ui-glass-10 (tag `ui-glass-10`; rollback `pre-ui-glass-10`)
 - `js/settings-groups.js`: `names()` gives a `.row > input/select` without a label the row's `<span>` text as `aria-label` (once, when a group opens).

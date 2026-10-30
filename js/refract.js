@@ -60,10 +60,11 @@
     "  float lu = dot(col, vec3(0.2126, 0.7152, 0.0722));",
     "  col = clamp(mix(vec3(lu), col, 1.2), 0.0, 1.0);",
     "  col *= 1.0 - 0.32 * smoothstep(0.45, 0.95, lu);",
-    "  float ta = uTintA * mix(1.0, uRimA, smoothstep(0.6, 1.0, s));",   // the tint (for the text) eases off in the outer rim: a clear, bright edge
+    "  float px = -d / uS; float edge = 1.0 - smoothstep(0.0, 3.5, px);",   // css px in from the edge; the clear, bright rim is the outer 3.5 px
+    "  float ta = uTintA * mix(1.0, uRimA, edge);",   // the tint (for the text) eases off only in that rim, so text is never on a lighter band
     "  col = mix(col, uTint, ta);",
     "  vec2 L = normalize(vec2(-0.55, -0.83)); float ndl = max(dot(n, L), 0.0); float ndl2 = max(dot(n, -L), 0.0);",
-    "  float fres = pow(s, 4.0); col += fres * (0.10 + 0.55 * ndl * ndl + 0.18 * ndl2);",
+    "  float fres = edge * edge * (0.6 + 0.4 * pow(s, 4.0)); col += fres * (0.10 + 0.55 * ndl * ndl + 0.18 * ndl2);",
     "  float line = smoothstep(1.6 * uS, 0.0, abs(-d - 0.9 * uS)); col += line * (0.18 + 0.5 * ndl + 0.2 * ndl2);",
     "  col += 0.05 * (1.0 - smoothstep(uBox.y - uBox.w, uBox.y, vP.y)) * t;",
     "  float a = clamp(0.5 - d / aa, 0.0, 1.0); gl_FragColor = vec4(clamp(col, 0.0, 1.0) * a, a);",
@@ -130,8 +131,11 @@
   function sources() {
     if (pin) return pin.map((img) => ({ img, r: { left: 0, top: 0, width: innerWidth, height: innerHeight }, flip: false }));
     return [...document.querySelectorAll("#viewport video, .stage video")].filter((v) => v.readyState >= 2 && v.videoWidth && shown(v)).slice(0, 8)
-      .map((v) => ({ img: v, r: contained(v, v.getBoundingClientRect()), flip: !!v.closest(".tile.mirrored") }));
+      .map((v) => { const f = getComputedStyle(v).filter; return { img: v, r: contained(v, v.getBoundingClientRect()), flip: !!v.closest(".tile.mirrored"), f: f && f !== "none" ? f : "" }; });
   }
+  const unsure = [];
+  const CANF = (() => { try { const x = document.createElement("canvas").getContext("2d"); if (!("filter" in x)) return false; x.filter = "brightness(0.5)"; return x.filter === "brightness(0.5)"; } catch (_) { return false; } })();
+  R.canFilter = CANF;
   const hit = (a, b) => a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
   function drawScene(list, SS) {
     const W = Math.max(8, Math.ceil(innerWidth * SS)), H = Math.max(8, Math.ceil(innerHeight * SS));
@@ -139,13 +143,18 @@
     if (sc.width !== W || sc.height !== H) { sc.width = W; sc.height = H; }
     sx.fillStyle = "rgb(" + bg.join(",") + ")"; sx.fillRect(0, 0, W, H);
     const U = list.reduce((u, p) => ({ left: Math.min(u.left, p.r.left - 30), top: Math.min(u.top, p.r.top - 30), right: Math.max(u.right, p.r.right + 30), bottom: Math.max(u.bottom, p.r.bottom + 30) }), { left: 1e9, top: 1e9, right: -1e9, bottom: -1e9 });
-    let n = 0;
+    let n = 0; unsure.length = 0;
     for (const s of sources()) {
       const r = s.r, rr = { left: r.left, top: r.top, right: r.left + r.width, bottom: r.top + r.height };
       if (!pin && !list.some((p) => hit({ left: p.r.left - 30, top: p.r.top - 30, right: p.r.right + 30, bottom: p.r.bottom + 30 }, rr))) continue;
       if (!hit(U, rr)) continue;
       const x = r.left * SS, y = r.top * SS, w = r.width * SS, h = r.height * SS;
-      try { if (s.flip) { sx.save(); sx.translate(x + w, y); sx.scale(-1, 1); sx.drawImage(s.img, 0, 0, w, h); sx.restore(); } else sx.drawImage(s.img, x, y, w, h); n++; } catch (_) {}
+      // a CSS filter on the video (white balance, brightness): drawn with the same filter where the canvas can; where it can't (older Safari)
+      // the pieces over it take the strongest tint, so the text stays readable whatever the filter does
+      if (s.f && !CANF) unsure.push(rr);
+      try { sx.save(); if (s.f && CANF) sx.filter = s.f;
+        if (s.flip) { sx.translate(x + w, y); sx.scale(-1, 1); sx.drawImage(s.img, 0, 0, w, h); } else sx.drawImage(s.img, x, y, w, h); n++; } catch (_) {}
+      try { sx.restore(); } catch (_) {}
     }
     return n;
   }
@@ -166,7 +175,8 @@
         for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) { const i = (y * TW + x) * 4; n++; r += d[i]; g += d[i + 1]; b += d[i + 2];
           const l = lum(d[i], d[i + 1], d[i + 2]); if (l > ml) { ml = l; mx = [d[i], d[i + 1], d[i + 2]]; } }
         if (n) avg = [r / n, g / n, b / n];
-        mx = mx.map((c) => Math.min(255, c * 1.03 + 2));   // a little headroom: the shader samples the half-size picture, not these averages
+        mx = mx.map((c) => Math.min(255, c * 1.03 + 2));
+        if (unsure.some((u) => hit({ left: p.r.left - 8, top: p.r.top - 8, right: p.r.right + 8, bottom: p.r.bottom + 8 }, u))) mx = [255, 255, 255];   // a little headroom: the shader samples the half-size picture, not these averages
       }
       const want = G.tintFor ? G.tintFor(avg) : [16, 18, 24];
       const rgb = cur && !snap ? cur.rgb.map((c, i) => (Math.abs(want[i] - c) < 1.5 ? c : c + (want[i] - c) * 0.3)) : want;

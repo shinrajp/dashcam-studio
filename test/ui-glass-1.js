@@ -136,7 +136,7 @@ async function run(b, BR, dev) {
   const dark = await p.evaluate(() => { const c = document.createElement("canvas"); c.width = c.height = 16; const g = c.getContext("2d"); g.fillStyle = "#111"; g.fillRect(0, 0, 16, 16); TDC.glass.sample(c); return TDC.glass.alpha; });
   ok(tag + " 5 Automatic: a dark frame gets a lighter tint (still >= 0.62)", dark < +a[1] && dark >= 0.62, { dark, bright: a[1] });
   await p.evaluate(() => { const c = document.createElement("canvas"); c.width = c.height = 16; const g = c.getContext("2d"); g.fillStyle = "#fff"; g.fillRect(0, 0, 16, 16); TDC.glass.sample(c); });
-  await p.addStyleTag({ content: "#viewport video, #viewport canvas:not(.overlay-canvas) { filter: brightness(0) invert(1) !important; } #stage, #viewport, .tile { background: #fff !important; }" });
+  await p.addStyleTag({ content: "#viewport video, #viewport canvas:not(.overlay-canvas):not(.rf-c) { filter: brightness(0) invert(1) !important; } #stage, #viewport, .tile { background: #fff !important; }" });
   await p.evaluate(() => TDC.toast("Bright frame toast", "ok", 60000));
   await p.hover("#viewport").catch(() => {}); await W(500);
   for (const sel of [".toast.show", ".stage-bar"]) {

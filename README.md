@@ -568,7 +568,7 @@ Rollback: `git checkout pre-map-float` (tip before this change, glass-sdf v5, 60
 - With **Show 360 view (beta)** off (the default), Settings ▸ **Calibration** is hidden too (along with the 360 button and any open 360 calibration view). Turning 360 on brings it back; your calibration values are kept. `?show360=1|0` and Reset all work as before.
 - Tests: `node test/map-float.js`; `test/ui-quick.js` and `test/bottom-overlap.js` updated (see test/README.md).
 
-## Liquid Glass: overview, settings and address overrides (tags `ui-glass-1` … `ui-glass-10`)
+## Liquid Glass: overview, settings and address overrides (tags `ui-glass-1` … `ui-glass-11`)
 The controls are frosted glass that floats over the video: a camera **pill** that docks or floats, a **tools bubble** (Redact, Search, Events, Settings), a **Redact tray** with undo, a timeline **capsule**, grouped **Settings**, and glass that takes its tint from the video under it. Nothing in the export changed: an export from before the overhaul (`cee26b8`) and after it is byte-identical for the same clip and settings (checked in ui-glass-10).
 
 ![Liquid Glass on a laptop: camera pill, map, HUD and the timeline capsule (mock footage)](screenshots/liquid-glass-desktop.png)
@@ -576,6 +576,7 @@ The controls are frosted glass that floats over the video: a camera **pill** tha
 | Setting (Settings ▸ Appearance unless noted) | Choices (default in bold) | Address override for one visit |
 |---|---|---|
 | Glass | **Automatic** (tint follows the video) · Clear · Solid | `?glass=auto` · `?glass=clear` · `?glass=solid` |
+| Glass style | **Refraction** (WebGL: the edges bend the video like real glass) · Frosted (blurred glass). Refraction turns to Frosted by itself in Lite mode, with Solid, Reduce transparency, without WebGL, or when playback drops frames | `?refract=1` · `?refract=0` |
 | Auto-hide (controls fade while playing) | 2 s · **3 s** · 5 s · Never | `?autohide=2` · `3` · `5` · `never` |
 | Lite mode (no blur, no video tint) | **Auto** (turns on for the session if playback stays under ~40 fps for 3 s, or on a low-memory device) · On · Off | `?lite=auto` · `?lite=on` / `?lite=1` · `?lite=off` / `?lite=0` |
 | Show 360 view (beta) (Advanced & Labs; also shows Calibration) | On · **Off** | `?show360=1` · `?show360=0` |
@@ -696,3 +697,12 @@ Rollback: `git checkout pre-ui-glass-10` (tip before this change, `ui-glass-9`, 
 - The export is byte-identical to before the Liquid Glass work (same clip, same settings, three presets).
 - The overview above lists every setting and address override; new mock-footage screenshots.
 - Tests: `node test/ui-glass-10.js` (accessibility), `node test/glass-shots.js` (screenshots); `test/ui-glass-1.js` and `test/ui-glass-5.js` timing fixes (see test/README.md).
+
+
+## Liquid Glass, step 11: refraction glass (tag `ui-glass-11`)
+Rollback: `git checkout pre-ui-glass-11` (tip before this change, `ui-glass-10`, 5827c76). To switch it off without code: Settings ▸ Appearance ▸ Glass style ▸ Frosted, or `?refract=0`.
+- The bubble, its tray, the camera pill, the timeline capsule (phone: the play-bar row), the Events sheet and Settings are drawn as refracting glass (`js/refract.js`, `css/refract.css`): one shared WebGL canvas, drawn only when something changes or while playing, paused when the tab is hidden or an export runs.
+- Text stays ≥ 4.5:1: the tint follows the video and is only as strong as the brightest spot under the text needs; over dark video the glass stays clear.
+- Frosted glass (unchanged) is the fallback: Lite mode, Solid, Reduce transparency, no WebGL, dropped frames (for the session), the setting or `?refract=0`.
+- The export is unchanged (byte-identical). The old frosted UI is still there as the fallback.
+- Tests: `node test/ui-glass-11.js` (see test/README.md).
