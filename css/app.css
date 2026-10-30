@@ -1287,3 +1287,13 @@ body.mbar.cr-bar-on .transport > .us-btn { display: none; }
   body.multi-ev .top-actions .btn { width: 44px; min-width: 44px; padding: 0; justify-content: center; }
   body.tb-on.multi-ev .top-actions #btnSettings { display: none; }   /* Advanced mode: Settings is in the tools bubble; the picker keeps its room */
 }
+
+/* ui-glass-12 (js/keyboard.js): typing in a sheet on a touch screen — the player capsule, the bubble and the floating pill / map hide,
+   so nothing covers the sheet, its field or its results; the sheet stays above the on-screen keyboard (visualViewport). */
+body.kb-typing :is(#transport, #mbBar, #toolBubble, .stage-bar.bar-floating, .map-panel.map-floating, #btnBarRestore),
+body.kb-typing :is(#transport, #mbBar, #toolBubble, .stage-bar.bar-floating, .map-panel.map-floating) * { visibility: hidden !important; pointer-events: none !important; }
+body.kb-typing .drawer.set-panel { bottom: auto; max-height: calc(var(--vv-bottom, 100vh) - var(--top-h, 58px) - 16px); }
+body.fs.kb-typing .drawer.set-panel, body.kb-up .drawer.set-panel { top: calc(env(safe-area-inset-top, 0px) + 8px); max-height: calc(var(--vv-bottom, 100vh) - env(safe-area-inset-top, 0px) - 16px); }   /* a short space above the keyboard: use all of it */
+@media (max-width: 600px) {
+  body.kb-typing .drawer.set-panel { top: auto; bottom: var(--kb, 0px); max-height: calc(var(--vvh, 100vh) - var(--top-h, 58px) - 6px); }
+}
