@@ -774,24 +774,29 @@
     n.textContent = s;
   }
   function followPatches() {
-    dbg("Track: " + (S.track ? "ON" : "off") + " ids: " + S.trackIds.length + " playing: " + !!(T.player && T.player.playing));
     if (!S.trackIds.length || !T.player) return;
-    const playing = T.player.playing || (T.player.tiles && Object.values(T.player.tiles).some(t => t.video && !t.video.paused));
+    const playing = T.player.playing || (T.player.tiles && Object.values(T.player.tiles).some(t => { const v = t.video || (t.vids && t.vids[T.player.active]); return v && !v.paused; }));
     if (!playing) return;
     let moved = 0;
     for (const id of S.trackIds) {
       const r = G.list.find((x) => x.id === id); if (!r) continue;
-      const info = S.patches[id];
+      const info = S.patches[id] || {};
       const m = matchPatch(r.cam, info.patch || info, r.x, r.y, r.w, r.h);
-      if (m) S.patches[id].lastScore = m.score.toFixed(1);
-      if (m && m.score > 5 && (Math.abs(m.x - r.x) > 0.001 || Math.abs(m.y - r.y) > 0.001)) {
+      if (m && m.score > 8) {
         const dx = m.x - r.x, dy = m.y - r.y;
+        info.vx = (info.vx || 0) * 0.5 + dx * 0.5;
+        info.vy = (info.vy || 0) * 0.5 + dy * 0.5;
         r.x = m.x; r.y = m.y;
         if (r.pts) for (let i = 0; i < r.pts.length; i += 2) { r.pts[i] += dx; r.pts[i + 1] += dy; }
-        moved++;
+        info.lost = 0; moved++;
+      } else if ((info.vx || info.vy) && (info.lost || 0) < 8) {
+        const dx = info.vx || 0, dy = info.vy || 0;
+        r.x += dx; r.y += dy;
+        if (r.pts) for (let i = 0; i < r.pts.length; i += 2) { r.pts[i] += dx; r.pts[i + 1] += dy; }
+        info.lost = (info.lost || 0) + 1; moved++;
       }
+      S.patches[id] = info;
     }
-    dbg("tracking: " + S.trackIds.length + " moved: " + moved + (S.trackIds[0] ? " lastScore: " + ((S.patches[S.trackIds[0]] && S.patches[S.trackIds[0]].lastScore) || "?") : ""));
     if (moved && R && R.paint) R.paint();
   }
   setInterval(followPatches, 120);
