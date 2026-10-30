@@ -730,7 +730,7 @@
     if (!v || !v.videoWidth || !patch) return null;
     const c = document.createElement("canvas"); c.width = 40; c.height = 40;
     const ctx = c.getContext("2d", { willReadFrequently: true });
-    const pad = 0.25;
+    const pad = Math.max(lw, lh) * 0.5;
     const sx = Math.max(0, (lx - pad) * v.videoWidth), sy = Math.max(0, (ly - pad) * v.videoHeight);
     const sw = Math.min(v.videoWidth - sx, (lw + pad * 2) * v.videoWidth), sh = Math.min(v.videoHeight - sy, (lh + pad * 2) * v.videoHeight);
     try { ctx.drawImage(v, sx, sy, sw, sh, 0, 0, 40, 40); } catch (_) { return null; }
@@ -752,7 +752,9 @@
       const score = n2 > 1 ? dot / Math.sqrt(n2) : 0;
       if (score > best) { best = score; bx = ox; by = oy; }
     }
-    return { x: (sx + (bx / 40) * sw) / v.videoWidth, y: (sy + (by / 40) * sh) / v.videoHeight, w: lw, h: lh, score: best };
+    const cx = (lx * v.videoWidth - sx) / sw * 40, cy = (ly * v.videoHeight - sy) / sh * 40;
+    const dx = (bx - cx) / 40 * sw / v.videoWidth, dy = (by - cy) / 40 * sh / v.videoHeight;
+    return { x: lx + dx, y: ly + dy, w: lw, h: lh, score: best };
   }
   function startTrack(cam, x, y, w, h) {
     const patch = grabPatch(cam, x, y, w, h);
