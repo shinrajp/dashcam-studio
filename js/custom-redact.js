@@ -678,12 +678,19 @@
     const r = G.add({ cam, shape: "rect", x: best.x, y: best.y, w: best.w, h: best.h, mode: S.mode, on: true });
     if (r) { S.trackId = r.id; S.trackCam = cam; S.trackPid = best.pid || best.id || null; S.trackLabel = best.label; msg("Following the gold box. Play — the blur stays on it."); UI.sync(); kick(); }
   }
+  function dbg(s) {
+    let n = document.getElementById("trackDbg");
+    if (!n) { n = document.createElement("div"); n.id = "trackDbg"; n.style.cssText = "position:fixed;top:8px;left:8px;z-index:9999;background:#000;color:#0f0;padding:8px 10px;font:12px monospace;border-radius:6px;max-width:320px;pointer-events:none;white-space:pre-line;"; document.body.appendChild(n); }
+    n.textContent = s;
+  }
   function followGold() {
-    if (!S.trackId || !T.detect || !T.detect.boxesAt || !T.player) return;
+    const lines = ["Track: " + (S.track ? "ON" : "off"), "trackId: " + (S.trackId || "none")];
+    if (!S.trackId || !T.detect || !T.detect.boxesAt || !T.player) { dbg(lines.join("\n")); return; }
     const r = G.list.find((x) => x.id === S.trackId); if (!r) { S.trackId = null; return; }
     const t = T.player.time;
     const boxes = T.detect.boxesAt(r.cam, t) || [];
-    if (!boxes.length) return;
+    lines.push("cam: " + r.cam, "boxes: " + boxes.length, "t: " + t.toFixed(2));
+    if (!boxes.length) { dbg(lines.join("\n")); return; }
     let best = null;
     if (S.trackPid) best = boxes.find((b) => (b.pid || b.id) === S.trackPid);
     if (!best) {
@@ -695,6 +702,8 @@
       }
       if (bestDist > 0.6) best = null;
     }
+    lines.push("best: " + (best ? (best.label || "?") + " " + best.x.toFixed(2) : "none"));
+    dbg(lines.join("\n"));
     if (best && (Math.abs(best.x - r.x) > 0.002 || Math.abs(best.y - r.y) > 0.002 || Math.abs(best.w - r.w) > 0.002)) {
       r.x = best.x; r.y = best.y; r.w = best.w; r.h = best.h;
       if (R && R.paint) R.paint();
