@@ -843,7 +843,7 @@
     o.title = open ? "Hide the panel so you can draw" : "Back to the Redact panel";
   }
   function syncBar() {
-    const b = ensureBar(), show = !!(S.drawing || S.draft || S.pick || S.move);
+    const b = ensureBar(), show = !!(S.drawing || S.draft || S.pick || S.move || (S.live && S.live.pts && S.live.pts.length));
     drawClass();
     b.hidden = !show; document.body.classList.toggle("cr-bar-on", !!show);
     if (!show) return;
@@ -857,7 +857,10 @@
     const selR = S.move && G.list.find((r) => r.id === S.sel);
     setSeg("crBarShape", selR ? (selR.shape === "poly" ? "free" : "rect") : S.shape, !!S.move || !!S.pick);
     setSeg("crBarMode", selR ? selR.mode : S.mode, !!S.pick || (!!S.move && !selR));
-    $("crBarUndo").disabled = !UI.canUndo(); $("crBarRedo").disabled = !UI.canRedo();
+    const u = $("crBarUndo"), r = $("crBarRedo");
+    u.hidden = false; r.hidden = false;
+    u.disabled = !UI.canUndo(); r.disabled = !UI.canRedo();
+    u.classList.toggle("on", UI.canUndo()); r.classList.toggle("on", UI.canRedo());
     const mvb = $("crBarMove"), canMove = !!S.cam && !S.pick && !S.draft && !S.editId && G.list.some((r) => r.cam === S.cam);
     mvb.hidden = !!S.pick; mvb.disabled = !S.move && !canMove; mvb.setAttribute("aria-pressed", String(!!S.move)); mvb.classList.toggle("on", !!S.move);
     b.classList.toggle("moving", !!S.move);
