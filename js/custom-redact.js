@@ -1042,7 +1042,7 @@
     o.title = open ? "Hide the panel so you can draw" : "Back to the Redact panel";
   }
   function syncBar() {
-    const b = ensureBar(), show = !!(S.drawing || S.draft || S.pick || S.move || S.track || (S.live && S.live.pts && S.live.pts.length));
+    const b = ensureBar(), show = !!(S.drawing || S.draft || S.pick || S.move || (S.live && S.live.pts && S.live.pts.length));
     drawClass();
     b.hidden = !show; document.body.classList.toggle("cr-bar-on", !!show);
     if (!show) return;
