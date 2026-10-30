@@ -489,6 +489,7 @@
       if (S.live && S.live.dragIdx != null) { S.live.dragIdx = null; kick(); return; }
       if (pend && pend.track) {
         const p0 = pend; pend = null;
+        dbg("gesture captured on " + cam);
         const tc = p0.cam || cam;
         const f = G.screenFit(tc); if (!f) { msg("Camera not ready.", true); return; }
         const [u, v] = G.toRaw(f, p0.x, p0.y);
@@ -664,9 +665,11 @@
     UI.sync(); kick(); return true;
   };
   async function trackAt(cam, x, y, w, h) {
-    if (!T.detect || !T.detect.boxesAt) { msg("Turn on object detection and Show boxes while playing.", true); return; }
+    dbg("trackAt called cam=" + cam + " box=" + x.toFixed(2) + "," + y.toFixed(2));
+    if (!T.detect || !T.detect.boxesAt) { dbg("no detect"); msg("Turn on object detection and Show boxes while playing.", true); return; }
     const t = T.player ? T.player.time : 0;
     const boxes = T.detect.boxesAt(cam, t) || [];
+    dbg("boxesAt returned " + boxes.length);
     if (!boxes.length) { msg("No gold boxes on this camera yet. Play a moment, then circle.", true); return; }
     const cx = x + w / 2, cy = y + h / 2;
     let best = null, bestDist = 999;
