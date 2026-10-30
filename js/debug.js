@@ -3,7 +3,7 @@
  *  recognition settings with their thresholds, the white-balance technical rows, the glass / Lite tuning, the perf overlay) and every tuning
  *  value below is IGNORED (the defaults apply), so stale saved prefs can never leave the app in an odd state.
  *  On: html.debug-on shows them, plus this section's tuning:
- *    - glass: refraction strength, tint, blur, and the ui-glass-11 adaptive (video-following) tint (js/refract.js R.tune);
+ *    - glass: the ui-glass-11 adaptive (video-following) tint (strength, blur, tint and panel opacity moved to Settings ▸ Appearance in ui-glass-13);
  *    - Lite: the frame rate under which auto Lite / the frosted fallback kick in (glass.js liteMon.SLOW, refract.js R.SLOW);
  *    - an FPS / perf overlay (#perfHud: frames per second, refraction ms per frame, glass mode, Lite);
  *    - white balance: colour temperature (K) and tint (Settings ▸ White balance, js/wb.js WB.manual).
@@ -74,9 +74,6 @@
     const box = document.createElement("div"); box.id = "dbgTune"; box.className = "toggles dbg-only";
     const tu = tune(), set = (k, v) => { tune()[k] = v; T.savePrefs(); T.emit("prefs", "tune." + k); };
     box.append(
-      range("dbgRfStr", "Refraction strength", 0, 2.5, 0.05, num(tu.rfStr, 0, 2.5, 1), (v) => v.toFixed(2), (v) => { set("rfStr", v); rerender(); }),
-      range("dbgRfTint", "Glass tint", 0, 0.9, 0.01, num(tu.rfTint, 0, 0.9, 0.22), (v) => Math.round(v * 100) + "%", (v) => { set("rfTint", v); rerender(); }),
-      range("dbgRfBlur", "Glass blur", 0, 10, 0.5, num(tu.rfBlur, 0, 10, 4), (v) => v.toFixed(1) + " px", (v) => { set("rfBlur", v); rerender(); }),
       check("dbgRfAdaptive", "Tint follows the video (ui-glass-11)", tu.rfAdaptive, (v) => { set("rfAdaptive", v); rerender(); }),
       range("dbgLiteFps", "Lite below", 15, 58, 1, num(tu.liteFps, 15, 58, 40), (v) => Math.round(v) + " fps", (v) => { set("liteFps", v); applyLite(); }),
       check("dbgPerf", "FPS / perf overlay", tu.perfHud, (v) => { set("perfHud", v); syncHud(); }),
@@ -91,7 +88,7 @@
   function syncInputs() {
     const tu = tune(), v = (id, x) => { const e = $(id); if (!e) return; if (e.type === "checkbox") e.checked = !!x; else { e.value = x; const o = e.parentElement.querySelector("output"); if (o) e.dispatchEvent(new Event("input")); } };
     // (input events re-save the same values; harmless)
-    v("dbgRfStr", num(tu.rfStr, 0, 2.5, 1)); v("dbgRfTint", num(tu.rfTint, 0, 0.9, 0.22)); v("dbgRfBlur", num(tu.rfBlur, 0, 10, 4)); v("dbgRfAdaptive", tu.rfAdaptive);
+    v("dbgRfAdaptive", tu.rfAdaptive);
     v("dbgLiteFps", num(tu.liteFps, 15, 58, 40)); v("dbgPerf", tu.perfHud);
     const k = $("wbK"); if (k) { k.value = +tu.wbK || 0; k.dispatchEvent(new Event("input")); } const tn = $("wbTint"); if (tn) { tn.value = +tu.wbTint || 0; tn.dispatchEvent(new Event("input")); }
   }
@@ -101,7 +98,7 @@
     const t = $("debugToggle"); if (t) { t.checked = on; t.disabled = T.debugOverride != null; }
     const n = $("debugNote");
     const ln = T.l10n ? " Spelling: " + (T.l10n.spelling === "us" ? "US" : "British") + " (" + T.l10n.lang + (T.l10n.by === "system" ? ", from the system" : T.l10n.by === "url" ? ", from ?lang=" : ", set here") + ")." : "";
-    if (n) n.textContent = (T.debugOverride != null ? "Set by ?debug=" + (T.debugOverride ? "1" : "0") + " in the address for this visit." : on ? "Shows the technical settings: glass and Lite tuning, a perf overlay, white-balance temperature and tint, calibration, models and recognition thresholds." : "Off: the technical settings stay hidden and their defaults apply.") + (on ? ln : "");
+    if (n) n.textContent = (T.debugOverride != null ? "Set by ?debug=" + (T.debugOverride ? "1" : "0") + " in the address for this visit." : on ? "Shows the technical settings: adaptive glass tint and Lite tuning, a perf overlay, white-balance temperature and tint, calibration, models and recognition thresholds." : "Off: the technical settings stay hidden and their defaults apply.") + (on ? ln : "");
     applyLite(); syncHud(); rerender();
     try { if (T.settings && T.settings.refresh) T.settings.refresh(); } catch (_) {}
   }

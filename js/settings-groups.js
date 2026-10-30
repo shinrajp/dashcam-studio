@@ -119,7 +119,7 @@
   /** A section with many rows (White balance, Recognition) shows the first ones and a "Show all" button (kept open for the session). */
   const FOLD_AT = 8, KEEP = 5;
   function fold(sec) {
-    const rows = [...sec.querySelectorAll(".row")].filter((r) => !r.closest("details, #setShow, #setHud") && r.getClientRects().length + (r.classList.contains("set-x") ? 1 : 0));
+    const rows = [...sec.querySelectorAll(".row")].filter((r) => !r.closest("details, #setShow, #setHud, #glassTune") && r.getClientRects().length + (r.classList.contains("set-x") ? 1 : 0));
     let btn = sec.querySelector(":scope > .set-more");
     if (rows.length < FOLD_AT) { if (btn) btn.hidden = true; sec.classList.remove("set-fold"); return; }
     if (!btn) {
@@ -132,7 +132,7 @@
     rows.forEach((r, i) => r.classList.toggle("set-x", i >= keep));
     // the hints and buttons after the last shown row fold with it
     const last = rows[keep - 1];
-    [...sec.querySelectorAll(":scope p.hint, :scope .btn.wide:not(.set-more)")].forEach((n) => { if (!n.closest("details")) n.classList.toggle("set-x", !!(last.compareDocumentPosition(n) & Node.DOCUMENT_POSITION_FOLLOWING) && !last.contains(n)); });
+    [...sec.querySelectorAll(":scope p.hint, :scope .btn.wide:not(.set-more)")].forEach((n) => { if (!n.closest("details, #glassTune")) n.classList.toggle("set-x", !!(last.compareDocumentPosition(n) & Node.DOCUMENT_POSITION_FOLLOWING) && !last.contains(n)); });
     const open = sec.classList.contains("open");
     btn.textContent = open ? "Show fewer" : "Show all " + (sec.querySelector("h3") ? sec.querySelector("h3").textContent.trim().replace(/\s*\(.*\)$/, "").toLowerCase() + " settings" : "settings") + " (" + (rows.length - keep) + " more)";
     btn.setAttribute("aria-expanded", String(open));

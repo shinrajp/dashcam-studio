@@ -88,3 +88,8 @@ html:not(.debug-on) .dbg-only { display: none !important; }
 .perf-hud { position: fixed; z-index: 90; top: calc(env(safe-area-inset-top, 0px) + 4px); left: 50%; transform: translateX(-50%); padding: 2px 8px; border-radius: 6px;
   background: rgba(0, 0, 0, .72); color: #9fe870; font: 600 11px ui-monospace, Menlo, monospace; pointer-events: none; white-space: nowrap; }
 .perf-hud[hidden] { display: none; }
+
+/* ui-glass-13: Appearance ▸ glass sliders */
+.glass-tune .row.gt-off > span:first-child, .glass-tune .row.gt-off output { opacity: .5; }
+.glass-tune input[type=range] { width: 132px; }
+.glass-tune .wb-range output { min-width: 4.2em; text-align: right; }
