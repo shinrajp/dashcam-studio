@@ -766,7 +766,13 @@
     }
     if (r) { S.trackIds.push(r.id); S.patches[r.id] = { patch, ox: r.x, oy: r.y }; msg("Tracking. Play to follow. Circle more, or press Done."); UI.sync(); kick(); }
   }
+  function dbg(s) {
+    let n = document.getElementById("trackDbg");
+    if (!n) { n = document.createElement("div"); n.id = "trackDbg"; n.style.cssText = "position:fixed;top:8px;left:8px;z-index:9999;background:#000;color:#0f0;padding:8px 10px;font:12px monospace;border-radius:6px;max-width:360px;pointer-events:none;white-space:pre-line;"; document.body.appendChild(n); }
+    n.textContent = s;
+  }
   function followPatches() {
+    dbg("Track: " + (S.track ? "ON" : "off") + " ids: " + S.trackIds.length + " playing: " + !!(T.player && T.player.playing));
     if (!S.trackIds.length || !T.player || !T.player.playing) return;
     let moved = 0;
     for (const id of S.trackIds) {
