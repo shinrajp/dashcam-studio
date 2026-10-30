@@ -658,24 +658,21 @@
   };
   async function trackAt(cam, x, y, w, h) {
     const v = T.player && T.player.tiles && T.player.tiles[cam] && T.player.tiles[cam].video;
-    if (!v || !T.detect || !T.detect.detectImage) { msg("Detection not available.", true); return; }
-    msg("Detecting...");
+    if (!v || !T.detect || !T.detect.detectImage) { msg("Turn on object detection first (Settings), then try Track.", true); return; }
+    msg("Looking for an object...");
     try {
-      const dets = await T.detect.detectImage(v, v.videoWidth, v.videoHeight, { conf: 0.25 });
-      if (!dets || !dets.length) { msg("No object found there.", true); return; }
-      // find detection that best overlaps the user's mark
+      const dets = await T.detect.detectImage(v, v.videoWidth, v.videoHeight, { conf: 0.15 });
+      if (!dets || !dets.length) { msg("No object detected. Make sure detection is on and try a clearer object.", true); return; }
       const cx = x + w / 2, cy = y + h / 2;
-      let best = null, bestScore = -1;
+      let best = null, bestDist = 999;
       for (const d of dets) {
         const dx = d.x + d.w / 2, dy = d.y + d.h / 2;
-        const dist = Math.hypot((dx - cx) / Math.max(0.01, w), (dy - cy) / Math.max(0.01, h));
-        const iou = Math.max(0, Math.min(d.x + d.w, x + w) - Math.max(d.x, x)) * Math.max(0, Math.min(d.y + d.h, y + h) - Math.max(d.y, y)) / (d.w * d.h + w * h);
-        const score = iou * 2 - dist;
-        if (score > bestScore) { bestScore = score; best = d; }
+        const dist = Math.hypot(dx - cx, dy - cy);
+        if (dist < bestDist) { bestDist = dist; best = d; }
       }
-      if (!best || bestScore < -1) { msg("No clear object in that area.", true); return; }
+      if (!best || bestDist > 0.4) { msg("No object close enough to your circle. Try circling it more tightly.", true); return; }
       const r = G.add({ cam, shape: "rect", x: best.x, y: best.y, w: best.w, h: best.h, mode: S.mode, on: true });
-      if (r) { S.trackId = r.id; msg("Tracking " + (best.label || "object") + ". It will follow while the video plays."); }
+      if (r) { S.trackId = r.id; msg("Tracking " + (best.label || "object") + " (" + Math.round(best.conf * 100) + "%). It follows while the video plays."); UI.sync(); kick(); }
     } catch (e) { msg("Detection failed: " + (e.message || e), true); }
   }
   // update tracked region from live detections while playing
@@ -684,15 +681,15 @@
     const r = G.list.find((x) => x.id === S.trackId); if (!r) { S.trackId = null; return; }
     const t = T.player.time, cam = r.cam;
     const tracks = T.detect.liveTracks && T.detect.liveTracks[cam];
-    if (!tracks) return;
-    let best = null, bestIou = 0;
+    if (!tracks || !tracks.length) return;
+    let best = null, bestDist = 999;
     for (const tr of tracks) {
-      if (Math.abs(tr.t - t) > 0.5) continue;
-      const b = tr.box || tr;
-      const iou = Math.max(0, Math.min(b.x + b.w, r.x + r.w) - Math.max(b.x, r.x)) * Math.max(0, Math.min(b.y + b.h, r.y + r.h) - Math.max(b.y, r.y)) / (b.w * b.h + r.w * r.h);
-      if (iou > bestIou) { bestIou = iou; best = b; }
+      const b = (T.detect.trackAt && T.detect.trackAt(tr, t)) || tr;
+      if (!b || b.x == null) continue;
+      const dist = Math.hypot((b.x + b.w / 2) - (r.x + r.w / 2), (b.y + b.h / 2) - (r.y + r.h / 2));
+      if (dist < bestDist && dist < 0.3) { bestDist = dist; best = b; }
     }
-    if (best && bestIou > 0.1) G.update(r.id, { x: best.x, y: best.y, w: best.w, h: best.h });
+    if (best) G.update(r.id, { x: best.x, y: best.y, w: best.w, h: best.h });
   }
   setInterval(followTrack, 200);
 
