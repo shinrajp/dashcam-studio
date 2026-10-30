@@ -679,17 +679,16 @@
   function followTrack() {
     if (!S.trackId || !T.detect || !T.player) return;
     const r = G.list.find((x) => x.id === S.trackId); if (!r) { S.trackId = null; return; }
-    const t = T.player.time, cam = r.cam;
-    const tracks = T.detect.liveTracks && T.detect.liveTracks[cam];
-    if (!tracks || !tracks.length) return;
+    const cam = r.cam;
+    const live = T.detect.live && T.detect.live[cam];
+    if (!live || !live.dets || !live.dets.length) return;
+    // pick the detection closest to the current region (same object as it moves)
     let best = null, bestDist = 999;
-    for (const tr of tracks) {
-      const b = (T.detect.trackAt && T.detect.trackAt(tr, t)) || tr;
-      if (!b || b.x == null) continue;
-      const dist = Math.hypot((b.x + b.w / 2) - (r.x + r.w / 2), (b.y + b.h / 2) - (r.y + r.h / 2));
-      if (dist < bestDist && dist < 0.3) { bestDist = dist; best = b; }
+    for (const d of live.dets) {
+      const dist = Math.hypot((d.x + d.w / 2) - (r.x + r.w / 2), (d.y + d.h / 2) - (r.y + r.h / 2));
+      if (dist < bestDist) { bestDist = dist; best = d; }
     }
-    if (best) G.update(r.id, { x: best.x, y: best.y, w: best.w, h: best.h });
+    if (best && bestDist < 0.35) G.update(r.id, { x: best.x, y: best.y, w: best.w, h: best.h });
   }
   setInterval(followTrack, 200);
 
