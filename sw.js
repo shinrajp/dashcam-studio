@@ -8,7 +8,7 @@
  * does it take over (message SKIP_WAITING). Never cached: user footage (it is read from the device as File/Blob and is never
  * fetched), Range requests, video responses, other origins, /api/ calls, non-GET. */
 "use strict";
-const VER = "ui-glass-9";   // rewritten by tools/gen-precache.py (via tools/bump-asset-version.py); a changed byte here is what makes browsers install a new worker
+const VER = "ui-glass-10";   // rewritten by tools/gen-precache.py (via tools/bump-asset-version.py); a changed byte here is what makes browsers install a new worker
 const CORE = "dcs-core-" + VER, EXTRA = "dcs-extra-1";
 const url = (p) => new URL(p, self.registration.scope).href;
 
