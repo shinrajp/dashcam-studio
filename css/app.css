@@ -1102,7 +1102,7 @@ body.cr-drawing .stage-bar button, body.cr-drawing .stage-bar select, body.cr-dr
 .cr-tray .cr-tb { display: inline-flex; align-items: center; gap: 5px; }
 .cr-ico { width: 18px; height: 18px; flex: 0 0 auto; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; pointer-events: none; }
 .cr-tray .cr-io { padding: 0 8px; }
-.cr-tray .cr-io .t { display: none; }
+.cr-tray .cr-io .t { display: inline; }
 .cr-tray .cr-tseg { display: inline-flex; padding: 2px; gap: 0; border-radius: 999px; background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.12); pointer-events: none; }
 .cr-tray .cr-tseg .cr-tb { pointer-events: auto; min-height: 36px; min-width: 72px; background: transparent; border: 0; color: #c9d1dc; border-radius: 999px; padding: 0 9px; box-shadow: none; text-align: center; }
 .cr-tray .cr-tseg .cr-tb.on { background: rgba(255,210,122,.2); color: #ffe3a3; box-shadow: inset 0 0 0 1px rgba(230,180,80,.7); }
