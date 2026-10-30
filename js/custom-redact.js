@@ -209,7 +209,11 @@
     const iw = video.videoWidth, ih = video.videoHeight, fit = R.contain(iw, ih, { x: 0, y: 0, w: tw, h: th });
     for (const r of rs) {
       paint(ctx, video, iw, ih, fit, r);
-      if (r.mode === "blur" && R.tintLike) { ctx.save(); ctx.beginPath(); trace(ctx, fit, r); ctx.clip(); R.tintLike(ctx, fit, [{ x: r.x, y: r.y, w: r.w, h: r.h }], cam); ctx.restore(); }   // white-balance "blend" tint, inside the shape only
+      if (S.trackIds && S.trackIds.includes(r.id)) {
+        ctx.save(); ctx.strokeStyle = "#e6b450"; ctx.lineWidth = 2; ctx.setLineDash([6, 4]);
+        ctx.beginPath(); trace(ctx, fit, r); ctx.stroke(); ctx.restore();
+      }
+      if (r.mode === "blur" && R.tintLike) { ctx.save(); ctx.beginPath(); trace(ctx, fit, r); ctx.clip(); R.tintLike(ctx, fit, [{ x: r.x, y: r.y, w: r.w, h: r.h }], cam); ctx.restore(); }
     }
   };
   const pf = {};
@@ -660,7 +664,15 @@
   S.patches = {};
   UI.track = (on) => {
     S.track = on === undefined ? !S.track : !!on;
-    if (S.track) { S.drawing = true; S.pick = false; msg("Track: circle anything. It follows by matching the look."); armTrackCapture(); }
+    if (S.track) {
+      S.drawing = true; S.pick = false; armTrackCapture();
+      const latest = S.draft || (G.list.length && G.list[G.list.length - 1]);
+      if (latest && latest.cam && !S.trackIds.includes(latest.id)) {
+        const patch = grabPatch(latest.cam, latest.x, latest.y, latest.w, latest.h);
+        if (patch) { S.trackIds.push(latest.id); S.patches[latest.id] = patch; msg("Tracking the region you already drew."); }
+        else msg("Track on. Circle anything, or redraw the region.");
+      } else msg("Track: circle anything. It follows by matching the look.");
+    }
     else { msg("Track off."); disarmTrackCapture(); }
     UI.sync(); kick(); return true;
   };
