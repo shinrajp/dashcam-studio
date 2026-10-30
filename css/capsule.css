@@ -27,6 +27,10 @@ html.glass body.mbar .mb-row { position: relative; }
 html.glass body.mbar .mb-row > * { position: relative; }
 html.glass body.mbar .mb-row::before { content: ""; position: absolute; left: -5px; right: -5px; top: 0; bottom: 0; border-radius: 24px; pointer-events: none; background: var(--cap-tint); box-shadow: var(--cap-shadow); }
 html.glass body.fs.mbar .mb-row::before { background: var(--cap-tint-fs); }
+/* ui-glass-11: the refraction canvas (css/refract.css, js/refract.js) takes exactly the ::before capsule's box (replaced element: explicit size) */
+.rf-c.rf-cap { --rl: max(6px, calc(env(safe-area-inset-left) - 6px)); --rr: max(6px, calc(env(safe-area-inset-right) - 6px)); --rb: max(3px, calc(env(safe-area-inset-bottom) - 3px));
+  left: var(--rl); top: 3px; width: calc(100% - var(--rl) - var(--rr)); height: calc(100% - 3px - var(--rb)); }
+.rf-c.rf-row { left: -5px; top: 0; width: calc(100% + 10px); height: 100%; }
 /* the sheet keeps its own surface; its top corners match the capsule */
 html.glass body.mbar .mb-sheet { border-radius: 22px 22px 0 0; background: var(--g-sheen), var(--bg2); border-top-color: rgba(255,255,255,.1); box-shadow: var(--g-rim), 0 -10px 30px rgba(0,0,0,.45); }
 

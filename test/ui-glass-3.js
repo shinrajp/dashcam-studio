@@ -36,7 +36,9 @@ const CAP = () => { const mb = document.body.classList.contains("mbar"), host = 
   const c = getComputedStyle(host, "::before"), hr = host.getBoundingClientRect(), tr = document.getElementById("transport").getBoundingClientRect();
   const l = parseFloat(c.left), t = parseFloat(c.top), w = parseFloat(c.width), h = parseFloat(c.height);
   return { mb, content: c.content, radius: parseFloat(c.borderTopLeftRadius), pe: c.pointerEvents, bg: c.backgroundColor, bgi: c.backgroundImage.slice(0, 40), bf: c.backdropFilter || c.webkitBackdropFilter || "none", vis: c.visibility, tr: c.transitionDuration,
-    box: { l: hr.left + l, t: hr.top + t, r: hr.left + l + w, b: hr.top + t + h }, tp: { l: tr.left, t: tr.top, r: tr.right, b: tr.bottom }, vw: innerWidth, vh: innerHeight, glass: document.documentElement.dataset.glass, blurred: (TDC.glass.blurred || []).map((e) => e.id || e.className.split(" ")[0]) }; };
+    box: { l: hr.left + l, t: hr.top + t, r: hr.left + l + w, b: hr.top + t + h }, tp: { l: tr.left, t: tr.top, r: tr.right, b: tr.bottom }, vw: innerWidth, vh: innerHeight, glass: document.documentElement.dataset.glass,
+    // ui-glass-11: with refraction the capsule is drawn by a canvas in the ::before's place (the ::before stays, transparent)
+    rf: host.classList.contains("rf-cap-on") && host._rfc ? (() => { const cs = getComputedStyle(host._rfc), r = host._rfc.getBoundingClientRect(); return { radius: parseFloat(cs.borderTopLeftRadius), pe: cs.pointerEvents, vis: cs.visibility, box: { l: r.left, t: r.top, r: r.right, b: r.bottom } }; })() : null, blurred: (TDC.glass.blurred || []).map((e) => e.id || e.className.split(" ")[0]) }; };
 const alphaOf = (bg) => { const m = /rgba?\(([^)]+)\)/.exec(bg); if (!m) return 0; const v = m[1].split(",").map(parseFloat); return v.length > 3 ? v[3] : 1; };
 const shot = async (p, n) => { if (SHOTS) { fs.mkdirSync(SHOTS, { recursive: true }); await p.screenshot({ path: path.join(SHOTS, PREFIX + n + ".png") }); } };
 const segsNow = (p) => p.evaluate(() => TDC.ui.sortedSegs().map((s) => [Math.round(s.start * 1000) / 1000, Math.round(s.end * 1000) / 1000]).concat([[Math.round(TDC.player.time * 1000) / 1000]]));
@@ -78,7 +80,8 @@ async function run(b, BR, dev) {
   // 1 the capsule
   let c = await p.evaluate(CAP);
   const inset = c.box.l >= c.tp.l - 0.5 && c.box.r <= c.tp.r + 0.5 && c.box.t >= c.tp.t - 0.5 && c.box.b <= c.tp.b + 0.5 && (c.box.l > c.tp.l + 2 || c.mb);
-  ok(tag + " 1 the transport is one glass capsule (rounded >= 18 px, inside the bar, takes no taps)", c.content !== "none" && c.radius >= 18 && c.pe === "none" && inset && alphaOf(c.bg) > 0.3, c);
+  const rfOk = !!c.rf && c.rf.radius >= 18 && c.rf.pe === "none" && c.rf.vis === "visible" && ["l", "t", "r", "b"].every((k) => Math.abs(c.rf.box[k] - c.box[k]) <= 1);
+  ok(tag + " 1 the transport is one glass capsule (rounded >= 18 px, inside the bar, takes no taps)" + (c.rf ? " [refraction canvas on the capsule box]" : ""), c.content !== "none" && c.radius >= 18 && c.pe === "none" && inset && (c.rf ? rfOk : alphaOf(c.bg) > 0.3), c);
   if (touch) {
     await setSheet(p, true);
     const t = await p.evaluate(() => { const e = document.getElementById("segBar"), cs = getComputedStyle(e); return { r: parseFloat(cs.borderTopLeftRadius), bg: cs.backgroundColor, sh: cs.boxShadow.slice(0, 60), shown: !!e.offsetParent }; });

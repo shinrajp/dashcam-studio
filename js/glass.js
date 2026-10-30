@@ -91,7 +91,7 @@
     const want = [];
     if (G.effective !== "solid") for (const e of candidates()) {
       if (want.length >= BLUR_MAX) break;
-      if (e.classList.contains("rf-on")) continue;   // ui-glass-11: a refraction piece draws its own glass (js/refract.js)
+      if (e.classList.contains("rf-on") || e.classList.contains("rf-cap-on") || e.querySelector(".rf-cap-on")) continue;   // ui-glass-11: a refraction piece draws its own glass (js/refract.js)
       if (!shown(e) || (T.autohide && T.autohide.isHidden(e)) || want.some((w) => w.contains(e) || e.contains(w))) continue;   // never a blurred piece inside a blurred piece
       want.push(e);
     }
