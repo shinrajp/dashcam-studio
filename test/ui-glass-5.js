@@ -9,7 +9,7 @@
 //   prefs saved), cameras still pick while floating; 5 remembered after a reload; kept on screen when the window shrinks;
 //   6 docks when dropped on the spot; 7 double-click / double-tap the grip docks; 8 keyboard (Enter floats / docks, arrows move, focus kept);
 //   9 auto-hide (a floating pill hides with the controls and comes back); 10 glass modes (tinted, blur budget, none in Solid);
-//   11 reduced motion; 12 no overlap (floating pill above the bottom controls, docked bar vs bottom bar, the floated map does not cover the bar);
+//   11 reduced motion; 12 no overlap (ui-glass-12: the floating pill reaches the bottom edge above the bottom controls, docked bar vs bottom bar, the floated map does not cover the bar);
 //   13 beside-the-video dock: lifts off and docks back beside; 14 tap-redact picking ignores the floating pill; 15 no page errors.
 //   SHOTS=dir PREFIX=before-|after- writes <prefix><dev>-docked.png, -floated.png (dragged outside the video) and, on phones, -map.png
 //   (floated map + camera bar). ONLY_SHOTS=1 only writes the pictures (for "before": the old bar cannot leave the video).
@@ -152,8 +152,12 @@ async function run(b, BR, dev) {
   await drag(p, [g12.cx, g12.cy], [g12.cx, dev.h - 4]); if (!touch) await p.mouse.move(dev.w - 5, 5); await W(300);
   const ov = await p.evaluate(() => { const Rr = (e) => { if (!e || e.hidden || !e.getClientRects().length) return null; const r = e.getBoundingClientRect(); return r.width > 1 && r.height > 1 ? { l: r.left, t: r.top, r: r.right, b: r.bottom } : null; };
     const Xx = (a, b) => !!a && !!b && a.l < b.r - 0.5 && b.l < a.r - 0.5 && a.t < b.b - 0.5 && b.t < a.b - 0.5; const bar = Rr(document.getElementById("stageBar"));
-    return { bar, hits: ["transport", "mbBar", "usBtn", "rdBtn", "chipCamBar", "btnFullscreen"].filter((id) => Xx(bar, Rr(document.getElementById(id)))) }; });
-  ok(tag + " 12 the floating pill never covers the bottom controls (dragged to the bottom edge)", ov.hits.length === 0, ov);
+    const g = document.getElementById("barGrip").getBoundingClientRect(), top = document.elementFromPoint(g.left + g.width / 2, g.top + g.height / 2);
+    return { bar, H: innerHeight, deep: document.getElementById("stageBar").classList.contains("bar-deep"), gripTop: !!(top && top.closest("#stageBar")), dock: TDC.prefs.cameraBar.dock,
+      hits: ["transport", "mbBar", "usBtn", "rdBtn", "chipCamBar", "btnFullscreen"].filter((id) => Xx(bar, Rr(document.getElementById(id)))) }; });
+  // ui-glass-12 (iPhone feedback): the floated pill now goes all the way down to the window's bottom edge, past the bottom controls, riding above
+  // them (bar-deep) with its grip on top — like the ui-glass-6 map
+  ok(tag + " 12 dragged to the bottom edge, the floating pill reaches it (ui-glass-12), rides above the bottom controls and its grip stays on top", ov.dock === "float" && ov.bar && ov.bar.b >= ov.H - 10 && ov.deep && ov.gripTop, ov);
   await p.evaluate(() => TDC.focus.dockBar(true)); await W(400);
   const ovd = await p.evaluate(() => { const Rr = (e) => { if (!e || e.hidden || !e.getClientRects().length) return null; const r = e.getBoundingClientRect(); return r.width > 1 && r.height > 1 ? { l: r.left, t: r.top, r: r.right, b: r.bottom } : null; };
     const Xx = (a, b) => !!a && !!b && a.l < b.r - 0.5 && b.l < a.r - 0.5 && a.t < b.b - 0.5 && b.t < a.b - 0.5; const bar = Rr(document.getElementById("stageBar"));

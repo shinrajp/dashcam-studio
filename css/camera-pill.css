@@ -26,6 +26,7 @@
 .stage-bar.pill-wrap.pill-pack .zoom-label { display: none; }   /* only the "1×" readout is left out here; zoom in / out stay */
 /* floating: window level, above the video, the floating map and the docked panels, under the Settings drawer and dialogs */
 .stage-bar.bar-floating { position: fixed; transform: none; z-index: 29; max-width: calc(100vw - 16px); box-shadow: 0 18px 44px rgba(0,0,0,.6), 0 2px 8px rgba(0,0,0,.35); }
+.stage-bar.bar-floating.bar-deep { z-index: 46; }   /* ui-glass-12: pulled down past the bottom controls: above them, grip reachable */
 html.glass .stage-bar.bar-floating { box-shadow: var(--g-rim, 0 0 0 transparent), 0 18px 44px rgba(0,0,0,.6); }
 body.bar-float .float-panel.map-panel.map-floating { z-index: 28; }
 body.focused .stage-bar.bar-floating .focus-only { display: flex; }

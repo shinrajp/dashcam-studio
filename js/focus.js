@@ -427,14 +427,16 @@
   const FM = 8;
   const winW = () => document.documentElement.clientWidth || innerWidth;
   const floatFloor = () => { try { return T.overlays && T.overlays.floatFloor ? T.overlays.floatFloor() : innerHeight; } catch (e) { return innerHeight; } };
+  // ui-glass-12 (iPhone: "still can't move further down"): the span reaches the window's bottom edge, past the Search / Redact row and the
+  // capsules (like the ui-glass-6 map). Below the bottom controls' top the pill rides above them (bar-deep) so its grip stays reachable.
   function floatSpan(bar) {
-    const floor = floatFloor();
-    return { x0: FM, y0: FM, sx: Math.max(0, winW() - bar.offsetWidth - 2 * FM), sy: Math.max(0, floor - bar.offsetHeight - 2 * FM) };
+    return { x0: FM, y0: FM, sx: Math.max(0, winW() - bar.offsetWidth - 2 * FM), sy: Math.max(0, innerHeight - bar.offsetHeight - 2 * FM) };
   }
   function setFloatXY(bar, x, y, save) {
     const s = floatSpan(bar);
     x = T.clamp(x, s.x0, s.x0 + s.sx); y = T.clamp(y, s.y0, s.y0 + s.sy);
     bar.style.left = Math.round(x) + "px"; bar.style.top = Math.round(y) + "px";
+    bar.classList.toggle("bar-deep", y + bar.offsetHeight > floatFloor() + 1);
     if (save) { T.prefs.cameraBar.float = { fx: s.sx ? +((x - s.x0) / s.sx).toFixed(4) : 0, fy: s.sy ? +((y - s.y0) / s.sy).toFixed(4) : 0 }; T.savePrefs(); }
     return { x, y };
   }
@@ -488,7 +490,7 @@
     dock.hidden = !docked;
     const refocus = bar.contains(document.activeElement) ? document.activeElement : null;   // re-parenting drops the focus: give it back
     const wasFl = bar.classList.contains("bar-floating");
-    bar.classList.toggle("bar-floating", fl);
+    bar.classList.toggle("bar-floating", fl); if (!fl) bar.classList.remove("bar-deep");
     if (docked) { if (bar.parentElement !== dock) dock.appendChild(bar); bar.classList.remove("moved"); bar.style.left = bar.style.top = bar.style.transform = ""; }
     else if (fl) { if (bar.parentElement !== document.body) document.body.appendChild(bar); bar.classList.add("moved"); bar.style.transform = ""; }
     else {
@@ -635,8 +637,9 @@
     if (spotEl2) spotEl2.dataset.label = roomBelow() ? "Release to dock below the video" : "Release to dock it back";
   }
   // (it came from the strip below the video: anything below that spot counts too, so pulling it down past the video docks it back)
+  // (ui-glass-12: only down to the top of the bottom controls — further down is a spot of its own, by the window's bottom edge)
   const nearSpot = (x, y) => { const d = dockSpot(), m = 28, down = (CB().from || "over") === "beside" && CB().side === "bottom";
-    return !!d && x >= d.l - m && x <= d.l + d.w + m && y >= d.t - m && (down || y <= d.t + d.h + m); };
+    return !!d && x >= d.l - m && x <= d.l + d.w + m && y >= d.t - m && (down ? y <= Math.max(d.t + d.h + m, floatFloor()) : y <= d.t + d.h + m); };
   const nearWhich = (x, y) => (nearSpot(x, y) ? "spot" : nearBottom(x, y) ? "bottom" : false);
   F.nearDock = nearWhich;   // tests
   /** Lift the pill off its dock into the window (keyboard: where it is now). */
