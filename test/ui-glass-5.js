@@ -139,9 +139,9 @@ async function run(b, BR, dev) {
   // 10 glass modes (floating)
   const modes = {};
   for (const m of ["auto", "clear", "solid"]) { await p.evaluate((x) => { TDC.setPref("glass", x); TDC.glass.budget(); }, m); await W(300);
-    modes[m] = await p.evaluate(() => { const e = document.getElementById("stageBar"), cs = getComputedStyle(e); const mm = /rgba?\(([^)]+)\)/.exec(cs.backgroundColor), v = mm ? mm[1].split(",").map(parseFloat) : [0, 0, 0, 0]; return { a: v.length > 3 ? v[3] : 1, bf: cs.backdropFilter || cs.webkitBackdropFilter || "none", n: TDC.glass.blurred.length, sh: cs.boxShadow.length > 20, r: parseFloat(cs.borderTopLeftRadius) }; }); }
+    modes[m] = await p.evaluate(() => { const e = document.getElementById("stageBar"), cs = getComputedStyle(e); const mm = /rgba?\(([^)]+)\)/.exec(cs.backgroundColor), v = mm ? mm[1].split(",").map(parseFloat) : [0, 0, 0, 0]; return { a: v.length > 3 ? v[3] : 1, bf: cs.backdropFilter || cs.webkitBackdropFilter || "none", n: TDC.glass.blurred.length, sh: cs.boxShadow.length > 20, r: parseFloat(cs.borderTopLeftRadius), rf: e.classList.contains("rf-on") && !!e._rfc && getComputedStyle(e._rfc).visibility === "visible" }; }); }   // rf: ui-glass-11 refraction draws the glass on its canvas
   await p.evaluate(() => TDC.setPref("glass", "auto")); await W(200);
-  ok(tag + " 10 glass modes: the floating pill is tinted glass with a lifted shadow, blur within the budget (<= 3), none in Solid", ["auto", "clear", "solid"].every((m) => modes[m].a > 0 && modes[m].sh && modes[m].r >= 18 && modes[m].n <= 3) && modes.solid.bf === "none" && modes.clear.a <= modes.solid.a, modes);
+  ok(tag + " 10 glass modes: the floating pill is tinted glass with a lifted shadow, blur within the budget (<= 3), none in Solid", ["auto", "clear", "solid"].every((m) => (modes[m].a > 0 || modes[m].rf) && modes[m].sh && modes[m].r >= 18 && modes[m].n <= 3) && modes.solid.bf === "none" && !modes.solid.rf && modes.clear.a <= modes.solid.a, modes);
   // 11 reduced motion
   await p.emulateMedia({ reducedMotion: "reduce" }); await W(200);
   const rm = await p.evaluate(() => { const g = document.querySelector(".cam-dock-hint"); return { bar: getComputedStyle(document.getElementById("stageBar")).transitionDuration, hint: g ? getComputedStyle(g).transitionDuration : "0s" }; });
