@@ -204,24 +204,6 @@
   };
   /** Viewer: the redact layer of this camera (tile tw × th css px); video is the <video>. */
   G.live = (ctx, cam, t, video, tw, th) => {
-    // move tracked regions to their gold boxes right before paint
-    if (S.trackIds && S.trackIds.length && T.detect && T.detect.boxesAt) {
-      const boxes = T.detect.boxesAt(cam, t) || [];
-      for (const id of S.trackIds) {
-        const r = G.list.find((x) => x.id === id); if (!r || r.cam !== cam) continue;
-        const pid = S.trackPids[id];
-        let best = pid ? boxes.find((b) => (b.pid || b.id) === pid) : null;
-        if (!best && boxes.length) {
-          let bestDist = 999;
-          for (const b of boxes) {
-            const dist = Math.hypot((b.x + b.w / 2) - (r.x + r.w / 2), (b.y + b.h / 2) - (r.y + r.h / 2));
-            if (dist < bestDist) { bestDist = dist; best = b; }
-          }
-          if (bestDist > 0.6) best = null;
-        }
-        if (best) { r.x = best.x; r.y = best.y; r.w = best.w; r.h = best.h; }
-      }
-    }
     const rs = G.at(cam, t);
     if (!rs.length) return;
     const iw = video.videoWidth, ih = video.videoHeight, fit = R.contain(iw, ih, { x: 0, y: 0, w: tw, h: th });
@@ -672,13 +654,13 @@
     if (G.redo()) { msg("Redone."); kick(); return true; }
     return false;
   };
-  /** Track mode: circle an object; the redaction follows the gold detection box on that object. */
+  /** Track mode: circle anything; a patch tracker follows it (signs, cats, logos, cars). */
   S.track = false;
   S.trackIds = [];
-  S.trackPids = {};
+  S.patches = {};
   UI.track = (on) => {
     S.track = on === undefined ? !S.track : !!on;
-    if (S.track) { S.drawing = true; S.pick = false; msg("Track: circle a car. The blur will follow the gold box."); armTrackCapture(); }
+    if (S.track) { S.drawing = true; S.pick = false; msg("Track: circle anything. It follows by matching the look."); armTrackCapture(); }
     else { msg("Track off."); disarmTrackCapture(); }
     UI.sync(); kick(); return true;
   };
@@ -693,7 +675,7 @@
       if (!cam) return;
       e.preventDefault(); e.stopPropagation();
       const p0 = { x: e.clientX, y: e.clientY, cam };
-      const ring = document.createElement("div"); ring.style.cssText = "position:fixed;border:2px solid #e6b450;border-radius:50%;pointer-events:none;z-index:90;"; document.body.appendChild(ring);
+      const ring = document.createElement("div"); ring.style.cssText = "position:fixed;border:2px solid #e6b450;border-radius:4px;pointer-events:none;z-index:90;"; document.body.appendChild(ring);
       const move = (ev) => {
         p0.x2 = ev.clientX; p0.y2 = ev.clientY;
         const x = Math.min(p0.x, p0.x2), y = Math.min(p0.y, p0.y2), w = Math.abs(p0.x2 - p0.x), h = Math.abs(p0.y2 - p0.y);
@@ -703,12 +685,11 @@
         document.removeEventListener("pointermove", move);
         document.removeEventListener("pointerup", up);
         ring.remove();
-        const f = G.screenFit(cam); if (!f) { dbg("no fit for " + cam); return; }
+        const f = G.screenFit(cam); if (!f) return;
         const [u, v] = G.toRaw(f, p0.x, p0.y);
         const [u2, v2] = G.toRaw(f, p0.x2 || p0.x, p0.y2 || p0.y);
-        const x = Math.min(u, u2), y = Math.min(v, v2), w = Math.max(0.02, Math.abs(u2 - u)), h = Math.max(0.02, Math.abs(v2 - v));
-        dbg("captured " + cam + " " + x.toFixed(2) + "," + y.toFixed(2));
-        trackAt(cam, x, y, w, h);
+        const x = Math.min(u, u2), y = Math.min(v, v2), w = Math.max(0.03, Math.abs(u2 - u)), h = Math.max(0.03, Math.abs(v2 - v));
+        startTrack(cam, x, y, w, h);
       };
       document.addEventListener("pointermove", move);
       document.addEventListener("pointerup", up);
@@ -716,78 +697,77 @@
     document.addEventListener("pointerdown", trackCap, true);
   }
   function disarmTrackCapture() { if (trackCap) { document.removeEventListener("pointerdown", trackCap, true); trackCap = null; } }
-  async function trackAt(cam, x, y, w, h) {
-    dbg("trackAt called cam=" + cam + " box=" + x.toFixed(2) + "," + y.toFixed(2));
-    if (!T.detect || !T.detect.boxesAt) { dbg("no detect"); msg("Turn on object detection and Show boxes while playing.", true); return; }
-    const t = T.player ? T.player.time : 0;
-    const boxes = T.detect.boxesAt(cam, t) || [];
-    dbg("boxesAt returned " + boxes.length);
-    if (!boxes.length) { msg("No gold boxes on this camera yet. Play a moment, then circle.", true); return; }
-    const cx = x + w / 2, cy = y + h / 2;
-    let best = null, bestDist = 999;
-    for (const b of boxes) {
-      const dist = Math.hypot((b.x + b.w / 2) - cx, (b.y + b.h / 2) - cy);
-      if (dist < bestDist) { bestDist = dist; best = b; }
+  function grabPatch(cam, x, y, w, h) {
+    const tile = T.player && T.player.tiles && T.player.tiles[cam];
+    const v = tile && (tile.video || (tile.vids && tile.vids[T.player.active]));
+    if (!v || !v.videoWidth) return null;
+    const c = document.createElement("canvas"); c.width = 24; c.height = 24;
+    const ctx = c.getContext("2d", { willReadFrequently: true });
+    try { ctx.drawImage(v, x * v.videoWidth, y * v.videoHeight, w * v.videoWidth, h * v.videoHeight, 0, 0, 24, 24); } catch (_) { return null; }
+    const d = ctx.getImageData(0, 0, 24, 24).data;
+    const g = new Float32Array(24 * 24);
+    let mean = 0;
+    for (let i = 0; i < g.length; i++) { g[i] = (d[i * 4] + d[i * 4 + 1] + d[i * 4 + 2]) / 3; mean += g[i]; }
+    mean /= g.length;
+    for (let i = 0; i < g.length; i++) g[i] -= mean;
+    return g;
+  }
+  function matchPatch(cam, patch, lx, ly, lw, lh) {
+    const tile = T.player && T.player.tiles && T.player.tiles[cam];
+    const v = tile && (tile.video || (tile.vids && tile.vids[T.player.active]));
+    if (!v || !v.videoWidth || !patch) return null;
+    const c = document.createElement("canvas"); c.width = 40; c.height = 40;
+    const ctx = c.getContext("2d", { willReadFrequently: true });
+    const pad = 0.12;
+    const sx = Math.max(0, (lx - pad) * v.videoWidth), sy = Math.max(0, (ly - pad) * v.videoHeight);
+    const sw = Math.min(v.videoWidth - sx, (lw + pad * 2) * v.videoWidth), sh = Math.min(v.videoHeight - sy, (lh + pad * 2) * v.videoHeight);
+    try { ctx.drawImage(v, sx, sy, sw, sh, 0, 0, 40, 40); } catch (_) { return null; }
+    const d = ctx.getImageData(0, 0, 40, 40).data;
+    let best = -1e9, bx = 8, by = 8;
+    for (let oy = 0; oy <= 16; oy += 2) for (let ox = 0; ox <= 16; ox += 2) {
+      let dot = 0, n2 = 0, mean = 0, n = 0;
+      for (let j = 0; j < 24; j += 2) for (let i = 0; i < 24; i += 2) {
+        const p = ((oy + j) * 40 + (ox + i)) * 4;
+        mean += (d[p] + d[p + 1] + d[p + 2]) / 3; n++;
+      }
+      mean /= n;
+      for (let j = 0; j < 24; j += 2) for (let i = 0; i < 24; i += 2) {
+        const p = ((oy + j) * 40 + (ox + i)) * 4;
+        const g = (d[p] + d[p + 1] + d[p + 2]) / 3 - mean;
+        const t = patch[j * 24 + i];
+        dot += g * t; n2 += g * g;
+      }
+      const score = n2 > 1 ? dot / Math.sqrt(n2) : 0;
+      if (score > best) { best = score; bx = ox; by = oy; }
     }
-    if (!best || bestDist > 0.5) { msg("No gold box close to your circle. Circle the car more tightly.", true); return; }
-    const r = G.add({ cam, shape: "rect", x: best.x, y: best.y, w: best.w, h: best.h, mode: S.mode, on: true });
-    if (r) { S.trackIds.push(r.id); S.trackPids[r.id] = best.pid || best.id || null; S.trackCam = cam; msg("Following " + (best.label || "object") + ". Circle more, or press Done. Play to see it follow."); UI.sync(); kick(); }
+    return { x: (sx + (bx / 40) * sw) / v.videoWidth, y: (sy + (by / 40) * sh) / v.videoHeight, w: lw, h: lh, score: best };
   }
-  function dbg(s) {
-    let n = document.getElementById("trackDbg");
-    if (!n) { n = document.createElement("div"); n.id = "trackDbg"; n.style.cssText = "position:fixed;top:8px;left:8px;z-index:9999;background:#000;color:#0f0;padding:8px 10px;font:12px monospace;border-radius:6px;max-width:320px;pointer-events:none;white-space:pre-line;"; document.body.appendChild(n); }
-    n.textContent = s;
+  function startTrack(cam, x, y, w, h) {
+    const patch = grabPatch(cam, x, y, w, h);
+    if (!patch) { msg("Couldn't read the picture. Seek or play, then circle again.", true); return; }
+    const r = G.add({ cam, shape: "rect", x, y, w, h, mode: S.mode, on: true });
+    if (r) { S.trackIds.push(r.id); S.patches[r.id] = patch; msg("Tracking. Circle more, or press Done. It follows while playing."); UI.sync(); kick(); }
   }
-  function followGold() {
-    const lines = ["Track: " + (S.track ? "ON" : "off"), "tracking: " + S.trackIds.length];
-    if (!S.trackIds.length || !T.detect || !T.detect.boxesAt || !T.player) { dbg(lines.join("\n")); return; }
-    const t = T.player.time;
+  function followPatches() {
+    if (!S.trackIds.length) return;
     let moved = 0;
     for (const id of S.trackIds) {
       const r = G.list.find((x) => x.id === id); if (!r) continue;
-      const boxes = T.detect.boxesAt(r.cam, t) || [];
-      if (!boxes.length) continue;
-      const pid = S.trackPids[id];
-      let best = pid ? boxes.find((b) => (b.pid || b.id) === pid) : null;
-      if (!best) {
-        let bestDist = 999;
-        for (const b of boxes) {
-          const dist = Math.hypot((b.x + b.w / 2) - (r.x + r.w / 2), (b.y + b.h / 2) - (r.y + r.h / 2));
-          if (dist < bestDist) { bestDist = dist; best = b; }
-        }
-        if (bestDist > 0.5) best = null;
+      const m = matchPatch(r.cam, S.patches[id], r.x, r.y, r.w, r.h);
+      if (m && m.score > 0 && (Math.abs(m.x - r.x) > 0.001 || Math.abs(m.y - r.y) > 0.001)) {
+        r.x = m.x; r.y = m.y; moved++;
+        if (Math.random() < 0.1) S.patches[id] = grabPatch(r.cam, r.x, r.y, r.w, r.h) || S.patches[id];
       }
-      if (best) { r.x = best.x; r.y = best.y; r.w = best.w; r.h = best.h; moved++; }
     }
-    lines.push("t: " + t.toFixed(2), "moved: " + moved);
-    dbg(lines.join("\n"));
     if (moved && R && R.paint) R.paint();
-    return;
-    let best = null;
-    if (S.trackPid) best = boxes.find((b) => (b.pid || b.id) === S.trackPid);
-    if (!best) {
-      let bestDist = 999;
-      for (const b of boxes) {
-        const dist = Math.hypot((b.x + b.w / 2) - (r.x + r.w / 2), (b.y + b.h / 2) - (r.y + r.h / 2));
-        const bonus = (S.trackLabel && b.label === S.trackLabel) ? -0.2 : 0;
-        if (dist + bonus < bestDist) { bestDist = dist + bonus; best = b; }
-      }
-      if (bestDist > 0.6) best = null;
-    }
-    lines.push("best: " + (best ? (best.label || "?") + " " + best.x.toFixed(2) : "none"));
-    dbg(lines.join("\n"));
-    if (best && (Math.abs(best.x - r.x) > 0.002 || Math.abs(best.y - r.y) > 0.002 || Math.abs(best.w - r.w) > 0.002)) {
-      r.x = best.x; r.y = best.y; r.w = best.w; r.h = best.h;
-      if (R && R.paint) R.paint();
-    }
   }
-  setInterval(followGold, 100);
+  setInterval(followPatches, 120);
 
     /** Done: saves a drawn shape; in Move it simply closes the tray (the moves are already saved, and undoable). */
   UI.done = () => {
     if (S.trackIds && S.trackIds.length) {
       const n = S.trackIds.length;
-      S.trackIds = []; S.trackPids = {}; S.track = false; disarmTrackCapture();
+      S.trackIds = []; S.patches = {}; S.track = false; disarmTrackCapture();
       resetForm(); reopenPanel(true); UI.sync(); kick();
       msg(n + " tracked region" + (n === 1 ? "" : "s") + " saved.");
       return true;
