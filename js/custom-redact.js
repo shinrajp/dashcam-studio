@@ -730,7 +730,7 @@
     if (!v || !v.videoWidth || !patch) return null;
     const c = document.createElement("canvas"); c.width = 40; c.height = 40;
     const ctx = c.getContext("2d", { willReadFrequently: true });
-    const pad = 0.12;
+    const pad = 0.25;
     const sx = Math.max(0, (lx - pad) * v.videoWidth), sy = Math.max(0, (ly - pad) * v.videoHeight);
     const sw = Math.min(v.videoWidth - sx, (lw + pad * 2) * v.videoWidth), sh = Math.min(v.videoHeight - sy, (lh + pad * 2) * v.videoHeight);
     try { ctx.drawImage(v, sx, sy, sw, sh, 0, 0, 40, 40); } catch (_) { return null; }
@@ -757,18 +757,27 @@
   function startTrack(cam, x, y, w, h) {
     const patch = grabPatch(cam, x, y, w, h);
     if (!patch) { msg("Couldn't read the picture. Seek or play, then circle again.", true); return; }
-    const r = G.add({ cam, shape: "rect", x, y, w, h, mode: S.mode, on: true });
-    if (r) { S.trackIds.push(r.id); S.patches[r.id] = patch; msg("Tracking. Circle more, or press Done. It follows while playing."); UI.sync(); kick(); }
+    let r;
+    if (S.shape === "free" && S.draft && S.draft.cam === cam && S.draft.pts) {
+      r = G.add({ cam, shape: "poly", pts: S.draft.pts.slice(), mode: S.mode, on: true });
+      S.draft = null;
+    } else {
+      r = G.add({ cam, shape: "rect", x, y, w, h, mode: S.mode, on: true });
+    }
+    if (r) { S.trackIds.push(r.id); S.patches[r.id] = { patch, ox: r.x, oy: r.y }; msg("Tracking. Play to follow. Circle more, or press Done."); UI.sync(); kick(); }
   }
   function followPatches() {
     if (!S.trackIds.length || !T.player || !T.player.playing) return;
     let moved = 0;
     for (const id of S.trackIds) {
       const r = G.list.find((x) => x.id === id); if (!r) continue;
-      const m = matchPatch(r.cam, S.patches[id], r.x, r.y, r.w, r.h);
-      if (m && m.score > 0 && (Math.abs(m.x - r.x) > 0.001 || Math.abs(m.y - r.y) > 0.001)) {
-        r.x = m.x; r.y = m.y; moved++;
-        if (Math.random() < 0.1) S.patches[id] = grabPatch(r.cam, r.x, r.y, r.w, r.h) || S.patches[id];
+      const info = S.patches[id];
+      const m = matchPatch(r.cam, info.patch || info, r.x, r.y, r.w, r.h);
+      if (m && m.score > 50 && (Math.abs(m.x - r.x) > 0.002 || Math.abs(m.y - r.y) > 0.002)) {
+        const dx = m.x - r.x, dy = m.y - r.y;
+        r.x = m.x; r.y = m.y;
+        if (r.pts) for (let i = 0; i < r.pts.length; i += 2) { r.pts[i] += dx; r.pts[i + 1] += dy; }
+        moved++;
       }
     }
     if (moved && R && R.paint) R.paint();
