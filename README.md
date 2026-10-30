@@ -568,7 +568,7 @@ Rollback: `git checkout pre-map-float` (tip before this change, glass-sdf v5, 60
 - With **Show 360 view (beta)** off (the default), Settings ▸ **Calibration** is hidden too (along with the 360 button and any open 360 calibration view). Turning 360 on brings it back; your calibration values are kept. `?show360=1|0` and Reset all work as before.
 - Tests: `node test/map-float.js`; `test/ui-quick.js` and `test/bottom-overlap.js` updated (see test/README.md).
 
-## Liquid Glass: overview, settings and address overrides (tags `ui-glass-1` … `ui-glass-11`)
+## Liquid Glass: overview, settings and address overrides (tags `ui-glass-1` … `ui-glass-12`)
 The controls are frosted glass that floats over the video: a camera **pill** that docks or floats, a **tools bubble** (Redact, Search, Events, Settings), a **Redact tray** with undo, a timeline **capsule**, grouped **Settings**, and glass that takes its tint from the video under it. Nothing in the export changed: an export from before the overhaul (`cee26b8`) and after it is byte-identical for the same clip and settings (checked in ui-glass-10).
 
 ![Liquid Glass on a laptop: camera pill, map, HUD and the timeline capsule (mock footage)](screenshots/liquid-glass-desktop.png)
@@ -698,6 +698,16 @@ Rollback: `git checkout pre-ui-glass-10` (tip before this change, `ui-glass-9`, 
 - The overview above lists every setting and address override; new mock-footage screenshots.
 - Tests: `node test/ui-glass-10.js` (accessibility), `node test/glass-shots.js` (screenshots); `test/ui-glass-1.js` and `test/ui-glass-5.js` timing fixes (see test/README.md).
 
+
+## Liquid Glass, step 12: clear demo glass, Debug mode, keyboard and spelling (tag `ui-glass-12`)
+Rollback: `git checkout pre-ui-glass-12` (tip before this change, `ui-glass-11`, 792d343).
+- Clear glass like the labs/glass-sdf v5 demo: no dark tint following the video (light neutral 22 % tint), a soft text halo for legibility, the demo's refraction. The frosted fallback keeps its tint.
+- The floated camera pill can be dragged down to the bottom edge of the window; docking under / beside the video still works.
+- Full-screen single camera: the camera pill shrinks to a small corner button, so nothing covers the car view or the white-balance button (tap it, or use keys 1–6).
+- Debug mode (Settings ▸ Advanced & Labs ▸ Debug, or `?debug=1` / `?debug=0` for one visit; off by default): white-balance temperature (Kelvin) and tint, recognition thresholds, models, calibration, glass tuning (refraction, tint, blur), Lite threshold, an FPS / perf overlay, and the spelling override. With Debug off these stay hidden and their defaults apply.
+- Keyboard: while typing in Settings, Search or another sheet with a text field, the player capsule, bubble and floating pill hide; the sheet sits above the on-screen keyboard (visualViewport) and its results scroll.
+- Spelling follows the system language: en-US and plain `en` get US spelling (License, Color, Gray, Center…); en-GB, en-AU, en-NZ, en-IE, en-CA, en-IN and other English regions keep British. UI text only (export files are unchanged). Settings search matches both spellings. Debug only: `?lang=en-GB` / `?lang=en-US` or Settings ▸ Debug ▸ Spelling.
+- Tests: `node test/ui-glass-12.js`, `node test/ui-glass-12-keyboard.js`, `node test/ui-glass-12-locale.js` (see test/README.md).
 
 ## Liquid Glass, step 11: refraction glass (tag `ui-glass-11`)
 Rollback: `git checkout pre-ui-glass-11` (tip before this change, `ui-glass-10`, 5827c76). To switch it off without code: Settings ▸ Appearance ▸ Glass style ▸ Frosted, or `?refract=0`.

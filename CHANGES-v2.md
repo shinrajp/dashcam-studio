@@ -690,7 +690,7 @@ Rollback point: tag `pre-tap-redact` (= redact-button, d2ad533).
 - `js/pano-toggle.js`: `apply360()` hides every `.need360` element (Settings ▸ Calibration, `#calibSec`) and any open `#panoCalibPanel` while 360 is off.
 - Tests: new `test/map-float.js`; `ui-quick` A2/A3/A7/A8 check Calibration with 360; `bottom-overlap` gets a `mapfloat` state (map pushed into the bottom-right corner).
 
-## Liquid Glass: summary (tags `ui-glass-1` … `ui-glass-11`, rollback `pre-ui-glass-1` = 14da42e)
+## Liquid Glass: summary (tags `ui-glass-1` … `ui-glass-12`, rollback `pre-ui-glass-1` = 14da42e)
 What changed, in one place (details per step below):
 | Step | What | New files |
 |---|---|---|
@@ -705,6 +705,7 @@ What changed, in one place (details per step below):
 | 9 | Per-piece tint from the video under it (≥ 4.5:1 text); Lite mode (Auto / On / Off, `?lite=`) | `js/glass.js` |
 | 10 | Accessibility pass, export parity check, full test sweep, docs and screenshots | `test/ui-glass-10.js`, `test/glass-shots.js` |
 | 11 | Refraction glass (WebGL, SDF edges bend the video) as the default; frosted is the fallback; Glass style setting (`?refract=`) | `js/refract.js`, `css/refract.css`, `test/ui-glass-11.js` |
+| 12 | Clear demo glass + halo; pill to the bottom edge; full-screen corner pill; Debug mode; keyboard-aware sheets; system spelling | `js/debug.js`, `js/keyboard.js`, `js/i18n.js`, `test/ui-glass-12*.js` |
 
 - **Settings and overrides:** Glass `?glass=auto|clear|solid`; Glass style `?refract=1|0`; Auto-hide `?autohide=2|3|5|never`; Lite `?lite=auto|on|off|1|0`; Show 360 `?show360=1|0`. Overrides last one visit and are not saved.
 - **Unchanged:** every saved setting and its key, region storage (`tdc.regions.v1`) and the regions file, the export (byte-identical mdat for compatFill, compatOverlay and origPanel between `cee26b8` and `ui-glass-9`, same clip and settings), keyboard shortcuts.
@@ -715,6 +716,15 @@ What changed, in one place (details per step below):
 - The faintest text (`--faint`, #636b78: counts and small notes) can't reach 4.5:1 on any glass; the main labels and dim text do.
 - Refraction bends only the camera pictures; other things under a control (the map, HUD, page background) show as the page colour inside the glass (the frosted look is unchanged there).
 - Refraction is checked in headless Chromium (SwiftShader WebGL) and WebKit; real iPhone / Mac Safari performance needs a check on the device (it falls back to frosted by itself if playback drops frames).
+
+### ui-glass-12 (tag `ui-glass-12`; rollback `pre-ui-glass-12` = 792d343)
+- Glass: `js/refract.js` `R.DEMO` (clear, 22 % neutral tint, the demo's refraction; the video-following tint is a Debug option), `R.tune()`; `css/refract.css` text halo (also on buttons / outputs / kbd, which do not inherit text-shadow in Chromium). Frosted fallback unchanged.
+- Camera pill: `js/focus.js` float span reaches the window bottom (`bar-deep`); with a mouse the dock zone under the video is the strip's height, the bottom edge is a free spot; touch unchanged. Full-screen single camera: corner button (`F.fsOpen`, `body.fs-mini`), search strip hidden, `.wb-readout` moved; `js/car-view.js` uses the black band.
+- Debug mode: `js/debug.js` (new): `#debugSec` toggle, `#dbgTune` sliders, `#perfHud`, Lite threshold, Spelling. `js/core.js` prefs `debug`, `tune` (+ `lang`), `T.debugOverride` / `T.debugOn()`. `.dbg-only` (css/settings.css) hides WB technical rows (`js/wb.js` manual Kelvin / tint), calibration, models and recognition thresholds unless `html.debug-on`. The old Advanced pref now drives `body.simple` consistently.
+- Keyboard: `js/keyboard.js` (new): `--kb`, `--vvh`, `--vv-bottom`, `body.kb-typing` / `kb-up` from visualViewport while a text field in a sheet is focused (touch, or a keyboard > 40 px); `css/app.css` hides the transport / play bar / bubble / floating pill and fits Settings / Search above the keyboard.
+- Spelling: `js/i18n.js` (new, after core.js): `T.l10n` (`lang`, `spelling`, `t()`, `fold()`); converts page text and title / placeholder / aria-label / alt to US spelling when the system language is en-US or `en` (one MutationObserver; nothing when British). `js/settings-groups.js` search uses `fold()` so both spellings match. Debug-only `?lang=` / Settings ▸ Debug ▸ Spelling.
+- Tests: `test/ui-glass-12.js`, `test/ui-glass-12-keyboard.js`, `test/ui-glass-12-locale.js` (new); ui-glass-1/5/8/11, pill-dock, camera-bar-dock, color-constancy, recog-settings, white-balance, model-picker updated (Debug-only rows via `?debug=1`).
+- Export path untouched (byte-identical vs 1f2d5ca).
 
 ### ui-glass-11 (tag `ui-glass-11`; rollback `pre-ui-glass-11` = 5827c76)
 - `js/refract.js` (new, after `js/glass.js`): the labs/glass-sdf v5 prototype brought into the app. One shared offscreen WebGL1 canvas draws each piece — bubble, open tray items, camera pill, the timeline capsule (or the phone bar's row), the Events sheet and Settings — with a rounded-box SDF: bevel refraction, light blur, fresnel rim, hairline and top sheen; each piece's band is copied into a `<canvas class="rf-c">` inside the piece (behind its content, `pointer-events: none`, so taps and clicks go to the control as before; no pointer capture).
