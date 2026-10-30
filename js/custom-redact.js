@@ -347,12 +347,15 @@
         const sh = S.shape === "free" ? { shape: "poly", pts: live.pts.length >= 4 ? live.pts : null } : { shape: "rect", x: Math.min(live.pts[0], live.pts[live.pts.length - 2]), y: Math.min(live.pts[1], live.pts[live.pts.length - 1]), w: Math.abs(live.pts[live.pts.length - 2] - live.pts[0]), h: Math.abs(live.pts[live.pts.length - 1] - live.pts[1]) };
         if (sh.shape === "rect" || sh.pts) drawOutline(ctx, f, tr, sh, true);
         else { ctx.beginPath(); live.pts.forEach((v, i) => { if (i % 2) return; const [x, y] = G.toScreen(f, v, live.pts[i + 1]); i ? ctx.lineTo(x - tr.left, y - tr.top) : ctx.moveTo(x - tr.left, y - tr.top); }); ctx.lineWidth = 2; ctx.strokeStyle = "#ffd27a"; ctx.stroke(); }
-        // freehand: show tapped points as draggable handles
+        // freehand: show only key points (start, end, and tap points) — not every intermediate sample
         if (S.shape === "free" && live.pts.length >= 2) {
           ctx.fillStyle = "#ffd27a"; ctx.strokeStyle = "rgba(0,0,0,.8)"; ctx.lineWidth = 1.5;
-          for (let i = 0; i < live.pts.length; i += 2) {
+          const marks = new Set([0, live.pts.length - 2]);
+          if (live.strokes) for (const s of live.strokes) marks.add(s);
+          for (const i of marks) {
+            if (i < 0 || i >= live.pts.length) continue;
             const [x, y] = G.toScreen(f, live.pts[i], live.pts[i + 1]);
-            ctx.beginPath(); ctx.arc(x - tr.left, y - tr.top, 6, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+            ctx.beginPath(); ctx.arc(x - tr.left, y - tr.top, 5, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
           }
         }
       }
@@ -371,7 +374,7 @@
       const f = G.screenFit(cam); if (!f) return false;
       const [u, v] = G.toRaw(f, x, y);
       // freehand: single point; box: two points for the rect
-      S.live = { pts: S.shape === "free" ? [u, v] : [u, v, u, v], f, c0: [x, y], cb: [x, y, x, y] };
+      S.live = { pts: S.shape === "free" ? [u, v] : [u, v, u, v], strokes: [0], f, c0: [x, y], cb: [x, y, x, y] };
       UI.avoidBar(x, y, S.live.cb);
       kick(); return true;
     }
@@ -412,7 +415,7 @@
           // continue the same shape: add the drag start point, then pointermove adds more
           const f = G.screenFit(cam) || S.live.f, [u, v] = G.toRaw(f, p0.x, p0.y);
           const pts = S.live.pts;
-          if (pts.length < 4000) pts.push(u, v);
+          if (pts.length < 4000) { if (!S.live.strokes) S.live.strokes = [0]; S.live.strokes.push(pts.length); pts.push(u, v); }
           S.live.last = [u, v];
         } else if (!begin(p0.x, p0.y)) { id = null; try { cv.releasePointerCapture(e.pointerId); } catch (_) {} return; }
       }
@@ -454,7 +457,7 @@
             return;
           }
           // always add the point; nearLast only skips if it's truly the same spot and we already have points
-          if (pts.length < 4000 && !(nearLast && pts.length > 2)) pts.push(u, v);
+          if (pts.length < 4000 && !(nearLast && pts.length > 2)) { if (!S.live.strokes) S.live.strokes = [0]; S.live.strokes.push(pts.length); pts.push(u, v); }
           S.live.last = [u, v];
           msg("Tap to add points. Double-tap or tap near the start to finish.");
           UI.sync(); kick();
@@ -541,9 +544,20 @@
     G.update(r.id, sh.shape === "poly" ? { pts: sh.pts.map((t, i) => t + (i % 2 ? dv : du)) } : { x: r.x + du, y: r.y + dv });
   };
   /** Undo / redo: an unsaved shape first (it is not in the list yet), then the region history. */
-  UI.canUndo = () => !!(S.draft && !S.editId) || G.canUndo();
+  UI.canUndo = () => !!(S.draft && !S.editId) || (S.shape === "free" && S.live && S.live.pts && S.live.pts.length > 2) || G.canUndo();
   UI.canRedo = () => !!(S.undone && !S.draft) || G.canRedo();
   UI.undo = () => {
+    // while drawing freehand: undo removes the last stroke (tap or drag segment)
+    if (S.shape === "free" && S.live && S.live.pts && S.live.pts.length > 2 && S.drawing) {
+      const st = S.live.strokes || [0];
+      const cut = st.length > 1 ? st.pop() : 0;
+      S.live.pts.length = Math.max(2, cut);
+      if (S.live.pts.length <= 2) { S.live = null; msg("Shape cleared."); }
+      else msg("Last point undone.");
+      UI.sync(); kick();
+      if (R && R.paint) R.paint();
+      return true;
+    }
     if (S.draft && !S.editId && !S.move) { S.undone = S.draft; S.draft = null; S.drawing = !!S.cam; msg("Shape undone."); UI.sync(); kick(); return true; }
     if (G.undo()) { msg("Undone."); kick(); return true; }
     return false;
