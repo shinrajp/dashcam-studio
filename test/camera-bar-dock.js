@@ -43,7 +43,7 @@ async function load(b, vp) {
   await d.evaluate(() => TDC.focus.grid()); await W(300);
   // drag the grip below the video -> bottom
   const gr = await d.$eval("#barGrip", (e) => { const r = e.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; });
-  await d.mouse.move(gr.x, gr.y); await d.mouse.down(); await d.mouse.move(gr.x, gr.y + 300, { steps: 6 }); await d.mouse.move(gr.x, 860, { steps: 6 }); await d.mouse.up(); await W(400);
+  await d.mouse.move(gr.x, gr.y); await d.mouse.down(); await d.mouse.move(gr.x, gr.y + 300, { steps: 6 }); await d.mouse.move(gr.x, Math.min(860, (await d.$eval("#stage", (e) => e.getBoundingClientRect().bottom)) + 40), { steps: 6 }); await d.mouse.up();   // (ui-glass-12: just under the video; the window's bottom edge is a free spot now) await W(400);
   g = await geo(d); ok("drag grip down: dock moves below the video", g.side === "bottom" && g.bar.t >= g.stage.b - 1 && !g.overlap, g);
   // map beside + bar beside together
   await d.evaluate(() => { TDC.setPref("mapDock", "aside"); TDC.ui.fit(); }); await W(500); g = await geo(d);

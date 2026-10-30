@@ -622,7 +622,10 @@
   function nearBottom(x, y) {
     const z = bottomZone(); if (!z) return false;
     const inX = x >= z.l - 24 && x <= z.r + 24;
-    if (inX && y >= z.top && y <= z.bottom + 8) return true;
+    // (ui-glass-12, mouse: the zone reaches the strip's own height below the video; further down is the free spot by the window's
+    // bottom edge. Touch keeps the old zone: on a phone, just under the video is where a floated pill is put.)
+    const bh = Math.max(44, $("stageBar").offsetHeight), wide = !matchMedia("(pointer: coarse)").matches;
+    if (inX && y >= z.top && y <= (wide ? Math.max(z.bottom + 8, Math.min(innerHeight - bh / 2, z.bottom + bh + 40)) : z.bottom + 8)) return true;
     const b = $("stageBar").getBoundingClientRect();
     return b.right > z.l + 8 && b.left < z.r - 8 && b.bottom > z.top + 8 && b.top < z.bottom - 4;
   }

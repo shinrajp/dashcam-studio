@@ -48,7 +48,8 @@ async function run(b, BR, dev) {
   for (const [k, from] of [["A", "below the video"], ["B", "on the video (top)"]]) {
     if (k === "B") { await p.evaluate(() => { TDC.focus.setBarDock("over"); }); await W(500); }
     const g = await R(p, "#barGrip"), st = await R(p, "#stage");
-    const mid = await drag(p, [g.cx, g.cy], [g.cx + 30, k === "A" ? dev.h - 6 : Math.min(dev.h - 6, st.b + 60)], async () => { const h = await HINT(p); const s = await SHAPE(p); if (k === "A") await shot(p, dev.name + "-dragging"); return { h, s }; });
+    // (ui-glass-12: released below the bottom controls it floats by the window's bottom edge instead, see test/ui-glass-12.js; so let go just under the video)
+    const mid = await drag(p, [g.cx, g.cy], [g.cx + 30, Math.min(dev.h - 6, k === "A" ? g.cy + 40 : st.b + 30)], async () => { const h = await HINT(p); const s = await SHAPE(p); if (k === "A") await shot(p, dev.name + "-dragging"); return { h, s }; });
     await p.mouse.move(dev.w - 5, 5); await W(300);
     const s = await ST(p), bar = await R(p, "#stageBar"), st2 = await R(p, "#stage"), side = await p.evaluate(() => TDC.prefs.cameraBar.side);
     if (k === "A") await shot(p, dev.name + "-released");
