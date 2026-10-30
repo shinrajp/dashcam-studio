@@ -411,9 +411,28 @@
       if (id !== e.pointerId) return;
       e.stopPropagation(); id = null;
       try { cv.releasePointerCapture(e.pointerId); } catch (_) {}
-      if (pend) {   // a tap: this camera is the one. It is enlarged (easier to aim, easier on a phone) and the drag is armed on it
+      if (pend) {   // a tap
         pend = null; hot(cam, false);
-        if (e.type !== "pointercancel") choose(cam, "tap");
+        if (e.type === "pointercancel") return;
+        // freehand: tap adds a point (non-continuous); double-tap or close to start completes
+        if (S.drawing && S.shape === "free" && S.cam === cam && S.live) {
+          const f = G.screenFit(cam) || S.live.f, [u, v] = G.toRaw(f, e.clientX, e.clientY);
+          const p = S.live.pts;
+          const lx = p[p.length - 2], ly = p[p.length - 1];
+          const nearStart = p.length >= 6 && Math.hypot((u - p[0]) * f.w, (v - p[1]) * f.h) < 16;
+          const nearLast = Math.hypot((u - lx) * f.w, (v - ly) * f.h) < 8;
+          if (nearStart || (e.detail >= 2 && p.length >= 6)) {
+            finishShape(cam, S.live);
+            return;
+          }
+          if (!nearLast && p.length < 4000) p.push(u, v);
+          S.live.last = [u, v];
+          msg("Tap to add points. Double-tap or tap near the start to finish.");
+          UI.sync(); kick();
+          if (R && R.paint) R.paint();
+          return;
+        }
+        if (!S.drawing || S.cam !== cam) choose(cam, "tap");
         return;
       }
       const live = S.live; S.live = null;

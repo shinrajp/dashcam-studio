@@ -461,9 +461,10 @@
     // compact preference: "auto" (mobile/coarse → compact, desktop → expanded), "compact", or "expanded"
     const cp = (CB().compact || "auto");
     const wantCompact = cp === "compact" || (cp === "auto" && (matchMedia("(pointer: coarse)").matches || Math.min(innerWidth, innerHeight) < 700));
-    if (fl || wantCompact) bar.classList.add("pill-compact");
+    const forceExpanded = cp === "expanded";
+    if (!forceExpanded && (fl || wantCompact)) bar.classList.add("pill-compact");
     if (!over()) return;
-    bar.classList.add("pill-compact");
+    if (!forceExpanded) bar.classList.add("pill-compact");
     if (!over()) return;
     // two rows: the cameras on the first, the grip and the tools on the second; as wide as the longer row (never wider than allowed)
     const cs = getComputedStyle(bar), padH = parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight) + 2, g = gapOf("columnGap");
@@ -874,7 +875,7 @@
         const cp = CB().compact || "auto";
         const on = cp === "compact" || (cp === "auto" && (matchMedia("(pointer: coarse)").matches || Math.min(innerWidth, innerHeight) < 700));
         bc.setAttribute("aria-pressed", String(on));
-        bc.querySelector("span").textContent = on ? "Expanded" : "Compact";
+        bc.querySelector("span").textContent = on ? "Compact" : "Expanded";
         bc.title = on ? "Switch to expanded camera bar (names)" : "Switch to compact camera bar (icons)";
       };
       bc.addEventListener("pointerdown", (e) => e.stopPropagation());

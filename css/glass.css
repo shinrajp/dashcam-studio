@@ -6,7 +6,7 @@
   --g-rgb: 16, 18, 24;          /* tint colour */
   --g-a: .70;                   /* tint opacity (Automatic: js/glass.js, 0.62 .. 0.9) */
   --g-text: #f0f4fa;            /* adaptive: dark on light tint, light on dark tint */
-  --g-blur: 22px;
+  --g-blur: 12px;   /* ui-perf: lower for 60fps; manual slider can raise it */
   --g-sheen: radial-gradient(140% 100% at 0% 0%, rgba(255,255,255,.10), rgba(255,255,255,0) 55%);
   --g-rim: inset 0 1px 0 rgba(255,255,255,.20), inset 0 0 0 1px rgba(255,255,255,.07);
   --g-shadow: 0 10px 30px rgba(0,0,0,.34), 0 2px 8px rgba(0,0,0,.24);

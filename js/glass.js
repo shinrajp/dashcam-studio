@@ -19,7 +19,7 @@
 (function () {
   "use strict";
   const T = window.TDC; if (!T) return;
-  const MODES = ["auto", "clear", "solid"], BLUR_MAX = 3, root = document.documentElement;
+  const MODES = ["auto", "clear", "solid"], BLUR_MAX = 2, root = document.documentElement;   // ui-perf: 2 concurrent blurs for 60fps
   const G = (T.glass = { mode: "auto", effective: "auto", luma: -1, alpha: 0, blurred: [] });
   const mq = (q) => { try { return window.matchMedia(q); } catch (_) { return null; } };
   const mRT = mq("(prefers-reduced-transparency: reduce)"), mRM = mq("(prefers-reduced-motion: reduce)");
