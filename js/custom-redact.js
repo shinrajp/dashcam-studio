@@ -408,16 +408,20 @@
       e.stopPropagation();
       if (id !== null || (e.pointerType === "mouse" && e.button !== 0)) return;
       if (S.move && cam === S.cam) { moveDown(cam, e); return; }
+      // Track mode: always capture the gesture, even if no camera chosen yet
+      if (S.track) {
+        e.preventDefault(); id = e.pointerId; try { cv.setPointerCapture(id); } catch (_) {}
+        pend = { x: e.clientX, y: e.clientY, track: true, cam }; return;
+      }
       if (S.pick || (S.drawing && S.cam !== cam)) {   // no camera chosen yet (or another camera of the grid): wait to see whether this is a tap or a drag
         if (!S.pick && !S.drawing) return;
         e.preventDefault(); id = e.pointerId; try { cv.setPointerCapture(id); } catch (_) {}
         pend = { x: e.clientX, y: e.clientY }; hot(cam, true); return;
       }
-      if (!S.drawing && !S.track) return;
+      if (!S.drawing) return;
       const f = G.screenFit(cam); if (!f) return;
       e.preventDefault(); id = e.pointerId;
       try { cv.setPointerCapture(id); } catch (_) {}
-      if (S.track) { pend = { x: e.clientX, y: e.clientY, track: true }; return; }
       // freehand: press on a key point moves it; otherwise short press adds a point, drag continues
       if (S.shape === "free") {
         if (S.live && S.live.pts.length >= 2) {
@@ -485,11 +489,13 @@
       if (S.live && S.live.dragIdx != null) { S.live.dragIdx = null; kick(); return; }
       if (pend && pend.track) {
         const p0 = pend; pend = null;
-        const f = G.screenFit(cam); if (!f) return;
+        const tc = p0.cam || cam;
+        const f = G.screenFit(tc); if (!f) { msg("Camera not ready.", true); return; }
         const [u, v] = G.toRaw(f, p0.x, p0.y);
         const [u2, v2] = G.toRaw(f, e.clientX, e.clientY);
-        const x = Math.min(u, u2), y = Math.min(v, v2), w = Math.max(0.05, Math.abs(u2 - u)), h = Math.max(0.05, Math.abs(v2 - v));
-        trackAt(cam, x, y, w, h);
+        const x = Math.min(u, u2), y = Math.min(v, v2), w = Math.max(0.02, Math.abs(u2 - u)), h = Math.max(0.02, Math.abs(v2 - v));
+        S.cam = tc;
+        trackAt(tc, x, y, w, h);
         return;
       }
       if (pend) {   // a tap
