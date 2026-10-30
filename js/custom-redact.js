@@ -678,7 +678,7 @@
       }
       if (!best || bestDist > 0.4) { msg("No object close enough to your circle. Try circling it more tightly.", true); return; }
       const r = G.add({ cam, shape: "rect", x: best.x, y: best.y, w: best.w, h: best.h, mode: S.mode, on: true });
-      if (r) { S.trackId = r.id; S.trackLabel = best.label; msg("Tracking " + (best.label || "object") + " (" + Math.round(best.conf * 100) + "%). Play the video — it follows."); UI.sync(); kick(); }
+      if (r) { S.trackId = r.id; S.trackLabel = best.label; S.trackCam = cam; msg("Tracking " + (best.label || "object") + " (" + Math.round(best.conf * 100) + "%). Play to follow."); showTrackStatus("Tracking " + (best.label || "object")); UI.sync(); kick(); }
     } catch (e) { msg("Detection failed: " + (e.message || e), true); }
   }
   // update tracked region: prefer live dets, fall back to re-detecting the current frame
@@ -705,12 +705,21 @@
       const score = labelBonus - dist;
       if (score > bestScore && dist < 0.8) { bestScore = score; best = d; }
     }
-    if (best && (Math.abs(best.x - r.x) > 0.005 || Math.abs(best.y - r.y) > 0.005 || Math.abs(best.w - r.w) > 0.005)) {
+    if (best && (Math.abs(best.x - r.x) > 0.003 || Math.abs(best.y - r.y) > 0.003 || Math.abs(best.w - r.w) > 0.003)) {
       G.update(r.id, { x: best.x, y: best.y, w: best.w, h: best.h });
-      if (R && R.paint) R.paint();
-    }
+      showTrackStatus("Tracking " + (S.trackLabel || "object") + " · moving");
+    } else if (best) showTrackStatus("Tracking " + (S.trackLabel || "object") + " · holding");
+    else showTrackStatus("Tracking " + (S.trackLabel || "object") + " · lost");
   }
-  setInterval(followTrack, 300);
+  function showTrackStatus(s) {
+    let n = document.getElementById("trackStatus");
+    if (!n) { n = document.createElement("div"); n.id = "trackStatus"; n.style.cssText = "position:fixed;top:60px;left:50%;transform:translateX(-50%);z-index:80;background:rgba(20,24,32,.9);color:#ffe3a3;padding:6px 12px;border-radius:8px;font-size:13px;pointer-events:none;"; document.body.appendChild(n); }
+    n.textContent = s; n.hidden = !s;
+  }
+  // hook into frame paint so follow runs every frame the video paints
+  const origPaint = R && R.paint;
+  if (R) R.paint = function() { if (origPaint) origPaint.apply(this, arguments); followTrack(); };
+  setInterval(followTrack, 400);
 
   /** Done: saves a drawn shape; in Move it simply closes the tray (the moves are already saved, and undoable). */
   UI.done = () => {
