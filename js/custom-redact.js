@@ -390,20 +390,8 @@
       const f = G.screenFit(cam); if (!f) return;
       e.preventDefault(); id = e.pointerId;
       try { cv.setPointerCapture(id); } catch (_) {}
-      // freehand: check if near an existing point (drag it) or add a new one
+      // freehand: short press adds a point, drag continues the same open shape
       if (S.shape === "free") {
-        if (S.live && S.live.pts.length >= 2) {
-          const f2 = G.screenFit(cam) || S.live.f;
-          const R = e.pointerType === "mouse" ? 12 : 22;
-          for (let i = S.live.pts.length - 2; i >= 0; i -= 2) {
-            const [sx, sy] = G.toScreen(f2, S.live.pts[i], S.live.pts[i + 1]);
-            if (Math.hypot(sx - e.clientX, sy - e.clientY) <= R) {
-              S.live.dragIdx = i;
-              id = e.pointerId; try { cv.setPointerCapture(id); } catch (_) {}
-              return;
-            }
-          }
-        }
         pend = { x: e.clientX, y: e.clientY, freeTap: true };
         return;
       }
@@ -411,18 +399,11 @@
     });
     cv.addEventListener("pointermove", (e) => {
       if (id !== e.pointerId) return;
-      if (S.live && S.live.dragIdx != null) {
-        e.stopPropagation(); e.preventDefault();
-        const f = G.screenFit(cam) || S.live.f, [u, v] = G.toRaw(f, e.clientX, e.clientY);
-        S.live.pts[S.live.dragIdx] = u; S.live.pts[S.live.dragIdx + 1] = v;
-        S.live.last = [u, v];
-        kick(); return;
-      }
       if (pend) {   // a drag that starts on a camera: that camera is the one, and the stroke goes on right there
         e.stopPropagation(); e.preventDefault();
         const dist = Math.hypot(e.clientX - pend.x, e.clientY - pend.y);
-        // freehand: require a deliberate drag (40px) before it becomes a continuous stroke; otherwise stay a tap
-        const need = pend.freeTap ? 40 : SLOP(e);
+        // freehand: a short move stays a tap; a drag continues the same shape
+        const need = pend.freeTap ? 12 : SLOP(e);
         if (dist < need) return;
         const p0 = pend; pend = null;
         S.cam = cam; S.pick = false; S.draft = null; S.drawing = true; hot(cam, false);
@@ -452,7 +433,6 @@
       if (id !== e.pointerId) return;
       e.stopPropagation(); id = null;
       try { cv.releasePointerCapture(e.pointerId); } catch (_) {}
-      if (S.live && S.live.dragIdx != null) { S.live.dragIdx = null; kick(); return; }
       if (pend) {   // a tap
         const wasFreeTap = pend.freeTap;
         pend = null; hot(cam, false);
