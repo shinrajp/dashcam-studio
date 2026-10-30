@@ -33,7 +33,7 @@ async function drag(p, from, to, peek) {
   await W(120); const got = peek ? await peek() : null; await p.mouse.up(); await W(400); return got;
 }
 const R = (p, sel) => p.evaluate((s) => { const e = document.querySelector(s); if (!e || !e.getClientRects().length) return null; const r = e.getBoundingClientRect(); return { l: r.left, t: r.top, r: r.right, b: r.bottom, w: r.width, h: r.height, cx: r.left + r.width / 2, cy: r.top + r.height / 2 }; }, sel);
-const GLASS = () => { const R_ = TDC.refract; return { on: R_.on, tune: R_.tune(), demo: R_.DEMO, pieces: R_.pieces.map((x) => ({ id: x.host.id || x.host.className.split(" ")[0], a: x.host._rft && +x.host._rft.a.toFixed(3), demo: !!(x.host._rft && x.host._rft.demo),
+const GLASS = () => { const R_ = TDC.refract; return { on: R_.on, tune: R_.tune(), demo: R_.DEMO, pieces: R_.pieces.map((x) => ({ id: x.host.id || x.host.className.split(" ")[0], kind: x.kind, a: x.host._rft && +x.host._rft.a.toFixed(3), demo: !!(x.host._rft && x.host._rft.demo),
   // text: a text-shadow halo; icons: an svg drop-shadow (light / active buttons excepted, like the demo)
   halo: (() => { const lit = (e) => !!e.closest(".on, .active, [aria-pressed='true'], [aria-checked='true'], .primary, input, select");
     const txt = [...x.host.querySelectorAll("*")].filter((e) => e.getClientRects().length && !lit(e) && [...e.childNodes].some((n) => n.nodeType === 3 && n.textContent.trim()));
@@ -62,7 +62,7 @@ async function run(b, BR) {
     let { ctx, p } = await mk(vw, vh, touch);
     await open(p, "", { tune: { rfStr: 2.2, rfTint: 0.7, rfBlur: 9, rfAdaptive: true, liteFps: 55, perfHud: true, wbK: 3000, wbTint: 20 } });
     let g = await p.evaluate(GLASS);
-    ok(T + " 1 demo glass: refraction on, every piece the demo tint 0.22 (no video-following tint), demo strength / blur", g.on && g.pieces.length >= 2 && g.pieces.every((x) => x.a === 0.22 && x.demo) && g.tune.str === g.demo.str && g.tune.blur === g.demo.blur && g.tune.tint === 0.22, g);
+    ok(T + " 1 demo glass: refraction on, every piece the demo tint 0.22 (no video-following tint), demo strength / blur", g.on && g.pieces.length >= 2 && g.pieces.every((x) => x.a === (x.kind === "sheet" ? 0.72 : 0.22) && x.demo) && g.tune.str === g.demo.str && g.tune.blur === g.demo.blur && g.tune.tint === 0.22, g);
     ok(T + " 1 text and icons on the glass have the demo's halo (text-shadow / drop-shadow)", g.pieces.every((x) => x.halo), g.pieces);
     let d = await p.evaluate(() => { const vis = (s) => { const e = document.querySelector(s); return !!e && e.getClientRects().length > 0; }; document.getElementById("settings").hidden = false; TDC.settings.show("advanced");
       return { on: TDC.debugOn(), cls: document.documentElement.classList.contains("debug-on"), toggle: vis("#debugToggle"), tune: vis("#dbgTune"), calib: vis("#calibSec"), models: vis("#setModelsSec"), adv: vis("#recogAdv"), wbK: vis("#wbK"), hud: vis("#perfHud"), manual: TDC.wb.manual(), slow: TDC.refract.SLOW, simple: document.body.classList.contains("simple") }; });
@@ -70,16 +70,17 @@ async function run(b, BR) {
     // turn it on with the real switch
     await p.click("#debugToggle"); await W(500);
     d = await p.evaluate(() => { const vis = (s) => { const e = document.querySelector(s); return !!e && e.getClientRects().length > 0; }; return { on: TDC.debugOn(), saved: JSON.parse(localStorage.getItem("tdc.prefs.v1")).debug, cls: document.documentElement.classList.contains("debug-on"), tune: vis("#dbgTune"), models: vis("#setModelsSec"), hud: vis("#perfHud"), manual: TDC.wb.manual(), slow: TDC.refract.SLOW, t: TDC.refract.tune(), a: TDC.refract.pieces.map((x) => !!(x.host._rft && x.host._rft.demo)) }; });
-    ok(T + " 4 the Debug mode switch turns it on (saved), shows the tuning and the model picker, and the saved tuning now applies (perf overlay, manual WB, Lite fps, adaptive tint)", d.on && d.saved === true && d.cls && d.tune && d.models && d.hud && d.manual && d.manual.k === 3000 && d.slow === 55 && d.t.tint === 0.7 && d.a.every((x) => x === false), d);
+    ok(T + " 4 the Debug mode switch turns it on (saved), shows the tuning and the model picker, and the saved tuning now applies (perf overlay, manual WB, Lite fps, adaptive tint)", d.on && d.saved === true && d.cls && d.tune && d.models && d.hud && d.manual && d.manual.k === 3000 && d.slow === 55 && d.t.tint === 0.22 /* ui-glass-13: tint moved to Settings ▸ Appearance, a stale Debug rfTint no longer applies */ && d.a.every((x) => x === false), d);
     await W(1200); const hud = await p.evaluate(() => (document.getElementById("perfHud") || {}).textContent || "");
     ok(T + " 4 the perf overlay shows fps and the refraction time", /\d+ fps/.test(hud) && /refraction|frosted/.test(hud), hud);
     await p.evaluate(() => { TDC.wb.set(true); }); await W(600);
     const wbt = await p.evaluate(() => ({ cur: TDC.wb.current(), text: TDC.wb.text() }));
     ok(T + " 4 Debug ▸ colour temperature 3000 K sets the viewer's white balance (Manual)", wbt.cur && wbt.cur.manual && wbt.cur.cct === 3000 && /3000 K/.test(wbt.text), wbt);
     // Debug tuning sliders
-    await p.evaluate(() => { const i = document.getElementById("dbgRfAdaptive"); if (i.checked) i.click(); const t = document.getElementById("dbgRfTint"); t.value = "0.4"; t.dispatchEvent(new Event("input", { bubbles: true })); }); await W(500);
+    await p.evaluate(() => { const i = document.getElementById("dbgRfAdaptive"); if (i.checked) i.click(); const t = document.getElementById("gtTint"); t.value = "0.4"; t.dispatchEvent(new Event("input", { bubbles: true })); }); await W(500);
     g = await p.evaluate(GLASS);
-    ok(T + " 4 Debug ▸ Glass tint 40 % (adaptive off) tints every piece 0.4", g.pieces.length >= 2 && g.pieces.every((x) => x.a === 0.4 && x.demo), g);
+    ok(T + " 4 Appearance ▸ Tint 40 % (Debug adaptive off) tints every control 0.4, the Settings sheet keeps its panel opacity (ui-glass-13)", g.pieces.length >= 2 && g.pieces.every((x) => x.a === (x.kind === "sheet" ? 0.72 : 0.4) && x.demo), g);
+    await p.evaluate(() => TDC.glassTune.reset()); await W(300);
     // advanced pref: body.simple follows it whoever sets it, no drawing error
     const adv = await p.evaluate(async () => { const r = []; for (const v of [true, false, true, false]) { TDC.setPref("advanced", v); await new Promise((f) => setTimeout(f, 120)); if (TDC.ui.drawTimeline) TDC.ui.drawTimeline(); r.push(document.body.classList.contains("simple") === !v && document.getElementById("advToggle").checked === v); } return r; });
     ok(T + " 4 prefs.advanced set from code always matches body.simple and the switch (the old Advanced bug), the timeline still draws", adv.every(Boolean), adv);
@@ -87,7 +88,7 @@ async function run(b, BR) {
     await p.evaluate(() => { document.getElementById("settings").hidden = false; TDC.settings.show("advanced"); }); await W(200);
     await p.click("#debugToggle"); await W(500);
     d = await p.evaluate(() => ({ on: TDC.debugOn(), cls: document.documentElement.classList.contains("debug-on"), hud: !!document.getElementById("perfHud") && !document.getElementById("perfHud").hidden, manual: TDC.wb.manual(), cur: TDC.wb.current(), a: TDC.refract.pieces.map((x) => x.host._rft && x.host._rft.a), slow: TDC.refract.SLOW }));
-    ok(T + " 4 Debug off again: simple, the tuning is ignored (demo tint, no overlay, no manual WB, Lite 40 fps)", !d.on && !d.cls && !d.hud && d.manual === null && !(d.cur && d.cur.manual) && d.a.every((x) => x === 0.22) && d.slow === 40, d);
+    ok(T + " 4 Debug off again: simple, the tuning is ignored (demo tint, no overlay, no manual WB, Lite 40 fps)", !d.on && !d.cls && !d.hud && d.manual === null && !(d.cur && d.cur.manual) && d.a.every((x) => x === 0.22 || x === 0.72) && d.slow === 40, d);
     // Debug-off fit: each group still fits without scrolling
     const fit = await p.evaluate(async () => { const out = []; for (const g of ["playback", "appearance", "overlays", "redact", "export", "advanced", "keys"]) { TDC.settings.show(g); await new Promise((f) => setTimeout(f, 120)); const b = document.querySelector("#settings .drawer-body"); out.push({ g, ok: b.scrollHeight <= b.clientHeight + 2, sh: b.scrollHeight, ch: b.clientHeight }); } return out; });
     ok(T + " 4 with Debug off every Settings group fits without scrolling", fit.every((f) => f.ok), fit);
