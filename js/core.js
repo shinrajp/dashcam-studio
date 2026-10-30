@@ -45,7 +45,7 @@
     },
     export: { preset: "compat", codec: "h264", res: "native", range: "full", extras: "auto", order: "viewer" },   // extras: auto | overlay | fill | panel (auto = Fill black area when the picture has one, else Add panel); order: viewer | standard
     rate: 1,
-    cameraBar: { on: true, hintSeen: false, dock: "over", side: "top", grid: { fx: -1, fy: -1 }, focus: { fx: -1, fy: -1 }, from: "over", float: { fx: -1, fy: -1 } },   // dock: over | beside | float (ui-glass-5: anywhere in the window; from = where it docks back; float = left / top as fractions of the free window area)
+    cameraBar: { on: true, hintSeen: false, dock: "over", side: "top", compact: "auto", grid: { fx: -1, fy: -1 }, focus: { fx: -1, fy: -1 }, from: "over", float: { fx: -1, fy: -1 } },   // dock: over | beside | float (ui-glass-5: anywhere in the window; from = where it docks back; float = left / top as fractions of the free window area)
     cue: true,   // hand-off cue (js/handoff.js)
     carView: false,   // top-down car with tracked people (js/car-view.js)
     carPanel: { pinned: false, collapsed: false, w: 0, fx: -1, fy: -1 },   // floating car view: pinned = locked, w = width px (0 = default), fx/fy = left/top as fractions of the window (-1 = default corner)

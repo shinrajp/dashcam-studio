@@ -458,9 +458,10 @@
     const kids = () => [...bar.children].filter((c) => c.id !== "barHint" && c.getClientRects().length);
     const gapOf = (prop) => parseFloat(getComputedStyle(bar)[prop]) || 0;
     const over = () => bar.scrollWidth > bar.clientWidth + 1;
-    // ui-glass-7: a floating pill is always the compact one (icon-only chips, no 1–6 badges): over the video it must stay small,
-    // never the full labelled strip (the window is wider than the video, so the full layout would fit and sprawl over the cameras)
-    if (fl) bar.classList.add("pill-compact");
+    // compact preference: "auto" (mobile/coarse → compact, desktop → expanded), "compact", or "expanded"
+    const cp = (CB().compact || "auto");
+    const wantCompact = cp === "compact" || (cp === "auto" && (matchMedia("(pointer: coarse)").matches || Math.min(innerWidth, innerHeight) < 700));
+    if (fl || wantCompact) bar.classList.add("pill-compact");
     if (!over()) return;
     bar.classList.add("pill-compact");
     if (!over()) return;
@@ -500,7 +501,8 @@
     }
     if (refocus && document.activeElement !== refocus && refocus.isConnected) try { refocus.focus({ preventScroll: true }); } catch (e) {}
     const btn = $("btnBarDock");
-    if (btn) {
+    if (btn) btn.hidden = true;   // dock is automatic now (drag into video to float; drop near edge to dock)
+    if (false && btn) {
       const on = CB().dock === "beside";
       btn.setAttribute("aria-pressed", String(on || fl));
       btn.querySelector("span").textContent = fl ? "Dock" : on ? "On video" : "Beside video";
@@ -706,8 +708,15 @@
       if (!d.moved && Math.hypot(dx, dy) < 5) return;
       d.moved = true;
       if (!F.barFloating()) {
-        if (!outOf(e.clientX, e.clientY)) {
-          if (F.barDocked()) { bar.style.transform = "translateY(" + Math.round(dy) + "px)"; return; }   // docked: drag up/down to switch side
+        // docked: any drag that leaves the dock strip (or enters the video) floats it
+        if (F.barDocked()) {
+          const st = stage().getBoundingClientRect();
+          const intoVideo = e.clientX >= st.left && e.clientX <= st.right && e.clientY >= st.top && e.clientY <= st.bottom;
+          if (!intoVideo && !outOf(e.clientX, e.clientY)) {
+            bar.style.transform = "translateY(" + Math.round(dy) + "px)"; return;   // still in dock: switch side
+          }
+          // leaving the dock or entering the video → float
+        } else if (!outOf(e.clientX, e.clientY)) {
           const s = spans();
           bar.classList.add("moved");
           bar.style.left = Math.round(T.clamp(d.l + dx, MARGIN, MARGIN + s.sx)) + "px";
@@ -858,6 +867,27 @@
     $("chipCamBar").addEventListener("click", () => F.setBar(F.fsMiniAt() ? !F.fsOpen : !F.barOn()));
     $("btnBarDock").addEventListener("pointerdown", (e) => e.stopPropagation());
     $("btnBarDock").addEventListener("click", (e) => { e.stopPropagation(); if (CB().dock === "float") F.dockBar(); else F.setBarDock(CB().dock === "beside" ? "over" : "beside"); });
+    // compact / expanded toggle (auto on mobile, expanded on desktop; click cycles)
+    const bc = $("btnBarCompact");
+    if (bc) {
+      const syncC = () => {
+        const cp = CB().compact || "auto";
+        const on = cp === "compact" || (cp === "auto" && (matchMedia("(pointer: coarse)").matches || Math.min(innerWidth, innerHeight) < 700));
+        bc.setAttribute("aria-pressed", String(on));
+        bc.querySelector("span").textContent = on ? "Expanded" : "Compact";
+        bc.title = on ? "Switch to expanded camera bar (names)" : "Switch to compact camera bar (icons)";
+      };
+      bc.addEventListener("pointerdown", (e) => e.stopPropagation());
+      bc.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const cur = CB().compact || "auto";
+        const next = cur === "compact" ? "expanded" : "compact";
+        T.setPref("cameraBar.compact", next);
+        syncC(); fitPill();
+      });
+      syncC();
+      addEventListener("resize", syncC);
+    }
     if ($("barAside")) $("barAside").addEventListener("change", (e) => F.setBarDock(e.target.checked ? "beside" : "over"));
     document.querySelectorAll("#segBarSide button").forEach((b) => b.addEventListener("click", () => F.setBarDock(null, b.dataset.v)));
     T.on("layout", placeDock);

@@ -52,3 +52,6 @@ body.cr-drawing .stage-bar.pill-wrap:not(.bar-floating) { opacity: 0.25; transit
 /* ui-glass-6: a floating map you drag down to the window bottom passes behind the desktop transport bar (its grip stays above it),
    so the timeline and buttons stay usable; the Settings drawer (30), bubble, dialogs and toasts stay on top */
 body.map-float:not(.mbar) .transport { position: relative; z-index: 29; }
+/* compact toggle */
+.stage-bar .bar-compact-btn { min-width: 0; }
+.stage-bar.pill-compact .bar-compact-btn span { display: none; }
