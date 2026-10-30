@@ -686,17 +686,11 @@
   async function followTrack() {
     if (trackBusy || !S.trackId || !T.detect || !T.player) return;
     const r = G.list.find((x) => x.id === S.trackId); if (!r) { S.trackId = null; return; }
-    const cam = r.cam;
-    let dets = (T.detect.live && T.detect.live[cam] && T.detect.live[cam].dets) || [];
-    // if no live dets, re-detect the current frame
-    if (!dets.length) {
-      const v = T.player.tiles && T.player.tiles[cam] && T.player.tiles[cam].video;
-      if (v && T.detect.detectImage) {
-        trackBusy = true;
-        try { dets = await T.detect.detectImage(v, v.videoWidth, v.videoHeight, { conf: 0.15 }) || []; } catch (_) {}
-        trackBusy = false;
-      }
-    }
+    const cam = r.cam, t = T.player.time;
+    // use interpolated live boxes (same ones drawn on screen) so the region follows smoothly
+    let dets = [];
+    if (T.detect.liveAt) { const lv = T.detect.liveAt(cam, t); if (lv && lv.dets) dets = lv.dets; }
+    if (!dets.length && T.detect.live && T.detect.live[cam]) dets = T.detect.live[cam].dets || [];
     if (!dets.length) return;
     let best = null, bestScore = -999;
     for (const d of dets) {
