@@ -2,7 +2,7 @@
 // the Events sheet and Settings, with today's frosted glass as the fallback. At 1440x900 (mouse) and 430x932 (touch):
 //   1  on by default: html.refract, one WebGL context, every visible piece drawn (canvas inside the piece, same box; capsule = its ::before box)
 //   2  the tray, the Events sheet and Settings get refraction when open
-//   3  readable: over a bright scene the drawn glass under the text is >= 4.5:1 against the glass text colour; over a dark scene it stays clear
+//   3  readable (ui-glass-12: the demo way): the demo tint 0.22 on every piece plus a text halo; over a dark scene it stays clear
 //      (controls' tint alpha <= 0.3) and is not dark at the rim
 //   4  taps go through: the canvases take no pointer events, the bubble opens its tray on a real click
 //   5  idle / hidden / exporting: no rendering
@@ -90,9 +90,11 @@ async function run(b, BR) {
     // 3 contrast over bright / dark — Settings open too
     await p.evaluate(PIN, "bright"); await W(200); await p.evaluate(() => TDC.refract.render()); await W(100);
     const br = await p.evaluate(GLASS, [0xf8, 0xf9, 0xfa]);
-    const bad = br.filter((g) => !g.innerRGB || (g.kind === "sheet" ? (LUM_SHEET(g)) : ((TEXT + 0.05) / (LUMs(g.innerRGB) + 0.05))) < 4.5);
+    // ui-glass-12: the demo's look — one light tint (0.22) everywhere, readability from the text / icon halo (no dark tint layer)
+    const halo = await p.evaluate(() => TDC.refract.pieces.map((x) => ({ id: x.host.id || x.host.className.split(" ")[0], ts: getComputedStyle(x.host).textShadow })));
+    const bad = br.filter((g) => !g.innerRGB || Math.abs(g.a - 0.22) > 0.001).concat(halo.filter((h) => !h.ts || h.ts === "none"));
     function LUMs(rgb) { return LUM(rgb); } function LUM_SHEET(g) { return (LUM([0x9a, 0xa3, 0xb2]) + 0.05) / (LUM(g.innerRGB) + 0.05); }
-    ok(T + " 3 over a bright scene the glass under the text gives >= 4.5:1 (control text " + "#aeb6c2, sheet text #9aa3b2)", br.length >= 3 && bad.length === 0, { bad, all: br.map((g) => g.id + ":" + g.a + ":" + (g.innerRGB && ((g.kind === "sheet" ? LUM([0x9a, 0xa3, 0xb2]) : TEXT) + 0.05) / (LUM(g.innerRGB) + 0.05)).toFixed(2)) });
+    ok(T + " 3 over a bright scene: the demo tint (0.22) on every piece and a text halo (ui-glass-12)", br.length >= 3 && bad.length === 0, { bad, all: br.map((g) => g.id + ":" + g.a + ":" + (g.innerRGB && ((g.kind === "sheet" ? LUM([0x9a, 0xa3, 0xb2]) : TEXT) + 0.05) / (LUM(g.innerRGB) + 0.05)).toFixed(2)) });
     await p.evaluate(PIN, "dark"); await p.evaluate(() => TDC.refract.render()); await W(100);
     const dk = await p.evaluate(GLASS, [0x0c, 0x0e, 0x12]);
     const ctl = dk.filter((g) => g.kind !== "sheet");

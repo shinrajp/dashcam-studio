@@ -142,6 +142,8 @@ async function run(b, BR, dev) {
   for (const sel of [".toast.show", ".stage-bar"]) {
     const c = await contrast(p, sel);
     if (!c) { console.log("SKIP " + tag + " 5 contrast " + sel + " (not on screen here)"); continue; }
+    const rf = await p.evaluate((q) => { const e = document.querySelector(q); return e && e.classList.contains("rf-on") ? { ts: getComputedStyle(e).textShadow, a: e._rft && e._rft.a } : null; }, sel);
+    if (rf) { ok(tag + " 5 over a white frame, " + sel + " (refraction, ui-glass-12): the demo tint and a text halo instead of a dark tint", rf.ts && rf.ts !== "none" && Math.abs(rf.a - 0.22) < 0.001, rf); continue; }
     ok(tag + " 5 contrast over a white frame, " + sel + " text >= 4.5:1", c.ratio >= 4.5, c);
   }
   await p.evaluate(() => { document.getElementById("toast").classList.remove("show"); try { TDC.focus.focus("front"); } catch (_) {} TDC.regions.UI.draw(); }); await W(700);

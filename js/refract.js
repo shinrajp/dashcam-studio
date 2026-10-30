@@ -5,8 +5,9 @@
  *  page) renders each piece in turn — rounded-rect SDF, convex bevel, refraction along the edge normal, a small blur, chromatic edge, Fresnel rim,
  *  specular — and the result is copied into a canvas inside the piece (.rf-c: z-index -1 in an isolated piece, so text and icons stay on top;
  *  pointer-events: none, so every tap and click reaches the controls; Mac Safari: nothing here captures the pointer).
- *  Readability: each piece gets the video-following tint (a dark tint of the colour under it) at the lowest opacity that keeps its dimmest text
- *  >= 4.5:1 over the brightest part under it (highlights included). Over dark video the glass stays clear; the rim is always clear and bright.
+ *  Look (ui-glass-12, iPhone feedback "prefer the demo style"): the demo's glass everywhere — the same light neutral tint (0.22), refraction strength,
+ *  blur, Fresnel rim, hairline and specular as labs/glass-sdf v5; no dark video-following tint. Text stays readable the demo's way: white text and
+ *  icons with a soft dark shadow / halo (css/refract.css). Debug mode can tune strength, tint and blur, or bring back the ui-glass-11 adaptive tint.
  *  When: only while something changes — about 30 times a second while playing, a few frames after a layout / class change (fan, sheets), never while
  *  the tab is hidden or an export runs. A piece's backing store follows the zoom only once it has been stable for 160 ms (no flicker).
  *  Falls back to today's frosted glass (css/glass.css): Settings ▸ Appearance ▸ Glass style ▸ Frosted (pref `glassStyle`), ?refract=0, Lite mode
@@ -20,6 +21,11 @@
     stats: { ms: 0, avg: 0, n: 0 }, autoFps: G.autoLiteFps, SLOW: 40, OK: 45, FOR: 2000 });
   R.override = () => { try { const m = /(?:[?&#])refract=(0|1)\b/.exec(location.search + location.hash); return m ? (m[1] === "1" ? "refract" : "frost") : null; } catch (_) { return null; } };
   R.pref = () => (T.prefs.glassStyle === "frost" ? "frost" : "refract");
+  // ui-glass-12: the demo's look (labs/glass-sdf v5: uStr 1, uBlur 4, uTint 0.22 towards rgb(.07,.07,.09)); Debug mode may tune it
+  R.DEMO = { str: 1, tint: 0.22, blur: 4, rgb: [18, 18, 23] };
+  const num = (v, lo, hi, d) => (typeof v === "number" && isFinite(v) ? Math.min(hi, Math.max(lo, v)) : d);
+  R.tune = () => { const t = (T.debugOn && T.debugOn() && T.prefs.tune) || {}, D = R.DEMO;
+    return { str: num(t.rfStr, 0, 2.5, D.str), tint: num(t.rfTint, 0, 0.9, D.tint), blur: num(t.rfBlur, 0, 10, D.blur), adaptive: !!t.rfAdaptive }; };
   const lin = (c) => { c /= 255; return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); };
   const lum = (r, g, b) => 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
   const TEXT = { ctl: lum(0xae, 0xb6, 0xc2), sheet: lum(0x9a, 0xa3, 0xb2) }, FLOOR = { ctl: 0.12, sheet: 0.5 }, SHEEN = 0.12, A_MAX = 0.96, RIM_A = 0.35;
@@ -60,11 +66,9 @@
     "  float lu = dot(col, vec3(0.2126, 0.7152, 0.0722));",
     "  col = clamp(mix(vec3(lu), col, 1.2), 0.0, 1.0);",
     "  col *= 1.0 - 0.32 * smoothstep(0.45, 0.95, lu);",
-    "  float px = -d / uS; float edge = 1.0 - smoothstep(0.0, 3.5, px);",   // css px in from the edge; the clear, bright rim is the outer 3.5 px
-    "  float ta = uTintA * mix(1.0, uRimA, edge);",   // the tint (for the text) eases off only in that rim, so text is never on a lighter band
-    "  col = mix(col, uTint, ta);",
+    "  col = mix(col, uTint, uTintA);",   // the demo: one light, even tint (no darker band behind text)
     "  vec2 L = normalize(vec2(-0.55, -0.83)); float ndl = max(dot(n, L), 0.0); float ndl2 = max(dot(n, -L), 0.0);",
-    "  float fres = edge * edge * (0.6 + 0.4 * pow(s, 4.0)); col += fres * (0.10 + 0.55 * ndl * ndl + 0.18 * ndl2);",
+    "  float fres = pow(s, 4.0); col += fres * (0.10 + 0.55 * ndl * ndl + 0.18 * ndl2);",   // the demo's Fresnel rim + specular over the whole bevel
     "  float line = smoothstep(1.6 * uS, 0.0, abs(-d - 0.9 * uS)); col += line * (0.18 + 0.5 * ndl + 0.2 * ndl2);",
     "  col += 0.05 * (1.0 - smoothstep(uBox.y - uBox.w, uBox.y, vP.y)) * t;",
     "  float a = clamp(0.5 - d / aa, 0.0, 1.0); gl_FragColor = vec4(clamp(col, 0.0, 1.0) * a, a);",
@@ -204,7 +208,9 @@
     try { bg = (getComputedStyle(document.body).backgroundColor.match(/\d+/g) || bg).slice(0, 3).map(Number); } catch (_) {}
     const SS = innerWidth * innerHeight > 2.6e6 ? 0.4 : 0.5;
     R.stats.videos = drawScene(list, SS);
-    if (doTint || list.some((p) => !p.host._rft)) { tints(list, !playing()); tintAt = now; }
+    const tu = R.tune(); R.tuned = tu;
+    if (tu.adaptive) { if (doTint || list.some((p) => !p.host._rft || p.host._rft.demo)) { tints(list, !playing()); tintAt = now; } }
+    else for (const p of list) p.host._rft = { rgb: R.DEMO.rgb, a: tu.tint, need: tu.tint, max: null, demo: true };
     gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, sceneTex);
     try { gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, sc); } catch (_) {}
     // the shared canvas only grows (no reallocation while a piece resizes)
@@ -220,7 +226,7 @@
     if (glc.width < needW || glc.height < needH) { glc.width = Math.max(glc.width, needW); glc.height = Math.max(glc.height, needH); R.glReallocs = (R.glReallocs || 0) + 1; }
     gl.useProgram(prog); gl.disable(gl.BLEND);
     gl.uniform2f(U.uSceneSize, sc.width, sc.height); gl.uniform1f(U.uSS, SS);
-    gl.uniform1f(U.uStr, R.str); gl.uniform1f(U.uBlur, R.blur); gl.uniform1f(U.uCA, R.ca ? 1 : 0); gl.uniform1f(U.uRimA, RIM_A);
+    gl.uniform1f(U.uStr, tu.str); gl.uniform1f(U.uBlur, tu.blur); gl.uniform1f(U.uCA, R.ca ? 1 : 0); gl.uniform1f(U.uRimA, RIM_A);
     for (const p of list) {
       const c = p.c, w = c.width, h = c.height, S = w / p.cw, rad = radii(p.c, p.cw, p.ch).map((v) => v * S), tt = p.host._rft || { rgb: [16, 18, 24], a: 0.7 };
       const y0 = glc.height - p.y - h;   // GL rows count from the bottom

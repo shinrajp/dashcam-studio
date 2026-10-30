@@ -14,3 +14,12 @@ html.refract .transport.rf-cap-on.g-blur::before { -webkit-backdrop-filter: none
 html.refract body.mbar .mb-row.rf-cap-on::before { background: transparent !important; -webkit-backdrop-filter: none !important; backdrop-filter: none !important; }
 /* the camera pill's drop shadow stays; the glass draws its own rim */
 @media (prefers-reduced-transparency: reduce) { .rf-c { display: none !important; } }
+
+/* ui-glass-12: the demo's readability (labs/glass-sdf/glass.css) instead of a dark tint layer — white text and icons with a soft dark shadow / halo.
+   Only while refraction runs (html.refract); the frosted fallback keeps its own tint and no halo. Light (active) buttons get none. */
+html.refract .rf-on, html.refract .rf-cap-on { text-shadow: 0 1px 2px rgba(0, 0, 0, .55), 0 0 6px rgba(0, 0, 0, .35); }
+html.refract #settings.rf-on, html.refract #library.rf-on { text-shadow: 0 1px 3px rgba(0, 0, 0, .8), 0 0 8px rgba(0, 0, 0, .5); }
+html.refract .stage-bar.rf-on svg, html.refract #toolBubble .rf-on svg, html.refract .rf-cap-on svg { filter: drop-shadow(0 1px 1.5px rgba(0, 0, 0, .55)); }
+html.refract .rf-on :is(.on, .active, [aria-pressed="true"], [aria-checked="true"], .primary, input, select, textarea),
+html.refract .rf-cap-on :is(.on, .active, [aria-pressed="true"], .primary) { text-shadow: none; }
+html.refract .rf-on :is(.on, .active, [aria-pressed="true"]) svg, html.refract .rf-cap-on :is(.on, .active, [aria-pressed="true"]) svg { filter: none; }

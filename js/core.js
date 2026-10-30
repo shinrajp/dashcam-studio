@@ -33,6 +33,8 @@
     autohide: "3",   // ui-glass-2: Settings ▸ Appearance ▸ Auto-hide — "2" | "3" | "5" seconds | "never"; ?autohide= overrides for one visit
     lite: "auto",    // ui-glass-9: Settings ▸ Appearance ▸ Lite mode — "auto" (on when frames drop or memory is low) | "on" | "off"; ?lite= overrides for one visit
     glassStyle: "refract",   // ui-glass-11: Settings ▸ Appearance ▸ Glass style — "refract" (SDF refraction, js/refract.js) | "frost"; ?refract=0|1 overrides for one visit
+    debug: false,   // ui-glass-12: Settings ▸ Advanced & Labs ▸ Debug — shows the technical controls (tuning, calibration, models, thresholds); ?debug=1|0 overrides for one visit
+    tune: { rfStr: 1, rfTint: 0.22, rfBlur: 4, rfAdaptive: false, liteFps: 40, perfHud: false, wbK: 0, wbTint: 0 },   // ui-glass-12: Debug-only tuning (used only while Debug is on; defaults = the labs/glass-sdf v5 demo)
     glass: "auto",   // ui-glass-1: Settings ▸ Appearance ▸ Glass — "auto" (tint follows the video) | "clear" | "solid"; ?glass= overrides for one visit
     mapFloat: { fx: -1, fy: -1, pin: 0, below: 0 },
     bubble: { corner: "br" },   // ui-glass-6: the tools bubble corner (tl | tr | bl | br)   // floating map: left / top as fractions of the free window area (-1 = default spot); export never uses this
@@ -65,6 +67,9 @@
     catch (_) { return merge(T.DEFAULT_PREFS, null); }
   }
   T.prefs = loadPrefs();
+  // ui-glass-12: Debug mode — Settings ▸ Advanced & Labs ▸ Debug (pref `debug`, off by default); ?debug=1|0 overrides it for this visit
+  T.debugOverride = (() => { try { const m = /(?:[?&#])debug=(0|1)\b/.exec(location.search + location.hash); return m ? m[1] === "1" : null; } catch (_) { return null; } })();
+  T.debugOn = () => (T.debugOverride != null ? T.debugOverride : T.prefs.debug === true);
   T.savePrefs = () => { try { localStorage.setItem(PREFS_KEY, JSON.stringify(T.prefs)); } catch (_) {} };
   T.setPref = (path, value) => {
     const parts = path.split(".");
