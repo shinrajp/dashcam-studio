@@ -761,7 +761,7 @@
     if (r) { S.trackIds.push(r.id); S.patches[r.id] = patch; msg("Tracking. Circle more, or press Done. It follows while playing."); UI.sync(); kick(); }
   }
   function followPatches() {
-    if (!S.trackIds.length) return;
+    if (!S.trackIds.length || !T.player || !T.player.playing) return;
     let moved = 0;
     for (const id of S.trackIds) {
       const r = G.list.find((x) => x.id === id); if (!r) continue;
