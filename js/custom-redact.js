@@ -656,8 +656,8 @@
   };
   /** Track mode: circle an object; the redaction follows the gold detection box on that object. */
   S.track = false;
-  S.trackId = null;
-  S.trackPid = null;
+  S.trackIds = [];
+  S.trackPids = {};
   UI.track = (on) => {
     S.track = on === undefined ? !S.track : !!on;
     if (S.track) { S.drawing = true; S.pick = false; msg("Track: circle a car. The blur will follow the gold box."); armTrackCapture(); }
@@ -713,7 +713,7 @@
     }
     if (!best || bestDist > 0.5) { msg("No gold box close to your circle. Circle the car more tightly.", true); return; }
     const r = G.add({ cam, shape: "rect", x: best.x, y: best.y, w: best.w, h: best.h, mode: S.mode, on: true });
-    if (r) { S.trackId = r.id; S.trackCam = cam; S.trackPid = best.pid || best.id || null; S.trackLabel = best.label; msg("Following the gold box. Play — the blur stays on it."); UI.sync(); kick(); }
+    if (r) { S.trackIds.push(r.id); S.trackPids[r.id] = best.pid || best.id || null; S.trackCam = cam; msg("Following " + (best.label || "object") + ". Circle more, or press Done. Play to see it follow."); UI.sync(); kick(); }
   }
   function dbg(s) {
     let n = document.getElementById("trackDbg");
@@ -721,13 +721,30 @@
     n.textContent = s;
   }
   function followGold() {
-    const lines = ["Track: " + (S.track ? "ON" : "off"), "trackId: " + (S.trackId || "none")];
-    if (!S.trackId || !T.detect || !T.detect.boxesAt || !T.player) { dbg(lines.join("\n")); return; }
-    const r = G.list.find((x) => x.id === S.trackId); if (!r) { S.trackId = null; return; }
+    const lines = ["Track: " + (S.track ? "ON" : "off"), "tracking: " + S.trackIds.length];
+    if (!S.trackIds.length || !T.detect || !T.detect.boxesAt || !T.player) { dbg(lines.join("\n")); return; }
     const t = T.player.time;
-    const boxes = T.detect.boxesAt(r.cam, t) || [];
-    lines.push("cam: " + r.cam, "boxes: " + boxes.length, "t: " + t.toFixed(2));
-    if (!boxes.length) { dbg(lines.join("\n")); return; }
+    let moved = 0;
+    for (const id of S.trackIds) {
+      const r = G.list.find((x) => x.id === id); if (!r) continue;
+      const boxes = T.detect.boxesAt(r.cam, t) || [];
+      if (!boxes.length) continue;
+      const pid = S.trackPids[id];
+      let best = pid ? boxes.find((b) => (b.pid || b.id) === pid) : null;
+      if (!best) {
+        let bestDist = 999;
+        for (const b of boxes) {
+          const dist = Math.hypot((b.x + b.w / 2) - (r.x + r.w / 2), (b.y + b.h / 2) - (r.y + r.h / 2));
+          if (dist < bestDist) { bestDist = dist; best = b; }
+        }
+        if (bestDist > 0.5) best = null;
+      }
+      if (best) { r.x = best.x; r.y = best.y; r.w = best.w; r.h = best.h; moved++; }
+    }
+    lines.push("t: " + t.toFixed(2), "moved: " + moved);
+    dbg(lines.join("\n"));
+    if (moved && R && R.paint) R.paint();
+    return;
     let best = null;
     if (S.trackPid) best = boxes.find((b) => (b.pid || b.id) === S.trackPid);
     if (!best) {
@@ -750,7 +767,13 @@
 
     /** Done: saves a drawn shape; in Move it simply closes the tray (the moves are already saved, and undoable). */
   UI.done = () => {
-    // freehand in progress: finish the live shape first so it becomes a draft
+    if (S.trackIds && S.trackIds.length) {
+      const n = S.trackIds.length;
+      S.trackIds = []; S.trackPids = {}; S.track = false; disarmTrackCapture();
+      resetForm(); reopenPanel(true); UI.sync(); kick();
+      msg(n + " tracked region" + (n === 1 ? "" : "s") + " saved.");
+      return true;
+    }
     if (S.shape === "free" && S.live && S.live.pts && S.live.pts.length >= 6 && S.cam) {
       finishShape(S.cam, S.live);
     }
@@ -990,7 +1013,7 @@
     const freeReady = S.shape === "free" && S.live && S.live.pts && S.live.pts.length >= 6;
     sv.disabled = !(S.move || (S.draft && !S.drawing) || freeReady || S.trackId); sv.title = what; sv.setAttribute("aria-label", "Done: " + what.toLowerCase());
     sv.hidden = !!S.pick && !S.trackId;
-    if (S.trackId) { sv.disabled = false; sv.style.opacity = "1"; }
+    if (S.trackIds && S.trackIds.length) { sv.disabled = false; sv.style.opacity = "1"; }
     $("crBarAgain").hidden = !!S.drawing || !!S.pick || !!S.move;
     const setSeg = (id, v, dis) => document.querySelectorAll("#" + id + " button").forEach((x) => { x.setAttribute("aria-pressed", String(x.dataset.v === v)); x.classList.toggle("on", x.dataset.v === v); x.disabled = dis; });
     const selR = S.move && G.list.find((r) => r.id === S.sel);
