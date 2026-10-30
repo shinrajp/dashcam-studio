@@ -1047,6 +1047,9 @@
     const rb = $("crRegBtn"); if (rb) { $("crRegN").textContent = "(" + n + ")"; rb.hidden = !n; if (!n && sec.classList.contains("list-open")) { sec.classList.remove("list-open"); rb.setAttribute("aria-expanded", "false"); } }
     $("crList").innerHTML = listHtml();
     $("crList").hidden = !n;
+    const cu = $("crUndo"), cr = $("crRedo");
+    if (cu) { cu.disabled = !UI.canUndo(); cu.classList.toggle("on", UI.canUndo()); }
+    if (cr) { cr.disabled = !UI.canRedo(); cr.classList.toggle("on", UI.canRedo()); }
     $("crFileRow").hidden = false; $("crExportFile").disabled = !n;
     $("crStore").hidden = G.storeOk !== false;
     // Export dialog note
@@ -1073,6 +1076,8 @@
     $("crDraw").addEventListener("click", () => UI.draw());
     $("crSave").addEventListener("click", UI.save);
     $("crCancel").addEventListener("click", UI.cancel);
+    $("crUndo").addEventListener("click", () => UI.undo());
+    $("crRedo").addEventListener("click", () => UI.redo());
     $("crList").addEventListener("click", (e) => {
       const b = e.target.closest("[data-act]"), li = e.target.closest("li[data-id]"); if (!b || !li) return;
       const id = li.dataset.id, r = G.list.find((x) => x.id === id); if (!r) return;
@@ -1120,6 +1125,7 @@
       '<div class="cr-actions" id="crActions"><button type="button" class="btn primary small" id="crDraw">Draw region</button><button type="button" class="btn small" id="crSave" disabled>Save region</button><button type="button" class="btn ghost small" id="crCancel" hidden>Cancel</button></div>' +
       '<div class="cr-msg" id="crMsg" aria-live="polite"></div>' +
       '<ul class="cr-list" id="crList" hidden></ul>' +
+      '<div class="cr-actions" id="crHistRow"><button type="button" class="btn ghost small" id="crUndo" disabled>Undo</button><button type="button" class="btn ghost small" id="crRedo" disabled>Redo</button></div>' +
       '<div class="cr-actions" id="crFileRow"><button type="button" class="btn ghost small" id="crExportFile" title="Save the regions as a small file">Save as file</button><button type="button" class="btn ghost small" id="crImportFile" title="Add regions from a file">Load from file</button><input type="file" id="crFile" accept=".json,application/json" hidden></div>' +
       '<p class="cr-hint" id="crStore" hidden>This browser is not keeping the regions between visits (storage is blocked). Use Save as file.</p>';
     return sec;
