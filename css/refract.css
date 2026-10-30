@@ -19,6 +19,8 @@ html.refract body.mbar .mb-row.rf-cap-on::before { background: transparent !impo
    Only while refraction runs (html.refract); the frosted fallback keeps its own tint and no halo. Light (active) buttons get none. */
 html.refract .rf-on, html.refract .rf-cap-on { text-shadow: 0 1px 2px rgba(0, 0, 0, .55), 0 0 6px rgba(0, 0, 0, .35); }
 html.refract #settings.rf-on, html.refract #library.rf-on { text-shadow: 0 1px 3px rgba(0, 0, 0, .8), 0 0 8px rgba(0, 0, 0, .5); }
+/* (form controls do not inherit text-shadow in the UA stylesheet: buttons / chips take the halo from their glass piece) */
+html.refract :is(.rf-on, .rf-cap-on) :is(button, output, kbd) { text-shadow: inherit; }
 html.refract .stage-bar.rf-on svg, html.refract #toolBubble .rf-on svg, html.refract .rf-cap-on svg { filter: drop-shadow(0 1px 1.5px rgba(0, 0, 0, .55)); }
 html.refract .rf-on :is(.on, .active, [aria-pressed="true"], [aria-checked="true"], .primary, input, select, textarea),
 html.refract .rf-cap-on :is(.on, .active, [aria-pressed="true"], .primary) { text-shadow: none; }
