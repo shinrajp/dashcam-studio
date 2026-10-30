@@ -82,3 +82,9 @@ body.fs .drawer.set-panel { top: 8px; }
 .set-panel .set-sec h3 { margin-top: 2px; margin-bottom: 6px; }
 /* mouse: the recognition switches don't need 44 px rows (touch keeps them) */
 @media (pointer: fine) { .set-panel .toggles .rs-switch { min-height: 36px; } }
+
+/* ui-glass-12: Debug mode (js/debug.js) — technical controls only while html.debug-on (Settings ▸ Advanced & Labs ▸ Debug, ?debug=1) */
+html:not(.debug-on) .dbg-only { display: none !important; }
+.perf-hud { position: fixed; z-index: 90; top: calc(env(safe-area-inset-top, 0px) + 4px); left: 50%; transform: translateX(-50%); padding: 2px 8px; border-radius: 6px;
+  background: rgba(0, 0, 0, .72); color: #9fe870; font: 600 11px ui-monospace, Menlo, monospace; pointer-events: none; white-space: nowrap; }
+.perf-hud[hidden] { display: none; }

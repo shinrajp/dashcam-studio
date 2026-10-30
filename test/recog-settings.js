@@ -7,7 +7,8 @@
 //  - an advanced change (e.g. plEnabled) updates the switches; tap targets ≥ 40 px tall on the phone
 // Usage: node test/recog-settings.js [url]   (SHOTS=dir: screenshots)
 const pw = require("playwright"), path = require("path");
-const URL_ = process.argv[2] || "http://127.0.0.1:8770/index.html", SHOTS = process.env.SHOTS || "";
+const URL_0 = process.argv[2] || "http://127.0.0.1:8770/index.html", URL_ = URL_0 + (URL_0.includes("?") ? "&" : "?") + "debug=1";   // ui-glass-12: these technical rows show in Debug mode
+const SHOTS = process.env.SHOTS || "";
 const W = (ms) => new Promise((r) => setTimeout(r, ms));
 let fails = 0; const ok = (n, c, x) => { console.log((c ? "PASS " : "FAIL ") + n + (x !== undefined ? "  " + JSON.stringify(x).slice(0, 500) : "")); if (!c) fails++; };
 const OLD = ["detModel", "detConf", "detSmall", "detLiveCams", "detTest", "plModel", "plConf", "plRead", "plFar", "plStreet", "plForget", "vehMakes", "vehClear"];

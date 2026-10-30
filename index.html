@@ -229,7 +229,7 @@
         <div class="row"><span>Show 360 view (beta)</span><input type="checkbox" id="show360"></div>
         <p class="hint">Adds the 360 button to the camera bar and the 360 export. Still being polished, so it is off by default.</p>
       </section>
-      <section id="calibSec" class="need360"><h3>Calibration</h3>
+      <section id="calibSec" class="need360 dbg-only"><h3>Calibration</h3>
         <p class="hint">Tesla doesn't document sign conventions. Flip these if the wheel turns the wrong way or the g-ball moves sideways when braking.</p>
         <div class="row"><span>Invert steering</span><input type="checkbox" id="steerInvert"></div>
         <div class="row"><span>Swap accel X/Y axes</span><input type="checkbox" id="accelSwap"></div>
@@ -237,7 +237,7 @@
       <section data-keep="4"><h3>White balance</h3><div id="setWb" class="toggles"></div></section>
       <section id="recogSec"><h3>Recognition (beta)</h3>
         <div id="setRecog" class="toggles"></div>
-        <details id="recogAdv" class="recog-adv"><summary>Advanced recognition settings</summary>
+        <details id="recogAdv" class="recog-adv dbg-only"><summary>Advanced recognition settings</summary>
           <h4>Object detection</h4><div id="setDetect" class="toggles"></div>
           <h4>Plates &amp; text</h4><div id="setPlates" class="toggles"></div>
           <h4>Vehicle details</h4><div id="setVehicle" class="toggles"></div>
@@ -520,6 +520,7 @@
   <script src="js/lib-index-ui.js?v=ui-glass-11"></script>
   <script src="js/auto.js?v=ui-glass-11"></script>
   <script src="js/settings-groups.js?v=ui-glass-11"></script>
+  <script src="js/debug.js?v=ui-glass-11"></script>
   <script src="js/app.js?v=ui-glass-11"></script>
   <script src="js/pwa.js?v=ui-glass-11"></script>
 </body>

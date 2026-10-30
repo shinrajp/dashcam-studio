@@ -256,7 +256,20 @@
   };
   /** Current smoothed white point as sRGB (green = 200), or null. */
   WB.white = () => { if (!st.est) return null; const w = [Math.exp(st.est[0]), 1, Math.exp(st.est[1])], k = 230 / Math.max(w[0], w[1], w[2]); return w.map((v) => v * k); };   // brightest channel = 230
-  WB.current = () => { const w = WB.white(); if (!w) return null; const k = WB.cct(w), day = WB.dayness(st.sceneY); return { white: w, cct: k, label: WB.describe(k, w), gains: WB.viewGains(w, day), day, cams: st.cams.slice() }; };
+  /** sRGB (0–255) of a black body at k kelvin (Tanner Helland's fit; 1000–40000 K). */
+  WB.kelvinRGB = (k) => { const t = Math.max(1000, Math.min(40000, k)) / 100, c = (x) => Math.max(0, Math.min(255, x));
+    const r = t <= 66 ? 255 : c(329.698727446 * Math.pow(t - 60, -0.1332047592)), g = t <= 66 ? c(99.4708025861 * Math.log(t) - 161.1195681661) : c(288.1221695283 * Math.pow(t - 60, -0.0755148492));
+    const b = t >= 66 ? 255 : t <= 19 ? 0 : c(138.5177312231 * Math.log(t - 10) - 305.0447927307); return [r, g, b]; };
+  /** ui-glass-12 Debug: a manual colour temperature (prefs.tune.wbK, 0 = auto) and tint (prefs.tune.wbTint, −50 magenta … +50 green
+   *  correction) for the viewer's white balance. Ignored unless Debug is on; export never uses the viewer correction. */
+  WB.manual = () => { const tu = T.debugOn && T.debugOn() && T.prefs && T.prefs.tune; if (!tu) return null;
+    const k = +tu.wbK > 0 ? Math.max(1500, Math.min(15000, +tu.wbK)) : 0, tint = Math.max(-50, Math.min(50, +tu.wbTint || 0)); return k || tint ? { k, tint } : null; };
+  const tinted = (g, tint) => { if (!tint) return g; const o = g.slice(); o[1] *= Math.exp(-tint / 100); return o.map((x) => Math.min(WB.C.GAIN_MAX, Math.max(WB.C.GAIN_MIN, x))); };
+  WB.current = () => { const man = WB.manual();
+    if (man && man.k) { const w0 = WB.kelvinRGB(man.k), m = 230 / Math.max(w0[0], w0[1], w0[2]), w = w0.map((v) => v * m);
+      return { white: w, cct: man.k, label: "Manual (Debug)", gains: tinted(WB.gains(w, 1), man.tint), day: WB.dayness(st.sceneY), cams: st.cams.slice(), manual: true }; }
+    const w = WB.white(); if (!w) return null;
+    if (man) { const k = WB.cct(w), day = WB.dayness(st.sceneY); return { white: w, cct: k, label: WB.describe(k, w) + " · tint " + man.tint, gains: tinted(WB.viewGains(w, day), man.tint), day, cams: st.cams.slice() }; } const k = WB.cct(w), day = WB.dayness(st.sceneY); return { white: w, cct: k, label: WB.describe(k, w), gains: WB.viewGains(w, day), day, cams: st.cams.slice() }; };
 
   // ── rendering the correction ──
   let svgM = null;
@@ -383,6 +396,7 @@
     const ev = T.player && T.player.ev;
     if (ev && ev.cams && !ev.cams.some((c) => c === "left_repeater" || c === "right_repeater")) return "No mirror cameras in this event";
     const cur = WB.current();
+    if (cur && cur.manual) return `${Math.round(cur.cct / 100) * 100} K · ${cur.label}`;
     if (!cur || !st.cams.length && performance.now() - st.lastSeen > 1500) return "Looking for your white paint in the mirror cameras";
     const where = st.cams.length === 2 ? "both mirrors" : st.cams.length === 1 ? NAME[st.cams[0]] : "held";
     return `${Math.round(cur.cct / 100) * 100} K · ${cur.label} · ${where}`;
@@ -642,17 +656,22 @@
     const row = (label, el) => { const r = T.el ? T.el("label", "row") : document.createElement("label"); r.className = "row"; const sp = document.createElement("span"); sp.textContent = label; r.append(sp, el); host.appendChild(r); return r; };
     const range = (id, min, max, step, val, fmt, on) => { const w = document.createElement("span"); w.className = "wb-range"; const i = document.createElement("input"); i.type = "range"; i.id = id; i.min = min; i.max = max; i.step = step; i.value = val; const o = document.createElement("output"); o.textContent = fmt(val); i.addEventListener("input", () => { o.textContent = fmt(+i.value); on(+i.value); }); w.append(i, o); return w; };
     row("Strength", range("wbStrength", 0.3, 1, 0.05, c.strength, (v) => Math.round(v * 100) + "%", (v) => WB.setCfg({ strength: v })));
-    row("Strip width", range("wbWidth", 0.06, 0.24, 0.01, c.width, (v) => Math.round(v * 100) + "%", (v) => WB.setCfg({ width: v })));
+    // ui-glass-12: technical rows only in Debug mode (class dbg-only; css/settings.css)
+    const dbg = (r) => { r.classList.add("dbg-only"); return r; };
+    const tu = (T.prefs && T.prefs.tune) || {};
+    dbg(row("Colour temperature", range("wbK", 0, 10000, 100, +tu.wbK || 0, (v) => (+v >= 1500 ? Math.round(v) + " K" : "Auto"), (v) => T.setPref("tune.wbK", +v >= 1500 ? +v : 0)))).title = "Debug: a fixed light colour for the viewer's white balance (Auto = measured from your white paint). Viewer only, never exported.";
+    dbg(row("Tint", range("wbTint", -50, 50, 1, +tu.wbTint || 0, (v) => (+v > 0 ? "+" : "") + Math.round(v), (v) => T.setPref("tune.wbTint", +v)))).title = "Debug: green (−) … magenta (+) correction on top of the white balance. Viewer only.";
+    dbg(row("Strip width", range("wbWidth", 0.06, 0.24, 0.01, c.width, (v) => Math.round(v * 100) + "%", (v) => WB.setCfg({ width: v }))));
     for (const cam of REP) {
       const sel = document.createElement("select"); sel.id = cam === "left_repeater" ? "wbSideLeft" : "wbSideRight";
       sel.innerHTML = '<option value="auto">Auto (' + WB.C.SIDE[cam] + ' edge)</option><option value="left">Left edge</option><option value="right">Right edge</option>';
       sel.value = c.side[cam]; sel.addEventListener("change", () => WB.setCfg({ side: { [cam]: sel.value } }));
-      row((cam === "left_repeater" ? "Left" : "Right") + " mirror: car body at", sel);
+      dbg(row((cam === "left_repeater" ? "Left" : "Right") + " mirror: car body at", sel));
     }
     const mt = document.createElement("input"); mt.type = "checkbox"; mt.id = "wbMatch"; mt.checked = c.match; mt.addEventListener("change", () => { WB.setCfg({ match: mt.checked }); if (mt.checked) WB.matchCams(); apply(); });
     row("Match cameras (same colour on all six)", mt).title = "Each camera sets its own colour. This nudges each picture (at most ±7 %) so neutral greys look the same as in the mirror cameras.";
     const cb = document.createElement("input"); cb.type = "checkbox"; cb.id = "wbShowMask"; cb.checked = c.showMask; cb.addEventListener("change", () => WB.setCfg({ showMask: cb.checked }));
-    row("Show sample area", cb);
+    dbg(row("Show sample area", cb));
     const cs = document.createElement("select"); cs.id = "wbColour";
     cs.innerHTML = '<option value="auto">Auto (when a white point is found)</option><option value="on">On</option><option value="off">Off (raw colours)</option>';
     cs.value = c.colour; cs.addEventListener("change", () => { WB.setCfg({ colour: cs.value }); if (T.vehicle && T.vehicle.colourModeChanged) T.vehicle.colourModeChanged(); });
@@ -662,15 +681,15 @@
       const P = T.cc.prefs(), mk = (id, html, val, on) => { const e = document.createElement("select"); e.id = id; e.className = "select"; e.innerHTML = html; e.value = val; e.addEventListener("change", () => on(e.value)); return e; };
       const ccOn = mk("ccOn", '<option value="off">Off</option><option value="on">On (prototype)</option>', P.on ? "on" : "off", (v) => { T.cc.setPref("on", v === "on"); buildSettings(); });
       ccOn.title = "A second opinion on the light's colour (lane markings, plate background, a small learned model) fused with the car paint, a better colour adaptation (CAT16) and brightness, used for vehicle colour in search and burned-in labels. Prototype: off until you approve it.";
-      row("Colour constancy (prototype)", ccOn);
+      dbg(row("Colour constancy (prototype)", ccOn));
       if (P.on) {
-        row("Light estimate", mk("ccEst", '<option value="fusion">Fused: paint + lanes + plates + learned</option><option value="paint">Car paint only</option><option value="learned">Learned model only (FC4)</option>', P.estimator, (v) => T.cc.setPref("estimator", v)));
-        row("Colour adaptation", mk("ccAdapt", '<option value="cat16">CAT16 (default)</option><option value="bradford">Bradford</option><option value="gains">Per-channel gains (shipped)</option>', P.adapt, (v) => T.cc.setPref("adapt", v)));
+        dbg(row("Light estimate", mk("ccEst", '<option value="fusion">Fused: paint + lanes + plates + learned</option><option value="paint">Car paint only</option><option value="learned">Learned model only (FC4)</option>', P.estimator, (v) => T.cc.setPref("estimator", v))));
+        dbg(row("Colour adaptation", mk("ccAdapt", '<option value="cat16">CAT16 (default)</option><option value="bradford">Bradford</option><option value="gains">Per-channel gains (shipped)</option>', P.adapt, (v) => T.cc.setPref("adapt", v))));
         const cl = document.createElement("input"); cl.type = "checkbox"; cl.id = "ccClip"; cl.checked = !!P.clip; cl.addEventListener("change", () => T.cc.setPref("clip", cl.checked));
-        row("Also ask CLIP for the colour (slower)", cl);
+        dbg(row("Also ask CLIP for the colour (slower)", cl));
       }
     }
-    const btn = document.createElement("button"); btn.className = "btn ghost wide"; btn.type = "button"; btn.id = "wbForget"; btn.textContent = "Forget the learned car-body shape"; btn.addEventListener("click", () => WB.forgetMasks());
+    const btn = document.createElement("button"); btn.className = "btn ghost wide"; btn.type = "button"; btn.id = "wbForget"; btn.classList.add("dbg-only"); btn.textContent = "Forget the learned car-body shape"; btn.addEventListener("click", () => WB.forgetMasks());
     host.appendChild(btn);
     const p = document.createElement("p"); p.className = "hint"; p.textContent = "White balance uses the white car body seen at the outer edge of the mirror cameras. Show sample area outlines the strip it searches and fills the part it samples (pink: found on this clip, violet: remembered, yellow: default sliver). Viewer only: exports are never changed.";
     host.appendChild(p);
@@ -703,6 +722,7 @@
       T.on("player-open", () => { WB.reset(); WB.setMatch({}); resetZones(); lastKey = ""; wcache.clear(); wdone.clear(); keepLayers = false; schedule(); setTimeout(() => { try { apply(); } catch (e) { console.warn(e); } }, 0); });   // blend layers in place from the start (desktop)
       T.on("cc-changed", () => { try { apply(); } catch (e) { console.warn(e); } if (T.vehicle && T.vehicle.colourModeChanged) T.vehicle.colourModeChanged(); });
       T.on("time", () => { if (WB.isOn() && !timer) schedule(); });
+      T.on("prefs", (k) => { if (k === "debug" || k === "*" || /^tune(\.wb|$)/.test(k)) { try { apply(); render(); } catch (e) { console.warn(e); } } });   // ui-glass-12 Debug: manual K / tint
       T.on("layout", () => { apply(); drawMasks(); });   // new tiles / 360 canvas get the correction (or the idle blend layers) too   // new tiles / 360 canvas get the correction too
     }
     buildSettings();

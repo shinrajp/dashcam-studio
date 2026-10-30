@@ -21,12 +21,12 @@
     { g: "overlays", name: "Overlays & HUD", sub: "Labels and HUD items" },
     { g: "redact", name: "Redaction & detection", sub: "Recognition, plates, search" },
     { g: "export", name: "Export", sub: "Cameras, quality, burn-in" },
-    { g: "advanced", name: "Advanced & Labs", sub: "360 view, calibration, models, reset" },
+    { g: "advanced", name: "Advanced & Labs", sub: "360 view, Debug (tuning, calibration, models), reset" },
     { g: "keys", name: "Keys & unlock", sub: "Encrypted clips, keyboard shortcuts" },
   ];
   const NAME = Object.fromEntries(GROUPS.map((x) => [x.g, x.name]));
   // which group an existing section belongs to (by id, then by its heading)
-  const BY_ID = { appearSec: "appearance", calibSec: "advanced", recogSec: "redact", setSearchSec: "redact", setTextSec: "redact", setExportSec: "export", setKeysSec: "keys", setModelsSec: "advanced" };
+  const BY_ID = { appearSec: "appearance", calibSec: "advanced", debugSec: "advanced", recogSec: "redact", setSearchSec: "redact", setTextSec: "redact", setExportSec: "export", setKeysSec: "keys", setModelsSec: "advanced" };
   const BY_H = [[/^overlays$/i, "overlays"], [/^hud/i, "overlays"], [/^map$/i, "playback"], [/^units/i, "playback"], [/^camera bar/i, "playback"], [/^white balance/i, "appearance"], [/^labs/i, "advanced"], [/^calibration/i, "advanced"], [/^search/i, "redact"], [/recogn|detect|plate|redact/i, "redact"]];
   const groupOf = (sec) => {
     if (BY_ID[sec.id]) return BY_ID[sec.id];
@@ -61,7 +61,7 @@
       '<h3 class="set-h3b">Keyboard shortcuts</h3><dl class="set-keys">' +
       [["Space", "Play / pause"], ["← →", "Step a frame (Shift: 5 s)"], ["1–6", "One camera"], ["G or 0", "All cameras"], ["[ ]", "Previous / next camera"], ["+ −", "Zoom (one camera)"], ["C", "Camera bar on / off"], ["L · H · M · D", "Labels · HUD · map · Self-Driving"], ["X · R", "Boxes · redact matches"], ["F", "Full screen"], ["⌘Z / Ctrl+Z", "Undo a redaction edit"], ["Esc", "Close / back to all cameras"]]
         .map(([k, v]) => "<div><dt><kbd>" + k + "</kbd></dt><dd>" + v + "</dd></div>").join("") + "</dl>";
-    const models = document.createElement("section"); models.id = "setModelsSec";
+    const models = document.createElement("section"); models.id = "setModelsSec"; models.className = "dbg-only";   // ui-glass-12: Debug mode only
     models.innerHTML = '<h3>Models</h3><p class="hint">Detection, plate and vehicle models, their size and speed, live detection and the optional cloud boost.</p><button type="button" class="btn ghost wide set-go" id="setOpenModels">Model settings…</button>';
     const reset = sections().find((s) => s.querySelector("#btnResetAll"));
     for (const s of [ex, keys, models]) body.insertBefore(s, reset || null);
@@ -180,6 +180,7 @@
     if (body) body.scrollTop = 0;
     if (focus && S.view !== "home") { try { title.focus({ preventScroll: true }); } catch (_) {} }
   }
-  T.settings = { show: (g) => { if (!panel) return; S.next = g; if (panel.hidden) panel.hidden = false; else show(g); } /* S.next also wins over the reset from an open in the same tick */, view: () => S.view, groups: GROUPS.map((x) => x.g), groupOf: (el) => { const s = el && el.closest && el.closest("section[data-g]"); return s ? s.dataset.g : null; }, build };
+  T.settings = { show: (g) => { if (!panel) return; S.next = g; if (panel.hidden) panel.hidden = false; else show(g); } /* S.next also wins over the reset from an open in the same tick */, view: () => S.view, groups: GROUPS.map((x) => x.g), groupOf: (el) => { const s = el && el.closest && el.closest("section[data-g]"); return s ? s.dataset.g : null; }, build,
+    refresh: () => { try { if (panel && !panel.hidden) apply(); } catch (_) {} } };   // ui-glass-12: Debug on / off shows or hides rows
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", build); else build();
 })();

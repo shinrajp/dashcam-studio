@@ -37,7 +37,7 @@ async function run(b, BR) {
   // ---------- desktop 1440x900 ----------
   const ctx = await b.newContext({ viewport: { width: 1440, height: 900 } });
   const p = await ctx.newPage(); const errs = []; p.on("pageerror", (e) => errs.push(e.message));
-  await open(p); await openSettings(p);
+  await open(p, "&debug=1"); await openSettings(p);   // ui-glass-12: the technical controls only show in Debug mode (test/ui-glass-12.js checks Debug off)
   const T = BR + " 1440x900";
   // 1 ids
   const missing = await p.evaluate((ids) => ids.filter((id) => { const e = document.getElementById(id); return !e || !e.closest("#settings"); }), OLD_IDS);
@@ -119,7 +119,8 @@ async function run(b, BR) {
   await p.focus("#setFilter"); await p.keyboard.press("Escape"); await W(150);
   ok(T + " 4 Esc in an empty search folds it", await p.evaluate(() => document.getElementById("settings").hidden));
   // 5 fit
-  const fit = await fitAll(p); ok(T + " 5 every group fits without scrolling", fit.every((f) => f.sh <= f.ch + 2), fit);
+  // (this page runs with ?debug=1: Advanced then holds the Debug tuning and may scroll; test/ui-glass-12.js checks the Debug-off fit)
+  const fit = await fitAll(p); ok(T + " 5 every group fits without scrolling", fit.every((f) => f.g === "advanced" || f.sh <= f.ch + 2), fit);
   // 6 shortcuts
   await go(p, "export"); await p.click("#setOpenExport"); await W(500);
   ok(T + " 6 Export… folds Settings and opens the export dialog", await p.evaluate(() => document.getElementById("settings").hidden && !document.getElementById("exportModal").hidden));

@@ -7,7 +7,8 @@
 // (frame-by-frame), toggle saved, paused when the tab is hidden, "Looking for your white paint…" without paint,
 // focused + zoomed full-screen view and the 360 view.        Usage: node test/white-balance.js [url]   (BR=chromium,webkit)
 const pw = require("playwright"); const fs = require("fs"), path = require("path"), { execFileSync } = require("child_process");
-const URL_ = process.argv[2] || "http://127.0.0.1:8770/index.html";
+const URL_0 = process.argv[2] || "http://127.0.0.1:8770/index.html", URL_ = URL_0 + (URL_0.includes("?") ? "&" : "?") + "debug=1";   // ui-glass-12: these technical rows show in Debug mode
+
 const FIX = process.env.WB_SAMPLES || "/tmp/wb-samples", FIX0 = process.env.WB_NOPAINT || "/tmp/wb-nopaint";
 const SHOTS = process.env.WB_SHOTS || path.join(__dirname, "../screenshots");
 const W = (ms) => new Promise((r) => setTimeout(r, ms));

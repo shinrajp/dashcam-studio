@@ -369,7 +369,7 @@
     if (x >= -6 && x <= w + 6) {
       ctx.fillStyle = "#fff";
       ctx.fillRect(x - 1, 2, 2, h - 4);
-      const kw = isCoarse() ? 14 : 12, kh = Math.min(bh, isCoarse() ? 20 : 16);
+      const kw = isCoarse() ? 14 : 12, kh = Math.max(4, Math.min(bh, isCoarse() ? 20 : 16));   // (never a negative knob on a squeezed timeline)
       ctx.save(); ctx.shadowColor = "rgba(0,0,0,0.6)"; ctx.shadowBlur = 4;
       T.draw.rr(ctx, x - kw / 2, top + (bh - kh) / 2, kw, kh, kw / 2); ctx.fill(); ctx.restore();
       ctx.fillStyle = "rgba(0,0,0,0.35)"; ctx.fillRect(x - 0.5, top + (bh - kh) / 2 + 4, 1, kh - 8);
@@ -943,6 +943,9 @@
     if (!localStorage.getItem("tdc.prefs.v1")) T.prefs.units = /^en-(US|GB|LR|MM)$/i.test(navigator.language || "en-US") ? "mph" : "kmh";
     $("advToggle").checked = T.prefs.advanced;
     document.body.classList.toggle("simple", !T.prefs.advanced);
+    // ui-glass-12: body.simple always follows prefs.advanced, also when it is set from code / a reset (it used to stay on: a 30 px
+    // timeline with the sections lane, and drawTimeline's knob got a negative size)
+    T.on("prefs", (k) => { if (k === "advanced" || k === "*") { const adv = !!T.prefs.advanced; $("advToggle").checked = adv; if (document.body.classList.contains("simple") === adv) { document.body.classList.toggle("simple", !adv); if (U.fit) requestAnimationFrame(() => U.fit()); } } });
     $("advToggle").addEventListener("change", (e) => { T.setPref("advanced", e.target.checked); document.body.classList.toggle("simple", !e.target.checked); if (!e.target.checked) $("settings").hidden = true; U.drawTimeline(); });
 
     // iPhone / iPad can't pick (or drag) folders: use the multi-file picker — in Files, open TeslaCam, tap Select, pick the clips

@@ -9,7 +9,8 @@
 //  - no page errors
 // Usage: BR=chromium,webkit node test/color-constancy.js [url]
 const pw = require("playwright"); const fs = require("fs"), path = require("path"), { execFileSync } = require("child_process");
-const URL_ = process.argv[2] || "http://127.0.0.1:8770/index.html";
+const URL_0 = process.argv[2] || "http://127.0.0.1:8770/index.html", URL_ = URL_0 + (URL_0.includes("?") ? "&" : "?") + "debug=1";   // ui-glass-12: these technical rows show in Debug mode
+
 const FIX = process.env.WBC_SAMPLES || "/tmp/wbcolor-samples";
 const W = (ms) => new Promise((r) => setTimeout(r, ms));
 if (!fs.existsSync(FIX + "/TeslaCam")) execFileSync("python3", [path.join(__dirname, "../tools/make-wbcolor-footage.py"), FIX], { stdio: "inherit" });
