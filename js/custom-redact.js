@@ -675,25 +675,36 @@
       if (r) { S.trackId = r.id; S.trackLabel = best.label; msg("Tracking " + (best.label || "object") + " (" + Math.round(best.conf * 100) + "%). Play the video — it follows."); UI.sync(); kick(); }
     } catch (e) { msg("Detection failed: " + (e.message || e), true); }
   }
-  // update tracked region from live detections while playing
-  function followTrack() {
-    if (!S.trackId || !T.detect || !T.player) return;
+  // update tracked region: prefer live dets, fall back to re-detecting the current frame
+  let trackBusy = false;
+  async function followTrack() {
+    if (trackBusy || !S.trackId || !T.detect || !T.player) return;
     const r = G.list.find((x) => x.id === S.trackId); if (!r) { S.trackId = null; return; }
     const cam = r.cam;
-    const live = T.detect.live && T.detect.live[cam];
-    const dets = (live && live.dets) || [];
+    let dets = (T.detect.live && T.detect.live[cam] && T.detect.live[cam].dets) || [];
+    // if no live dets, re-detect the current frame
+    if (!dets.length) {
+      const v = T.player.tiles && T.player.tiles[cam] && T.player.tiles[cam].video;
+      if (v && T.detect.detectImage) {
+        trackBusy = true;
+        try { dets = await T.detect.detectImage(v, v.videoWidth, v.videoHeight, { conf: 0.15 }) || []; } catch (_) {}
+        trackBusy = false;
+      }
+    }
     if (!dets.length) return;
-    // prefer same label, then closest center
     let best = null, bestScore = -999;
     for (const d of dets) {
       const dist = Math.hypot((d.x + d.w / 2) - (r.x + r.w / 2), (d.y + d.h / 2) - (r.y + r.h / 2));
-      const labelBonus = (S.trackLabel && d.label === S.trackLabel) ? 0.5 : 0;
+      const labelBonus = (S.trackLabel && d.label === S.trackLabel) ? 0.8 : 0;
       const score = labelBonus - dist;
-      if (score > bestScore && dist < 0.6) { bestScore = score; best = d; }
+      if (score > bestScore && dist < 0.8) { bestScore = score; best = d; }
     }
-    if (best) G.update(r.id, { x: best.x, y: best.y, w: best.w, h: best.h });
+    if (best && (Math.abs(best.x - r.x) > 0.005 || Math.abs(best.y - r.y) > 0.005 || Math.abs(best.w - r.w) > 0.005)) {
+      G.update(r.id, { x: best.x, y: best.y, w: best.w, h: best.h });
+      if (R && R.paint) R.paint();
+    }
   }
-  setInterval(followTrack, 200);
+  setInterval(followTrack, 300);
 
   /** Done: saves a drawn shape; in Move it simply closes the tray (the moves are already saved, and undoable). */
   UI.done = () => {
