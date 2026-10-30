@@ -393,8 +393,22 @@
       const f = G.screenFit(cam); if (!f) return;
       e.preventDefault(); id = e.pointerId;
       try { cv.setPointerCapture(id); } catch (_) {}
-      // freehand: short press adds a point, drag continues the same open shape
+      // freehand: press on a key point moves it; otherwise short press adds a point, drag continues
       if (S.shape === "free") {
+        if (S.live && S.live.pts.length >= 2) {
+          const f2 = G.screenFit(cam) || S.live.f;
+          const R = e.pointerType === "mouse" ? 14 : 24;
+          const marks = new Set([0, S.live.pts.length - 2]);
+          if (S.live.strokes) for (const s of S.live.strokes) marks.add(s);
+          for (const i of [...marks].reverse()) {
+            if (i < 0 || i >= S.live.pts.length) continue;
+            const [sx, sy] = G.toScreen(f2, S.live.pts[i], S.live.pts[i + 1]);
+            if (Math.hypot(sx - e.clientX, sy - e.clientY) <= R) {
+              S.live.dragIdx = i;
+              return;
+            }
+          }
+        }
         pend = { x: e.clientX, y: e.clientY, freeTap: true };
         return;
       }
@@ -402,6 +416,13 @@
     });
     cv.addEventListener("pointermove", (e) => {
       if (id !== e.pointerId) return;
+      if (S.live && S.live.dragIdx != null) {
+        e.stopPropagation(); e.preventDefault();
+        const f = G.screenFit(cam) || S.live.f, [u, v] = G.toRaw(f, e.clientX, e.clientY);
+        S.live.pts[S.live.dragIdx] = u; S.live.pts[S.live.dragIdx + 1] = v;
+        S.live.last = [u, v];
+        kick(); return;
+      }
       if (pend) {   // a drag that starts on a camera: that camera is the one, and the stroke goes on right there
         e.stopPropagation(); e.preventDefault();
         const dist = Math.hypot(e.clientX - pend.x, e.clientY - pend.y);
@@ -436,6 +457,7 @@
       if (id !== e.pointerId) return;
       e.stopPropagation(); id = null;
       try { cv.releasePointerCapture(e.pointerId); } catch (_) {}
+      if (S.live && S.live.dragIdx != null) { S.live.dragIdx = null; kick(); return; }
       if (pend) {   // a tap
         const wasFreeTap = pend.freeTap;
         pend = null; hot(cam, false);
