@@ -982,7 +982,7 @@
     applyPos(false);
     const sv = $("crBarSave"), what = S.move ? "Done moving" : S.editId ? "Save changes" : "Save region";
     const freeReady = S.shape === "free" && S.live && S.live.pts && S.live.pts.length >= 6;
-    sv.disabled = !(S.move || (S.draft && !S.drawing) || freeReady); sv.title = what; sv.setAttribute("aria-label", "Done: " + what.toLowerCase());
+    sv.disabled = !(S.move || (S.draft && !S.drawing) || freeReady || S.trackId); sv.title = what; sv.setAttribute("aria-label", "Done: " + what.toLowerCase());
     sv.hidden = !!S.pick;
     $("crBarAgain").hidden = !!S.drawing || !!S.pick || !!S.move;
     const setSeg = (id, v, dis) => document.querySelectorAll("#" + id + " button").forEach((x) => { x.setAttribute("aria-pressed", String(x.dataset.v === v)); x.classList.toggle("on", x.dataset.v === v); x.disabled = dis; });
