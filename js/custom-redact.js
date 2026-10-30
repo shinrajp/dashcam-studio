@@ -398,9 +398,14 @@
         if (dist < need) return;
         const p0 = pend; pend = null;
         S.cam = cam; S.pick = false; S.draft = null; S.drawing = true; hot(cam, false);
-        msg(camName(cam) + ": " + (S.shape === "free" ? "keep dragging around the area." : "keep dragging to draw the box."));
         UI.sync();
-        if (!begin(p0.x, p0.y)) { id = null; try { cv.releasePointerCapture(e.pointerId); } catch (_) {} return; }
+        if (S.shape === "free" && S.live) {
+          // continue the same shape: add the drag start point, then pointermove adds more
+          const f = G.screenFit(cam) || S.live.f, [u, v] = G.toRaw(f, p0.x, p0.y);
+          const pts = S.live.pts;
+          if (pts.length < 4000) pts.push(u, v);
+          S.live.last = [u, v];
+        } else if (!begin(p0.x, p0.y)) { id = null; try { cv.releasePointerCapture(e.pointerId); } catch (_) {} return; }
       }
       if (!S.live) return;
       e.stopPropagation(); e.preventDefault();
@@ -449,8 +454,16 @@
         if (!S.drawing || S.cam !== cam) choose(cam, "tap");
         return;
       }
-      const live = S.live; S.live = null;
+      const live = S.live;
       if (!live || e.type === "pointercancel") return;
+      // freehand: leave the shape open so more taps or drags can continue it; only double-tap / Done finishes
+      if (S.shape === "free") {
+        msg("Tap or drag to add. Double-tap or tap near the start to finish.");
+        UI.sync(); kick();
+        if (R && R.paint) R.paint();
+        return;
+      }
+      S.live = null;
       finishShape(cam, live);
     };
     cv.addEventListener("pointerup", end); cv.addEventListener("pointercancel", end);
