@@ -577,17 +577,27 @@
       if (!S.live.redo) S.live.redo = [];
       S.live.redo.push({ cut, pts: removed });
       S.live.pts.length = Math.max(2, cut);
-      if (S.live.pts.length <= 2) { S.live = null; msg("Shape cleared."); }
-      else msg("Last point undone.");
+      if (S.live.pts.length <= 2) {
+        // keep the shape restorable: stash it so redo can bring it back
+        S.undone = { shape: "poly", pts: removed, cam: S.cam, mode: S.mode };
+        S.live = null; msg("Shape undone. Redo to restore.");
+      } else msg("Last point undone.");
       UI.sync(); kick();
       if (R && R.paint) R.paint();
       return true;
     }
-    if (S.draft && !S.editId && !S.move) { S.undone = S.draft; S.draft = null; S.drawing = !!S.cam; msg("Shape undone."); UI.sync(); kick(); return true; }
+    if (S.draft && !S.editId && !S.move) { S.undone = S.draft; S.draft = null; S.drawing = !!S.cam; msg("Shape undone. Redo to restore."); UI.sync(); kick(); return true; }
     if (G.undo()) { msg("Undone."); kick(); return true; }
     return false;
   };
   UI.redo = () => {
+    // freehand shape was fully undone: restore it as a draft
+    if (S.undone && S.undone.shape === "poly" && !S.draft && !S.live && S.drawing) {
+      S.draft = S.undone; S.undone = null; S.drawing = false;
+      msg("Shape restored."); UI.sync(); kick();
+      if (R && R.paint) R.paint();
+      return true;
+    }
     // while drawing freehand: redo restores the last undone stroke
     if (S.shape === "free" && S.live && S.live.redo && S.live.redo.length && S.drawing) {
       const r = S.live.redo.pop();
