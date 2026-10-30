@@ -34,7 +34,7 @@
     lite: "auto",    // ui-glass-9: Settings ▸ Appearance ▸ Lite mode — "auto" (on when frames drop or memory is low) | "on" | "off"; ?lite= overrides for one visit
     glassStyle: "refract",   // ui-glass-11: Settings ▸ Appearance ▸ Glass style — "refract" (SDF refraction, js/refract.js) | "frost"; ?refract=0|1 overrides for one visit
     debug: false,   // ui-glass-12: Settings ▸ Advanced & Labs ▸ Debug — shows the technical controls (tuning, calibration, models, thresholds); ?debug=1|0 overrides for one visit
-    tune: { rfStr: 1, rfTint: 0.22, rfBlur: 4, rfAdaptive: false, liteFps: 40, perfHud: false, wbK: 0, wbTint: 0 },   // ui-glass-12: Debug-only tuning (used only while Debug is on; defaults = the labs/glass-sdf v5 demo)
+    tune: { rfStr: 1, rfTint: 0.22, rfBlur: 4, rfAdaptive: false, liteFps: 40, perfHud: false, wbK: 0, wbTint: 0, lang: "" },   // ui-glass-12: Debug-only tuning (used only while Debug is on; defaults = the labs/glass-sdf v5 demo)
     glass: "auto",   // ui-glass-1: Settings ▸ Appearance ▸ Glass — "auto" (tint follows the video) | "clear" | "solid"; ?glass= overrides for one visit
     mapFloat: { fx: -1, fy: -1, pin: 0, below: 0 },
     bubble: { corner: "br" },   // ui-glass-6: the tools bubble corner (tl | tr | bl | br)   // floating map: left / top as fractions of the free window area (-1 = default spot); export never uses this

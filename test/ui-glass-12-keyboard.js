@@ -17,7 +17,7 @@ const FAKE_VV = () => { const f = new EventTarget(); Object.assign(f, { width: i
   try { Object.defineProperty(window, "visualViewport", { configurable: true, get: () => f }); } catch (_) {}
   window.__kb = (h) => { f.width = innerWidth; f.height = h == null ? innerHeight : h; f.dispatchEvent(new Event("resize")); }; };
 async function open(p) {
-  await p.goto(`http://127.0.0.1:${PORT}/index.html?nosw=1&lang=en-GB`, { waitUntil: "load" });
+  await p.goto(`http://127.0.0.1:${PORT}/index.html?nosw=1`, { waitUntil: "load" });
   await p.evaluate(() => { localStorage.clear(); localStorage.setItem("tdc.detect.v1", JSON.stringify({ enabled: false })); localStorage.setItem("tdc.prefs.v1", JSON.stringify({ autohide: "never" })); sessionStorage.clear(); });
   await p.reload({ waitUntil: "load" });
   await p.setInputFiles("#folderInput", FIX + "/TeslaCam");

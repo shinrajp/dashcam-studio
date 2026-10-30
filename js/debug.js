@@ -55,6 +55,15 @@
     const r = document.createElement("label"); r.className = "row"; const sp = document.createElement("span"); sp.textContent = label;
     const i = document.createElement("input"); i.type = "checkbox"; i.id = id; i.checked = !!val; i.addEventListener("change", () => on(i.checked)); r.append(sp, i); return r;
   }
+  /** Spelling (ui-glass-12): System / US / British; the page reloads to apply it. ?lang= in the address wins for that visit. */
+  function spellRow(tu, set) {
+    const r = document.createElement("label"); r.className = "row"; const sp = document.createElement("span"); sp.textContent = "Spelling";
+    const L = T.l10n || {}, sel = document.createElement("select"); sel.id = "dbgLang"; sel.setAttribute("data-no-l10n", "");
+    sel.innerHTML = '<option value="">System (' + (L.system || "?") + ')</option><option value="en-US">US (color, license)</option><option value="en-GB">British (colour, licence)</option>';
+    sel.value = tu.lang === "en-US" || tu.lang === "en-GB" ? tu.lang : "";
+    sel.addEventListener("change", () => { set("lang", sel.value); setTimeout(() => location.reload(), 60); });
+    r.append(sp, sel); return r;
+  }
   function build() {
     const panel = $("settings"); if (!panel || $("debugSec")) return;
     const body = panel.querySelector(".drawer-body"); if (!body) return;
@@ -70,7 +79,8 @@
       range("dbgRfBlur", "Glass blur", 0, 10, 0.5, num(tu.rfBlur, 0, 10, 4), (v) => v.toFixed(1) + " px", (v) => { set("rfBlur", v); rerender(); }),
       check("dbgRfAdaptive", "Tint follows the video (ui-glass-11)", tu.rfAdaptive, (v) => { set("rfAdaptive", v); rerender(); }),
       range("dbgLiteFps", "Lite below", 15, 58, 1, num(tu.liteFps, 15, 58, 40), (v) => Math.round(v) + " fps", (v) => { set("liteFps", v); applyLite(); }),
-      check("dbgPerf", "FPS / perf overlay", tu.perfHud, (v) => { set("perfHud", v); syncHud(); }));
+      check("dbgPerf", "FPS / perf overlay", tu.perfHud, (v) => { set("perfHud", v); syncHud(); }),
+      spellRow(tu, set));
     const reset = document.createElement("button"); reset.type = "button"; reset.className = "btn ghost wide"; reset.id = "dbgReset"; reset.textContent = "Reset debug tuning";
     reset.addEventListener("click", () => { T.prefs.tune = JSON.parse(JSON.stringify(T.DEFAULT_PREFS.tune)); T.savePrefs(); T.emit("prefs", "tune"); syncInputs(); });
     box.appendChild(reset);
@@ -90,7 +100,8 @@
     root.classList.toggle("debug-on", on);
     const t = $("debugToggle"); if (t) { t.checked = on; t.disabled = T.debugOverride != null; }
     const n = $("debugNote");
-    if (n) n.textContent = T.debugOverride != null ? "Set by ?debug=" + (T.debugOverride ? "1" : "0") + " in the address for this visit." : on ? "Shows the technical settings: glass and Lite tuning, a perf overlay, white-balance temperature and tint, calibration, models and recognition thresholds." : "Off: the technical settings stay hidden and their defaults apply.";
+    const ln = T.l10n ? " Spelling: " + (T.l10n.spelling === "us" ? "US" : "British") + " (" + T.l10n.lang + (T.l10n.by === "system" ? ", from the system" : T.l10n.by === "url" ? ", from ?lang=" : ", set here") + ")." : "";
+    if (n) n.textContent = (T.debugOverride != null ? "Set by ?debug=" + (T.debugOverride ? "1" : "0") + " in the address for this visit." : on ? "Shows the technical settings: glass and Lite tuning, a perf overlay, white-balance temperature and tint, calibration, models and recognition thresholds." : "Off: the technical settings stay hidden and their defaults apply.") + (on ? ln : "");
     applyLite(); syncHud(); rerender();
     try { if (T.settings && T.settings.refresh) T.settings.refresh(); } catch (_) {}
   }

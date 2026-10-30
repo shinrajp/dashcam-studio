@@ -114,7 +114,7 @@
     show("home");
   }
 
-  const norm = (s) => (s || "").toLowerCase().replace(/\s+/g, " ");
+  const norm = (s) => (T.l10n ? T.l10n.fold(s) : (s || "").toLowerCase().replace(/\s+/g, " "));   // ui-glass-12: "color" finds "colour" and back
   function itemsOf(sec) { return [...sec.querySelectorAll(".row, .toggles > :not(.row), p.hint, .btn.wide, h4, .set-keys > div")].filter((n) => !n.closest(".set-keys") || n.parentElement.classList.contains("set-keys")); }
   /** A section with many rows (White balance, Recognition) shows the first ones and a "Show all" button (kept open for the session). */
   const FOLD_AT = 8, KEEP = 5;
