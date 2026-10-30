@@ -773,13 +773,15 @@
       const r = G.list.find((x) => x.id === id); if (!r) continue;
       const info = S.patches[id];
       const m = matchPatch(r.cam, info.patch || info, r.x, r.y, r.w, r.h);
-      if (m && m.score > 50 && (Math.abs(m.x - r.x) > 0.002 || Math.abs(m.y - r.y) > 0.002)) {
+      if (m) S.patches[id].lastScore = m.score.toFixed(1);
+      if (m && m.score > 5 && (Math.abs(m.x - r.x) > 0.001 || Math.abs(m.y - r.y) > 0.001)) {
         const dx = m.x - r.x, dy = m.y - r.y;
         r.x = m.x; r.y = m.y;
         if (r.pts) for (let i = 0; i < r.pts.length; i += 2) { r.pts[i] += dx; r.pts[i + 1] += dy; }
         moved++;
       }
     }
+    dbg("tracking: " + S.trackIds.length + " moved: " + moved + (S.trackIds[0] ? " lastScore: " + ((S.patches[S.trackIds[0]] && S.patches[S.trackIds[0]].lastScore) || "?") : ""));
     if (moved && R && R.paint) R.paint();
   }
   setInterval(followPatches, 120);
