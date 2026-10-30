@@ -68,6 +68,18 @@
     root.classList.toggle("glass-rm", G.rm);
     if (G.lite) root.dataset.lite = G.liteMode === "on" ? "on" : G.autoLite; else delete root.dataset.lite;
     if (G.effective === "auto") G.setLuma(G.rm ? STATIC_LUMA : G.luma); else root.style.removeProperty("--g-a");
+    // manual overrides (Blur / Strength / Tint from Settings) — apply to root so floating bars pick them up
+    if (T.prefs && T.prefs.glassManual) {
+      if (T.prefs.glassBlur != null) root.style.setProperty("--g-blur", T.prefs.glassBlur + "px");
+      if (T.prefs.glassAlpha != null) root.style.setProperty("--g-a", (+T.prefs.glassAlpha).toFixed(3));
+      if (T.prefs.glassTint) {
+        const hex = String(T.prefs.glassTint).replace("#", "");
+        if (hex.length >= 6) {
+          const r = parseInt(hex.slice(0, 2), 16), g = parseInt(hex.slice(2, 4), 16), b = parseInt(hex.slice(4, 6), 16);
+          root.style.setProperty("--g-rgb", r + ", " + g + ", " + b);
+        }
+      }
+    }
     if (!G.following()) clearTints();
     const ls = document.getElementById("segLite");
     if (ls) ls.querySelectorAll("button").forEach((b) => { b.classList.toggle("on", b.dataset.v === G.liteMode); b.setAttribute("aria-pressed", String(b.dataset.v === G.liteMode)); });
