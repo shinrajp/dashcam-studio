@@ -25,3 +25,7 @@ html.refract .stage-bar.rf-on svg, html.refract #toolBubble .rf-on svg, html.ref
 html.refract .rf-on :is(.on, .active, [aria-pressed="true"], [aria-checked="true"], .primary, input, select, textarea),
 html.refract .rf-cap-on :is(.on, .active, [aria-pressed="true"], .primary) { text-shadow: none; }
 html.refract .rf-on :is(.on, .active, [aria-pressed="true"]) svg, html.refract .rf-cap-on :is(.on, .active, [aria-pressed="true"]) svg { filter: none; }
+
+/* ui-glass-13: reading sheets (Settings, Events) on refraction glass: their own backing (Panel opacity, stronger blur, js/refract.js) and
+   brighter secondary text, so hints stay >= 4.5:1 over bright / white video */
+html.refract #settings.rf-on, html.refract #library.rf-on { --dim: #c3cad4; --faint: #b8c0cb; }

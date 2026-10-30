@@ -24,8 +24,11 @@
   // ui-glass-12: the demo's look (labs/glass-sdf v5: uStr 1, uBlur 4, uTint 0.22 towards rgb(.07,.07,.09)); Debug mode may tune it
   R.DEMO = { str: 1, tint: 0.22, blur: 4, rgb: [18, 18, 23] };
   const num = (v, lo, hi, d) => (typeof v === "number" && isFinite(v) ? Math.min(hi, Math.max(lo, v)) : d);
-  R.tune = () => { const t = (T.debugOn && T.debugOn() && T.prefs.tune) || {}, D = R.DEMO;
-    return { str: num(t.rfStr, 0, 2.5, D.str), tint: num(t.rfTint, 0, 0.9, D.tint), blur: num(t.rfBlur, 0, 10, D.blur), adaptive: !!t.rfAdaptive }; };
+  // ui-glass-13: strength / blur / tint / panel opacity come from Settings ▸ Appearance (js/glass-tune.js, cached per change); Debug keeps the
+  // ui-glass-11 adaptive tint. Sheets (Settings, Events) get their own, stronger backing: the panel opacity and blur + 6 px.
+  R.tune = () => { const t = (T.debugOn && T.debugOn() && T.prefs.tune) || {}, D = R.DEMO, g = (T.glassTune && (T.glassTune.cur || T.glassTune.get())) || {};
+    const blur = num(g.blur, 0, 12, D.blur);
+    return { str: num(g.str, 0, 2.5, D.str), tint: num(g.tint, 0, 0.8, D.tint), blur, sheet: num(g.sheet, 0.3, 0.95, 0.72), sheetBlur: blur + 6, adaptive: !!t.rfAdaptive }; };
   const lin = (c) => { c /= 255; return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); };
   const lum = (r, g, b) => 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
   const TEXT = { ctl: lum(0xae, 0xb6, 0xc2), sheet: lum(0x9a, 0xa3, 0xb2) }, FLOOR = { ctl: 0.12, sheet: 0.5 }, SHEEN = 0.12, A_MAX = 0.96, RIM_A = 0.35;
@@ -41,7 +44,7 @@
   const VS = "attribute vec2 aPos; uniform vec2 uSize; varying vec2 vP; void main(){ vP = aPos * uSize; gl_Position = vec4(aPos.x * 2.0 - 1.0, 1.0 - aPos.y * 2.0, 0.0, 1.0); }";
   const FS = [
     "#ifdef GL_FRAGMENT_PRECISION_HIGH", "precision highp float;", "#else", "precision mediump float;", "#endif",
-    "uniform sampler2D uScene; uniform vec2 uSize, uOrigin, uSceneSize; uniform float uS, uK, uSS;",
+    "uniform sampler2D uScene, uSceneLo; uniform vec2 uSize, uOrigin, uSceneSize; uniform float uS, uK, uSS, uLo;",
     "uniform vec4 uBox; uniform vec4 uRad; uniform float uStr, uBlur, uCA, uTintA, uRimA; uniform vec3 uTint;",
     "varying vec2 vP;",
     // per-corner rounded box (r = br, tr, bl, tl; y down)
@@ -49,7 +52,13 @@
     "  vec2 q = abs(p) - uBox.zw + r.x; return min(max(q.x, q.y), 0.0) + length(max(q, 0.0)) - r.x; }",
     // a point in this piece's render px -> the scene picture (screen CSS px * uSS)
     "vec3 tap(vec2 p){ vec2 css = uOrigin + p / uS * uK; vec2 uv = clamp(css * uSS / uSceneSize, vec2(0.0), vec2(1.0)); return texture2D(uScene, uv).rgb; }",
-    "vec3 blurred(vec2 p){ if (uBlur < 0.25) return tap(p); float r = uBlur * uS; float h = r * 0.7071; vec3 c = tap(p) * 0.2;",
+    // a strong blur (sheets) reads a 1/4-size copy of the scene: bilinear on it is already soft, so 13 taps give a smooth blur, no ghosts
+    "vec3 tapLo(vec2 p){ vec2 css = uOrigin + p / uS * uK; vec2 uv = clamp(css * uSS / uSceneSize, vec2(0.0), vec2(1.0)); return texture2D(uSceneLo, uv).rgb; }",
+    "vec3 blurLo(vec2 p){ float r = uBlur * uS; float q = r * 0.5; float h = r * 0.7071; vec3 c = tapLo(p) * 0.12;",
+    "  c += (tapLo(p + vec2(q, 0.0)) + tapLo(p - vec2(q, 0.0)) + tapLo(p + vec2(0.0, q)) + tapLo(p - vec2(0.0, q))) * 0.08;",
+    "  c += (tapLo(p + vec2(r, 0.0)) + tapLo(p - vec2(r, 0.0)) + tapLo(p + vec2(0.0, r)) + tapLo(p - vec2(0.0, r))) * 0.07;",
+    "  c += (tapLo(p + vec2(h, h)) + tapLo(p - vec2(h, h)) + tapLo(p + vec2(h, -h)) + tapLo(p - vec2(h, -h))) * 0.07; return c; }",
+    "vec3 blurred(vec2 p){ if (uLo > 0.5) return blurLo(p); if (uBlur < 0.25) return tap(p); float r = uBlur * uS; float h = r * 0.7071; vec3 c = tap(p) * 0.2;",
     "  c += (tap(p + vec2(r, 0.0)) + tap(p - vec2(r, 0.0)) + tap(p + vec2(0.0, r)) + tap(p - vec2(0.0, r))) * 0.1;",
     "  c += (tap(p + vec2(h, h)) + tap(p - vec2(h, h)) + tap(p + vec2(h, -h)) + tap(p - vec2(h, -h))) * 0.1; return c; }",
     "void main(){",
@@ -73,7 +82,7 @@
     "  col += 0.05 * (1.0 - smoothstep(uBox.y - uBox.w, uBox.y, vP.y)) * t;",
     "  float a = clamp(0.5 - d / aa, 0.0, 1.0); gl_FragColor = vec4(clamp(col, 0.0, 1.0) * a, a);",
     "}"].join("\n");
-  let gl = null, glc = null, prog = null, U = {}, sceneTex = null, glOK = false, glTried = false;
+  let gl = null, glc = null, prog = null, U = {}, sceneTex = null, loTex = null, lo1 = null, lo2 = null, glOK = false, glTried = false;
   function initGL() {
     glTried = true;
     try {
@@ -85,13 +94,16 @@
       prog = gl.createProgram(); gl.attachShader(prog, sh(gl.VERTEX_SHADER, VS)); gl.attachShader(prog, sh(gl.FRAGMENT_SHADER, FS));
       gl.bindAttribLocation(prog, 0, "aPos"); gl.linkProgram(prog); if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(prog));
       gl.useProgram(prog);
-      ["uScene", "uSize", "uOrigin", "uSceneSize", "uS", "uK", "uSS", "uBox", "uRad", "uStr", "uBlur", "uCA", "uTintA", "uRimA", "uTint"].forEach((n) => { U[n] = gl.getUniformLocation(prog, n); });
+      ["uScene", "uSceneLo", "uLo", "uSize", "uOrigin", "uSceneSize", "uS", "uK", "uSS", "uBox", "uRad", "uStr", "uBlur", "uCA", "uTintA", "uRimA", "uTint"].forEach((n) => { U[n] = gl.getUniformLocation(prog, n); });
       const b = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, b); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([0, 0, 1, 0, 0, 1, 1, 1]), gl.STATIC_DRAW);
       gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
       sceneTex = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, sceneTex);
       [[gl.TEXTURE_MIN_FILTER, gl.LINEAR], [gl.TEXTURE_MAG_FILTER, gl.LINEAR], [gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE], [gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE]].forEach((p) => gl.texParameteri(gl.TEXTURE_2D, p[0], p[1]));
       gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false); gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
       gl.uniform1i(U.uScene, 0);
+      loTex = gl.createTexture(); gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, loTex);
+      [[gl.TEXTURE_MIN_FILTER, gl.LINEAR], [gl.TEXTURE_MAG_FILTER, gl.LINEAR], [gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE], [gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE]].forEach((p) => gl.texParameteri(gl.TEXTURE_2D, p[0], p[1]));
+      gl.uniform1i(U.uSceneLo, 1); gl.activeTexture(gl.TEXTURE0);
       glc.addEventListener("webglcontextlost", (e) => { e.preventDefault(); glOK = false; R.apply(); });
       glc.addEventListener("webglcontextrestored", () => { glTried = false; gl = null; R.apply(); });
       glOK = true; R.contexts = 1;
@@ -210,9 +222,19 @@
     R.stats.videos = drawScene(list, SS);
     const tu = R.tune(); R.tuned = tu;
     if (tu.adaptive) { if (doTint || list.some((p) => !p.host._rft || p.host._rft.demo)) { tints(list, !playing()); tintAt = now; } }
-    else for (const p of list) p.host._rft = { rgb: R.DEMO.rgb, a: tu.tint, need: tu.tint, max: null, demo: true };
+    else for (const p of list) { const a = p.kind === "sheet" ? tu.sheet : tu.tint; p.host._rft = { rgb: R.DEMO.rgb, a, need: a, max: null, demo: true }; }
     gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, sceneTex);
     try { gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, sc); } catch (_) {}
+    // ui-glass-13: sheets read a 1/4-size copy (two halvings, ~1/8 of the screen) for their strong blur; only while a sheet is up
+    const loOn = !!loTex && list.some((p) => p.kind === "sheet") && tu.sheetBlur >= 2;
+    if (loOn) {
+      const w1 = Math.max(4, sc.width >> 1), h1 = Math.max(4, sc.height >> 1), w2 = Math.max(2, w1 >> 1), h2 = Math.max(2, h1 >> 1);
+      if (!lo1) { lo1 = document.createElement("canvas"); lo1._x = lo1.getContext("2d"); lo2 = document.createElement("canvas"); lo2._x = lo2.getContext("2d"); }
+      if (lo1.width !== w1 || lo1.height !== h1) { lo1.width = w1; lo1.height = h1; }
+      if (lo2.width !== w2 || lo2.height !== h2) { lo2.width = w2; lo2.height = h2; }
+      try { lo1._x.drawImage(sc, 0, 0, w1, h1); lo2._x.drawImage(lo1, 0, 0, w2, h2);
+        gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, loTex); gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, lo2); gl.activeTexture(gl.TEXTURE0); } catch (_) {}
+    }
     // the shared canvas only grows (no reallocation while a piece resizes)
     // every piece gets its own band of the shared canvas (stacked), drawn first and copied out after: a WebGL canvas read by drawImage in the
     // same task can show a later draw (seen in Chromium), so no two pieces share pixels
@@ -235,6 +257,7 @@
       gl.uniform2f(U.uSize, w, h); gl.uniform2f(U.uOrigin, p.r.left, p.r.top); gl.uniform1f(U.uS, S); gl.uniform1f(U.uK, p.k);
       gl.uniform4f(U.uBox, w / 2, h / 2, w / 2, h / 2); gl.uniform4f(U.uRad, rad[0], rad[1], rad[2], rad[3]);
       gl.uniform3f(U.uTint, tt.rgb[0] / 255, tt.rgb[1] / 255, tt.rgb[2] / 255); gl.uniform1f(U.uTintA, tt.a);
+      const sh = p.kind === "sheet" && loOn; gl.uniform1f(U.uLo, sh ? 1 : 0); gl.uniform1f(U.uBlur, sh ? tu.sheetBlur : tu.blur);
       gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
     }
     gl.disable(gl.SCISSOR_TEST);

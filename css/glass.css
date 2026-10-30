@@ -12,7 +12,7 @@
   --g-shadow: 0 10px 30px rgba(0,0,0,.34), 0 2px 8px rgba(0,0,0,.24);
   --g-text-shadow: 0 1px 2px rgba(0,0,0,.45);
 }
-html.glass[data-glass="clear"] { --g-a: .42; }
+html.glass[data-glass="clear"] { --g-a: max(.42, var(--g-tint-floor, 0)); }   /* ui-glass-13: Tint raises Clear too */
 html.glass[data-glass="solid"] { --g-a: .97; --g-rgb: 27, 30, 37; --g-sheen: linear-gradient(rgba(255,255,255,0), rgba(255,255,255,0)); }
 
 /* ── blur: only on the pieces js/glass.js picked; every other piece (and everything inside a blurred one) gets none ── */

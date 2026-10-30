@@ -50,23 +50,11 @@
     root.dataset.glassLight = c === "#1a1d24" ? "1" : "";
   };
   
-  // Manual glass overrides (prefs.glassBlur, glassAlpha, glassTint)
-  G.manual = () => !!(T.prefs.glassManual);
-  G.applyManual = () => {
-    if (!G.manual()) return;
-    const root = document.documentElement;
-    if (T.prefs.glassBlur != null) root.style.setProperty("--g-blur", T.prefs.glassBlur + "px");
-    if (T.prefs.glassAlpha != null) root.style.setProperty("--g-a", (+T.prefs.glassAlpha).toFixed(3));
-    if (T.prefs.glassTint) {
-      const hex = T.prefs.glassTint.replace("#","");
-      const r = parseInt(hex.slice(0,2),16), g = parseInt(hex.slice(2,4),16), b = parseInt(hex.slice(4,6),16);
-      root.style.setProperty("--g-rgb", r+","+g+","+b);
-      G.applyContrast();
-    }
-  };
-
+  // ui-glass-13: Settings ▸ Appearance ▸ Tint is a floor under the frosted tint (js/glass-tune.js)
+  G.tintFloor = 0;
+  G.tintFloorChanged = (f) => { f = Math.max(0, Math.min(0.97, +f || 0)); if (f === G.tintFloor) return; G.tintFloor = f; if (G.effective === "auto") { G.setLuma(G.rm ? STATIC_LUMA : G.luma); tinted.forEach((e) => { delete e._gt; }); } };
   G.setLuma = (l) => {
-    G.luma = l; G.alpha = G.alphaFor(l);
+    G.luma = l; G.alpha = Math.max(G.alphaFor(l), G.tintFloor);
     if (G.effective === "auto") root.style.setProperty("--g-a", G.alpha.toFixed(3)); else root.style.removeProperty("--g-a");
   };
 
@@ -83,18 +71,6 @@
     root.classList.toggle("glass-rm", G.rm);
     if (G.lite) root.dataset.lite = G.liteMode === "on" ? "on" : G.autoLite; else delete root.dataset.lite;
     if (G.effective === "auto") G.setLuma(G.rm ? STATIC_LUMA : G.luma); else root.style.removeProperty("--g-a");
-    // manual overrides (Blur / Strength / Tint from Settings) — apply to root so floating bars pick them up
-    if (T.prefs && T.prefs.glassManual) {
-      if (T.prefs.glassBlur != null) root.style.setProperty("--g-blur", T.prefs.glassBlur + "px");
-      if (T.prefs.glassAlpha != null) root.style.setProperty("--g-a", (+T.prefs.glassAlpha).toFixed(3));
-      if (T.prefs.glassTint) {
-        const hex = String(T.prefs.glassTint).replace("#", "");
-        if (hex.length >= 6) {
-          const r = parseInt(hex.slice(0, 2), 16), g = parseInt(hex.slice(2, 4), 16), b = parseInt(hex.slice(4, 6), 16);
-          root.style.setProperty("--g-rgb", r + ", " + g + ", " + b);
-        }
-      }
-    }
     if (!G.following()) clearTints();
     const ls = document.getElementById("segLite");
     if (ls) ls.querySelectorAll("button").forEach((b) => { b.classList.toggle("on", b.dataset.v === G.liteMode); b.setAttribute("aria-pressed", String(b.dataset.v === G.liteMode)); });
@@ -105,7 +81,6 @@
     const note = document.getElementById("glassNote");
     if (note) note.textContent = why === "lite" ? "Lite mode is on, so the controls are solid with no blur." : why === "reduced-transparency" ? "Reduce transparency is on in your system, so the controls are solid." : why ? "This browser can't blur behind the controls, so they are solid." : G.override() ? "Set by ?glass= in the address for this visit." : "";
     G.budget();
-    G.applyManual();
     G.applyContrast();
   };
 
@@ -240,7 +215,7 @@
     }
   }
   function paint(e, g) {
-    const floor = G.alphaFor(g.luma), want = G.tintFor(g.avg), cur = e._gt;
+    const floor = Math.max(G.alphaFor(g.luma), G.tintFloor), want = G.tintFor(g.avg), cur = e._gt;
     // colour eases; opacity goes up at once (contrast first) and eases down, at most 0.04 a step
     const rgb = cur ? cur.rgb.map((c, i) => (Math.abs(want[i] - c) < 1.5 ? c : c + (want[i] - c) * 0.3)) : want;
     const need = G.alphaNeeded(rgb, g.max, floor);
@@ -297,20 +272,6 @@
   function monStart() { if (!monRaf && monOn()) { LM.hold(); monRaf = requestAnimationFrame(mon); } }
   // ---- wiring ------------------------------------------------------------------------------------------------------------------------------
 
-  function wireManual() {
-    const show = () => {
-      const on = G.mode !== "solid";
-      ["glassManual","glassManualA","glassManualT"].forEach(id => { const e = document.getElementById(id); if (e) e.hidden = !on; });
-    };
-    show();
-    const blur = document.getElementById("glassBlur");
-    const alpha = document.getElementById("glassAlpha");
-    const tint = document.getElementById("glassTint");
-    if (blur && !blur._wired) { blur._wired = true; blur.value = T.prefs.glassBlur || 22; blur.addEventListener("input", () => { T.setPref("glassBlur", +blur.value); T.setPref("glassManual", true); G.apply(); }); }
-    if (alpha && !alpha._wired) { alpha._wired = true; alpha.value = T.prefs.glassAlpha || 0.7; alpha.addEventListener("input", () => { T.setPref("glassAlpha", +alpha.value); T.setPref("glassManual", true); G.apply(); }); }
-    if (tint && !tint._wired) { tint._wired = true; tint.value = T.prefs.glassTint || "#101218"; tint.addEventListener("input", () => { T.setPref("glassTint", tint.value); T.setPref("glassManual", true); G.apply(); }); }
-  }
-
   function wireSeg() {
     const seg = document.getElementById("segGlass"); if (!seg || seg._wired) return; seg._wired = true;
     seg.querySelectorAll("button").forEach((b) => b.addEventListener("click", () => { T.setPref("glass", b.dataset.v); }));
@@ -331,7 +292,7 @@
   document.addEventListener("fullscreenchange", () => LM.hold());
   [mRT, mRM].forEach((m) => { if (m) { try { m.addEventListener("change", G.apply); } catch (_) { try { m.addListener(G.apply); } catch (__) {} } } });
   const start = () => {
-    wireSeg(); wireLite(); wireManual(); G.apply(); sched();
+    wireSeg(); wireLite(); G.apply(); sched();
     try { new MutationObserver(budgetSoon).observe(document.body, { subtree: true, attributes: true, attributeFilter: ["hidden", "class"] }); } catch (_) {}
     addEventListener("resize", budgetSoon);
   };
