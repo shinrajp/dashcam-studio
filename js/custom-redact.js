@@ -687,10 +687,10 @@
     if (trackBusy || !S.trackId || !T.detect || !T.player) return;
     const r = G.list.find((x) => x.id === S.trackId); if (!r) { S.trackId = null; return; }
     const cam = r.cam, t = T.player.time;
-    // use interpolated live boxes (same ones drawn on screen) so the region follows smoothly
+    // use the same boxes drawn on screen (boxesAt) so the region follows what you see
     let dets = [];
-    if (T.detect.liveAt) { const lv = T.detect.liveAt(cam, t); if (lv && lv.dets) dets = lv.dets; }
-    if (!dets.length && T.detect.live && T.detect.live[cam]) dets = T.detect.live[cam].dets || [];
+    if (T.detect.boxesAt) { const bx = T.detect.boxesAt(cam, t); if (bx && bx.length) dets = bx; }
+    if (!dets.length && T.detect.liveAt) { const lv = T.detect.liveAt(cam, t); if (lv && lv.dets) dets = lv.dets; }
     if (!dets.length) return;
     let best = null, bestScore = -999;
     for (const d of dets) {
