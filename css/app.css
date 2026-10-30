@@ -385,6 +385,11 @@ body.idle .stage-bar.dragging { opacity: 1; pointer-events: auto; }
   .chip-switch > span:not(.mini-switch) { display: none; }
 }
 body.fs .bar-restore { bottom: 76px; }
+/* ui-glass-12: full screen, one camera — the pill shrinks to this camera button in the top-left corner (js/focus.js F.fsMini) */
+body.fs .bar-restore.fs-mini { position: fixed; top: calc(env(safe-area-inset-top, 0px) + 8px); left: calc(env(safe-area-inset-left, 0px) + 8px); bottom: auto; width: 44px; height: 44px; opacity: .92; z-index: 30; transition: opacity .25s; }
+body.idle .bar-restore.fs-mini { opacity: 0; pointer-events: none; }
+body.ah-gone .bar-restore.fs-mini { visibility: hidden; }
+@media (min-width: 761px) and (min-height: 501px) { body.fs .bar-restore.fs-mini { top: 44px; } }   /* desktop: under the camera name label */
 .stage-bar .btn.icon.sm, .bar-grip { flex-shrink: 0; }
 
 /* ── phones, tablets, iOS Safari ── */
@@ -716,6 +721,8 @@ body.portrait .wb-readout { font-size: 10px; }
 body.fs .wb-readout { bottom: calc(var(--tp-h, 62px) + 8px); transition: bottom .25s; }   /* above the floating transport bar */
 body.fs.idle .wb-readout { bottom: 8px; }
 body.fs.ss-on .wb-readout { bottom: calc(var(--tp-h, 62px) + var(--ss-h, 0px) + 8px); }
+/* ui-glass-12: full screen with one camera — top right, under the time stamp, clear of the map, the car view and the bottom bars */
+body.fs.focused .wb-readout, body.fs.focused.idle .wb-readout, body.fs.focused.ss-on .wb-readout { top: 40px; bottom: auto; }
 .wb-mask-layer { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 2; }
 .wb-mask-layer[hidden] { display: none; }
 .wb-range { display: inline-flex; align-items: center; gap: 8px; }

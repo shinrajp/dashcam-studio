@@ -199,6 +199,7 @@
   F.fullscreen = (on) => {
     if (on == null) on = !F.isFullscreen();
     const root = document.documentElement;
+    F.fsOpen = false;
     if (on) {
       document.body.classList.add("fs");
       F.native = false;
@@ -220,7 +221,7 @@
     if (T.ui && T.ui.fit) requestAnimationFrame(() => T.ui.fit());
   };
   function onFsChange() {
-    if (!fsEl() && F.native && F.isFullscreen()) { F.native = false; document.body.classList.remove("fs"); syncBar(); } // left via Esc / browser UI
+    if (!fsEl() && F.native && F.isFullscreen()) { F.native = false; F.fsOpen = false; document.body.classList.remove("fs"); syncBar(); } // left via Esc / browser UI
     if (T.ui && T.ui.fit) requestAnimationFrame(() => T.ui.fit());
   }
 
@@ -533,7 +534,14 @@
       placeBar();
     } catch (e) { console.warn("camera bar dock", e); T.prefs.cameraBar.dock = "over"; syncBarDock(); if (T.ui && T.ui.fit) T.ui.fit(); }
   };
+  // ui-glass-12 (iPhone: "the camera bar … blocks the car view"): in full screen with one camera, the pill starts shrunk to the small camera
+  // button (top-left corner, off the picture where there is room); a tap opens it for this full-screen visit, its hide button shrinks it again.
+  // Nothing is saved (prefs.cameraBar.on is untouched); grid full screen and the beside-the-video dock are unchanged.
+  F.fsOpen = false;
+  F.fsMiniAt = () => F.isFullscreen() && !!F.cam && CB().dock !== "beside" && F.barOn() && !!P().ev;
+  F.fsMini = () => F.fsMiniAt() && !F.fsOpen;
   F.setBar = (on, quiet) => {
+    if (F.fsMiniAt()) { F.fsOpen = !!on; syncBarVis(); wake(); return; }   // full screen, one camera: open / shrink, nothing saved
     T.setPref("cameraBar.on", !!on);
     if (!on) $("camMenu").hidden = true;
     syncBarVis();
@@ -541,9 +549,11 @@
     wake();
   };
   function syncBarVis() {
-    const on = F.barOn(), bar = $("stageBar");
+    const mini = F.fsMini(), on = F.barOn() && !mini, bar = $("stageBar");
     bar.hidden = !on;
     $("btnBarRestore").hidden = on || !P().ev;
+    $("btnBarRestore").classList.toggle("fs-mini", mini); document.body.classList.toggle("fs-mini", mini);
+    $("btnBarRestore").title = mini ? "Cameras: show the camera bar (C)" : "Show the camera bar (C)";
     const sw = $("chipCamBar");
     sw.classList.toggle("on", on); sw.setAttribute("aria-pressed", String(on));
     sw.title = on ? "Camera bar is ON. Click to hide it (C)" : "Camera bar is OFF. Click to show it (C)";
@@ -842,7 +852,7 @@
       else if (performance.now() - F.since > 600) F.grid();
     });
     $("btnFocusClose").addEventListener("click", (e) => { e.stopPropagation(); F.grid(); });
-    $("chipCamBar").addEventListener("click", () => F.setBar(!F.barOn()));
+    $("chipCamBar").addEventListener("click", () => F.setBar(F.fsMiniAt() ? !F.fsOpen : !F.barOn()));
     $("btnBarDock").addEventListener("pointerdown", (e) => e.stopPropagation());
     $("btnBarDock").addEventListener("click", (e) => { e.stopPropagation(); if (CB().dock === "float") F.dockBar(); else F.setBarDock(CB().dock === "beside" ? "over" : "beside"); });
     if ($("barAside")) $("barAside").addEventListener("change", (e) => F.setBarDock(e.target.checked ? "beside" : "over"));

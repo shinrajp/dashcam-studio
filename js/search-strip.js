@@ -21,7 +21,10 @@
   SS.phone = () => !!(mq && mq.matches) || /[?&]strip=1\b/.test(location.search);
   SS.wanted = () => {
     const b = document.body;
-    return SS.phone() && !!(T.player && T.player.ev) && (b.classList.contains("fs") || !!(T.focus && T.focus.cam)) && !b.classList.contains("usearch-classic");
+    if (!(SS.phone() && !!(T.player && T.player.ev) && (b.classList.contains("fs") || !!(T.focus && T.focus.cam)) && !b.classList.contains("usearch-classic"))) return false;
+    // ui-glass-12: full screen with one camera shows the strip only once there are results (an empty "Results / Cameras" bar covered the picture)
+    if (b.classList.contains("fs") && T.focus && T.focus.cam) { try { return items().length > 0; } catch (_) { return true; } }
+    return true;
   };
 
   /* ---------- items ---------- */

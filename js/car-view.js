@@ -130,8 +130,15 @@
     if (c.fx >= 0 && c.fy >= 0) { x = c.fx * vpW(); y = c.fy * vpH(); }
     else {   // default corner: bottom left of the video area (above the bar in full screen)
       const st = $("stage") ? $("stage").getBoundingClientRect() : { left: 0, bottom: vpH() };
-      const tp = document.body.classList.contains("fs") ? parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--tp-h")) || 62 : 0;
-      x = st.left + 8; y = Math.min(st.bottom, vpH() - tp) - h - 8;
+      const fs = document.body.classList.contains("fs"), tp = fs ? parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--tp-h")) || 62 : 0;
+      // ui-glass-12: in full screen stay above everything at the bottom (results strip, Search / Redact, bubble), not just the transport
+      let floor = vpH() - tp; if (fs) try { if (T.overlays && T.overlays.floatFloor) floor = Math.min(floor, T.overlays.floatFloor()); const us = $("usStrip"); if (us && !us.hidden && us.offsetHeight) floor = Math.min(floor, us.getBoundingClientRect().top); } catch (_) {}
+      x = st.left + 8; y = Math.min(st.bottom, floor) - h - 8;
+      if (fs && floor - st.bottom >= h + 16) y = st.bottom + 8;   // a tall phone in full screen: in the black band under the picture, off the video
+      else if (fs && !(c.w > 0) && st.left - 16 >= MINW) {   // a phone held sideways: narrow enough for the black band beside the picture (not saved)
+        box.style.width = Math.min(curW(), Math.floor(st.left - 16)) + "px";
+        const h2 = box.offsetHeight; x = 8; y = Math.max(60, Math.min(st.bottom, floor) - h2 - 8);
+      }
     }
     x = clamp(x, 0, Math.max(0, vpW() - w)); y = clamp(y, 0, Math.max(0, vpH() - h));
     box.style.left = Math.round(x) + "px"; box.style.top = Math.round(y) + "px";
@@ -178,6 +185,7 @@
     $("cvPin").addEventListener("click", () => { const c = cfg(); c.pinned = !c.pinned; if (c.pinned) c.collapsed = false; V.sync(); V.place(); keepPos(); T.emit && T.emit("carpanel"); });
     $("cvCollapse").addEventListener("click", () => { const c = cfg(); if (c.pinned) return; c.collapsed = !c.collapsed; V.sync(); V.place(); keepPos(); });
     $("cvClose").addEventListener("click", () => { if (cfg().pinned) return; T.setPref("carView", false); });
+    T.on("layout", () => { const c = cfg(); if (!(c.fx >= 0 && c.fy >= 0) && V.el && !V.el.hidden) V.place(); });   // ui-glass-12: the default spot follows the video (full screen re-fits it)
     addEventListener("resize", () => V.place()); addEventListener("orientationchange", () => setTimeout(V.place, 250));
     if (typeof ResizeObserver !== "undefined" && $("stage")) new ResizeObserver(() => V.place()).observe($("stage"));
     if (T.on) { T.on("prefs", () => { V.sync(); V.place(); }); }
