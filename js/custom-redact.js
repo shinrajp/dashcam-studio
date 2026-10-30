@@ -347,6 +347,14 @@
         const sh = S.shape === "free" ? { shape: "poly", pts: live.pts.length >= 6 ? live.pts : null } : { shape: "rect", x: Math.min(live.pts[0], live.pts[live.pts.length - 2]), y: Math.min(live.pts[1], live.pts[live.pts.length - 1]), w: Math.abs(live.pts[live.pts.length - 2] - live.pts[0]), h: Math.abs(live.pts[live.pts.length - 1] - live.pts[1]) };
         if (sh.shape === "rect" || sh.pts) drawOutline(ctx, f, tr, sh, true);
         else { ctx.beginPath(); live.pts.forEach((v, i) => { if (i % 2) return; const [x, y] = G.toScreen(f, v, live.pts[i + 1]); i ? ctx.lineTo(x - tr.left, y - tr.top) : ctx.moveTo(x - tr.left, y - tr.top); }); ctx.lineWidth = 2; ctx.strokeStyle = "#ffd27a"; ctx.stroke(); }
+        // freehand: show tapped points as draggable handles
+        if (S.shape === "free" && live.pts.length >= 2) {
+          ctx.fillStyle = "#ffd27a"; ctx.strokeStyle = "rgba(0,0,0,.8)"; ctx.lineWidth = 1.5;
+          for (let i = 0; i < live.pts.length; i += 2) {
+            const [x, y] = G.toScreen(f, live.pts[i], live.pts[i + 1]);
+            ctx.beginPath(); ctx.arc(x - tr.left, y - tr.top, 6, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+          }
+        }
       }
     }
     if ((S.drawing || S.pick || S.draft || S.editId || S.peek || S.move) && !raf) raf = requestAnimationFrame(frame);
@@ -381,8 +389,20 @@
       const f = G.screenFit(cam); if (!f) return;
       e.preventDefault(); id = e.pointerId;
       try { cv.setPointerCapture(id); } catch (_) {}
-      // freehand: always wait — a short press adds a point, a long drag starts a continuous stroke
+      // freehand: check if near an existing point (drag it) or add a new one
       if (S.shape === "free") {
+        if (S.live && S.live.pts.length >= 2) {
+          const f2 = G.screenFit(cam) || S.live.f;
+          const R = e.pointerType === "mouse" ? 12 : 22;
+          for (let i = S.live.pts.length - 2; i >= 0; i -= 2) {
+            const [sx, sy] = G.toScreen(f2, S.live.pts[i], S.live.pts[i + 1]);
+            if (Math.hypot(sx - e.clientX, sy - e.clientY) <= R) {
+              S.live.dragIdx = i;
+              id = e.pointerId; try { cv.setPointerCapture(id); } catch (_) {}
+              return;
+            }
+          }
+        }
         pend = { x: e.clientX, y: e.clientY, freeTap: true };
         return;
       }
@@ -390,6 +410,13 @@
     });
     cv.addEventListener("pointermove", (e) => {
       if (id !== e.pointerId) return;
+      if (S.live && S.live.dragIdx != null) {
+        e.stopPropagation(); e.preventDefault();
+        const f = G.screenFit(cam) || S.live.f, [u, v] = G.toRaw(f, e.clientX, e.clientY);
+        S.live.pts[S.live.dragIdx] = u; S.live.pts[S.live.dragIdx + 1] = v;
+        S.live.last = [u, v];
+        kick(); return;
+      }
       if (pend) {   // a drag that starts on a camera: that camera is the one, and the stroke goes on right there
         e.stopPropagation(); e.preventDefault();
         const dist = Math.hypot(e.clientX - pend.x, e.clientY - pend.y);
@@ -424,6 +451,7 @@
       if (id !== e.pointerId) return;
       e.stopPropagation(); id = null;
       try { cv.releasePointerCapture(e.pointerId); } catch (_) {}
+      if (S.live && S.live.dragIdx != null) { S.live.dragIdx = null; kick(); return; }
       if (pend) {   // a tap
         const wasFreeTap = pend.freeTap;
         pend = null; hot(cam, false);
