@@ -660,10 +660,38 @@
   S.trackPid = null;
   UI.track = (on) => {
     S.track = on === undefined ? !S.track : !!on;
-    if (S.track) { S.drawing = true; S.pick = false; msg("Track: circle a car. The blur will follow the gold box."); }
-    else { msg("Track off."); }
+    if (S.track) { S.drawing = true; S.pick = false; msg("Track: circle a car. The blur will follow the gold box."); armTrackCapture(); }
+    else { msg("Track off."); disarmTrackCapture(); }
     UI.sync(); kick(); return true;
   };
+  let trackCap = null;
+  function armTrackCapture() {
+    if (trackCap) return;
+    trackCap = (e) => {
+      if (!S.track || e.button !== 0) return;
+      const tile = e.target.closest && e.target.closest(".tile");
+      if (!tile) return;
+      const cam = tile.dataset && tile.dataset.cam;
+      if (!cam) return;
+      e.preventDefault(); e.stopPropagation();
+      const p0 = { x: e.clientX, y: e.clientY, cam };
+      const move = (ev) => { p0.x2 = ev.clientX; p0.y2 = ev.clientY; };
+      const up = (ev) => {
+        document.removeEventListener("pointermove", move);
+        document.removeEventListener("pointerup", up);
+        const f = G.screenFit(cam); if (!f) { dbg("no fit for " + cam); return; }
+        const [u, v] = G.toRaw(f, p0.x, p0.y);
+        const [u2, v2] = G.toRaw(f, p0.x2 || p0.x, p0.y2 || p0.y);
+        const x = Math.min(u, u2), y = Math.min(v, v2), w = Math.max(0.02, Math.abs(u2 - u)), h = Math.max(0.02, Math.abs(v2 - v));
+        dbg("captured " + cam + " " + x.toFixed(2) + "," + y.toFixed(2));
+        trackAt(cam, x, y, w, h);
+      };
+      document.addEventListener("pointermove", move);
+      document.addEventListener("pointerup", up);
+    };
+    document.addEventListener("pointerdown", trackCap, true);
+  }
+  function disarmTrackCapture() { if (trackCap) { document.removeEventListener("pointerdown", trackCap, true); trackCap = null; } }
   async function trackAt(cam, x, y, w, h) {
     dbg("trackAt called cam=" + cam + " box=" + x.toFixed(2) + "," + y.toFixed(2));
     if (!T.detect || !T.detect.boxesAt) { dbg("no detect"); msg("Turn on object detection and Show boxes while playing.", true); return; }
