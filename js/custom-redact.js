@@ -653,70 +653,54 @@
     if (G.redo()) { msg("Redone."); kick(); return true; }
     return false;
   };
-  /** Track mode: circle an object, capture its pixels, and follow that pattern frame to frame. */
+  /** Track mode: circle an object; the redaction follows the gold detection box on that object. */
   S.track = false;
   S.trackId = null;
-  S.tmpl = null;
+  S.trackPid = null;
   UI.track = (on) => {
     S.track = on === undefined ? !S.track : !!on;
-    if (S.track) { S.drawing = true; S.pick = false; msg("Track: circle an object. It will follow by matching its look."); }
-    else { S.tmpl = null; msg("Track off."); }
+    if (S.track) { S.drawing = true; S.pick = false; msg("Track: circle a car. The blur will follow the gold box."); }
+    else { msg("Track off."); }
     UI.sync(); kick(); return true;
   };
-  function grabTemplate(cam, x, y, w, h) {
-    const tile = T.player && T.player.tiles && T.player.tiles[cam];
-    const v = tile && tile.video;
-    if (!v || !v.videoWidth) return null;
-    const c = document.createElement("canvas"); c.width = 32; c.height = 32;
-    const ctx = c.getContext("2d", { willReadFrequently: true });
-    const sx = x * v.videoWidth, sy = y * v.videoHeight, sw = w * v.videoWidth, sh = h * v.videoHeight;
-    try { ctx.drawImage(v, sx, sy, sw, sh, 0, 0, 32, 32); } catch (_) { return null; }
-    const d = ctx.getImageData(0, 0, 32, 32).data;
-    const g = new Float32Array(32 * 32);
-    for (let i = 0; i < g.length; i++) g[i] = (d[i * 4] + d[i * 4 + 1] + d[i * 4 + 2]) / 3;
-    return g;
-  }
-  function matchTemplate(cam, tmpl, lx, ly, lw, lh) {
-    const tile = T.player && T.player.tiles && T.player.tiles[cam];
-    const v = tile && tile.video;
-    if (!v || !v.videoWidth || !tmpl) return null;
-    const c = document.createElement("canvas"); c.width = 48; c.height = 48;
-    const ctx = c.getContext("2d", { willReadFrequently: true });
-    const pad = 0.15;
-    const sx = Math.max(0, (lx - pad) * v.videoWidth), sy = Math.max(0, (ly - pad) * v.videoHeight);
-    const sw = Math.min(v.videoWidth - sx, (lw + pad * 2) * v.videoWidth), sh = Math.min(v.videoHeight - sy, (lh + pad * 2) * v.videoHeight);
-    try { ctx.drawImage(v, sx, sy, sw, sh, 0, 0, 48, 48); } catch (_) { return null; }
-    const d = ctx.getImageData(0, 0, 48, 48).data;
-    let best = 1e9, bx = 8, by = 8;
-    for (let oy = 0; oy <= 16; oy += 4) for (let ox = 0; ox <= 16; ox += 4) {
-      let err = 0;
-      for (let j = 0; j < 32; j += 2) for (let i = 0; i < 32; i += 2) {
-        const p = ((oy + j) * 48 + (ox + i)) * 4;
-        const g = (d[p] + d[p + 1] + d[p + 2]) / 3;
-        err += Math.abs(g - tmpl[(j * 32 + i)]);
-      }
-      if (err < best) { best = err; bx = ox; by = oy; }
-    }
-    const nx = (sx + (bx / 48) * sw) / v.videoWidth;
-    const ny = (sy + (by / 48) * sh) / v.videoHeight;
-    return { x: nx, y: ny, w: lw, h: lh };
-  }
   async function trackAt(cam, x, y, w, h) {
-    const tmpl = grabTemplate(cam, x, y, w, h);
-    if (!tmpl) { msg("Couldn't read the picture. Play or seek, then try again.", true); return; }
-    const r = G.add({ cam, shape: "rect", x, y, w, h, mode: S.mode, on: true });
-    if (r) { S.trackId = r.id; S.trackCam = cam; S.tmpl = tmpl; msg("Tracking. Play the video — it follows the look you circled."); UI.sync(); kick(); }
+    if (!T.detect || !T.detect.boxesAt) { msg("Turn on object detection and Show boxes while playing.", true); return; }
+    const t = T.player ? T.player.time : 0;
+    const boxes = T.detect.boxesAt(cam, t) || [];
+    if (!boxes.length) { msg("No gold boxes on this camera yet. Play a moment, then circle.", true); return; }
+    const cx = x + w / 2, cy = y + h / 2;
+    let best = null, bestDist = 999;
+    for (const b of boxes) {
+      const dist = Math.hypot((b.x + b.w / 2) - cx, (b.y + b.h / 2) - cy);
+      if (dist < bestDist) { bestDist = dist; best = b; }
+    }
+    if (!best || bestDist > 0.5) { msg("No gold box close to your circle. Circle the car more tightly.", true); return; }
+    const r = G.add({ cam, shape: "rect", x: best.x, y: best.y, w: best.w, h: best.h, mode: S.mode, on: true });
+    if (r) { S.trackId = r.id; S.trackCam = cam; S.trackPid = best.pid || best.id || null; S.trackLabel = best.label; msg("Following the gold box. Play — the blur stays on it."); UI.sync(); kick(); }
   }
-  function followTemplate() {
-    if (!S.trackId || !S.tmpl) return;
+  function followGold() {
+    if (!S.trackId || !T.detect || !T.detect.boxesAt || !T.player) return;
     const r = G.list.find((x) => x.id === S.trackId); if (!r) { S.trackId = null; return; }
-    const m = matchTemplate(r.cam, S.tmpl, r.x, r.y, r.w, r.h);
-    if (m && (Math.abs(m.x - r.x) > 0.002 || Math.abs(m.y - r.y) > 0.002)) {
-      r.x = m.x; r.y = m.y;
+    const t = T.player.time;
+    const boxes = T.detect.boxesAt(r.cam, t) || [];
+    if (!boxes.length) return;
+    let best = null;
+    if (S.trackPid) best = boxes.find((b) => (b.pid || b.id) === S.trackPid);
+    if (!best) {
+      let bestDist = 999;
+      for (const b of boxes) {
+        const dist = Math.hypot((b.x + b.w / 2) - (r.x + r.w / 2), (b.y + b.h / 2) - (r.y + r.h / 2));
+        const bonus = (S.trackLabel && b.label === S.trackLabel) ? -0.2 : 0;
+        if (dist + bonus < bestDist) { bestDist = dist + bonus; best = b; }
+      }
+      if (bestDist > 0.6) best = null;
+    }
+    if (best && (Math.abs(best.x - r.x) > 0.002 || Math.abs(best.y - r.y) > 0.002 || Math.abs(best.w - r.w) > 0.002)) {
+      r.x = best.x; r.y = best.y; r.w = best.w; r.h = best.h;
       if (R && R.paint) R.paint();
     }
   }
-  setInterval(followTemplate, 150);
+  setInterval(followGold, 100);
 
     /** Done: saves a drawn shape; in Move it simply closes the tray (the moves are already saved, and undoable). */
   UI.done = () => {
