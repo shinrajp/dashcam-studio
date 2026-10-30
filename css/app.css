@@ -1297,3 +1297,5 @@ body.fs.kb-typing .drawer.set-panel, body.kb-up .drawer.set-panel { top: calc(en
 @media (max-width: 600px) {
   body.kb-typing .drawer.set-panel { top: auto; bottom: var(--kb, 0px); max-height: calc(var(--vvh, 100vh) - var(--top-h, 58px) - 6px); }
 }
+/* ui-glass-12: on a phone the Settings sheet covers the screen width; the floating car view (z 45) no longer sits on top of it */
+@media (max-width: 600px) { body:has(#settings:not([hidden])) .car-view { visibility: hidden; pointer-events: none; } }
