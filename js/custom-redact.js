@@ -1211,6 +1211,13 @@
       }
     });
     $("crList").addEventListener("change", (e) => { const li = e.target.closest("li[data-id]"); if (li && e.target.dataset.act === "on") G.update(li.dataset.id, { on: e.target.checked }); });
+    $("crClearPinned").addEventListener("click", () => {
+      const pinned = G.list.filter((r) => r.sticky);
+      if (!pinned.length) { msg("No pinned regions."); return; }
+      for (const r of pinned) G.remove(r.id);
+      msg(pinned.length + " pinned region" + (pinned.length === 1 ? "" : "s") + " cleared.");
+      UI.sync();
+    });
     $("crExportFile").addEventListener("click", () => {
       try {
         const a = document.createElement("a"), u = URL.createObjectURL(new Blob([G.toJSON()], { type: "application/json" }));
@@ -1247,7 +1254,7 @@
       '<div class="cr-msg" id="crMsg" aria-live="polite"></div>' +
       '<ul class="cr-list" id="crList" hidden></ul>' +
       '<div class="cr-actions" id="crHistRow"><button type="button" class="btn ghost small" id="crUndo" disabled>Undo</button><button type="button" class="btn ghost small" id="crRedo" disabled>Redo</button></div>' +
-      '<div class="cr-actions" id="crFileRow"><button type="button" class="btn ghost small" id="crExportFile" title="Save the regions as a small file">Save as file</button><button type="button" class="btn ghost small" id="crImportFile" title="Add regions from a file">Load from file</button><input type="file" id="crFile" accept=".json,application/json" hidden></div>' +
+      '<div class="cr-actions" id="crFileRow"><button type="button" class="btn ghost small" id="crExportFile" title="Save the regions as a small file">Save as file</button><button type="button" class="btn ghost small" id="crImportFile" title="Add regions from a file">Load from file</button><button type="button" class="btn ghost small" id="crClearPinned" title="Remove all pinned regions">Clear pinned</button><input type="file" id="crFile" accept=".json,application/json" hidden></div>' +
       '<p class="cr-hint" id="crStore" hidden>This browser is not keeping the regions between visits (storage is blocked). Use Save as file.</p>';
     return sec;
   }
