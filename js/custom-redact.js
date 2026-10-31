@@ -32,7 +32,7 @@
   G.clean = (o, keepId) => {
     if (!o || typeof o !== "object" || !T.GRID.includes(o.cam)) return null;
     const r = { id: keepId && o.id ? String(o.id) : "r" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), cam: o.cam, shape: o.shape === "poly" ? "poly" : "rect",
-      mode: o.mode === "remove" ? "remove" : "blur", start: isNum(o.start) && o.start > 0 ? o.start : null, end: isNum(o.end) && o.end >= 0 ? o.end : null, on: o.on !== false, v: 1 };
+      mode: o.mode === "remove" ? "remove" : "blur", start: isNum(o.start) && o.start > 0 ? o.start : null, end: isNum(o.end) && o.end >= 0 ? o.end : null, on: o.on !== false, sticky: !!o.sticky, v: 1 };
     if (r.end != null && r.start != null && r.end < r.start) { const s = r.start; r.start = r.end; r.end = s; }
     if (r.shape === "poly") {
       let p = Array.isArray(o.pts) ? o.pts.map(Number) : [];
