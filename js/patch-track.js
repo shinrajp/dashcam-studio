@@ -11,6 +11,11 @@
  *                      unless the match is excellent; a mild pull towards the predicted spot breaks ties.
  *   · no drift         the working template is blended slowly and only from very good looks that still agree with the ORIGINAL template.
  *   · recovery         after a miss the box coasts on its speed for a moment, the window widens, and the original template is tried too.
+ *   · optical flow     points inside the box are followed from one look to the next (pyramidal Lucas-Kanade, checked forwards and backwards,
+ *                      only the points that move like the object vote, one turn + scale + shift fitted to them). It re-centres the search and
+ *                      takes over when the object TURNS or shows another side (the template no longer matches); while the whole object is seen
+ *                      the template is re-learnt from where the flow put it. A pole in front stays out of it: its points move differently.
+ *   · loose outlines   when the whole template matches poorly at the start, its middle is tracked instead (background that stays put drops out).
  *
  * Coordinates are 0..1 of the camera's raw frame. A raster ("Img") is { g: grey values, W, H, ox, oy, ow, oh }: the part [ox,oy,ow,oh] of the frame
  * drawn at W × H pixels. Tracker.plan(t) says which part to draw; Tracker.update(img, t) looks at it.
@@ -119,6 +124,128 @@
     return out;
   }
 
+  // ── optical flow (Median Flow: pyramidal Lucas-Kanade on points inside the box, checked forwards and backwards) ───────────────────────────────
+  // Template matching needs the object to keep its look. A thing that turns, tilts or shows another side changes its look; its pixels still move
+  // smoothly from one look to the next, and that motion is what the flow follows. Every point is tracked forwards and then back again; a point that
+  // does not come back to where it started (it was on something that changed, was hidden, or slid along an edge) is dropped, as is a point whose
+  // little window looks different in the two frames. What is left votes: the median shift moves the box, the median change of the distances
+  // between points scales it. Reference: Kalal, Mikolajczyk, Matas, "Forward-Backward Error: Automatic Detection of Tracking Failures" (ICPR 2010).
+  const FW = 4;   // half window (pixels of the pyramid level): 9 × 9
+  /** A pyramid of a raster: level 0 is the raster, each next one half the size (2 × 2 averages). */
+  function pyramid(img, levels) {
+    const out = [img];
+    for (let l = 1; l < levels; l++) {
+      const a = out[l - 1], W = a.W >> 1, H = a.H >> 1;
+      if (W < 2 * FW + 4 || H < 2 * FW + 4) break;
+      const g = new Float32Array(W * H);
+      for (let j = 0; j < H; j++) for (let i = 0; i < W; i++) { const o = 2 * j * a.W + 2 * i; g[j * W + i] = 0.25 * (a.g[o] + a.g[o + 1] + a.g[o + a.W] + a.g[o + a.W + 1]); }
+      out.push({ g, W, H, ox: a.ox, oy: a.oy, ow: a.ow, oh: a.oh });
+    }
+    return out;
+  }
+  /** Bilinear sample of a raster at frame coordinates (u, v); NaN outside it. */
+  function sampleAt(img, u, v) {
+    const x = (u - img.ox) / img.ow * img.W - 0.5, y = (v - img.oy) / img.oh * img.H - 0.5;
+    if (!(x >= 0 && y >= 0 && x <= img.W - 1 && y <= img.H - 1)) return NaN;
+    const x0 = x | 0, y0 = y | 0, x1 = x0 + 1 < img.W ? x0 + 1 : x0, y1 = y0 + 1 < img.H ? y0 + 1 : y0, fx = x - x0, fy = y - y0, W = img.W, g = img.g;
+    const a = g[y0 * W + x0], b = g[y0 * W + x1], c = g[y1 * W + x0], d = g[y1 * W + x1];
+    return a + (b - a) * fx + (c - a) * fy + (a - b - c + d) * fx * fy;
+  }
+  /** One point through the pyramids A → B, starting from the guess (gu, gv) (frame units). Pitch su, sv = the pixel pitch of level 0 of A.
+   *  Returns [u, v] in B, or null (left the raster, or a flat window). */
+  function lkPoint(PA, PB, u, v, gu, gv, su, sv) {
+    let du = gu, dv = gv;
+    const n = (2 * FW + 1) * (2 * FW + 1), Ia = new Float32Array(n), Ix = new Float32Array(n), Iy = new Float32Array(n);
+    for (let l = Math.min(PA.length, PB.length) - 1; l >= 0; l--) {
+      const A = PA[l], B = PB[l], pu = su * (1 << l), pv = sv * (1 << l);
+      let gxx = 0, gxy = 0, gyy = 0, k = 0;
+      for (let j = -FW; j <= FW; j++) for (let i = -FW; i <= FW; i++, k++) {
+        const x = u + i * pu, y = v + j * pv, c = sampleAt(A, x, y);
+        const gx = 0.5 * (sampleAt(A, x + pu, y) - sampleAt(A, x - pu, y)), gy = 0.5 * (sampleAt(A, x, y + pv) - sampleAt(A, x, y - pv));
+        if (!(c === c && gx === gx && gy === gy)) return null;
+        Ia[k] = c; Ix[k] = gx; Iy[k] = gy; gxx += gx * gx; gxy += gx * gy; gyy += gy * gy;
+      }
+      const det = gxx * gyy - gxy * gxy;
+      if (!(det > 1e-3 * n * n)) return null;
+      for (let it = 0; it < 8; it++) {
+        let bx = 0, by = 0; k = 0;
+        for (let j = -FW; j <= FW; j++) for (let i = -FW; i <= FW; i++, k++) {
+          const b = sampleAt(B, u + du + i * pu, v + dv + j * pv);
+          if (b !== b) return null;
+          const e = Ia[k] - b; bx += e * Ix[k]; by += e * Iy[k];
+        }
+        const sx = (gyy * bx - gxy * by) / det, sy = (gxx * by - gxy * bx) / det;   // in pixels of this level
+        du += sx * pu; dv += sy * pv;
+        if (sx * sx + sy * sy < 0.0009) break;
+      }
+    }
+    return [u + du, v + dv];
+  }
+  /** Normalised correlation of the (2·FW+1)² windows around (u, v) in A and (x, y) in B (pitch su, sv). */
+  function winNcc(A, B, u, v, x, y, su, sv) {
+    let sa = 0, sb = 0, saa = 0, sbb = 0, sab = 0, n = 0;
+    for (let j = -FW; j <= FW; j++) for (let i = -FW; i <= FW; i++) {
+      const a = sampleAt(A, u + i * su, v + j * sv), b = sampleAt(B, x + i * su, y + j * sv);
+      if (a !== a || b !== b) return -1;
+      sa += a; sb += b; saa += a * a; sbb += b * b; sab += a * b; n++;
+    }
+    const va = saa - sa * sa / n, vb = sbb - sb * sb / n;
+    return va > n && vb > n ? (sab - sa * sb / n) / Math.sqrt(va * vb) : -1;
+  }
+  const median = (a) => { if (!a.length) return NaN; const b = Float64Array.from(a).sort(); const m = b.length >> 1; return b.length & 1 ? b[m] : 0.5 * (b[m - 1] + b[m]); };
+  /** Where `box` (seen in raster A) went in raster B. guess = { du, dv }: the expected shift (from the speed), the search starts there.
+   *  Returns { ok, du, dv, s, n, fb, kept } (shift and scale of the box; n points tried, kept that passed; fb = median forward-backward error in pixels). */
+  PT.flowBox = (A, B, box, guess, o) => {
+    o = Object.assign({ grid: 8, keepNcc: 0.6, maxFb: 1.2, minKept: 5, inset: 0.12, cluster: 0.4 }, o);
+    const su = A.ow / A.W, sv = A.oh / A.H, PA = A._pyr || (A._pyr = pyramid(A, 3)), PB = B._pyr || (B._pyr = pyramid(B, 3));
+    const pts = [];
+    const n = o.grid, x0 = box.x + box.w * o.inset, y0 = box.y + box.h * o.inset, gw = box.w * (1 - 2 * o.inset), gh = box.h * (1 - 2 * o.inset);
+    for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) pts.push([x0 + (i + 0.5) / n * gw, y0 + (j + 0.5) / n * gh]);
+    const gu = guess ? guess.du : 0, gv = guess ? guess.dv : 0, good = [];
+    for (const [u, v] of pts) {
+      const f = lkPoint(PA, PB, u, v, gu, gv, su, sv); if (!f) continue;
+      const b = lkPoint(PB, PA, f[0], f[1], u - f[0], v - f[1], su, sv); if (!b) continue;
+      const fb = Math.hypot((b[0] - u) / su, (b[1] - v) / sv);
+      if (fb > o.maxFb) continue;
+      const nc = winNcc(A, B, u, v, f[0], f[1], su, sv);
+      if (nc < o.keepNcc) continue;
+      good.push({ u, v, x: f[0], y: f[1], fb, nc });
+    }
+    if (good.length < o.minKept) return { ok: false, n: pts.length, kept: good.length };
+    // two things moving differently inside the box (the object, and a pole or the background in front of / behind it): only the points that move
+    // like the object is expected to move vote. Start at the expected shift, keep the points near it, re-centre on them, twice.
+    const gl = Math.hypot(gu / su, gv / sv);
+    if (guess && gl > 1.5) {
+      let cu = gu, cv = gv, sel = good;
+      for (let it = 0; it < 2; it++) {
+        const r = Math.max(1.5, o.cluster * Math.hypot(cu / su, cv / sv));
+        sel = good.filter((p) => Math.hypot((p.x - p.u - cu) / su, (p.y - p.v - cv) / sv) <= r);
+        if (sel.length < o.minKept) return { ok: false, n: pts.length, kept: sel.length };
+        cu = median(sel.map((p) => p.x - p.u)); cv = median(sel.map((p) => p.y - p.v));
+      }
+      good.length = 0; good.push(...sel);
+    }
+    // the better half by forward-backward error votes (Median Flow)
+    good.sort((a, b) => a.fb - b.fb);
+    const use = good.slice(0, Math.max(o.minKept, Math.ceil(good.length / 2)));
+    // rotation and scale from pairs of points (median of the change of their angle and distance), then each point says where the centre went:
+    // a turning object's points move in different directions around its centre, so the median shift alone would be biased
+    const cx0 = box.x + box.w / 2, cy0 = box.y + box.h / 2, ratios = [], angs = [];
+    for (let i = 0; i < use.length; i++) for (let j = i + 1; j < use.length; j++) {
+      const a = use[i], b = use[j], ax = (a.u - b.u) / su, ay = (a.v - b.v) / sv, bx = (a.x - b.x) / su, by = (a.y - b.y) / sv, d0 = Math.hypot(ax, ay);
+      if (d0 < 4) continue;
+      ratios.push(Math.hypot(bx, by) / d0);
+      let da = Math.atan2(by, bx) - Math.atan2(ay, ax); da = da > Math.PI ? da - 2 * Math.PI : da < -Math.PI ? da + 2 * Math.PI : da; angs.push(da);
+    }
+    const s = ratios.length ? clamp(median(ratios), 0.8, 1.25) : 1, rot = angs.length ? clamp(median(angs), -0.5, 0.5) : 0, cr = Math.cos(rot) * s, sr = Math.sin(rot) * s;
+    const ex = use.map((p) => { const ru = (p.u - cx0) / su, rv = (p.v - cy0) / sv; return p.x - (cr * ru - sr * rv) * su - cx0; });
+    const ey = use.map((p) => { const ru = (p.u - cx0) / su, rv = (p.v - cy0) / sv; return p.y - (sr * ru + cr * rv) * sv - cy0; });
+    const ddu = median(ex), ddv = median(ey);
+    // how much the points agree: the spread of their shifts around the median, in pixels
+    const spread = median(ex.map((x, i) => Math.hypot((x - ddu) / su, (ey[i] - ddv) / sv)));   // how well one turn + scale + shift explains them all (px)
+    return { ok: true, du: ddu, dv: ddv, s, rot, n: pts.length, kept: good.length, fb: median(use.map((p) => p.fb)), spread };
+  };
+
   // ── tracker ────────────────────────────────────────────────────────────────────────────────────────────────────
   const DEFAULTS = {
     fw: 1280, fh: 960,               // the frame in pixels: decides how finely the template samples the object
@@ -131,6 +258,7 @@
     cores: [0.6, 0.42], coreWeak: 0.75, coreOk: 0.72, coreGain: 0.1, coreWindow: 0.7,   // a loose outline holds background that stays put while the object moves: when the whole template matches poorly but its middle (one of these shares) matches well, the middle is tracked
     prior: 0.05, sprior: 0.012,      // pull towards the predicted spot / towards the current size
     minScale: 0.2, maxScale: 10,     // box size limits relative to the one the region started with (a sign far away that drives up to you)
+    flow: true, flowGap: 0.5, flowMin: 8, flowSpread: 1.5, flowAgree: 0.3, flowSure: 0.4, flowWhole: 0.7, flowOver: 0.15, flowNcc: 0.9,   // optical flow: on; longest gap between two looks it bridges (s); points that must survive; how much they may disagree (px); how far from the motion model it may be (box sizes)
     coastT: 2.0                      // seconds the box keeps moving on its speed after a miss (then it holds)
   };
   PT.DEFAULTS = DEFAULTS;
@@ -200,7 +328,22 @@
   };
   /** Look for the object in `img` at time t. Returns { ok, score, margin, scale, box, lost, lostT }; the tracker's own box follows. */
   P.update = function (img, t) {
-    const o = this.o, b = this.box, p = this.predict(t), dt = p.dt, m = this.margin(dt);
+    const o = this.o, b = this.box, p = this.predict(t), dt = p.dt, m = this.margin(dt), p0 = { cx: p.cx, cy: p.cy };
+    // optical flow from the last good look: where did the object's own pixels go? (follows it while it turns; re-centres the search)
+    let fbox = null;
+    const pv = this._prev;
+    if (o.flow && pv && t - pv.t > 0.005 && t - pv.t <= o.flowGap) {
+      const pb = pv.box, c = this.core, pcx = pb.x + pb.w / 2, pcy = pb.y + pb.h / 2;
+      const inner = { x: pb.x + pb.w * (1 - c) / 2, y: pb.y + pb.h * (1 - c) / 2, w: pb.w * c, h: pb.h * c };
+      const r = PT.flowBox(pv.img, img, inner, { du: p.cx - pcx, dv: p.cy - pcy });
+      if (PT.debug) this._fdbg = r.ok ? "k" + r.kept + "/" + r.n + " sp" + r.spread.toFixed(2) + " d" + (Math.hypot((pcx + r.du - p.cx) / b.w, (pcy + r.dv - p.cy) / b.h)).toFixed(2) : "X" + r.kept;
+      if (r.ok && r.kept >= o.flowMin && r.spread <= o.flowSpread) {
+        const fcx = pcx + r.du, fcy = pcy + r.dv;
+        if (this.n >= 3 && Math.hypot((fcx - p.cx) / b.w, (fcy - p.cy) / b.h) <= o.flowAgree) {   // (only once the speed is known: the motion model is the check on the flow)
+          fbox = { cx: fcx, cy: fcy, s: r.s, sure: r.kept >= o.flowSure * r.n && r.spread <= 0.8, whole: r.kept >= o.flowWhole * r.n && r.spread <= 0.6 };   // whole: nearly every point made it (it turns, nothing covers it) p.cx = fcx; p.cy = fcy;
+        }
+      }
+    }
     const wide = this.lost >= 2, sf = scalesFor(dt, wide), scales = sf.list, tms = wide ? [this.tm, this.tm0] : [this.tm];
     const tw = this.tm.tw, th = this.tm.th;
     let best = null;
@@ -227,7 +370,7 @@
         if (!best || bs > best.eff) best = { eff: bs, raw: braw, bi, cols, rows, map, s, R, SW, SH, ua, va, du, dv, T };
       }
     }
-    if (!best) return this._miss(t, dt, p, -1, 0);
+    if (!best) return fbox && fbox.sure ? this._flowTake(img, t, dt, p0, fbox, -1) : this._miss(t, dt, p, -1, 0);
 
     // the best peak against the best peak somewhere else (a look-alike makes the match ambiguous)
     const bix = best.bi % best.cols, biy = (best.bi / best.cols) | 0, rad = Math.max(2, Math.ceil(0.3 * tw / 2));
@@ -295,19 +438,25 @@
     }
     const farWeak = !viaPart && sc < o.trust && Math.hypot((mcx - p.cx) / b.w, (mcy - p.cy) / b.h) > o.weakJump;
     const ok = !farWeak && (viaPart || (sc >= o.accept && (margin >= o.minMargin || sc >= o.sure)) || (sc >= o.weak && margin >= o.strongMargin));
+    const off = fbox ? Math.hypot((mcx - fbox.cx) / b.w, (mcy - fbox.cy) / b.h) : 0;
+    if (fbox && fbox.sure && !viaPart && !switched && (!ok || sc < o.trust || (sc < o.sure && off > o.flowOver))) return this._flowTake(img, t, dt, p0, fbox, sc);   // the look changed (it turns, shows another side): the flow knows where it went
     if (!ok) return this._miss(t, dt, p, sc, margin);
+    if (fbox && fbox.whole && !viaPart && !switched) {   // the flow saw the whole object move: it is the measurement; the template only refines it when it is sure
+      const w = sc >= o.flowNcc ? 0.5 : 0;
+      mcx = fbox.cx + w * (mcx - fbox.cx); mcy = fbox.cy + w * (mcy - fbox.cy);
+    }
 
     // accept: blend the measurement with the prediction (alpha-beta), grow / shrink the box with the matched scale
     // a weak match (a part of the object is hidden: the score sits near 0.5 and the peak is a plateau biased towards the old spot) only nudges the
     // position and never changes the speed: the object keeps moving at the speed it had when it was still seen well
     const good = sc >= o.trust, k = sc >= 0.8 ? 0.9 : good ? 0.7 : Math.min(0.5, o.weakPull + Math.max(0, this.weakT - o.weakRamp) * 0.5), beta = good ? 0.5 * k * k / (2 - k) : 0, rx = mcx - p.cx, ry = mcy - p.cy;
     const ncx = p.cx + k * rx, ncy = p.cy + k * ry;
-    if (dt > 0.02) { this.vx += beta * rx / dt; this.vy += beta * ry / dt; }
+    if (dt > 0.02) { this.vx += beta * (mcx - p0.cx) / dt; this.vy += beta * (mcy - p0.cy) / dt; }   // (the speed learns from the motion model's guess, not the flow's)
     const f = 1 + k * (best.s - 1);
     let nw = clamp(b.w * f, this.size0.w * o.minScale, this.size0.w * o.maxScale), nh = clamp(b.h * f, this.size0.h * o.minScale, this.size0.h * o.maxScale);
     nw = Math.min(nw, 1); nh = Math.min(nh, 1);
     this.box = { x: clamp(ncx - nw / 2, 0, 1 - nw), y: clamp(ncy - nh / 2, 0, 1 - nh), w: nw, h: nh };
-    this.t = t; this.lost = 0; this.lostT = 0; this.n++; this.score = sc; this.good++;
+    this.t = t; this.lost = 0; this.lostT = 0; this.n++; this.score = sc; this.good++; this.flowRun = 0;
     this.weakT = good ? 0 : this.weakT + dt;
 
     // template upkeep: only from a very good, same-size look that still agrees with the original (no drift onto the background)
@@ -321,7 +470,29 @@
         }
       }
     }
+    this._keep(img, t);
     return { ok: true, score: sc, margin, scale: best.s, box: Object.assign({}, this.box), lost: 0, lostT: 0, part: viaPart, partScore };
+  };
+  /** Keep this look for the next one's optical flow. */
+  P._keep = function (img, t) { this._prev = { img, box: Object.assign({}, this.box), t }; };
+  /** Take the flow's answer (the template match failed or was weak, the flow is sure and agrees with the motion): move there, learn the speed,
+   *  and after two such looks in a row re-learn the template from what is there now (the object has turned or shows another side). */
+  P._flowTake = function (img, t, dt, p0, fb, sc) {
+    const o = this.o, b = this.box, k = 0.85, beta = fb.whole ? 0.5 * k * k / (2 - k) : 0;   // part of it lost (something covers it): move, but keep the speed
+    if (dt > 0.02) { this.vx += beta * (fb.cx - p0.cx) / dt; this.vy += beta * (fb.cy - p0.cy) / dt; }
+    const fs = fb.sure ? fb.s : 1;
+    let nw = clamp(b.w * fs, this.size0.w * o.minScale, this.size0.w * o.maxScale), nh = clamp(b.h * fs, this.size0.h * o.minScale, this.size0.h * o.maxScale);
+    nw = Math.min(nw, 1); nh = Math.min(nh, 1);
+    this.box = { x: clamp(fb.cx - nw / 2, 0, 1 - nw), y: clamp(fb.cy - nh / 2, 0, 1 - nh), w: nw, h: nh };
+    this.t = t; this.lost = 0; this.lostT = 0; this.n++; this.weakT = 0;
+    this.flowRun = fb.whole ? (this.flowRun || 0) + 1 : 0;   // the template is only re-learnt while the whole object is seen
+    const nb = this.box, tw = this.tm.tw, th = this.tm.th;
+    if (this.flowRun >= 2 && nb.x >= img.ox && nb.y >= img.oy && nb.x + nb.w <= img.ox + img.ow && nb.y + nb.h <= img.oy + img.oh) {
+      const cw = nb.w * this.core, ch = nb.h * this.core, fresh = finishTemplate(resample(img, nb.x + (nb.w - cw) / 2, nb.y + (nb.h - ch) / 2, cw / tw, ch / th, tw, th), tw, th);
+      if (!fresh.flat) { const g = this.tm.g; for (let i = 0; i < g.length; i++) g[i] = g[i] * 0.5 + fresh.g[i] * 0.5; this.tm = finishTemplate(g, tw, th); }
+    }
+    this._keep(img, t);
+    return { ok: true, score: sc, margin: 1, scale: fb.s, box: Object.assign({}, this.box), lost: 0, lostT: 0, flow: true };
   };
   P._miss = function (t, dt, p, sc, margin) {
     this.lost++; this.lostT += dt; this.score = sc;
@@ -338,17 +509,17 @@
     const b = this.box, dt = t - this.t, ocx = b.x + b.w / 2, ocy = b.y + b.h / 2, ncx = box.x + box.w / 2, ncy = box.y + box.h / 2;
     if (dt > 0.02 && dt <= 0.6 && this.lost === 0) { this.vx = 0.5 * this.vx + 0.5 * (ncx - ocx) / dt; this.vy = 0.5 * this.vy + 0.5 * (ncy - ocy) / dt; }
     else if (dt < -0.05 || dt > 0.6) { this.vx = 0; this.vy = 0; }
-    this.box = { x: box.x, y: box.y, w: box.w, h: box.h }; this.t = t; this.lost = 0; this.lostT = 0;
+    this.box = { x: box.x, y: box.y, w: box.w, h: box.h }; this.t = t; this.lost = 0; this.lostT = 0; this._prev = null;
   };
   /** Jump to a known box at time t (a seek, the start of an export pass): speed unknown again, wide first look. */
   P.rewind = function (box, t, v) {   // v = { vx, vy } when the speed is known (from the path): then the first look need not be wide
-    this.box = { x: box.x, y: box.y, w: box.w, h: box.h }; this.t = t; this.vx = v ? v.vx : 0; this.vy = v ? v.vy : 0; this.lost = 0; this.lostT = 0; this.n = v ? 3 : 0; this.weakT = 0;
+    this.box = { x: box.x, y: box.y, w: box.w, h: box.h }; this.t = t; this.vx = v ? v.vx : 0; this.vy = v ? v.vy : 0; this.lost = 0; this.lostT = 0; this.n = v ? 3 : 0; this.weakT = 0; this._prev = null;
   };
   /** An independent copy that shares the (read-only) original template: the exporter tracks on its own while the viewer's tracker is left alone. */
   P.fork = function () {
     const c = Object.create(P);
     c.o = this.o; c.core = this.core; c.age0 = this.age0; c.tm0 = this.tm0; c.tm = cloneTemplate(this.tm); c.box = Object.assign({}, this.box); c.size0 = this.size0;
-    c.t = this.t; c.vx = this.vx; c.vy = this.vy; c.lost = this.lost; c.lostT = this.lostT; c.n = this.n; c.score = this.score; c.good = this.good; c.weakT = this.weakT;
+    c._prev = null; c.t = this.t; c.vx = this.vx; c.vy = this.vy; c.lost = this.lost; c.lostT = this.lostT; c.n = this.n; c.score = this.score; c.good = this.good; c.weakT = this.weakT;
     return c;
   };
   /** The user moved / resized the shape: the template follows the object at its new box size. */

@@ -39,7 +39,7 @@ async function run(pw, url) {
   await p.evaluate(() => { TDC.player.pause(); TDC.setPref("mapTiles", false); TDC.focus.focus("front"); });
   for (let i = 0; i < 60 && !(await p.evaluate(() => { const t = TDC.player.tiles.front; const v = t && t.vids && t.vids[TDC.player.active]; return v && v.videoWidth; })); i++) await W(150);
   await p.evaluate(() => TDC.player.seek(0)); await W(700);
-  if (process.env.TRACE) await p.evaluate(() => { const PT = TDC.patchTrack, u = PT.Tracker.prototype.update; window.__log = []; PT.Tracker.prototype.update = function (img, t) { const r = u.call(this, img, t); window.__log.push({ t: +t.toFixed(2), ok: r.ok, part: !!r.part, ps: r.partScore == null ? null : +r.partScore.toFixed(2), s: +r.score.toFixed(2), m: +(r.margin || 0).toFixed(2), lostT: +r.lostT.toFixed(2), vx: +this.vx.toFixed(3), x: +this.box.x.toFixed(3), img: [img.W, img.H] }); return r; }; });
+  if (process.env.TRACE) await p.evaluate(() => { const PT = TDC.patchTrack, u = PT.Tracker.prototype.update; window.__log = []; PT.debug = true; PT.Tracker.prototype.update = function (img, t) { const r = u.call(this, img, t); window.__log.push({ t: +t.toFixed(2), ok: r.ok, fl: r.flow ? "F" : "", fk: this._fdbg || "", part: !!r.part, ps: r.partScore == null ? null : +r.partScore.toFixed(2), s: +r.score.toFixed(2), m: +(r.margin || 0).toFixed(2), lostT: +r.lostT.toFixed(2), vx: +this.vx.toFixed(3), x: +this.box.x.toFixed(3), img: [img.W, img.H] }); return r; }; });
 
   // the gesture: Track, then drag a box around the sign at t = 0
   const t0 = TRUTH.frames[0], pad = 0.012;
@@ -84,7 +84,7 @@ async function run(pw, url) {
   out.exportS = stats(out.exportRows.filter((r) => r.t >= 3.2));
   } else { out.exportRows = []; out.exportKeysBefore = out.exportKeysAfter = 0; out.exportS = stats([]); }
   out.json = await p.evaluate(() => TDC.regions.toJSON());
-  if (process.env.TRACE) { const lg = await p.evaluate(() => window.__log); for (const l of lg) if (l.t >= +(process.env.TRACE.split(",")[0] || 0) && l.t <= +(process.env.TRACE.split(",")[1] || 99)) console.log("  look t " + l.t + " ok " + l.ok + (l.part ? " PART" : "") + " partScore " + l.ps + " score " + l.s + " margin " + l.m + " lostT " + l.lostT + " vx " + l.vx + " box.x " + l.x + " truth.x " + truthAt(l.t).x.toFixed(3) + " raster " + l.img); }
+  if (process.env.TRACE) { const lg = await p.evaluate(() => window.__log); for (const l of lg) if (l.t >= +(process.env.TRACE.split(",")[0] || 0) && l.t <= +(process.env.TRACE.split(",")[1] || 99)) console.log("  look t " + l.t + " ok " + l.ok + " " + l.fl + " " + l.fk + (l.part ? " PART" : "") + " partScore " + l.ps + " score " + l.s + " margin " + l.m + " lostT " + l.lostT + " vx " + l.vx + " box.x " + l.x + " truth.x " + truthAt(l.t).x.toFixed(3) + " raster " + l.img); }
   await b.close();
   return out;
 }

@@ -30,7 +30,13 @@ function lumAt(sc, u, v, t, frame) {
   const B = sc.box(t);
   let val = bg(u + (sc.pan || 0) * t, v);
   for (const d of sc.dist || []) { const b = d.box(t); if (u >= b.x && u < b.x + b.w && v >= b.y && v < b.y + b.h) val = objTex((u - b.x) / b.w, (v - b.y) / b.h, d.seed || sc.seed || 5); }
-  if (u >= B.x && u < B.x + B.w && v >= B.y && v < B.y + B.h) { const o = objTex((u - B.x) / B.w, (v - B.y) / B.h, sc.seed || 5); val = sc.contrast ? 110 + (o - 110) * sc.contrast : o; }
+  if (u >= B.x && u < B.x + B.w && v >= B.y && v < B.y + B.h) {
+    let lu = (u - B.x) / B.w, lv = (v - B.y) / B.h;
+    if (sc.rot) { const a = sc.rot(t), c = Math.cos(a), s = Math.sin(a), du = (lu - 0.5) * B.w, dv = (lv - 0.5) * B.h; lu = 0.5 + (c * du + s * dv) / B.w; lv = 0.5 + (-s * du + c * dv) / B.h; }   // the object turns (its texture rotates inside its box)
+    let o = objTex(lu, lv, sc.seed || 5);
+    if (sc.morph) { const m = sc.morph(t); if (m > 0) o = o * (1 - m) + objTex(lu, lv, (sc.seed || 5) + 17) * m; }   // seen from another side: the look changes
+    val = sc.contrast ? 110 + (o - 110) * sc.contrast : o;
+  }
   if (sc.pole && u >= sc.pole[0] && u < sc.pole[1]) val = 90;
   if (sc.occl && t >= sc.occl[0] && t <= sc.occl[1]) { const c = sc.box(0.5 * (sc.occl[0] + sc.occl[1])), pad = 0.01; if (u >= c.x - pad - 0.02 && u < c.x + c.w + pad + 0.02 && v >= c.y - pad && v < c.y + c.h + pad) val = 90; }
   if (sc.gain) val = val * sc.gain(t);
@@ -67,6 +73,9 @@ const SCENARIOS = [
   { name: "loose outline (+60 %), small car", dur: 5, pad: 0.6, box: lin(0.30, 0.45, 0.07, 0.0, 0.035, 0.026), noise: 6 },
   { name: "loose + panning scene", dur: 5, pad: 0.6, pan: 0.05, box: lin(0.30, 0.45, 0.10, 0.0, 0.04, 0.03), noise: 6 },
   { name: "loose + low contrast + pan", dur: 5, pad: 0.5, pan: 0.05, contrast: 0.4, box: lin(0.30, 0.45, 0.10, 0.0, 0.05, 0.035), noise: 6 },
+  { name: "turning (rotates 90 deg in 3 s)", dur: 4, box: lin(0.25, 0.40, 0.05, 0.0, 0.09, 0.09), rot: (t) => Math.min(t, 3) * Math.PI / 6, noise: 6 },
+  { name: "other side shows (look changes in 2 s)", dur: 5, box: lin(0.25, 0.40, 0.06, 0.005, 0.09, 0.07), morph: (t) => Math.max(0, Math.min(1, (t - 1) / 2)), noise: 6 },
+  { name: "turning + look changes + pan", dur: 5, pan: 0.04, box: (t) => ({ x: 0.25 + 0.05 * t, y: 0.40 + 0.02 * Math.sin(t), w: 0.08 * (1 + 0.08 * t), h: 0.07 * (1 + 0.08 * t) }), rot: (t) => 0.35 * t, morph: (t) => Math.max(0, Math.min(1, (t - 1.5) / 2.5)), noise: 8 },
   { name: "small + noise", dur: 6, box: lin(0.25, 0.40, 0.03, 0.002, 0.035, 0.026), noise: 10 }
 ];
 
