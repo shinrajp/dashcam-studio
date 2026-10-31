@@ -997,12 +997,32 @@
       if (!info.tr) continue;
       const v = videoOf(r.cam), im = v && grabGrey(v, v.videoWidth, v.videoHeight, info.tr.plan(t));
       if (!im) continue;
-      box = noteLook(info, info.tr.update(im, t));
+      const res = info.tr.update(im, t);
+      box = noteLook(info, res);
       if (box) { PT.mapShape(r, box); PT.pathAdd(r.path, t, box); wrote = moved = true; }
+      if (!info.hidden && !res.hide) assistLook(r, info, t, !res.ok || res.score < 0.75);   // (also while a re-find waits for the detector to confirm it)
       else if (info.hidden && !PT.pathLostAt(r.path, t)) { PT.pathAdd(r.path, t, null); info.lastSearch = t; wrote = moved = true; }   // "lost from here": nothing is drawn
     }
     if (wrote) saveSoon();
     if (moved && R && R.paint) R.paint();
+  }
+  /** Detector assist (Object detection on in Settings): every 0.5 s (0.25 s while the match is weak) the app's YOLO looks at the frame; a car /
+   *  person / … that clearly is the tracked object puts the box right (it turned, got smaller: the template alone drifts). See PT assist(). */
+  function assistLook(r, info, t, weak) {
+    const D = T.detect;
+    if (!D || !D.enabled || !D.enabled() || !D.detectImage || !info.tr || info.detBusy) return;
+    if (t - (info.detT == null ? -9 : info.detT) < (weak || info.tr.assistSoon ? 0.25 : 0.5) || (info.detT != null && info.detT > t)) return;
+    const v = videoOf(r.cam); if (!v) return;
+    const td = t, boxAt = Object.assign({}, info.tr.box), tr = info.tr;
+    info.detBusy = true; info.detT = t;
+    // a crop round the region (2.2 × its size) through the small fast model: ~4 × less work than the whole frame, and a far car is bigger in it
+    const cw = Math.min(1, boxAt.w * 2.2), ch = Math.min(1, boxAt.h * 2.2), crop = { x: Math.max(0, Math.min(1 - cw, boxAt.x + boxAt.w / 2 - cw / 2)), y: Math.max(0, Math.min(1 - ch, boxAt.y + boxAt.h / 2 - ch / 2)), w: cw, h: ch };
+    D.detectImage(v, v.videoWidth, v.videoHeight, { conf: 0.3, noFix: true, cam: r.cam, slot: "fast", crops: [crop], tilesOnly: true, cropConf: 0.3 }).then((dets) => {
+      info.detBusy = false;
+      if (info.tr !== tr || info.hidden || !S.trackIds.includes(r.id) || Math.abs(nowT() - td) > 1.0) return;   // seeked, lost, removed meanwhile
+      const nb = tr.assist(dets, td, boxAt, weak);
+      if (nb) { PT.mapShape(r, nb); PT.pathAdd(r.path, Math.max(td, tr.t), nb); saveSoon(); if (R && R.paint) R.paint(); }
+    }).catch(() => { info.detBusy = false; });
   }
   /** Export: carry the tracker forward on the frames the exporter decodes, for stretches nobody played (the keys it writes are the region's path from then on). */
   const XT = {};

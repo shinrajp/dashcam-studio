@@ -319,7 +319,8 @@
     minScale: 0.2, maxScale: 10,     // box size limits relative to the one the region started with (a sign far away that drives up to you)
     flow: true, flowGap: 0.5, flowMin: 8, flowSpread: 1.5, flowAgree: 0.3, flowSure: 0.4, flowWhole: 0.7, flowOver: 0.15, flowNcc: 0.9,   // optical flow: on; longest gap between two looks it bridges (s); points that must survive; how much they may disagree (px); how far from the motion model it may be (box sizes)
     goneIn: 0.5,                    // the object has left the picture when less than this share of where it should be is inside the frame
-    reacqOk: 0.72, reacqMargin: 0.08, reacqW: 360, reacqT: 30, reacqScales: [0.7, 0.8, 0.9, 1, 1.1, 1.2, 1.3, 1.45], reacqCore: 0.75, reacqCand: 4, bankMax: 5, confirmN: 2, confirmOk: 0.78,   // finding it again: score, lead over the next best spot, raster width, sizes, looks kept
+    reacqOk: 0.72, reacqMargin: 0.08, reacqW: 360, reacqT: 30, reacqScales: [0.7, 0.8, 0.9, 1, 1.1, 1.2, 1.3, 1.45], reacqCore: 0.75, reacqCand: 4, bankMax: 5, confirmN: 2, confirmOk: 0.78, exitHold: 10, exitSame: 0.8, confirmDetT: 1.2,
+    assistConf: 0.35, chainGap: 1.5,   // detector assist: lowest detection score used; longest gap between two detections of the object that still links them (s)   // detector assist: lowest detection score used, overlap with where the object should be, how far the box moves to it   // finding it again: score, lead over the next best spot, raster width, sizes, looks kept
     fitWindow: 1.5, fitShare: 0.6, fitStill: 0.3, fitRel: 1.5, fitArea: 0.7, fitPad: 0.2, stillBelow: 0.75,   // a loose outline: in the first seconds, when only part of the box moves apart from the scene, fit to that part (padded)
     coastT: 2.0                      // seconds the box keeps moving on its speed after a miss (then it holds)
   };
@@ -391,15 +392,27 @@
   };
   /** Look for the object in `img` at time t. Returns { ok, score, margin, scale, box, lost, lostT }; the tracker's own box follows. */
   P.update = function (img, t) {
+    if (this._detGone) {   // the detector saw it leave the picture: gone, whatever the template still matches at the edge
+      this._detGone = false;
+      const p = this.predict(t), r = this._miss(t, p.dt, p, 0, 0); r.hide = true; r.gone = true;
+      this._exit = { box: Object.assign({}, this.box), t, img: this._prev && this._prev.img }; return r;
+    }
     const r = this._update(img, t);
+    if (!r.ok && r.gone) this._exit = { box: Object.assign({}, this.box), t, img: img };   // where it left the picture, and what was there
     if (this._prob > 0) {   // just found again: it must match well twice more before it counts (another white car is not it)
       if (r.ok && !r.flow && r.score >= this.o.confirmOk) this._prob--;
-      else { this._prob = 0; r.ok = false; r.hide = true; r.unconfirmed = true; }
+      else { this._prob = 0; this._needDet = false; r.ok = false; r.hide = true; r.unconfirmed = true; }
       if (this._prob > 0) r.probation = true;
+    }
+    if (this._needDet && !r.hide) {   // the detector is in use: it must also see one of the kind there (a loose box's look is mostly scenery)
+      if (this._detOk) this._needDet = false;
+      else if (t - this._foundT > this.o.confirmDetT) { this._needDet = false; r.ok = false; r.hide = true; r.unconfirmed = true; }
+      else r.probation = true;
     }
     return r;
   };
   P._update = function (img, t) {
+    if (this._relearn) { this._relearn = false; this._relearnFrom(img); }   // a detector put the box right: learn what the object looks like there
     const o = this.o, b = this.box, p = this.predict(t), dt = p.dt, m = this.margin(dt), p0 = { cx: p.cx, cy: p.cy };
     const pv = this._prev;
     if (this.age0 == null) this.age0 = t;
@@ -595,8 +608,97 @@
     this._keep(img, t);
     return { ok: true, score: sc, margin, scale: best.s, box: Object.assign({}, this.box), lost: 0, lostT: 0, part: viaPart, partScore };
   };
+  // ── detector assist ─────────────────────────────────────────────────────────────────────────────────────────────
+  // Appearance matching drifts when the object turns and shrinks at once (a car turning away behind you). An object detector (the app's YOLO)
+  // knows "that is a car" from any angle. Every so often its boxes are compared with where the tracker thinks the object is: the first time,
+  // the detection inside the user's box teaches how much room the user left round the object (kept from then on); after that a detection
+  // of the same kind that clearly is the object (overlap, size) moves and resizes the box, and the template is re-learnt there. Two that
+  // fit about as well (cars side by side) and nothing happens.
+  const GROUP = { car: "vehicle", truck: "vehicle", bus: "vehicle", motorcycle: "vehicle", bicycle: "bike", person: "person" };
+  const groupOf = (l) => GROUP[l] || l;
+  const iouB = (a, b) => { const x1 = Math.max(a.x, b.x), y1 = Math.max(a.y, b.y), x2 = Math.min(a.x + a.w, b.x + b.w), y2 = Math.min(a.y + a.h, b.y + b.h), i = Math.max(0, x2 - x1) * Math.max(0, y2 - y1); return i / (a.w * a.h + b.w * b.h - i); };
+  /** The object's own box inside the region's box (the room the user left taken off), once that room is known. */
+  P.objectBox = function (box) {
+    const a = this._anchor, b = box || this.box; if (!a) return null;
+    const w = b.w / a.rw, h = b.h / a.rh, cx = b.x + b.w / 2 - a.ox * w, cy = b.y + b.h / 2 - a.oy * h;
+    return { x: cx - w / 2, y: cy - h / 2, w, h };
+  };
+  /** Detections dets (0..1 boxes with label, conf) seen at time td, when the tracker's box was boxAt (default: its box now). weak: the tracker
+   *  is unsure. Returns the corrected box (also applied to the tracker, shifted by what it moved since td) or null.
+   *  The detections are followed from one to the next (the object's last detection, carried on at its own speed, says where the next one is:
+   *  a parked car next to it doesn't overlap that); the template tracker fills the time between them and is pulled back when it slid off. */
+  P.assist = function (dets, td, boxAt, weak) {
+    const o = this.o, b0 = boxAt || this.box;
+    if (!dets || !dets.length) return null;
+    dets = dets.filter((d) => d.conf >= o.assistConf);
+    if (!this._anchor) {   // the first look: which detection did the user draw round? (its centre inside the box, a fair share of it)
+      let best = null, bs = 0;
+      for (const d of dets) {
+        const cx = d.x + d.w / 2, cy = d.y + d.h / 2;
+        if (cx < b0.x || cx > b0.x + b0.w || cy < b0.y || cy > b0.y + b0.h) continue;
+        const share = d.w * d.h / (b0.w * b0.h); if (share < 0.12 || share > 1.3) continue;
+        const sc = iouB(d, b0) + 0.2 * d.conf; if (sc > bs) { bs = sc; best = d; }
+      }
+      if (!best) return null;
+      this._anchor = { group: groupOf(best.label), rw: clamp(b0.w / best.w, 1, 3), rh: clamp(b0.h / best.h, 1, 3), ox: clamp((b0.x + b0.w / 2 - best.x - best.w / 2) / best.w, -0.5, 0.5), oy: clamp((b0.y + b0.h / 2 - best.y - best.h / 2) / best.h, -0.5, 0.5) };
+      this._det = { box: { x: best.x, y: best.y, w: best.w, h: best.h }, t: td, vx: 0, vy: 0, n: 1 };
+      // the template from here on is the object itself, not the room round it (that room holds parked cars, road: when the object turns,
+      // they are what would still match). The blur keeps the user's box.
+      const A = this._anchor, c = clamp(1.1 / Math.max(A.rw, A.rh), 0.45, 1);
+      if (c < this.core - 0.05 && Math.abs(A.ox) < 0.15 && Math.abs(A.oy) < 0.15) {
+        const f = c / this.core;
+        this.tm = cropTemplate(this.tm, f); this.tm0 = cropTemplate(this.tm0, f); this.bank = [this.tm0]; this._cores = null; this.core = c; this._prev = null;
+      }
+      return null;
+    }
+    const a = this._anchor, ob = this.objectBox(b0), same = [];
+    for (const d of dets.filter((q) => groupOf(q.label) === a.group).sort((p, q) => q.conf - p.conf)) if (!same.some((q) => iouB(q, d) > 0.7)) same.push(d);   // one box per object (a car is often a "car" and a "truck" too)
+    let pick = null;
+    const D = this._det;
+    if (D && td - D.t <= o.chainGap && td > D.t) {   // follow the chain: where should the object's detection be now?
+      const dt = td - D.t, pb = { x: D.box.x + 0.5 * D.vx * dt, y: D.box.y + 0.5 * D.vy * dt, w: D.box.w, h: D.box.h };   // (half its speed: it may brake or turn)
+      const sc = same.map((d) => { const sr = d.w / pb.w, dc = Math.hypot((d.x + d.w / 2 - pb.x - pb.w / 2) / pb.w, (d.y + d.h / 2 - pb.y - pb.h / 2) / pb.h); return { d, sr, dc, v: iouB(d, pb) + 0.3 * (1 - Math.min(1, Math.abs(Math.log(sr)) / 0.5)) + 0.2 * Math.max(0, 1 - dc) }; })
+        .filter((c) => c.dc < 0.9 && c.sr > 0.6 && c.sr < 1.65).sort((p, q) => q.v - p.v);
+      if (sc.length && (sc.length === 1 || sc[0].v - sc[1].v >= 0.12)) pick = sc[0].d;
+      else {   // nothing: has the object driven out of the picture? (where its detection should be is mostly outside the frame)
+        const ix = Math.max(0, Math.min(1, pb.x + pb.w) - Math.max(0, pb.x)) / pb.w, iy = Math.max(0, Math.min(1, pb.y + pb.h) - Math.max(0, pb.y)) / pb.h;
+        if (ix * iy < 0.5 || (pb.x + pb.w > 0.97 && D.vx > 0) || (pb.x < 0.03 && D.vx < 0)) { this._detGone = true; this._det = null; this._noRestart = true; return null; }
+      }
+    } else if (!weak && !this._noRestart) {   // no chain (it was lost or hidden): start one again from a detection right on the object box of a confident tracker
+      const sc = same.map((d) => ({ d, v: iouB(d, ob) })).filter((c) => c.v >= 0.5).sort((p, q) => q.v - p.v);
+      if (sc.length && (sc.length === 1 || sc[0].v - sc[1].v >= 0.12)) { pick = sc[0].d; this._det = null; if (this._needDet) this._detOk = true; }
+    }
+    if (PT.debug) this._adbg = { same: same.map((d) => +(d.x + d.w / 2).toFixed(3) + "/" + d.w.toFixed(3) + d.label[0]), pick: pick && +(pick.x + pick.w / 2).toFixed(3), chain: D && +(D.box.x + D.box.w / 2).toFixed(3), anchor: this._anchor };
+    if (!pick) return null;
+    // the chain goes on (its speed from the last detection, smoothed)
+    if (this._det) { const dt = td - this._det.t, ncx = pick.x + pick.w / 2, ncy = pick.y + pick.h / 2, pcx = this._det.box.x + this._det.box.w / 2, pcy = this._det.box.y + this._det.box.h / 2, f = this._det.n > 1 ? 0.5 : 1;
+      this._det = { box: { x: pick.x, y: pick.y, w: pick.w, h: pick.h }, t: td, vx: this._det.vx * (1 - f) + f * (ncx - pcx) / dt, vy: this._det.vy * (1 - f) + f * (ncy - pcy) / dt, n: this._det.n + 1 }; }
+    else this._det = { box: { x: pick.x, y: pick.y, w: pick.w, h: pick.h }, t: td, vx: 0, vy: 0, n: 1 };
+    // where that detection is now (the detector answers a moment later): carried on at the speed the detections show, not the tracker's
+    // (the tracker may be what slid off); the box goes there, all the way when the tracker had slid off, half way for a small refinement
+    const d = pick, now = Math.max(td, this.t), dn = Math.min(0.6, now - td), dv = this._det && this._det.n > 1 ? this._det : { vx: 0, vy: 0 };
+    const w = Math.min(1, d.w * a.rw), h = Math.min(1, d.h * a.rh), cx = d.x + d.w / 2 + a.ox * d.w + dv.vx * dn, cy = d.y + d.h / 2 + a.oy * d.h + dv.vy * dn;
+    const b = this.box, off = Math.hypot((cx - b.x - b.w / 2) / (b.w / a.rw), (cy - b.y - b.h / 2) / (b.h / a.rh));   // how far the tracker is off it (object widths)
+    const k = off > 0.25 ? 0.9 : 0.7;
+    this.assistSoon = off > 0.25;   // it had slid off: look again soon
+    if (off > 0.25 && this._det && this._det.n > 1) { this.vx = this._det.vx; this.vy = this._det.vy; this.n = Math.max(this.n, 3); }   // and move on at the speed the detections show
+    const fw = Math.min(1, b.w + (w - b.w) * k), fh = Math.min(1, b.h + (h - b.h) * k), fcx = b.x + b.w / 2 + (cx - b.x - b.w / 2) * k, fcy = b.y + b.h / 2 + (cy - b.y - b.h / 2) * k;
+    this.box = { x: clamp(fcx - fw / 2, 0, 1 - fw), y: clamp(fcy - fh / 2, 0, 1 - fh), w: fw, h: fh };
+    this._lastC = { cx: fcx, cy: fcy }; this._u = null;
+    if (this._prev && Math.abs(this._prev.t - td) < 0.05) { this._prev.box = Object.assign({}, this.box); this._relearnFrom(this._prev.img); }   // the frame the detector saw: learn the look there
+    else { this._prev = null; this._relearn = true; }
+    return Object.assign({}, this.box);
+  };
+  P._relearnFrom = function (img) {
+    const nb = this.box, tw = this.tm.tw, th = this.tm.th;
+    if (!(nb.x >= img.ox && nb.y >= img.oy && nb.x + nb.w <= img.ox + img.ow && nb.y + nb.h <= img.oy + img.oh)) return;
+    const cw = nb.w * this.core, ch = nb.h * this.core, fresh = finishTemplate(resample(img, nb.x + (nb.w - cw) / 2, nb.y + (nb.h - ch) / 2, cw / tw, ch / th, tw, th), tw, th);
+    if (!fresh.flat) { const g = this.tm.g; for (let i = 0; i < g.length; i++) g[i] = g[i] * 0.4 + fresh.g[i] * 0.6; this.tm = finishTemplate(g, tw, th); this.tm._parts = null; this._bankAdd(this.tm); }
+  };
   /** Keep this look for the next one's optical flow. */
-  P._keep = function (img, t) { this._prev = { img, box: Object.assign({}, this.box), t }; };
+  P._keep = function (img, t) {
+    this._prev = { img, box: Object.assign({}, this.box), t };
+  };
   /** Take the flow's answer (the template match failed or was weak, the flow is sure and agrees with the motion): move there, learn the speed,
    *  and after two such looks in a row re-learn the template from what is there now (the object has turned or shows another side). */
   P._flowTake = function (img, t, dt, p0, fb, sc) {
@@ -695,6 +797,18 @@
       }
     }
     // the best spot, against the best spot somewhere else (another thing that looks the same makes it ambiguous)
+    // it left the picture: a match where it went out that looks just like what was there when it left is the scenery it was in front of
+    // (a loose box holds a lot of it), not the object coming back (which changes what is there)
+    const ex = this._exit && this._exit.img && t - this._exit.t < o.exitHold ? this._exit : null;
+    if (ex) {
+      const tw = this.tm.tw, th = this.tm.th, same = (f) => {
+        const w = b.w * f.s * this.core, h = b.h * f.s * this.core, x = f.cx - w / 2, y = f.cy - h / 2, E = ex.img;
+        if (x < E.ox || y < E.oy || x + w > E.ox + E.ow || y + h > E.oy + E.oh || x < img.ox || y < img.oy || x + w > img.ox + img.ow || y + h > img.oy + img.oh) return false;
+        const A = finishTemplate(resample(E, x, y, w / tw, h / th, tw, th), tw, th), B = finishTemplate(resample(img, x, y, w / tw, h / th, tw, th), tw, th);
+        return !A.flat && !B.flat && corr(A, B) > o.exitSame;
+      };
+      const keep = found.filter((f) => !same(f)); found.length = 0; found.push(...keep);
+    }
     found.sort((a, c) => c.score - a.score);
     const best = found[0] || null;
     let second = -1;
@@ -703,7 +817,8 @@
     if (PT.debug) this._rdbg = best && { score: +best.score.toFixed(2), second: +second.toFixed(2), s: best.s, x: +best.cx.toFixed(3) };
     if (!best || best.score < o.reacqOk || best.score - second < o.reacqMargin) return null;
     const w = Math.min(1, b.w * best.s), h = Math.min(1, b.h * best.s), box = { x: clamp(best.cx - w / 2, 0, 1 - w), y: clamp(best.cy - h / 2, 0, 1 - h), w, h };
-    this.rewind(box, t, null); this._prob = o.confirmN;
+    this.rewind(box, t, null); this._prob = o.confirmN; this._noRestart = false;
+    this._needDet = !!this._anchor; this._detOk = false; this._foundT = t; this._det = null;
     return { ok: true, box: Object.assign({}, box), score: best.score, probation: true };
   };
   /** An outside measurement of the box at time t (a detector box, the user's edit): follow it, learn the speed from it. */
@@ -720,7 +835,7 @@
   /** An independent copy that shares the (read-only) original template: the exporter tracks on its own while the viewer's tracker is left alone. */
   P.fork = function () {
     const c = Object.create(P);
-    c.o = this.o; c._prob = this._prob; c.core = this.core; c.age0 = this.age0; c._fitted = this._fitted; c.tm0 = this.tm0; c.tm = cloneTemplate(this.tm); c.box = Object.assign({}, this.box); c.size0 = this.size0;
+    c.o = this.o; c._prob = this._prob; c._anchor = this._anchor; c._noRestart = this._noRestart; c.core = this.core; c.age0 = this.age0; c._fitted = this._fitted; c.tm0 = this.tm0; c.tm = cloneTemplate(this.tm); c.box = Object.assign({}, this.box); c.size0 = this.size0;
     c._prev = null; c.bank = this.bank.slice(); c._u = this._u ? Object.assign({}, this._u) : null; c._lastC = this._lastC; c.t = this.t; c.vx = this.vx; c.vy = this.vy; c.lost = this.lost; c.lostT = this.lostT; c.n = this.n; c.score = this.score; c.good = this.good; c.weakT = this.weakT;
     return c;
   };

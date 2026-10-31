@@ -38,6 +38,10 @@ function grab(frame, plan) {
 const ff = spawn("ffmpeg", ["-loglevel", "error", "-ss", String(T0), "-i", clip, ...(isFinite(T1) ? ["-t", String(T1 - T0)] : []), "-vf", "fps=" + HZ, "-f", "rawvideo", "-pix_fmt", "gray", "-"]);
 const size = FW * FH; let buf = Buffer.alloc(0), n = 0, tr = null, hidden = false, lastSearch = -9;
 const rows = [], box0 = { x: bx, y: by, w: bw, h: bh }, ms = [];
+// env DETS=<yolo-truth.js output> ASSIST=0.5: the detector assist, with the app's own YOLO boxes for this clip (what the page would get)
+const DETS = process.env.DETS ? JSON.parse(fs.readFileSync(process.env.DETS, "utf8")).dets : null, ASSIST = +(process.env.ASSIST || 0.5);
+const detsAt = (t) => { if (!DETS) return null; let b = null, bd = 0.06; for (const f of DETS) { const d = Math.abs(f.t - t); if (d < bd) { bd = d; b = f; } } return b && b.dets; };
+let lastAssist = -9, nAssist = 0;
 function look(frame, t) {
   const t0 = Date.now();
   if (!tr) { tr = PT.create(grab(frame, PT.createPlan(box0, { fw: FW, fh: FH })), box0, t, { fw: FW, fh: FH }); rows.push({ t, box: box0, state: "start" }); return; }
@@ -52,9 +56,11 @@ function look(frame, t) {
   }
   const res = tr.update(grab(frame, tr.plan(t)), t);
   ms.push(Date.now() - t0);
-  if (res.ok && res.probation) { rows.push({ t, box: null, state: "confirm", score: +(res.score || 0).toFixed(2) }); return; }
+  if (res.ok && res.probation) { if (DETS) { tr.assist(detsAt(t), t, null, false); } rows.push({ t, box: null, state: "confirm", score: +(res.score || 0).toFixed(2) }); return; }
   if (!res.ok && res.hide) { hidden = true; lastSearch = t; rows.push({ t, box: null, state: res.unconfirmed ? "refused" : res.gone ? "left" : "lost", score: +(res.score || 0).toFixed(2) }); return; }
-  rows.push({ t, box: res.box, state: res.ok ? (res.fit ? "fit" : res.flow ? "flow" : res.part ? "part" : "ok") : "coast", score: +(res.score || 0).toFixed(2), scale: res.scale, ms: tr._msdbg });
+  const weak = !res.ok || res.score < 0.75;
+  if (DETS && !res.hide && t - lastAssist >= (weak || tr.assistSoon ? 0.25 : ASSIST) - 1e-6) { lastAssist = t; const nb = tr.assist(detsAt(t), t, null, weak); res.det = tr._det && { x: +(tr._det.box.x + tr._det.box.w / 2).toFixed(3), t: tr._det.t, vx: +tr._det.vx.toFixed(3) }; if (nb) { nAssist++; res.box = nb; res.assisted = true; } }
+  rows.push({ t, box: res.box, det: res.det, assisted: !!res.assisted, state: res.ok ? (res.fit ? "fit" : res.flow ? "flow" : res.part ? "part" : "ok") : "coast", score: +(res.score || 0).toFixed(2), scale: res.scale, ms: tr._msdbg });
 }
 PT.debug = true;
 ff.stdout.on("data", (d) => {
@@ -69,5 +75,5 @@ ff.on("close", () => {
   fs.writeFileSync(OUT, JSON.stringify({ clip, FW, FH, box0, rows }));
   const st = {}; for (const r of rows) st[r.state] = (st[r.state] || 0) + 1;
   ms.sort((a, b) => a - b);
-  console.log("looks " + rows.length + " · " + JSON.stringify(st) + " · ms/look median " + ms[ms.length >> 1] + ", p95 " + ms[Math.floor(ms.length * 0.95)] + " → " + OUT);
+  console.log("looks " + rows.length + (DETS ? " · detector corrections " + nAssist : "") + " · " + JSON.stringify(st) + " · ms/look median " + ms[ms.length >> 1] + ", p95 " + ms[Math.floor(ms.length * 0.95)] + " → " + OUT);
 });
