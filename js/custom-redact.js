@@ -1275,10 +1275,10 @@
       const id = li.dataset.id, r = G.list.find((x) => x.id === id); if (!r) return;
       if (b.dataset.act === "del") { if (S.editId === id) resetForm(); G.remove(id); msg("Region deleted. Undo brings it back."); }
       else if (b.dataset.act === "cam") {
-        const cams = T.GRID.filter((c) => T.player && T.player.ev && T.player.ev.cams && T.player.ev.cams.includes(c));
-        const i = cams.indexOf(r.cam);
-        const next = cams[(i + 1) % cams.length] || cams[0];
-        if (next && next !== r.cam) { G.update(id, { cam: next }); msg("Moved to " + camName(next) + "."); }
+        const cams = T.GRID.filter((c) => c !== r.cam && T.player && T.player.ev && T.player.ev.cams && T.player.ev.cams.includes(c));
+        if (!cams.length) { msg("No other camera."); return; }
+        const next = cams[Math.floor(Math.random() * cams.length)];
+        G.update(id, { cam: next }); msg("Moved to " + camName(next) + ".");
       }
       else if (b.dataset.act === "sticky") {
         const cur = r.global ? "global" : (r.sticky ? "event" : "off");
