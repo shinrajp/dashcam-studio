@@ -85,6 +85,11 @@
       G.storeOk = true;
     } catch (_) { G.storeOk = false; }
   };
+  function readGlobal() { try { return JSON.parse(localStorage.getItem("tdc.regions.global") || "[]"); } catch (_) { return []; } }
+  function saveGlobal() {
+    const g = G.list.filter((r) => r.global);
+    try { localStorage.setItem("tdc.regions.global", JSON.stringify(g)); } catch (_) {}
+  }
   G.load = () => {
     const ev = T.player && T.player.ev;
     G.key = G.eventKey(ev);
@@ -92,7 +97,9 @@
     if (G.key) {
       l = mem[G.key] || (readAll().events[G.key] || {}).regions || [];
     }
-    G.list = l.map((o) => G.clean(o, true)).filter((r) => r && r.sticky).slice(0, G.MAX);
+    const eventPins = l.map((o) => G.clean(o, true)).filter((r) => r && r.sticky && !r.global);
+    const globalPins = readGlobal().map((o) => G.clean(o, true)).filter(Boolean);
+    G.list = eventPins.concat(globalPins).slice(0, G.MAX);
     G.resetHistory();
     rebuild();
     // repaint after videos have real dimensions so pinned regions land correctly
@@ -172,7 +179,13 @@
   G.canUndoRegion = (id) => !!(RH[id] && RH[id].u.length);
   G.canRedoRegion = (id) => !!(RH[id] && RH[id].r.length);
   G.remove = (id) => { if (!G.list.some((r) => r.id === id)) return; record(); delete RH[id]; G.list = G.list.filter((r) => r.id !== id); if (S.trackIds) { S.trackIds = S.trackIds.filter((x) => x !== id); delete S.patches[id]; } changed(); };
-  G.sticky = (id, on) => { const r = G.list.find((x) => x.id === id); if (!r) return; r.sticky = on === undefined ? !r.sticky : !!on; changed(); return r.sticky; };
+  G.sticky = (id, mode) => {
+    const r = G.list.find((x) => x.id === id); if (!r) return;
+    if (mode === "global") { r.sticky = true; r.global = true; }
+    else if (mode === "event") { r.sticky = true; r.global = false; }
+    else { r.sticky = false; r.global = false; }
+    saveGlobal(); changed(); return r.sticky ? (r.global ? "global" : "event") : "off";
+  };
   G.clear = () => { if (G.list.length) { record(); G.list = []; changed(); } };
   G.toJSON = () => JSON.stringify({ type: "dashcam-studio-regions", version: 1, regions: G.list.map((r) => { const o = Object.assign({}, r); delete o.id; return o; }) }, null, 2);
   /** Add regions from a JSON file's text. Returns { added, skipped } or throws a plain-English Error. */
@@ -619,12 +632,15 @@
   UI.move = (on) => {
     on = on === undefined ? !S.move : !!on;
     if (on) {
-      if (!S.cam || S.pick || S.draft || S.editId) return false;
-      const mine = G.list.filter((r) => r.cam === S.cam);
-      if (!mine.length) { msg("No saved regions on the " + camName(S.cam).toLowerCase() + " camera to move yet.", true); return false; }
-      S.move = true; S.drawing = false; S.live = null; if (!mine.some((r) => r.id === S.sel)) S.sel = mine[mine.length - 1].id;
-      msg("Move: drag a region to move it, drag a corner to resize. Arrow keys nudge it.");
-    } else { S.move = false; S.sel = null; S.mv = null; if (S.cam) { S.drawing = true; msg(camName(S.cam) + ": drag on the picture to draw."); } }
+      const sel = S.sel && G.list.find((r) => r.id === S.sel);
+      const cam = (sel && sel.cam) || S.cam;
+      if (!cam) { msg("Select a region first.", true); return false; }
+      const mine = G.list.filter((r) => r.cam === cam);
+      if (!mine.length) { msg("No regions on the " + camName(cam).toLowerCase() + " camera.", true); return false; }
+      S.cam = cam; S.move = true; S.drawing = false; S.live = null; S.pick = false; S.draft = null; S.editId = null;
+      if (!mine.some((r) => r.id === S.sel)) S.sel = mine[mine.length - 1].id;
+      msg("Move: drag to move, drag a corner to resize.");
+    } else { S.move = false; S.sel = null; S.mv = null; }
     UI.sync(); kick(); return true;
   };
   UI.nudge = (dx, dy) => {
@@ -807,15 +823,19 @@
       const r = G.list.find((x) => x.id === id); if (!r) continue;
       const info = S.patches[id] || {};
       const m = matchPatch(r.cam, info.patch || info, r.x, r.y, r.w, r.h);
-      if (m && m.score > 8) {
-        const dx = m.x - r.x, dy = m.y - r.y;
-        info.vx = (info.vx || 0) * 0.5 + dx * 0.5;
-        info.vy = (info.vy || 0) * 0.5 + dy * 0.5;
-        r.x = m.x; r.y = m.y;
-        if (r.pts) for (let i = 0; i < r.pts.length; i += 2) { r.pts[i] += dx; r.pts[i + 1] += dy; }
+      if (m && m.score > 15) {
+        let dx = m.x - r.x, dy = m.y - r.y;
+        const jump = Math.hypot(dx, dy);
+        if (jump > 0.08) { dx *= 0.3; dy *= 0.3; }
+        info.vx = (info.vx || 0) * 0.7 + dx * 0.3;
+        info.vy = (info.vy || 0) * 0.7 + dy * 0.3;
+        const mx = (info.vx || 0), my = (info.vy || 0);
+        r.x += mx; r.y += my;
+        if (r.pts) for (let i = 0; i < r.pts.length; i += 2) { r.pts[i] += mx; r.pts[i + 1] += my; }
         info.lost = 0; moved++;
-      } else if ((info.vx || info.vy) && (info.lost || 0) < 8) {
-        const dx = info.vx || 0, dy = info.vy || 0;
+      } else if ((info.vx || info.vy) && (info.lost || 0) < 15) {
+        const dx = (info.vx || 0) * 0.85, dy = (info.vy || 0) * 0.85;
+        info.vx = dx; info.vy = dy;
         r.x += dx; r.y += dy;
         if (r.pts) for (let i = 0; i < r.pts.length; i += 2) { r.pts[i] += dx; r.pts[i + 1] += dy; }
         info.lost = (info.lost || 0) + 1; moved++;
@@ -1087,7 +1107,7 @@
     u.disabled = !UI.canUndo(); r.disabled = !UI.canRedo();
     u.classList.toggle("on", UI.canUndo()); r.classList.toggle("on", UI.canRedo());
     const trb = $("crBarTrack"); if (trb) { trb.classList.toggle("on", !!S.track); trb.setAttribute("aria-pressed", String(!!S.track)); }
-    const mvb = $("crBarMove"), canMove = !!S.cam && !S.pick && !S.draft && !S.editId && G.list.some((r) => r.cam === S.cam);
+    const mvb = $("crBarMove"), canMove = G.list.length > 0;
     mvb.hidden = !!S.pick; mvb.disabled = !S.move && !canMove; mvb.setAttribute("aria-pressed", String(!!S.move)); mvb.classList.toggle("on", !!S.move);
     b.classList.toggle("moving", !!S.move);
     const chip = $("crBarCam"), has = !!S.cam && !S.pick;
@@ -1161,8 +1181,8 @@
         '<label class="cr-on" title="Switch this region on or off (off: not hidden in the viewer or the export)"><input type="checkbox" data-act="on"' + (r.on ? " checked" : "") + ' aria-label="Region ' + (i + 1) + ' on"></label>' +
         '<span class="cr-desc"><b>' + esc(camName(r.cam)) + "</b> · " + (r.mode === "remove" ? "Remove" : "Blur") + " · " + (r.shape === "poly" ? "freehand" : "box") + "<br><small>" + esc(when) + "</small></span>" +
         '<button type="button" class="btn small ghost" data-act="go" title="Show this region in the video">Show</button>' +
-        '<button type="button" class="btn small ghost icon" data-act="sticky" title="' + (r.sticky ? 'Unpin' : 'Pin') + '" aria-label="Pin" style="opacity:' + (r.sticky ? '1' : '0.4') + '">' +
-        '<svg viewBox="0 0 24 24" width="16" height="16" fill="' + (r.sticky ? '#e6b450' : 'none') + '" stroke="' + (r.sticky ? '#e6b450' : '#666') + '" stroke-width="2"><path d="M12 17v5M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/>' + (r.sticky ? '<path d="M19 3l.5 1.5L21 5l-1.5.5L19 7l-.5-1.5L17 5l1.5-.5z" fill="#fff" stroke="none"/>' : '') + '</svg></button>' +
+        '<button type="button" class="btn small ghost icon" data-act="sticky" title="' + (r.global ? 'Global pin' : (r.sticky ? 'Event pin' : 'Pin')) + '" aria-label="Pin" style="opacity:' + (r.sticky ? '1' : '0.4') + '">' +
+        '<svg viewBox="0 0 24 24" width="16" height="16" fill="' + (r.sticky ? '#e6b450' : 'none') + '" stroke="' + (r.sticky ? '#e6b450' : '#666') + '" stroke-width="2"><path d="M12 17v5M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/>' + (r.global ? '<circle cx="19" cy="5" r="3" fill="#e6b450" stroke="none"/>' : (r.sticky ? '<path d="M19 3l.5 1.5L21 5l-1.5.5L19 7l-.5-1.5L17 5l1.5-.5z" fill="#fff" stroke="none"/>' : '')) + '</svg></button>' +
         '<button type="button" class="btn small ghost" data-act="edit">Edit</button>' +
         '<button type="button" class="btn small ghost" data-act="del" aria-label="Delete region ' + (i + 1) + '">Delete</button></li>';
     }).join("");
@@ -1223,7 +1243,13 @@
       const b = e.target.closest("[data-act]"), li = e.target.closest("li[data-id]"); if (!b || !li) return;
       const id = li.dataset.id, r = G.list.find((x) => x.id === id); if (!r) return;
       if (b.dataset.act === "del") { if (S.editId === id) resetForm(); G.remove(id); msg("Region deleted. Undo brings it back."); }
-      else if (b.dataset.act === "sticky") { const on = G.sticky(id); msg(on ? "Pinned — this region comes back next time." : "Unpinned — this region is for this session only."); UI.sync(); }
+      else if (b.dataset.act === "sticky") {
+        const cur = r.global ? "global" : (r.sticky ? "event" : "off");
+        const next = cur === "off" ? "event" : (cur === "event" ? "global" : "off");
+        G.sticky(id, next);
+        msg(next === "global" ? "Pinned globally — applies to every event." : (next === "event" ? "Pinned to this event." : "Unpinned."));
+        UI.sync();
+      }
       else if (b.dataset.act === "edit") { const U = T.searchUI; if (U && U.closePops) U.closePops(); UI.edit(id); }
       else if (b.dataset.act === "go") {
         if (T.focus && T.focus.focus && T.focus.cam !== r.cam) T.focus.focus(r.cam);
