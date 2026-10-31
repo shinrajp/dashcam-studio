@@ -723,7 +723,7 @@
     if (S.track) {
       S.drawing = true; S.pick = false; armTrackCapture();
       const latest = S.draft || (G.list.length && G.list[G.list.length - 1]);
-      if (latest && latest.cam && !S.trackIds.includes(latest.id)) {
+      if (latest && latest.cam && !latest.sticky && !S.trackIds.includes(latest.id)) {
         const patch = grabPatch(latest.cam, latest.x, latest.y, latest.w, latest.h);
         if (patch) { S.trackIds.push(latest.id); S.patches[latest.id] = patch; msg("Tracking the region you already drew."); }
         else msg("Track on. Circle anything, or redraw the region.");
