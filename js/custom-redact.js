@@ -95,6 +95,17 @@
     G.list = l.map((o) => G.clean(o, true)).filter((r) => r && r.sticky).slice(0, G.MAX);
     G.resetHistory();
     rebuild();
+    // repaint after videos have real dimensions so pinned regions land correctly
+    const repaint = () => { if (R && R.paint) R.paint(); };
+    setTimeout(repaint, 100);
+    setTimeout(repaint, 500);
+    if (T.player && T.player.tiles) {
+      for (const cam of Object.keys(T.player.tiles)) {
+        const tile = T.player.tiles[cam];
+        const v = tile && (tile.video || (tile.vids && tile.vids[T.player.active]));
+        if (v && !v.videoWidth) v.addEventListener("loadedmetadata", repaint, { once: true });
+      }
+    }
   };
   /* ui-glass-7: undo / redo of region changes (add, edit, move, delete, on/off, clear, load from file) for this session and this event.
      Snapshots of the list (at most 40 small objects); the stored format and the burn-in are untouched. A new event starts a fresh history. */
