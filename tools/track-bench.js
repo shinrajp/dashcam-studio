@@ -28,9 +28,9 @@ const objTex = (lu, lv, seed) => {
 /** scenario: { name, dur, box(t) → {x,y,w,h}, dist?: [{box(t), seed}], occl?: [t0, t1], gain?(t), noise?, seed? } */
 function lumAt(sc, u, v, t, frame) {
   const B = sc.box(t);
-  let val = bg(u, v);
+  let val = bg(u + (sc.pan || 0) * t, v);
   for (const d of sc.dist || []) { const b = d.box(t); if (u >= b.x && u < b.x + b.w && v >= b.y && v < b.y + b.h) val = objTex((u - b.x) / b.w, (v - b.y) / b.h, d.seed || sc.seed || 5); }
-  if (u >= B.x && u < B.x + B.w && v >= B.y && v < B.y + B.h) val = objTex((u - B.x) / B.w, (v - B.y) / B.h, sc.seed || 5);
+  if (u >= B.x && u < B.x + B.w && v >= B.y && v < B.y + B.h) { const o = objTex((u - B.x) / B.w, (v - B.y) / B.h, sc.seed || 5); val = sc.contrast ? 110 + (o - 110) * sc.contrast : o; }
   if (sc.pole && u >= sc.pole[0] && u < sc.pole[1]) val = 90;
   if (sc.occl && t >= sc.occl[0] && t <= sc.occl[1]) { const c = sc.box(0.5 * (sc.occl[0] + sc.occl[1])), pad = 0.01; if (u >= c.x - pad - 0.02 && u < c.x + c.w + pad + 0.02 && v >= c.y - pad && v < c.y + c.h + pad) val = 90; }
   if (sc.gain) val = val * sc.gain(t);
@@ -45,6 +45,8 @@ function render(sc, t, plan) {
 }
 
 // ── scenarios ───────────────────────────────────────────────────────────────────────────────────────────────────
+/** the box a user draws: the object grown by `pad` of its size on every side (a loose outline holds background) */
+const padBox = (b, p) => p ? { x: b.x - b.w * p, y: b.y - b.h * p, w: b.w * (1 + 2 * p), h: b.h * (1 + 2 * p) } : b;
 const lin = (x0, y0, vx, vy, w, h) => (t) => ({ x: x0 + vx * t, y: y0 + vy * t, w, h });
 // One look = 0.1 s. "0.3 box / look" means the object moves 0.3 of its own width between two looks.
 const SCENARIOS = [
@@ -62,12 +64,15 @@ const SCENARIOS = [
   { name: "covered for 0.8 s", dur: 6, box: lin(0.20, 0.40, 0.05, 0.005, 0.08, 0.06), occl: [2.4, 3.2] },
   { name: "lit 0.6x → 1.4x + noise", dur: 6, box: lin(0.25, 0.40, 0.04, 0.0, 0.08, 0.06), gain: (t) => 0.6 + 0.8 * t / 6, noise: 14 },
   { name: "weak throughout (noise 22, dim)", dur: 6, box: (t) => ({ x: 0.15 + 0.05 * t + 0.01 * t * t, y: 0.40 + 0.02 * Math.sin(1.5 * t), w: 0.09, h: 0.07 }), gain: () => 0.7, noise: 22 },
+  { name: "loose outline (+60 %), small car", dur: 5, pad: 0.6, box: lin(0.30, 0.45, 0.07, 0.0, 0.035, 0.026), noise: 6 },
+  { name: "loose + panning scene", dur: 5, pad: 0.6, pan: 0.05, box: lin(0.30, 0.45, 0.10, 0.0, 0.04, 0.03), noise: 6 },
+  { name: "loose + low contrast + pan", dur: 5, pad: 0.5, pan: 0.05, contrast: 0.4, box: lin(0.30, 0.45, 0.10, 0.0, 0.05, 0.035), noise: 6 },
   { name: "small + noise", dur: 6, box: lin(0.25, 0.40, 0.03, 0.002, 0.035, 0.026), noise: 10 }
 ];
 
 // ── the NEW tracker, driven like the page drives it ─────────────────────────────────────────────────────────────
 function runNew(sc, o) {
-  const out = [], b0 = sc.box(0);
+  const out = [], b0 = padBox(sc.box(0), sc.pad);
   const cp = PT.createPlan(b0, { fw: FW, fh: FH });
   const tr = PT.create(render(sc, 0, cp), b0, 0, Object.assign({ fw: FW, fh: FH }, o));
   for (let t = 1 / HZ; t <= sc.dur + 1e-9; t += 1 / HZ) {
@@ -206,13 +211,13 @@ function iou(a, b) {
 function score(sc, run) {
   let good = 0, errs = [], sizeErr = [], last = run.slice(-Math.max(5, run.length >> 2));
   for (const r of run) {
-    const T = sc.box(r.t), v = r.shown && iou(r.box, T) >= 0.5;
+    const T = padBox(sc.box(r.t), sc.pad), v = r.shown && iou(r.box, T) >= 0.5;
     if (v) good++;
     errs.push(Math.hypot((r.box.x + r.box.w / 2 - T.x - T.w / 2) * FW, (r.box.y + r.box.h / 2 - T.y - T.h / 2) * FH));
     sizeErr.push(Math.abs(r.box.w / T.w - 1));
   }
   errs.sort((a, b) => a - b); sizeErr.sort((a, b) => a - b);
-  const endGood = last.filter((r) => r.shown && iou(r.box, sc.box(r.t)) >= 0.5).length / last.length;
+  const endGood = last.filter((r) => r.shown && iou(r.box, padBox(sc.box(r.t), sc.pad)) >= 0.5).length / last.length;
   return { good: good / run.length, endGood, medErr: errs[errs.length >> 1], p90Err: errs[Math.floor(errs.length * 0.9)], medSize: sizeErr[sizeErr.length >> 1] };
 }
 

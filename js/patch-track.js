@@ -59,6 +59,12 @@
     const std = Math.sqrt(e / n);
     return { g, tw, th, e: Math.sqrt(e) || 1, std, flat: std < 2.5, l, lw, lh, le: Math.sqrt(le) || 1 };
   }
+  /** The middle `c` (share of width and height) of a template as a template of its own. */
+  function cropTemplate(T, c) {
+    const w = Math.max(8, Math.round(T.tw * c)), h = Math.max(8, Math.round(T.th * c)), ox = (T.tw - w) >> 1, oy = (T.th - h) >> 1, g = new Float32Array(w * h);
+    for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) g[j * w + i] = T.g[(oy + j) * T.tw + ox + i];
+    return finishTemplate(g, w, h);
+  }
   function cloneTemplate(T) { return finishTemplate(Float32Array.from(T.g), T.tw, T.th); }
   /** Template size in pixels for a box: the object's own pixels, long side at most maxT, short side at least minT. */
   PT.templateDims = (box, o) => {
@@ -122,6 +128,7 @@
     partOk: 0.78, partGain: 0.12,     // a half of the template must score this well, and this much better than the whole, to stand in for it
     weakPull: 0.03, weakRamp: 0.8, weakJump: 0.6,   // a weak match moves the box this share of the way, and only if it is within this many box sizes of the prediction
     accept: 0.5, trust: 0.65, minMargin: 0.04, sure: 0.8, weak: 0.38, strongMargin: 0.15,   // acceptance: score, ambiguity margin
+    cores: [0.6, 0.42], coreWeak: 0.75, coreOk: 0.72, coreGain: 0.1, coreWindow: 0.7,   // a loose outline holds background that stays put while the object moves: when the whole template matches poorly but its middle (one of these shares) matches well, the middle is tracked
     prior: 0.05, sprior: 0.012,      // pull towards the predicted spot / towards the current size
     minScale: 0.2, maxScale: 10,     // box size limits relative to the one the region started with (a sign far away that drives up to you)
     coastT: 2.0                      // seconds the box keeps moving on its speed after a miss (then it holds)
@@ -141,6 +148,7 @@
     this.tm = cloneTemplate(this.tm0);
     this.box = { x: box.x, y: box.y, w: box.w, h: box.h };
     this.size0 = { w: box.w, h: box.h };
+    this.core = 1; this.age0 = null;   // 1 = the template is the whole box; less = only its middle (see update)
     this.t = t; this.vx = 0; this.vy = 0;
     this.lost = 0; this.lostT = 0; this.n = 0; this.score = 1; this.good = 0; this.weakT = 0;
   }
@@ -168,8 +176,8 @@
     const nw = Math.max(1e-3, x1 - x0), nh = Math.max(1e-3, y1 - y0);
     return {
       nx: x0, ny: y0, nw, nh,
-      SW: Math.min(o.maxRaster, Math.max(this.tm.tw + 4, Math.round(nw / b.w * this.tm.tw))),
-      SH: Math.min(o.maxRaster, Math.max(this.tm.th + 4, Math.round(nh / b.h * this.tm.th)))
+      SW: Math.min(o.maxRaster, Math.max(this.tm.tw + 4, Math.round(nw / (b.w * this.core) * this.tm.tw))),
+      SH: Math.min(o.maxRaster, Math.max(this.tm.th + 4, Math.round(nh / (b.h * this.core) * this.tm.th)))
     };
   };
 
@@ -197,7 +205,7 @@
     const tw = this.tm.tw, th = this.tm.th;
     let best = null;
     for (const s of scales) {
-      const du = b.w * s / tw, dv = b.h * s / th;
+      const du = b.w * this.core * s / tw, dv = b.h * this.core * s / th;
       const hw = Math.min((0.5 + m) * b.w * s, 0.5 * o.maxRaster * du), hh = Math.min((0.5 + m) * b.h * s, 0.5 * o.maxRaster * dv);
       const ua = Math.max(img.ox, p.cx - hw), ub = Math.min(img.ox + img.ow, p.cx + hw);
       const va = Math.max(img.oy, p.cy - hh), vb = Math.min(img.oy + img.oh, p.cy + hh);
@@ -255,8 +263,29 @@
     }
     let mcx = best.ua + (fx + sx + tw / 2) * best.du, mcy = best.va + (fy + sy + th / 2) * best.dv;
 
+    // a loose outline: the whole template matches poorly (the background in it did not move with the object) but a middle part of it matches well -> track that part from now on
+    let switched = false;
+    if (this.age0 == null) this.age0 = t;
+    if (this.core === 1 && sc < o.coreWeak && t - this.age0 <= o.coreWindow) {   // (only in the first moments: a loose outline shows at once; later a weak match means the object is partly hidden)
+      let pick = null;
+      for (const c of o.cores) {
+        const ct = (this._cores || (this._cores = {}))[c] || (this._cores[c] = cropTemplate(this.tm, c));
+        if (ct.flat) continue;
+        let cs = -2, cbx = 0, cby = 0;
+        for (let y = 0; y <= best.SH - ct.th; y++) for (let x = 0; x <= best.SW - ct.tw; x++) {
+          const dd = Math.hypot((best.ua + (x + ct.tw / 2) * best.du - p.cx) / b.w, (best.va + (y + ct.th / 2) * best.dv - p.cy) / b.h); if (dd > m) continue;
+          const v = nccFull(best.R, best.SW, x, y, ct) - o.prior * Math.min(2, dd);
+          if (v > cs) { cs = v; cbx = x; cby = y; }
+        }
+        if (cs >= o.coreOk && cs > sc + (margin < o.minMargin ? 0.02 : o.coreGain) && (!pick || cs > pick.cs + 0.03)) pick = { cs, c, ct, x: cbx, y: cby };
+      }
+      if (pick) {
+        mcx = best.ua + (pick.x + pick.ct.tw / 2) * best.du; mcy = best.va + (pick.y + pick.ct.th / 2) * best.dv; sc = pick.cs; margin = 1; switched = true;
+        this.tm = cropTemplate(this.tm, pick.c); this.tm0 = cropTemplate(this.tm0, pick.c); this._cores = null; this.core = pick.c;
+      }
+    }
     let viaPart = false, partScore = null;
-    if (sc < o.trust) {   // the whole template matches poorly: is a half of it clearly seen? (a thin thing in front of the object)
+    if (!switched && sc < o.trust) {   // the whole template matches poorly: is a half of it clearly seen? (a thin thing in front of the object)
       const pr = this._parts(best, tw, th, p);
       partScore = pr ? pr.score : null;
       if (pr && pr.score >= o.partOk && pr.score > sc + o.partGain) {
@@ -282,10 +311,10 @@
     this.weakT = good ? 0 : this.weakT + dt;
 
     // template upkeep: only from a very good, same-size look that still agrees with the original (no drift onto the background)
-    if (sc > 0.85 && Math.abs(best.s - 1) < 0.02 && this.good % 3 === 0) {
+    if (!switched && sc > 0.85 && Math.abs(best.s - 1) < 0.02 && this.good % 3 === 0) {
       const nb = this.box;
       if (nb.x >= img.ox && nb.y >= img.oy && nb.x + nb.w <= img.ox + img.ow && nb.y + nb.h <= img.oy + img.oh) {
-        const fresh = finishTemplate(resample(img, nb.x, nb.y, nb.w / tw, nb.h / th, tw, th), tw, th);
+        const cw = nb.w * this.core, ch = nb.h * this.core, fresh = finishTemplate(resample(img, nb.x + (nb.w - cw) / 2, nb.y + (nb.h - ch) / 2, cw / tw, ch / th, tw, th), tw, th);
         if (!fresh.flat && corr(fresh, this.tm0) > 0.55) {
           const g = this.tm.g; for (let i = 0; i < g.length; i++) g[i] = g[i] * 0.88 + fresh.g[i] * 0.12;
           this.tm = finishTemplate(g, tw, th);
@@ -318,7 +347,7 @@
   /** An independent copy that shares the (read-only) original template: the exporter tracks on its own while the viewer's tracker is left alone. */
   P.fork = function () {
     const c = Object.create(P);
-    c.o = this.o; c.tm0 = this.tm0; c.tm = cloneTemplate(this.tm); c.box = Object.assign({}, this.box); c.size0 = this.size0;
+    c.o = this.o; c.core = this.core; c.age0 = this.age0; c.tm0 = this.tm0; c.tm = cloneTemplate(this.tm); c.box = Object.assign({}, this.box); c.size0 = this.size0;
     c.t = this.t; c.vx = this.vx; c.vy = this.vy; c.lost = this.lost; c.lostT = this.lostT; c.n = this.n; c.score = this.score; c.good = this.good; c.weakT = this.weakT;
     return c;
   };
@@ -326,6 +355,7 @@
   P.rebase = function (box, t) {
     const fw = box.w / Math.max(1e-6, this.box.w), fh = box.h / Math.max(1e-6, this.box.h);
     this.size0 = { w: this.size0.w * fw, h: this.size0.h * fh };
+    this.age0 = null;
     this.setBox(box, t);
   };
 
