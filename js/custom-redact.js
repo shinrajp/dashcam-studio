@@ -515,7 +515,7 @@
       if (id !== null || (e.pointerType === "mouse" && e.button !== 0)) return;
       if (S.move && cam === S.cam) { moveDown(cam, e); return; }
       // Track mode: always capture the gesture, even if no camera chosen yet
-      if (S.track) {
+      if (S.track && S.shape !== "free") {   // (freehand + Track: the outline is drawn as usual and the saved region is armed, see UI.save)
         e.preventDefault(); id = e.pointerId; try { cv.setPointerCapture(id); } catch (_) {}
         pend = { x: e.clientX, y: e.clientY, track: true, cam }; return;
       }
@@ -782,6 +782,8 @@
     if (G.redo()) { msg("Redone."); kick(); return true; }
     return false;
   };
+  const dbg = () => {};   // (a leftover debug hook the Track gesture still called)
+  function trackAt(cam, x, y, w, h) { startTrack(cam, x, y, w, h); }
   /** Track mode: circle anything; a patch tracker follows it (signs, cats, logos, cars). */
   S.track = false;
   S.trackIds = [];
@@ -791,12 +793,13 @@
     if (S.track) {
       S.drawing = true; S.pick = false; armTrackCapture();
       const latest = S.draft || (G.list.length && G.list[G.list.length - 1]);
-      if (latest && latest.cam && !latest.sticky && !S.trackIds.includes(latest.id)) {
+      if (S.draft && !G.list.includes(S.draft)) { S.armOnSave = true; msg("Tracking: finish the outline and press Done. It will follow the object."); }   // an unsaved outline: armed when it is saved
+      else if (latest && latest.cam && !latest.sticky && !S.trackIds.includes(latest.id)) {
         const info = armRegion(latest);
         msg(info && info.label ? "Tracking the " + info.label + "." : "Tracking the region you already drew.");
       } else msg("Track: circle anything. It follows by matching the look.");
     }
-    else { msg("Track off."); disarmTrackCapture(); }
+    else { S.armOnSave = false; msg("Track off."); disarmTrackCapture(); }
     UI.sync(); kick(); return true;
   };
   let trackCap = null;
@@ -999,7 +1002,8 @@
 
     /** Done: saves a drawn shape; in Move it simply closes the tray (the moves are already saved, and undoable). */
   UI.done = () => {
-    if (S.trackIds && S.trackIds.length) {
+    const pendingShape = S.draft || (S.shape === "free" && S.live && S.live.pts && S.live.pts.length >= 6);
+    if (S.trackIds && S.trackIds.length && !pendingShape) {
       const n = S.trackIds.length;
       S.drawing = false; S.pick = false;
       const b = $("crBar"); if (b) b.hidden = true;
@@ -1283,7 +1287,10 @@
     else { if (G.list.length >= G.MAX) { msg("That is the most regions for one event (" + G.MAX + "). Delete one first.", true); return null; } r = G.add(o); }
     if (!r) { msg("Couldn't save that region. Draw it again.", true); return null; }
     const was = S.editId;
-    resetForm(); changed(); reopenPanel(true); msg(was ? "Region updated." : "Region saved. It is hidden in the viewer and in the export.");
+    let tracking = false;
+    if (!was && (S.track || S.armOnSave)) { const info = armRegion(r); tracking = !!(info && (info.tr || info.detId)); S.armOnSave = false; }   // Track was on when this was drawn: it follows the object
+    resetForm(); changed(); reopenPanel(true);
+    msg(was ? "Region updated." : tracking ? "Region saved and tracking. Press play." : "Region saved. It is hidden in the viewer and in the export.");
     return r;
   };
   /** Draw region. With several cameras on screen: "tap the camera you want to redact" (a tap enlarges it and arms the drag, a drag starts drawing on it).
