@@ -49,3 +49,4 @@
 
 - `track-freehand.js` — real-page test: outline a region freehand with Track on (before or after drawing) and check it follows the sign. Env `ORDER=track-first|draw-first`.
 - `track-exit.js` — real-page test: a tracked sign drives out of the picture and comes back. No blur while it is out; blur back on it once it returns (whole-frame search). Footage: `tools/make-track-footage.py --exit`.
+- `../tools/track-real.js` + `../tools/track-real-draw.py` — run the region tracker on a real clip outside the browser (looks every 0.1 s, blur off / search like the page) and draw a contact sheet of the box. `node tools/track-real.js clip.mp4 x,y,w,h [t0] [t1] [out.json]`.

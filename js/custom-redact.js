@@ -948,10 +948,12 @@
   /** Fold one look into the tracker's result: the box to show (or null), the lost counter, and a message when the state changes. */
   function noteLook(info, res) {
     let box = null;
-    if (res.ok) { box = res.box; info.lost = 0; if (info.phase !== "on") { info.phase = "on"; msg("Following."); } }
+    if (res.ok && res.probation) return null;   // found again, not confirmed yet: nothing drawn
+    if (res.ok) { box = res.box; info.lost = 0; if (info.phase !== "on") { msg(info.probation ? "Found it again. The blur is back." : "Following."); info.phase = "on"; } info.probation = false; }
     else {
       info.lost = (info.lost || 0) + 1;
       if (!res.hide) box = res.box;   // keeps moving on its speed for a moment
+      else if (res.unconfirmed) { info.hidden = true; info.probation = false; }   // that was something else: keep looking
       else if (!info.hidden) { info.hidden = true; info.phase = "gone"; msg(res.gone ? "The object left the picture. The blur is off until it shows up again." : "Lost the object. The blur is off until it shows up again."); }
     }
     return box;
@@ -981,7 +983,7 @@
         info.lastSearch = t;
         const v = videoOf(r.cam), im = v && grabGrey(v, v.videoWidth, v.videoHeight, info.tr.searchPlan());
         const found = im && info.tr.reacquire(im, t);
-        if (found) { info.hidden = false; info.lost = 0; info.phase = "on"; PT.mapShape(r, found.box); PT.pathAdd(r.path, t, found.box); wrote = moved = true; msg("Found it again. The blur is back."); }
+        if (found) { info.hidden = false; info.lost = 0; info.probation = true; }   // the blur comes back once two more looks confirm it
         continue;
       }
       let hit = null;
@@ -1021,15 +1023,16 @@
         if (t - x.last < 0.3) { x.t = t; continue; }
         x.last = t; x.t = t;
         const im = grabGrey(src, iw, ih, x.tr.searchPlan()), found = im && x.tr.reacquire(im, t);
-        if (found) { x.hidden = false; PT.pathAdd(r.path, t, found.box); saveSoon(); }
+        if (found) x.hidden = false;   // (keys again once two more looks confirm it)
         continue;
       }
       if (t - x.t < 0.1) continue;
       const im = grabGrey(src, iw, ih, x.tr.plan(t)); if (!im) continue;
       const res = x.tr.update(im, t); x.t = t;
+      if (res.ok && res.probation) continue;
       const box = res.ok || !res.hide ? res.box : null;
       if (box) { PT.pathAdd(r.path, t, box); saveSoon(); }
-      else { x.hidden = true; x.last = t; PT.pathAdd(r.path, t, null); saveSoon(); }   // left the picture / lost for good: the blur goes until it is found
+      else { x.hidden = true; x.last = t; if (!PT.pathLostAt(r.path, t)) { PT.pathAdd(r.path, t, null); saveSoon(); } }   // left the picture / lost for good: the blur goes until it is found
     }
   }
   if (T.on) T.on("time", followPatches);

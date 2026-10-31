@@ -93,14 +93,14 @@ function runNew(sc, o) {
       if (t - lastSearch >= 0.3 - 1e-9) {
         lastSearch = t;
         const r = tr.reacquire(render(sc, t, tr.searchPlan()), t);
-        if (r) { hidden = false; out.push({ t, box: r.box, shown: true, ok: true, score: r.score, found: true }); continue; }
+        if (r) { hidden = false; out.push({ t, box: r.box, shown: false, ok: true, score: r.score, found: true }); continue; }   // shown once confirmed
       }
       out.push({ t, box: tr.box, shown: false, ok: false, score: 0 });
       continue;
     }
     const plan = tr.plan(t), res = tr.update(render(sc, t, plan), t);
     if (!res.ok && res.hide) { hidden = true; lastSearch = t; }
-    out.push({ t, box: res.box, shown: res.ok || !res.hide, ok: res.ok, score: res.score });
+    out.push({ t, box: res.box, shown: (res.ok && !res.probation) || !res.hide, ok: res.ok, score: res.score });
   }
   return out;
 }

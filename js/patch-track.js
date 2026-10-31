@@ -197,7 +197,7 @@
    *  Returns { ok, du, dv, s, n, fb, kept } (shift and scale of the box; n points tried, kept that passed; fb = median forward-backward error in pixels). */
   PT.flowBox = (A, B, box, guess, o) => {
     o = Object.assign({ grid: 8, keepNcc: 0.6, maxFb: 1.2, minKept: 5, inset: 0.12, cluster: 0.4 }, o);
-    const su = A.ow / A.W, sv = A.oh / A.H, PA = A._pyr || (A._pyr = pyramid(A, 3)), PB = B._pyr || (B._pyr = pyramid(B, 3));
+    const su = A.ow / A.W, sv = A.oh / A.H, PA = A._pyr4 || (A._pyr4 = pyramid(A, 4)), PB = B._pyr4 || (B._pyr4 = pyramid(B, 4));
     const pts = [];
     const n = o.grid, x0 = box.x + box.w * o.inset, y0 = box.y + box.h * o.inset, gw = box.w * (1 - 2 * o.inset), gh = box.h * (1 - 2 * o.inset);
     for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) pts.push([x0 + (i + 0.5) / n * gw, y0 + (j + 0.5) / n * gh]);
@@ -246,6 +246,65 @@
     return { ok: true, du: ddu, dv: ddv, s, rot, n: pts.length, kept: good.length, fb: median(use.map((p) => p.fb)), spread };
   };
 
+  /** What in `box` moves differently from the scene around it? Points in the box and in a ring just outside it are followed A → B (forward-backward
+   *  checked). The ring gives the scene's own motion (the car turning, the camera panning); points inside that move unlike it are the object.
+   *  Returns { box, du, dv, n, share } (the moving points' extent in A, their median shift) or null (too few points, or nothing moves apart). */
+  PT.motionSplit = (A, B, box, o) => {
+    o = Object.assign({ grid: 12, ring: 0.45, minPts: 6, apart: 1.5 }, o);
+    const su = A.ow / A.W, sv = A.oh / A.H, PA = A._pyr4 || (A._pyr4 = pyramid(A, 4)), PB = B._pyr4 || (B._pyr4 = pyramid(B, 4));   // (4 levels: nothing is known about the speed yet)
+    const follow = (u, v) => {
+      const f = lkPoint(PA, PB, u, v, 0, 0, su, sv); if (!f) return null;
+      const b = lkPoint(PB, PA, f[0], f[1], u - f[0], v - f[1], su, sv); if (!b) return null;
+      if (Math.hypot((b[0] - u) / su, (b[1] - v) / sv) > 1.2) return null;
+      if (winNcc(A, B, u, v, f[0], f[1], su, sv) < 0.5) return null;
+      return { u, v, du: f[0] - u, dv: f[1] - v };
+    };
+    const inside = [], ring = [], n = o.grid;
+    for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) { const p = follow(box.x + (i + 0.5) / n * box.w, box.y + (j + 0.5) / n * box.h); if (p) inside.push(p); }
+    const rx = box.w * o.ring, ry = box.h * o.ring;
+    for (let k = 0; k < 40; k++) {   // around the box, a little outside it
+      const a = k / 40 * 2 * Math.PI, cx = box.x + box.w / 2, cy = box.y + box.h / 2;
+      const u = cx + Math.cos(a) * (box.w / 2 + rx * 0.6), v = cy + Math.sin(a) * (box.h / 2 + ry * 0.6);
+      if (u < A.ox || v < A.oy || u > A.ox + A.ow || v > A.oy + A.oh) continue;
+      const p = follow(u, v); if (p) ring.push(p);
+    }
+    if (ring.length < o.minPts || inside.length < o.minPts) return null;
+    const bu = median(ring.map((p) => p.du)), bv = median(ring.map((p) => p.dv));
+    const mov = inside.filter((p) => Math.hypot((p.du - bu) / su, (p.dv - bv) / sv) > o.apart);
+    if (mov.length < Math.max(3, 0.08 * inside.length)) return { still: true, bu, bv };   // everything in the box moves like the scene round it
+    if (mov.length < o.minPts || mov.length > 0.85 * inside.length) return null;
+    // the moving points that agree with each other (the object, not noise)
+    const mu = median(mov.map((p) => p.du)), mv = median(mov.map((p) => p.dv));
+    const obj = mov.filter((p) => Math.hypot((p.du - mu) / su, (p.dv - mv) / sv) <= Math.max(1.5, 0.35 * Math.hypot((mu - bu) / su, (mv - bv) / sv)));
+    if (obj.length < o.minPts) return null;
+    // where exactly is it? (the coarse pyramid levels let points NEXT to the object take its motion): every grid point's small window, compared
+    // in the two frames shifted by the object's motion and by the scene's, belongs to whichever explains it clearly better
+    const ou = median(obj.map((p) => p.du)), ov = median(obj.map((p) => p.dv)), hs = 2;   // half window 2 (5 × 5): fine detail
+    const own = [];
+    const wn = (u, v, du, dv) => {
+      let sa = 0, sb = 0, saa = 0, sbb = 0, sab = 0, k = 0;
+      for (let j = -hs; j <= hs; j++) for (let i = -hs; i <= hs; i++) {
+        const a = sampleAt(A, u + i * su, v + j * sv), b = sampleAt(B, u + du + i * su, v + dv + j * sv);
+        if (a !== a || b !== b) return -1;
+        sa += a; sb += b; saa += a * a; sbb += b * b; sab += a * b; k++;
+      }
+      const va = saa - sa * sa / k, vb = sbb - sb * sb / k;
+      return va > k * 4 && vb > k * 4 ? (sab - sa * sb / k) / Math.sqrt(va * vb) : -1;
+    };
+    for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
+      const u = box.x + (i + 0.5) / n * box.w, v = box.y + (j + 0.5) / n * box.h;
+      const so = wn(u, v, ou, ov), sb = wn(u, v, bu, bv);
+      if (so > 0.6 && so > sb + 0.15) own.push({ u, v });
+    }
+    const pick = own.length >= o.minPts ? own : obj;
+    let x0 = 1, y0 = 1, x1 = 0, y1 = 0;
+    for (const p of pick) { x0 = Math.min(x0, p.u); x1 = Math.max(x1, p.u); y0 = Math.min(y0, p.v); y1 = Math.max(y1, p.v); }
+    const cw = box.w / n, ch = box.h / n;   // each point stands for one grid cell
+    const rel = Math.hypot((mu - bu) / su, (mv - bv) / sv);   // how far apart from the scene the object moves (px per look)
+    const stillIn = inside.filter((p) => Math.hypot((p.du - bu) / su, (p.dv - bv) / sv) <= 1.0).length;   // points in the box that move with the scene: the box holds background
+    return { box: { x: x0 - cw / 2, y: y0 - ch / 2, w: x1 - x0 + cw, h: y1 - y0 + ch }, du: median(obj.map((p) => p.du)), dv: median(obj.map((p) => p.dv)), n: obj.length, share: obj.length / inside.length, stillIn, nIn: inside.length, rel };
+  };
+
   // ── tracker ────────────────────────────────────────────────────────────────────────────────────────────────────
   const DEFAULTS = {
     fw: 1280, fh: 960,               // the frame in pixels: decides how finely the template samples the object
@@ -259,8 +318,9 @@
     prior: 0.05, sprior: 0.012,      // pull towards the predicted spot / towards the current size
     minScale: 0.2, maxScale: 10,     // box size limits relative to the one the region started with (a sign far away that drives up to you)
     flow: true, flowGap: 0.5, flowMin: 8, flowSpread: 1.5, flowAgree: 0.3, flowSure: 0.4, flowWhole: 0.7, flowOver: 0.15, flowNcc: 0.9,   // optical flow: on; longest gap between two looks it bridges (s); points that must survive; how much they may disagree (px); how far from the motion model it may be (box sizes)
-    goneIn: 0.35,                    // the object has left the picture when less than this share of where it should be is inside the frame
-    reacqOk: 0.72, reacqMargin: 0.08, reacqW: 360, reacqT: 30, reacqScales: [0.7, 0.85, 1, 1.2, 1.4], reacqCore: 0.75, reacqCand: 4, bankMax: 5,   // finding it again: score, lead over the next best spot, raster width, sizes, looks kept
+    goneIn: 0.5,                    // the object has left the picture when less than this share of where it should be is inside the frame
+    reacqOk: 0.72, reacqMargin: 0.08, reacqW: 360, reacqT: 30, reacqScales: [0.7, 0.8, 0.9, 1, 1.1, 1.2, 1.3, 1.45], reacqCore: 0.75, reacqCand: 4, bankMax: 5, confirmN: 2, confirmOk: 0.78,   // finding it again: score, lead over the next best spot, raster width, sizes, looks kept
+    fitWindow: 1.5, fitShare: 0.6, fitStill: 0.3, fitRel: 1.5, fitArea: 0.7, fitPad: 0.2, stillBelow: 0.75,   // a loose outline: in the first seconds, when only part of the box moves apart from the scene, fit to that part (padded)
     coastT: 2.0                      // seconds the box keeps moving on its speed after a miss (then it holds)
   };
   PT.DEFAULTS = DEFAULTS;
@@ -331,10 +391,55 @@
   };
   /** Look for the object in `img` at time t. Returns { ok, score, margin, scale, box, lost, lostT }; the tracker's own box follows. */
   P.update = function (img, t) {
+    const r = this._update(img, t);
+    if (this._prob > 0) {   // just found again: it must match well twice more before it counts (another white car is not it)
+      if (r.ok && !r.flow && r.score >= this.o.confirmOk) this._prob--;
+      else { this._prob = 0; r.ok = false; r.hide = true; r.unconfirmed = true; }
+      if (this._prob > 0) r.probation = true;
+    }
+    return r;
+  };
+  P._update = function (img, t) {
     const o = this.o, b = this.box, p = this.predict(t), dt = p.dt, m = this.margin(dt), p0 = { cx: p.cx, cy: p.cy };
+    const pv = this._prev;
+    if (this.age0 == null) this.age0 = t;
+    // a loose outline (the user drew round the object with room to spare): which part of the box moves unlike the scene round it? Twice the same
+    // answer, and the tracker starts again on that part alone, its template made from the object's own pixels (no background to stick to)
+    if (!this._fitted && pv && t - this.age0 <= o.fitWindow && t - pv.t > 0.03 && t - pv.t <= 0.5) {
+      const ms0 = PT.motionSplit(pv.img, img, pv.box), ms = ms0 && !ms0.still ? ms0 : null;
+      if (ms) this._apart = true;
+      if (PT.debug) this._msdbg = ms ? { share: +ms.share.toFixed(2), n: ms.n, w: +ms.box.w.toFixed(3), h: +ms.box.h.toFixed(3), cx: +(ms.box.x + ms.box.w / 2).toFixed(3), du: +ms.du.toFixed(4), rel: +ms.rel.toFixed(1), stillIn: ms.stillIn, nIn: ms.nIn } : (ms0 ? "still" : null);
+      if (ms && ms.n >= 12) {   // the object's own points say how fast it goes: the motion model learns it now, not over many looks
+        const dt0 = t - pv.t, f = 0.6;
+        this.vx = this.vx * (1 - f) + f * ms.du / dt0; this.vy = this.vy * (1 - f) + f * ms.dv / dt0;
+        const q = this.predict(t); p.cx = q.cx; p.cy = q.cy; p0.cx = q.cx; p0.cy = q.cy;
+      }
+      const bcx = pv.box.x + pv.box.w / 2, bcy = pv.box.y + pv.box.h / 2;
+      if (ms && ms.share < o.fitShare && ms.stillIn >= Math.max(6, o.fitStill * ms.nIn) && ms.rel >= o.fitRel && ms.box.w * ms.box.h <= o.fitArea * pv.box.w * pv.box.h &&
+          bcx >= ms.box.x && bcx <= ms.box.x + ms.box.w && bcy >= ms.box.y && bcy <= ms.box.y + ms.box.h) {   // (only a loose outline: background that stays with the scene round a clearly smaller part, drawn round, that moves on its own)
+        const nb0 = { x: ms.box.x + ms.du, y: ms.box.y + ms.dv, w: ms.box.w, h: ms.box.h };
+        const same = this._fit1 && Math.abs(this._fit1.w / nb0.w - 1) < 0.6 && Math.abs(this._fit1.h / nb0.h - 1) < 0.6;
+        this._fit1 = nb0;
+        if (same) {
+          const pw = nb0.w * o.fitPad, ph = nb0.h * o.fitPad, nw = Math.min(1, nb0.w + 2 * pw), nh = Math.min(1, nb0.h + 2 * ph);
+          const nb = { x: clamp(nb0.x - pw, 0, 1 - nw), y: clamp(nb0.y - ph, 0, 1 - nh), w: nw, h: nh };
+          if (nb.x >= img.ox && nb.y >= img.oy && nb.x + nb.w <= img.ox + img.ow && nb.y + nb.h <= img.oy + img.oh) {
+            const d = PT.templateDims(nb, o), g = resample(img, nb.x, nb.y, nb.w / d.tw, nb.h / d.th, d.tw, d.th), T0 = finishTemplate(g, d.tw, d.th);
+            if (!T0.flat) {
+              const dt0 = t - pv.t;
+              this.tm0 = T0; this.tm = cloneTemplate(T0); this.bank = [this.tm0]; this.core = 1; this._cores = null;
+              this.box = nb; this.size0 = { w: nb.w, h: nb.h }; this.vx = ms.du / dt0; this.vy = ms.dv / dt0;
+              this.t = t; this.n = 3; this.lost = 0; this.lostT = 0; this.good = 0; this.weakT = 0; this.flowRun = 0; this._u = null;
+              this._lastC = { cx: nb.x + nb.w / 2, cy: nb.y + nb.h / 2 }; this._fitted = true; this._apart = true;
+              this._keep(img, t);
+              return { ok: true, score: 1, margin: 1, scale: 1, box: Object.assign({}, nb), lost: 0, lostT: 0, fit: true };
+            }
+          }
+        }
+      }
+    }
     // optical flow from the last good look: where did the object's own pixels go? (follows it while it turns; re-centres the search)
     let fbox = null;
-    const pv = this._prev;
     if (o.flow && pv && t - pv.t > 0.005 && t - pv.t <= o.flowGap) {
       const pb = pv.box, c = this.core, pcx = pb.x + pb.w / 2, pcy = pb.y + pb.h / 2;
       const inner = { x: pb.x + pb.w * (1 - c) / 2, y: pb.y + pb.h * (1 - c) / 2, w: pb.w * c, h: pb.h * c };
@@ -411,8 +516,7 @@
 
     // a loose outline: the whole template matches poorly (the background in it did not move with the object) but a middle part of it matches well -> track that part from now on
     let switched = false;
-    if (this.age0 == null) this.age0 = t;
-    if (this.core === 1 && sc < o.coreWeak && t - this.age0 <= o.coreWindow) {   // (only in the first moments: a loose outline shows at once; later a weak match means the object is partly hidden)
+    if (this.core === 1 && !this._fitted && sc < o.coreWeak && t - this.age0 <= o.coreWindow) {   // (only in the first moments: a loose outline shows at once; later a weak match means the object is partly hidden)
       let pick = null;
       for (const c of o.cores) {
         const ct = (this._cores || (this._cores = {}))[c] || (this._cores[c] = cropTemplate(this.tm, c));
@@ -444,6 +548,19 @@
     const off = fbox ? Math.hypot((mcx - fbox.cx) / b.w, (mcy - fbox.cy) / b.h) : 0;
     if (fbox && fbox.sure && !viaPart && !switched && (!ok || sc < o.trust || (sc < o.sure && off > o.flowOver))) return this._flowTake(img, t, dt, p0, fbox, sc);   // the look changed (it turns, shows another side): the flow knows where it went
     if (!ok) return this._miss(t, dt, p, sc, margin);
+    // leaving the picture: the match sits against the frame edge while the object should already be further out (what matches there is scenery)
+    if (sc < o.sure && this._lastC) {
+      const ux = this._lastC.cx + this.vx * dt, uy = this._lastC.cy + this.vy * dt, hw = b.w / 2, hh = b.h / 2;
+      const pinned = (mcx + hw >= 0.995 && ux > mcx + 0.15 * b.w) || (mcx - hw <= 0.005 && ux < mcx - 0.15 * b.w) || (mcy + hh >= 0.995 && uy > mcy + 0.15 * b.h) || (mcy - hh <= 0.005 && uy < mcy - 0.15 * b.h);
+      if (pinned) return this._miss(t, dt, p, sc, margin);
+    }
+    // a weak match on something that moves exactly like the scenery, when the object was seen moving on its own: that is the background
+    // (it drove off, and what is left in the box is the road behind it). Twice in a row and it counts as lost.
+    if (this._apart && sc < o.stillBelow && pv && t - pv.t <= 0.5 && !(fbox && fbox.sure)) {   // (not while the flow still sees it moving as expected: half hidden behind a pole)
+      const ms = PT.motionSplit(pv.img, img, pv.box);
+      this._still = ms && ms.still ? (this._still || 0) + 1 : 0;
+      if (this._still >= 2) return this._miss(t, dt, p, sc, margin);
+    } else this._still = 0;
     if (fbox && fbox.whole && !viaPart && !switched) {   // the flow saw the whole object move: it is the measurement; the template only refines it when it is sure
       const w = sc >= o.flowNcc ? 0.5 : 0;
       mcx = fbox.cx + w * (mcx - fbox.cx); mcy = fbox.cy + w * (mcy - fbox.cy);
@@ -509,8 +626,8 @@
     this.t = t;
     // has it left the picture? (the share of where it should be that is still inside the frame)
     // (the box is kept inside the frame, so the coasting centre is followed separately, unclamped)
-    const u = this._u || (this._u = { cx: this._lastC ? this._lastC.cx : b.x + b.w / 2, cy: this._lastC ? this._lastC.cy : b.y + b.h / 2 });
-    u.cx += this.vx * dt; u.cy += this.vy * dt;
+    const u = this._u || (this._u = { cx: this._lastC ? this._lastC.cx : b.x + b.w / 2, cy: this._lastC ? this._lastC.cy : b.y + b.h / 2, vx: this.vx, vy: this.vy });
+    u.cx += u.vx * dt; u.cy += u.vy * dt;   // (at the speed it had when it was lost: the coasting box slows down, the object did not)
     const ix = Math.max(0, Math.min(1, u.cx + b.w / 2) - Math.max(0, u.cx - b.w / 2)) / b.w, iy = Math.max(0, Math.min(1, u.cy + b.h / 2) - Math.max(0, u.cy - b.h / 2)) / b.h;
     const gone = ix * iy < o.goneIn;
     return { ok: false, score: sc, margin, scale: 1, box: Object.assign({}, b), lost: this.lost, lostT: this.lostT, gone, hide: gone || this.lostT > o.coastT };
@@ -586,8 +703,8 @@
     if (PT.debug) this._rdbg = best && { score: +best.score.toFixed(2), second: +second.toFixed(2), s: best.s, x: +best.cx.toFixed(3) };
     if (!best || best.score < o.reacqOk || best.score - second < o.reacqMargin) return null;
     const w = Math.min(1, b.w * best.s), h = Math.min(1, b.h * best.s), box = { x: clamp(best.cx - w / 2, 0, 1 - w), y: clamp(best.cy - h / 2, 0, 1 - h), w, h };
-    this.rewind(box, t, null);
-    return { ok: true, box: Object.assign({}, box), score: best.score };
+    this.rewind(box, t, null); this._prob = o.confirmN;
+    return { ok: true, box: Object.assign({}, box), score: best.score, probation: true };
   };
   /** An outside measurement of the box at time t (a detector box, the user's edit): follow it, learn the speed from it. */
   P.setBox = function (box, t) {
@@ -603,7 +720,7 @@
   /** An independent copy that shares the (read-only) original template: the exporter tracks on its own while the viewer's tracker is left alone. */
   P.fork = function () {
     const c = Object.create(P);
-    c.o = this.o; c.core = this.core; c.age0 = this.age0; c.tm0 = this.tm0; c.tm = cloneTemplate(this.tm); c.box = Object.assign({}, this.box); c.size0 = this.size0;
+    c.o = this.o; c._prob = this._prob; c.core = this.core; c.age0 = this.age0; c._fitted = this._fitted; c.tm0 = this.tm0; c.tm = cloneTemplate(this.tm); c.box = Object.assign({}, this.box); c.size0 = this.size0;
     c._prev = null; c.bank = this.bank.slice(); c._u = this._u ? Object.assign({}, this._u) : null; c._lastC = this._lastC; c.t = this.t; c.vx = this.vx; c.vy = this.vy; c.lost = this.lost; c.lostT = this.lostT; c.n = this.n; c.score = this.score; c.good = this.good; c.weakT = this.weakT;
     return c;
   };
@@ -611,7 +728,7 @@
   P.rebase = function (box, t) {
     const fw = box.w / Math.max(1e-6, this.box.w), fh = box.h / Math.max(1e-6, this.box.h);
     this.size0 = { w: this.size0.w * fw, h: this.size0.h * fh };
-    this.age0 = null;
+    this.age0 = null; this._fitted = true;   // the user set the box by hand: keep it
     this.setBox(box, t);
   };
 
