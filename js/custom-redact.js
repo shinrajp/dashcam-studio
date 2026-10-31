@@ -305,6 +305,15 @@
   const S = G.ui;
   const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
   const camName = (c) => (T.CAM_LABEL && T.CAM_LABEL[c]) || c;
+  const CAM_CONE = { front: "M10 4.5L6.2 0h7.6z", back: "M10 15.5L6.2 20h7.6z", left_pillar: "M7.4 9.5L1 5.2v8.6z", right_pillar: "M12.6 9.5L19 5.2v8.6z", left_repeater: "M7.4 6.5L.6 12.4l3.3 5.4z", right_repeater: "M12.6 6.5l6.8 5.9-3.3 5.4z" };
+  const camIco = (c) => '<svg class="cam-ico" viewBox="0 0 20 20" aria-hidden="true"><path class="cone" d="' + (CAM_CONE[c] || "") + '"/><rect class="car" x="7" y="3.5" width="6" height="13" rx="2.6"/></svg>';
+  const eventCams = () => T.GRID.filter((c) => T.player && T.player.ev && T.player.ev.cams && T.player.ev.cams.includes(c));
+  function clearCamHover() { document.querySelectorAll(".tile.cr-cam-hover").forEach((t) => t.classList.remove("cr-cam-hover")); }
+  function hoverCam(cam) {
+    clearCamHover();
+    const tile = T.player && T.player.tiles && T.player.tiles[cam] && T.player.tiles[cam].tile;
+    if (tile) tile.classList.add("cr-cam-hover");
+  }
   const fmt = (t) => { t = Math.max(0, t || 0); const m = Math.floor(t / 60), s = t - m * 60; return m + ":" + (s < 10 ? "0" : "") + s.toFixed(1); };
   const parseT = (s) => { s = String(s || "").trim(); if (!s) return NaN; const m = s.split(":").map(Number); if (m.some((x) => !isFinite(x) || x < 0) || m.length > 3) return NaN; return m.reduce((a, x) => a * 60 + x, 0); };
   const dur = () => (T.player && T.player.ev ? T.player.ev.duration || 0 : 0);
@@ -1210,7 +1219,9 @@
       return '<li class="cr-item' + (r.on ? "" : " off") + (r.id === S.editId ? " editing" : "") + '" data-id="' + esc(r.id) + '">' +
         '<label class="cr-on" title="Switch this region on or off (off: not hidden in the viewer or the export)"><input type="checkbox" data-act="on"' + (r.on ? " checked" : "") + ' aria-label="Region ' + (i + 1) + ' on"></label>' +
         '<span class="cr-desc"><b>' + esc(camName(r.cam)) + "</b> · " + (r.mode === "remove" ? "Remove" : "Blur") + " · " + (r.shape === "poly" ? "freehand" : "box") + "<br><small>" + esc(when) + "</small></span>" +
-        '<select class="btn small ghost" data-act="cam" title="Move to camera" style="max-width:100px">' + T.GRID.filter((c) => T.player && T.player.ev && T.player.ev.cams && T.player.ev.cams.includes(c)).map((c) => '<option value="' + c + '"' + (c === r.cam ? ' selected' : '') + '>' + esc(camName(c)) + '</option>').join('') + '</select>' +
+        '<div class="cr-cammenu">' +
+        '<button type="button" class="btn small ghost cr-cambtn" data-act="camopen" title="Move to camera" aria-haspopup="listbox">' + camIco(r.cam) + '<span>' + esc(camName(r.cam)) + '</span></button>' +
+        '<div class="cr-campop" hidden role="listbox">' + eventCams().map((c) => '<button type="button" class="cr-camopt' + (c === r.cam ? " on" : "") + '" data-act="campick" data-cam="' + c + '" role="option">' + camIco(c) + '<span>' + esc(camName(c)) + '</span></button>').join("") + '</div></div>' +
         '<button type="button" class="btn small ghost" data-act="go" title="Show this region in the video">Show</button>' +
         '<button type="button" class="btn small ghost icon" data-act="sticky" title="' + (r.global ? 'Global pin' : (r.sticky ? 'Event pin' : 'Pin')) + '" aria-label="Pin" style="opacity:' + (r.sticky ? '1' : '0.4') + '">' +
         '<svg viewBox="0 0 24 24" width="16" height="16" fill="' + (r.sticky ? '#e6b450' : 'none') + '" stroke="' + (r.sticky ? '#e6b450' : '#666') + '" stroke-width="2"><path d="M12 17v5M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/>' + (r.global ? '<circle cx="19" cy="5" r="3" fill="#e6b450" stroke="none"/>' : (r.sticky ? '<path d="M19 3l.5 1.5L21 5l-1.5.5L19 7l-.5-1.5L17 5l1.5-.5z" fill="#fff" stroke="none"/>' : '')) + '</svg></button>' +
@@ -1274,9 +1285,18 @@
       const b = e.target.closest("[data-act]"), li = e.target.closest("li[data-id]"); if (!b || !li) return;
       const id = li.dataset.id, r = G.list.find((x) => x.id === id); if (!r) return;
       if (b.dataset.act === "del") { if (S.editId === id) resetForm(); G.remove(id); msg("Region deleted. Undo brings it back."); }
-      else if (b.dataset.act === "cam" && b.tagName === "SELECT") {
-        const next = b.value;
+      else if (b.dataset.act === "camopen") {
+        const pop = b.parentNode.querySelector(".cr-campop");
+        const show = pop.hidden;
+        document.querySelectorAll(".cr-campop").forEach((p) => { p.hidden = true; });
+        clearCamHover();
+        if (show) pop.hidden = false;
+      }
+      else if (b.dataset.act === "campick") {
+        const next = b.dataset.cam;
+        clearCamHover();
         if (next && next !== r.cam) { G.update(id, { cam: next }); msg("Moved to " + camName(next) + "."); }
+        else UI.sync();
       }
       else if (b.dataset.act === "sticky") {
         const cur = r.global ? "global" : (r.sticky ? "event" : "off");
@@ -1292,10 +1312,17 @@
         S.peek = { cam: r.cam, sh: shapeOf(r) }; clearTimeout(S.peekT); S.peekT = setTimeout(() => { S.peek = null; kick(); }, 3500); kick();
       }
     });
-    $("crList").addEventListener("change", (e) => {
-      const li = e.target.closest("li[data-id]"); if (!li) return;
-      if (e.target.dataset.act === "on") G.update(li.dataset.id, { on: e.target.checked });
-      else if (e.target.dataset.act === "cam") { const next = e.target.value; if (next) { G.update(li.dataset.id, { cam: next }); msg("Moved to " + camName(next) + "."); } }
+    $("crList").addEventListener("change", (e) => { const li = e.target.closest("li[data-id]"); if (li && e.target.dataset.act === "on") G.update(li.dataset.id, { on: e.target.checked }); });
+    $("crList").addEventListener("pointerover", (e) => { const opt = e.target.closest("[data-act='campick']"); if (opt) hoverCam(opt.dataset.cam); });
+    $("crList").addEventListener("pointerout", (e) => {
+      const opt = e.target.closest("[data-act='campick']"); if (!opt) return;
+      if (e.relatedTarget && opt.contains(e.relatedTarget)) return;
+      clearCamHover();
+    });
+    document.addEventListener("pointerdown", (e) => {
+      if (e.target.closest && e.target.closest(".cr-cammenu")) return;
+      document.querySelectorAll(".cr-campop").forEach((p) => { p.hidden = true; });
+      clearCamHover();
     });
     $("crClearPinned").addEventListener("click", () => {
       const pinned = G.list.filter((r) => r.sticky);

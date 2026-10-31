@@ -1050,6 +1050,14 @@ body.portrait .cv-chip { min-height: 28px; padding: 3px 5px; gap: 3px; font-size
 .cr-list { list-style: none; margin: 6px 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 .cr-list[hidden] { display: none; }
 .cr-item { display: flex; align-items: center; gap: 6px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 10px; background: #1a1e26; }
+.cr-cammenu { position: relative; flex: none; }
+.cr-cambtn { display: inline-flex; align-items: center; gap: 4px; max-width: 130px; }
+.cr-cambtn span { overflow: hidden; text-overflow: ellipsis; }
+.cr-campop { position: absolute; z-index: 30; right: 0; top: calc(100% + 4px); min-width: 148px; padding: 4px; display: flex; flex-direction: column; background: #1a1e26; border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 8px 22px rgba(0,0,0,.45); }
+.cr-campop[hidden] { display: none; }
+.cr-camopt { display: flex; align-items: center; gap: 6px; width: 100%; background: transparent; border: 0; color: inherit; padding: 6px 8px; border-radius: 8px; cursor: pointer; text-align: left; font: inherit; }
+.cr-camopt:hover, .cr-camopt.on { background: rgba(230,180,80,.18); color: #e6b450; }
+.tile.cr-cam-hover { box-shadow: inset 0 0 0 3px #e6b450; z-index: 5; }
 .cr-item.off .cr-desc { opacity: 0.5; }
 .cr-item.editing { border-color: #e6b450; }
 .cr-desc { flex: 1; min-width: 0; font-size: 12px; line-height: 1.35; }
