@@ -853,7 +853,7 @@
       } else {
         info.lost = (info.lost || 0) + 1;
         if (info.lost > 10 && r.on) { r.on = false; changed = true; }
-        if (info.lost > 5 && info.lost % 5 === 0) {
+        if (!r.sticky && info.lost > 5 && info.lost % 5 === 0) {
           for (const cam of cams) {
             if (cam === r.cam) continue;
             const hit = matchPatch(cam, info.patch || info, 0.3, 0.3, r.w, r.h);
