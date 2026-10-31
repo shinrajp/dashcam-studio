@@ -633,7 +633,9 @@
       return true;
     }
     if (S.draft && !S.editId && !S.move) { S.undone = S.draft; S.draft = null; S.drawing = !!S.cam; msg("Shape undone. Redo to restore."); UI.sync(); kick(); return true; }
-    if (G.undo()) { msg("Undone."); kick(); return true; }
+    if (S.sel && G.undoRegion && G.undoRegion(S.sel)) { msg("Region undone."); kick(); return true; }
+    if (S.editId && G.undoRegion && G.undoRegion(S.editId)) { msg("Region undone."); kick(); return true; }
+    if (!S.drawing && G.undo()) { msg("Undone."); kick(); return true; }
     return false;
   };
   UI.redo = () => {
@@ -1095,7 +1097,7 @@
     if (redo) {
       if (T.player.ev.cams && !T.player.ev.cams.includes(S.cam)) { msg("This event has no " + camName(S.cam).toLowerCase() + " footage.", true); return; }
       if (!isMulti() && T.focus && T.focus.focus && T.focus.cam !== S.cam) T.focus.focus(S.cam);
-      S.pick = false; S.drawing = true; S.draft = S.editId ? S.draft : null; S.live = null;
+      S.pick = false; S.drawing = true; S.draft = S.editId ? S.draft : null; S.live = null; S.undone = null;
       hidePanelForDrawing();
       msg(camName(S.cam) + ": " + (S.shape === "free" ? "drag on the picture to draw around the area (freehand)." : "drag on the picture to draw a box."));
       UI.sync(); kick();
