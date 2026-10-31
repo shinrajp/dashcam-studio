@@ -736,7 +736,7 @@
   function armTrackCapture() {
     if (trackCap) return;
     trackCap = (e) => {
-      if (!S.track || S.move || e.button !== 0) return;
+      if (!S.track || S.move || S.shape === "free" || e.button !== 0) return;
       const tile = e.target.closest && e.target.closest(".tile");
       if (!tile) return;
       const cam = tile.dataset && tile.dataset.cam;
@@ -840,9 +840,8 @@
       const r = G.list.find((x) => x.id === id); if (!r) continue;
       const info = S.patches[id] || {};
       const m = matchPatch(r.cam, info.patch || info, r.x, r.y, r.w, r.h);
-      if (m && m.score > 20) {
+      if (m && m.score > 30 && Math.hypot(m.x - r.x, m.y - r.y) < 0.05) {
         let dx = m.x - r.x, dy = m.y - r.y;
-        if (Math.hypot(dx, dy) > 0.06) { dx *= 0.2; dy *= 0.2; }
         info.vx = (info.vx || 0) * 0.8 + dx * 0.2;
         info.vy = (info.vy || 0) * 0.8 + dy * 0.2;
         const mx = info.vx || 0, my = info.vy || 0;
