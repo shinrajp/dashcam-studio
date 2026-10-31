@@ -954,6 +954,7 @@
       tb("crBarUndo", "undo", "Undo (" + mod + "Z)", " ghost cr-io").replace('<span class="t">Undo (' + mod + "Z)", '<span class="t">Undo') +
       tb("crBarRedo", "redo", "Redo (" + (mac ? "⇧⌘Z" : "Ctrl+Shift+Z") + ")", " ghost cr-io").replace(/<span class="t">Redo[^<]*/, '<span class="t">Redo') +
       tb("crBarTrack", "track", "Track", " ghost").replace("<button", '<button aria-pressed="false"') +
+      '<button type="button" class="btn small ghost cr-tb" id="crBarResetTrack" title="Reset tracking to default">' + ico("undo") + '<span class="t">Reset</span></button>' +
       tb("crBarMove", "move", "Move", " ghost").replace("<button", '<button aria-pressed="false"') +
       tb("crBarAgain", "again", "Draw again", "") +
       '<button type="button" class="btn small ghost cr-tb" id="crBarOpts" title="Back to the Redact panel" aria-expanded="false">' + ico("opts") + '<span class="t">Options</span></button>' +
@@ -969,6 +970,11 @@
     $("crBarRedo").addEventListener("click", () => UI.redo());
     $("crBarMove").addEventListener("click", () => UI.move());
     $("crBarTrack").addEventListener("click", () => UI.track());
+    $("crBarResetTrack").addEventListener("click", () => {
+      S.trackIds = []; S.patches = {}; S.track = false; disarmTrackCapture();
+      msg("Tracking reset.");
+      UI.sync(); kick();
+    });
     $("crBarShape").addEventListener("click", (e) => { const x = e.target.closest("button"); if (x && !x.disabled) UI.setShape(x.dataset.v); });
     $("crBarMode").addEventListener("click", (e) => { const x = e.target.closest("button"); if (x && !x.disabled) UI.setMode(x.dataset.v); });
     $("crBarCam").addEventListener("click", () => UI.draw(true));   // the chip names the camera; tapping it picks another one (no dropdown)
