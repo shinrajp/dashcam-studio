@@ -474,7 +474,7 @@
     $("usClose").addEventListener("click", () => U.hide());
     $("usMore").addEventListener("click", () => { const on = !p.classList.contains("more-open"); U.closePops("usMore"); setPop("usMore", on); });
     document.addEventListener("click", (e) => {   // a click outside an open popover (and outside its button) folds it
-      const t = e.target; if (!t || !t.closest || t.closest("#usMore, #crRegBtn, #crInfo, #crList, #crHint, #crFileRow, #usFoot")) return; U.closePops();
+      const t = e.target; if (!t || !t.closest || !t.isConnected || t.closest("#usMore, #crRegBtn, #crInfo, #crList, #crHint, #crFileRow, #usFoot")) return; U.closePops();   // (a button the list re-drew on its own click is no longer in the page: not "outside")
     });
     $("usFloat").addEventListener("click", () => U.setMode(W.mode === "float" ? "dock" : "float"));
     $("usPin").addEventListener("click", () => U.setPinned(!W.pinned));

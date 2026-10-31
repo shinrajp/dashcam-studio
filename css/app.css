@@ -1307,3 +1307,46 @@ body.fs.kb-typing .drawer.set-panel, body.kb-up .drawer.set-panel { top: calc(en
 }
 /* ui-glass-12: on a phone the Settings sheet covers the screen width; the floating car view (z 45) no longer sits on top of it */
 @media (max-width: 600px) { body:has(#settings:not([hidden])) .car-view { visibility: hidden; pointer-events: none; } }
+
+/* track-v2: region styles, tracking badge, per-region time range, and the colour-coded region lanes under the timeline */
+.cr-item { flex-wrap: wrap; border-left: 4px solid var(--lane, #e6b450); }
+.cr-item.sel { box-shadow: 0 0 0 1px var(--lane, #e6b450); }
+.cr-lane-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--lane, #e6b450); margin-right: 5px; vertical-align: 0; }
+.cr-badge { display: inline-flex; align-items: center; gap: 3px; margin-left: 4px; padding: 1px 6px 1px 4px; border-radius: 999px; font: 700 10px/1.4 system-ui, sans-serif; vertical-align: 1px; white-space: nowrap; }
+.cr-badge .cr-ico { width: 11px; height: 11px; fill: none; stroke: currentColor; stroke-width: 2.4; }
+.cr-badge.trk { background: rgba(63,220,90,.16); color: #6be37f; border: 1px solid rgba(63,220,90,.45); }
+.cr-badge.trk.lost { background: rgba(229,83,75,.16); color: #ff8c84; border-color: rgba(229,83,75,.5); }
+.cr-badge.trk.gone { background: rgba(255,255,255,.07); color: #b9c0cc; border-color: rgba(255,255,255,.2); }
+.cr-badge.trk.path { background: rgba(79,179,255,.14); color: #8ccbff; border-color: rgba(79,179,255,.4); }
+.cr-badge.lnk { background: rgba(195,155,255,.16); color: #d6bcff; border: 1px solid rgba(195,155,255,.45); padding: 1px 6px; }
+.cr-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--sw); box-shadow: 0 0 0 1px rgba(0,0,0,.5); vertical-align: 0; font-style: normal; }
+.cr-when { background: none; border: 0; padding: 2px 0; color: var(--dim); font: inherit; font-size: 11px; cursor: pointer; text-decoration: underline dotted; text-underline-offset: 2px; }
+.cr-when:hover { color: #fff; }
+.cr-when-ed { flex-basis: 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; padding: 6px 0 2px 38px; font-size: 12px; }
+.cr-when-t { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.cr-when-t[hidden] { display: none; }
+.cr-when-t input { width: 64px; padding: 4px 6px; border-radius: 6px; border: 1px solid var(--line); background: #10131a; color: inherit; font: inherit; }
+.cr-when-tip { flex-basis: 100%; color: var(--dim); }
+.cr-markrow[hidden] { display: none !important; }
+.cr-markrow { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.cr-swatches { display: inline-flex; gap: 5px; }
+.cr-sw { width: 22px; height: 22px; border-radius: 50%; border: 2px solid rgba(255,255,255,.25); background: var(--sw); padding: 0; cursor: pointer; }
+.cr-sw.on { border-color: #fff; box-shadow: 0 0 0 2px rgba(0,0,0,.6); }
+.cr-mk button.on { background: rgba(230,180,80,.22); color: #ffe3a3; }
+.cr-bar-mark { flex-basis: 100%; justify-content: center; padding-top: 4px; }
+.cr-lanes { position: relative; width: 100%; overflow-x: hidden; overflow-y: auto; margin: 2px 0 0; scrollbar-width: thin; }
+.cr-lanes[hidden] { display: none; }
+.cr-lanes canvas { display: block; touch-action: none; }
+/* hand-off: "the same object in the next camera?" */
+.cr-handoff { position: fixed; z-index: 85; left: 50%; transform: translateX(-50%); bottom: calc(var(--tp-h, 150px) + 16px); max-width: min(520px, calc(100vw - 32px)); padding: 12px 14px; border-radius: 14px; background: rgba(20,24,32,.96); border: 1px solid #c39bff; box-shadow: 0 16px 40px rgba(0,0,0,.55); color: #fff; font: 13px/1.4 system-ui, sans-serif; }
+.cr-handoff[hidden] { display: none; }
+.cr-handoff p { margin: 0 0 8px; }
+.cr-handoff .row { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
+.tile .cr-ho-box { position: absolute; z-index: 9; border: 3px solid #c39bff; border-radius: 6px; box-shadow: 0 0 0 2px rgba(0,0,0,.55), 0 0 18px rgba(195,155,255,.7); pointer-events: none; animation: crho 1s ease-in-out infinite alternate; }
+.tile .cr-ho-box span { position: absolute; left: -3px; top: -24px; padding: 2px 7px; border-radius: 6px; background: #c39bff; color: #120c1d; font: 700 11px/1.5 system-ui, sans-serif; white-space: nowrap; }
+@keyframes crho { from { opacity: .65; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .tile .cr-ho-box { animation: none; } }
+/* the docked strip's regions popover: two lines per region (its time range, the Tracking / linked badges), taller, a little wider */
+.us-panel.docked:not(.sheet) #crSec > #crList { width: min(560px, 94%); max-height: min(320px, 55vh); }
+.us-panel.docked:not(.sheet) #crSec .cr-desc { white-space: normal; }
+.us-panel.docked:not(.sheet) #crSec .cr-desc br { display: inline; }

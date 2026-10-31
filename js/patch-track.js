@@ -322,6 +322,7 @@
     reacqOk: 0.72, reacqMargin: 0.08, reacqW: 360, reacqT: 30, reacqScales: [0.7, 0.8, 0.9, 1, 1.1, 1.2, 1.3, 1.45], reacqCore: 0.75, reacqCand: 4, bankMax: 5, confirmN: 2, confirmOk: 0.78, exitHold: 10, exitSame: 0.8, confirmDetT: 1.2,
     assistConf: 0.35, chainGap: 1.5,   // detector assist: lowest detection score used; longest gap between two detections of the object that still links them (s)   // detector assist: lowest detection score used, overlap with where the object should be, how far the box moves to it   // finding it again: score, lead over the next best spot, raster width, sizes, looks kept
     fitWindow: 1.5, fitShare: 0.6, fitStill: 0.3, fitRel: 1.5, fitArea: 0.7, fitPad: 0.2, stillBelow: 0.75,   // a loose outline: in the first seconds, when only part of the box moves apart from the scene, fit to that part (padded)
+    maxGrow: 1.2,                    // the fastest growth / shrink rate believed (log size per second: 1.2 = x3.3 per second)
     coastT: 2.0                      // seconds the box keeps moving on its speed after a miss (then it holds)
   };
   PT.DEFAULTS = DEFAULTS;
@@ -341,7 +342,7 @@
     this.size0 = { w: box.w, h: box.h };
     this.bank = [this.tm0];   // looks of the object seen so far (it turns): used to find it again
     this.core = 1; this.age0 = null;   // 1 = the template is the whole box; less = only its middle (see update)
-    this.t = t; this.vx = 0; this.vy = 0;
+    this.t = t; this.vx = 0; this.vy = 0; this.vs = 0;   // vs: how fast the object grows (log of its size per second; > 0 coming toward you)
     this.lost = 0; this.lostT = 0; this.n = 0; this.score = 1; this.good = 0; this.weakT = 0;
   }
   PT.Tracker = Tracker;
@@ -457,7 +458,7 @@
       const pb = pv.box, c = this.core, pcx = pb.x + pb.w / 2, pcy = pb.y + pb.h / 2;
       const inner = { x: pb.x + pb.w * (1 - c) / 2, y: pb.y + pb.h * (1 - c) / 2, w: pb.w * c, h: pb.h * c };
       const r = PT.flowBox(pv.img, img, inner, { du: p.cx - pcx, dv: p.cy - pcy });
-      if (PT.debug) this._fdbg = r.ok ? "k" + r.kept + "/" + r.n + " sp" + r.spread.toFixed(2) + " d" + (Math.hypot((pcx + r.du - p.cx) / b.w, (pcy + r.dv - p.cy) / b.h)).toFixed(2) : "X" + r.kept;
+      if (PT.debug) this._fdbg = r.ok ? "s" + r.s.toFixed(3) + " k" + r.kept + "/" + r.n + " sp" + r.spread.toFixed(2) + " d" + (Math.hypot((pcx + r.du - p.cx) / b.w, (pcy + r.dv - p.cy) / b.h)).toFixed(2) : "X" + r.kept;
       if (r.ok && r.kept >= o.flowMin && r.spread <= o.flowSpread) {
         const fcx = pcx + r.du, fcy = pcy + r.dv;
         if (this.n >= 3 && Math.hypot((fcx - p.cx) / b.w, (fcy - p.cy) / b.h) <= o.flowAgree) {   // (only once the speed is known: the motion model is the check on the flow)
@@ -465,7 +466,10 @@
         }
       }
     }
-    const wide = this.lost >= 2, sf = scalesFor(dt, wide), scales = sf.list, tms = wide ? [this.tm, this.tm0] : [this.tm];
+    // sizes tried around the size it should have now (it was growing / shrinking): a loose outline holds road and scenery that keep their size,
+    // and they pull every look towards "no change"; without the rate the box falls further behind each look
+    const g = Math.exp(clamp((this.vs || 0) * dt, -0.25, 0.25));
+    const wide = this.lost >= 2, sf = scalesFor(dt, wide), scales = sf.list.map((s) => s * g), tms = wide ? [this.tm, this.tm0] : [this.tm];
     const tw = this.tm.tw, th = this.tm.th;
     let best = null;
     for (const s of scales) {
@@ -475,7 +479,7 @@
       const va = Math.max(img.oy, p.cy - hh), vb = Math.min(img.oy + img.oh, p.cy + hh);
       const SW = Math.floor((ub - ua) / du), SH = Math.floor((vb - va) / dv);
       if (SW < tw + 2 || SH < th + 2) continue;
-      const R = resample(img, ua, va, du, dv, SW, SH), sp = o.sprior * Math.abs(Math.log(s)) / Math.log(1 + sf.st);
+      const R = resample(img, ua, va, du, dv, SW, SH), sp = o.sprior * Math.abs(Math.log(s / g)) / Math.log(1 + sf.st);
       for (const T of tms) {
         if (T.flat) continue;
         const cols = ((SW - tw) >> 1) + 1, rows = ((SH - th) >> 1) + 1, map = new Float32Array(cols * rows).fill(-1);
@@ -578,7 +582,8 @@
       const w = sc >= o.flowNcc ? 0.5 : 0;
       mcx = fbox.cx + w * (mcx - fbox.cx); mcy = fbox.cy + w * (mcy - fbox.cy);
       best.s = fbox.s + w * (best.s - fbox.s);   // and its size (it turns away and gets smaller)
-    }
+    } else if (fbox && fbox.sure && !viaPart) best.s = 0.5 * (best.s + fbox.s);   // the object's own points say how much it grew: they count as much as the template
+
 
     // accept: blend the measurement with the prediction (alpha-beta), grow / shrink the box with the matched scale
     // a weak match (a part of the object is hidden: the score sits near 0.5 and the peak is a plateau biased towards the old spot) only nudges the
@@ -587,6 +592,7 @@
     const ncx = p.cx + k * rx, ncy = p.cy + k * ry;
     if (dt > 0.02) { this.vx += beta * (mcx - p0.cx) / dt; this.vy += beta * (mcy - p0.cy) / dt; }   // (the speed learns from the motion model's guess, not the flow's)
     const f = 1 + k * (best.s - 1);
+    if (good && dt > 0.02 && !switched) this.vs = clamp(0.65 * (this.vs || 0) + 0.35 * Math.log(f) / dt, -o.maxGrow, o.maxGrow);   // the growth rate learns from each good look
     let nw = clamp(b.w * f, this.size0.w * o.minScale, this.size0.w * o.maxScale), nh = clamp(b.h * f, this.size0.h * o.minScale, this.size0.h * o.maxScale);
     nw = Math.min(nw, 1); nh = Math.min(nh, 1);
     this.box = { x: clamp(ncx - nw / 2, 0, 1 - nw), y: clamp(ncy - nh / 2, 0, 1 - nh), w: nw, h: nh };
@@ -705,6 +711,7 @@
     const o = this.o, b = this.box, k = 0.85, beta = fb.whole ? 0.5 * k * k / (2 - k) : 0;   // part of it lost (something covers it): move, but keep the speed
     if (dt > 0.02) { this.vx += beta * (fb.cx - p0.cx) / dt; this.vy += beta * (fb.cy - p0.cy) / dt; }
     const fs = fb.sure ? fb.s : 1;
+    if (fb.sure && dt > 0.02) this.vs = clamp(0.65 * (this.vs || 0) + 0.35 * Math.log(fs) / dt, -o.maxGrow, o.maxGrow);
     let nw = clamp(b.w * fs, this.size0.w * o.minScale, this.size0.w * o.maxScale), nh = clamp(b.h * fs, this.size0.h * o.minScale, this.size0.h * o.maxScale);
     nw = Math.min(nw, 1); nh = Math.min(nh, 1);
     this.box = { x: clamp(fb.cx - nw / 2, 0, 1 - nw), y: clamp(fb.cy - nh / 2, 0, 1 - nh), w: nw, h: nh };
@@ -722,6 +729,7 @@
     this.lost++; this.lostT += dt; this.score = sc;
     const b = this.box, o = this.o;
     if (this.lostT <= o.coastT) {   // keep moving on the speed (an object behind a pole carries on), fading after coastKeep seconds
+      if (this.vs && isFinite(this.vs) && dt > 0) { const gs = Math.exp(clamp(this.vs * dt, -0.2, 0.2)), nw = clamp(b.w * gs, this.size0.w * o.minScale, Math.min(1, this.size0.w * o.maxScale)), nh = clamp(b.h * gs, this.size0.h * o.minScale, Math.min(1, this.size0.h * o.maxScale)); b.w = nw; b.h = nh; this.vs *= 0.8; }   // still coming closer (it grows) while not seen
       b.x = clamp(p.cx - b.w / 2, 0, 1 - b.w); b.y = clamp(p.cy - b.h / 2, 0, 1 - b.h);
       if (this.lostT > o.coastKeep) { const f = 1 - dt / Math.max(0.1, o.coastT - o.coastKeep); this.vx *= f; this.vy *= f; }
     } else { this.vx = 0; this.vy = 0; }
@@ -830,13 +838,13 @@
   };
   /** Jump to a known box at time t (a seek, the start of an export pass): speed unknown again, wide first look. */
   P.rewind = function (box, t, v) {   // v = { vx, vy } when the speed is known (from the path): then the first look need not be wide
-    this.box = { x: box.x, y: box.y, w: box.w, h: box.h }; this.t = t; this.vx = v ? v.vx : 0; this.vy = v ? v.vy : 0; this.lost = 0; this.lostT = 0; this.n = v ? 3 : 0; this.weakT = 0; this._prev = null; this._u = null; this._lastC = null;
+    this.box = { x: box.x, y: box.y, w: box.w, h: box.h }; this.t = t; this.vx = v ? v.vx : 0; this.vy = v ? v.vy : 0; this.vs = 0; this.lost = 0; this.lostT = 0; this.n = v ? 3 : 0; this.weakT = 0; this._prev = null; this._u = null; this._lastC = null;
   };
   /** An independent copy that shares the (read-only) original template: the exporter tracks on its own while the viewer's tracker is left alone. */
   P.fork = function () {
     const c = Object.create(P);
     c.o = this.o; c._prob = this._prob; c._anchor = this._anchor; c._noRestart = this._noRestart; c.core = this.core; c.age0 = this.age0; c._fitted = this._fitted; c.tm0 = this.tm0; c.tm = cloneTemplate(this.tm); c.box = Object.assign({}, this.box); c.size0 = this.size0;
-    c._prev = null; c.bank = this.bank.slice(); c._u = this._u ? Object.assign({}, this._u) : null; c._lastC = this._lastC; c.t = this.t; c.vx = this.vx; c.vy = this.vy; c.lost = this.lost; c.lostT = this.lostT; c.n = this.n; c.score = this.score; c.good = this.good; c.weakT = this.weakT;
+    c._prev = null; c.bank = this.bank.slice(); c._u = this._u ? Object.assign({}, this._u) : null; c._lastC = this._lastC; c.t = this.t; c.vx = this.vx; c.vy = this.vy; c.vs = this.vs || 0; c.lost = this.lost; c.lostT = this.lostT; c.n = this.n; c.score = this.score; c.good = this.good; c.weakT = this.weakT;
     return c;
   };
   /** The user moved / resized the shape: the template follows the object at its new box size. */

@@ -79,6 +79,10 @@ const SCENARIOS = [
   { name: "drives out of the picture (blur must go)", dur: 4, box: lin(0.60, 0.40, 0.25, 0.0, 0.08, 0.06), noise: 6 },
   { name: "drives out, comes back 1.5 s later", dur: 6, box: (t) => ({ x: t < 3 ? 0.6 + 0.25 * t : 1.35 - 0.25 * (t - 3), y: 0.40, w: 0.08, h: 0.06 }), noise: 6 },
   { name: "hidden 3 s in the picture, then seen again", dur: 7, box: lin(0.30, 0.40, 0.03, 0.0, 0.08, 0.06), occl: [1.5, 4.5], noise: 6 },
+  // coming toward / going away with a loose outline (the outline holds road and scenery that do not grow with it), as you pass a car
+  { name: "loose + approaching fast (x3 in 2.5 s), pan", dur: 3.5, pad: 0.4, pan: 0.05, box: (t) => { const s = Math.exp(0.45 * t), w = 0.06 * s, h = 0.05 * s; return { x: 0.55 + 0.03 * t - (w - 0.06) / 2, y: 0.42 - (h - 0.05) / 2, w, h }; }, noise: 6 },
+  { name: "loose + approaching to the edge (passing)", dur: 4, pad: 0.3, pan: 0.04, box: (t) => { const s = Math.exp(0.35 * t), w = 0.07 * s, h = 0.055 * s, cx = 0.62 + 0.035 * t * t; return { x: cx - w / 2, y: 0.42 - h / 2, w, h }; }, noise: 6 },
+  { name: "loose + going away (x0.35 in 3 s)", dur: 4, pad: 0.4, pan: 0.03, box: (t) => { const s = Math.exp(-0.35 * t), w = 0.16 * s, h = 0.12 * s; return { x: 0.45 - w / 2 + 0.02 * t, y: 0.45 - h / 2, w, h }; }, noise: 6 },
   { name: "small + noise", dur: 6, box: lin(0.25, 0.40, 0.03, 0.002, 0.035, 0.026), noise: 10 }
 ];
 
@@ -252,7 +256,7 @@ module.exports = { SCENARIOS, runNew, runOld, runBranch, score, iou, render, FW,
 
 if (require.main === module) {
   const rows = [];
-  for (const sc of SCENARIOS) { const t0 = Date.now(); const o = score(sc, runOld(sc)), b = score(sc, runBranch(sc)), t1 = Date.now(), n = score(sc, runNew(sc)), t2 = Date.now(); rows.push({ name: sc.name, old: o, branch: b, now: n, msOld: t1 - t0, msNew: t2 - t1 }); }
+  for (const sc of SCENARIOS.filter((x) => !process.env.ONLY || new RegExp(process.env.ONLY, "i").test(x.name))) { const t0 = Date.now(); const o = score(sc, runOld(sc)), b = score(sc, runBranch(sc)), t1 = Date.now(), n = score(sc, runNew(sc)), t2 = Date.now(); rows.push({ name: sc.name, old: o, branch: b, now: n, msOld: t1 - t0, msNew: t2 - t1 }); }
   if (process.argv.includes("--json")) { console.log(JSON.stringify(rows, null, 1)); process.exit(0); }
   const pad = (s, n) => String(s).padEnd(n), pc = (v) => (Math.round(v * 100) + "%").padStart(5), px = (v) => (v < 10 ? v.toFixed(1) : Math.round(v) + "").padStart(5);
   console.log("on target = box overlaps the true object (IoU >= 0.5).  c860247 = earlier commit, branch = feature/all-in-one tip c65463a, new = js/patch-track.js");
