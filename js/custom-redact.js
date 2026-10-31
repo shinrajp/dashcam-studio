@@ -37,7 +37,7 @@
   G.clean = (o, keepId) => {
     if (!o || typeof o !== "object" || !T.GRID.includes(o.cam)) return null;
     const r = { id: keepId && o.id ? String(o.id) : "r" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), cam: o.cam, shape: o.shape === "poly" ? "poly" : "rect",
-      mode: o.mode === "remove" ? "remove" : "blur", start: isNum(o.start) && o.start > 0 ? o.start : null, end: isNum(o.end) && o.end >= 0 ? o.end : null, on: o.on !== false, sticky: !!o.sticky, v: 1 };
+      mode: o.mode === "remove" ? "remove" : "blur", start: isNum(o.start) && o.start > 0 ? o.start : null, end: isNum(o.end) && o.end >= 0 ? o.end : null, on: o.on !== false, sticky: !!o.sticky, global: !!o.global, v: 1 };
     if (r.end != null && r.start != null && r.end < r.start) { const s = r.start; r.start = r.end; r.end = s; }
     if (r.shape === "poly") {
       let p = Array.isArray(o.pts) ? o.pts.map(Number) : [];
@@ -108,8 +108,19 @@
     } catch (_) { G.storeOk = false; }
   };
   function readGlobal() { try { return JSON.parse(localStorage.getItem("tdc.regions.global") || "[]"); } catch (_) { return []; } }
+  function sameRegion(a, b) {
+    if (a.id && a.id === b.id) return true;
+    if (a.cam !== b.cam || a.mode !== b.mode || a.shape !== b.shape) return false;
+    if (Math.abs(a.x - b.x) > 0.002 || Math.abs(a.y - b.y) > 0.002 || Math.abs(a.w - b.w) > 0.002 || Math.abs(a.h - b.h) > 0.002) return false;
+    return a.shape !== "poly" || JSON.stringify(a.pts) === JSON.stringify(b.pts);
+  }
+  function uniqueRegions(list) {
+    const out = [];
+    for (const r of list) if (r && !out.some((q) => sameRegion(q, r))) out.push(r);
+    return out;
+  }
   function saveGlobal() {
-    const g = G.list.filter((r) => r.global);
+    const g = uniqueRegions(G.list.filter((r) => r.global));
     try { localStorage.setItem("tdc.regions.global", JSON.stringify(g)); } catch (_) {}
   }
   G.load = () => {
@@ -120,8 +131,11 @@
       l = mem[G.key] || (readAll().events[G.key] || {}).regions || [];
     }
     const eventPins = l.map((o) => G.clean(o, true)).filter((r) => r && r.sticky && !r.global);
-    const globalPins = readGlobal().map((o) => G.clean(o, true)).filter(Boolean);
-    G.list = eventPins.concat(globalPins).slice(0, G.MAX);
+    const globalPins = readGlobal().map((o) => G.clean(o, true)).filter((r) => r && r.global);
+    const merged = uniqueRegions(globalPins.concat(eventPins));
+    const dup = eventPins.length + globalPins.length - merged.length;
+    G.list = merged.slice(0, G.MAX);
+    if (dup > 0) { saveGlobal(); G.save(); }
     G.resetHistory();
     rebuild();
     // repaint after videos have real dimensions so pinned regions land correctly
