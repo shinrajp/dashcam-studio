@@ -846,57 +846,118 @@
     r.y = Math.max(0, Math.min(1 - r.h, r.y));
   }
   const grayCv = document.createElement("canvas");
-  function grabPatch(cam, x, y, w, h) {
+  const searchCv = document.createElement("canvas");
+  function readGray(cam, x, y, w, h, tw, th) {
     const v = videoOf(cam); if (!v) return null;
-    const tw = 32, th = 32;
     grayCv.width = tw; grayCv.height = th;
     const ctx = grayCv.getContext("2d", { willReadFrequently: true });
     const sx = Math.max(0, x * v.videoWidth), sy = Math.max(0, y * v.videoHeight);
     const sw = Math.max(2, Math.min(v.videoWidth - sx, w * v.videoWidth)), sh = Math.max(2, Math.min(v.videoHeight - sy, h * v.videoHeight));
     try { ctx.drawImage(v, sx, sy, sw, sh, 0, 0, tw, th); } catch (_) { return null; }
     const d = ctx.getImageData(0, 0, tw, th).data, g = new Float32Array(tw * th);
+    for (let i = 0; i < g.length; i++) g[i] = d[i * 4] * 0.299 + d[i * 4 + 1] * 0.587 + d[i * 4 + 2] * 0.114;
+    return g;
+  }
+  function grabPatch(cam, x, y, w, h) {
+    const aspect = w / Math.max(h, 1e-4);
+    const tw = aspect >= 1 ? 36 : Math.max(8, Math.round(36 * aspect));
+    const th = aspect >= 1 ? Math.max(8, Math.round(36 / aspect)) : 36;
+    const g = readGray(cam, x, y, w, h, tw, th); if (!g) return null;
     let mean = 0;
-    for (let i = 0; i < g.length; i++) { g[i] = d[i * 4] * 0.299 + d[i * 4 + 1] * 0.587 + d[i * 4 + 2] * 0.114; mean += g[i]; }
+    for (let i = 0; i < g.length; i++) mean += g[i];
+    mean /= g.length;
+    for (let i = 0; i < g.length; i++) g[i] -= mean;
+    return { g, tw, th };
+  }
+  function prepTemplate(patch, tw, th) {
+    const g = new Float32Array(tw * th);
+    for (let j = 0; j < th; j++) for (let i = 0; i < tw; i++) {
+      const si = Math.min(patch.tw - 1, (i + 0.5) * patch.tw / tw | 0);
+      const sj = Math.min(patch.th - 1, (j + 0.5) * patch.th / th | 0);
+      const dx = (i + 0.5) / tw - 0.5, dy = (j + 0.5) / th - 0.5;
+      const wt = 0.4 + 0.6 * Math.max(0, 1 - Math.sqrt(dx * dx + dy * dy) / 0.72);
+      g[j * tw + i] = patch.g[sj * patch.tw + si] * wt;
+    }
+    let mean = 0;
+    for (let i = 0; i < g.length; i++) mean += g[i];
     mean /= g.length;
     let e = 0;
-    for (let i = 0; i < g.length; i++) g[i] -= mean;
-    for (let j = 0; j < th; j += 2) for (let i = 0; i < tw; i += 2) { const t = g[j * tw + i]; e += t * t; }
+    for (let j = 0; j < th; j += 2) for (let i = 0; i < tw; i += 2) { g[j * tw + i] -= mean; e += g[j * tw + i] * g[j * tw + i]; }
     return { g, e: Math.sqrt(e) || 1, tw, th };
   }
-  const searchCv = document.createElement("canvas");
-  function matchPatch(cam, patch, lx, ly, lw, lh) {
-    const v = videoOf(cam); if (!v || !patch || !patch.g || lw < 0.005 || lh < 0.005) return null;
-    const m = 0.55, tw = patch.tw, th = patch.th;
-    const hw = lw * (0.5 + m), hh = lh * (0.5 + m);
-    const cx = Math.max(hw, Math.min(1 - hw, lx + lw / 2)), cy = Math.max(hh, Math.min(1 - hh, ly + lh / 2));
-    const nx = cx - hw, ny = cy - hh, nw = hw * 2, nh = hh * 2;
-    const SW = Math.max(tw + 4, Math.round(nw / lw * tw)), SH = Math.max(th + 4, Math.round(nh / lh * th));
-    if (SW > 96 || SH > 96) return null;
+  function matchPatch(cam, patch, lx, ly, lw, lh, pred) {
+    const v = videoOf(cam); if (!v || !patch || !patch.g || lw < 0.004 || lh < 0.004) return null;
+    const radX = Math.max(lw * 2.4, 0.24), radY = Math.max(lh * 2.4, 0.24);
+    let cx = (pred ? pred.x : lx) + lw / 2, cy = (pred ? pred.y : ly) + lh / 2;
+    cx = Math.max(0.02, Math.min(0.98, cx)); cy = Math.max(0.02, Math.min(0.98, cy));
+    let nx = cx - lw / 2 - radX, ny = cy - lh / 2 - radY, nw = lw + radX * 2, nh = lh + radY * 2;
+    if (nx < 0) nx = 0; if (ny < 0) ny = 0;
+    if (nx + nw > 1) nx = Math.max(0, 1 - nw); if (ny + nh > 1) ny = Math.max(0, 1 - nh);
+    if (nx + nw > 1) nw = 1 - nx; if (ny + nh > 1) nh = 1 - ny;
+    const fit = Math.min(1, 104 / (nw / lw * patch.tw), 104 / (nh / lh * patch.th));
+    const tw = Math.max(6, Math.round(patch.tw * fit)), th = Math.max(6, Math.round(patch.th * fit));
+    const SW = Math.max(tw + 2, Math.round(nw / lw * tw)), SH = Math.max(th + 2, Math.round(nh / lh * th));
+    if (SW > 140 || SH > 140) return null;
+    const tmpl = prepTemplate(patch, tw, th);
     searchCv.width = SW; searchCv.height = SH;
     const ctx = searchCv.getContext("2d", { willReadFrequently: true });
     try { ctx.drawImage(v, nx * v.videoWidth, ny * v.videoHeight, nw * v.videoWidth, nh * v.videoHeight, 0, 0, SW, SH); } catch (_) { return null; }
-    const d = ctx.getImageData(0, 0, SW, SH).data;
-    const expX = (lx - nx) / nw * SW, expY = (ly - ny) / nh * SH;
-    let best = -1, bx = expX, by = expY;
-    for (let oy = 0; oy <= SH - th; oy += 2) for (let ox = 0; ox <= SW - tw; ox += 2) {
+    const src = ctx.getImageData(0, 0, SW, SH).data, gray = new Float32Array(SW * SH);
+    for (let i = 0; i < gray.length; i++) gray[i] = src[i * 4] * 0.299 + src[i * 4 + 1] * 0.587 + src[i * 4 + 2] * 0.114;
+    const ncc = (ox, oy, t) => {
+      const tw2 = t.tw, th2 = t.th;
+      if (ox < 0 || oy < 0 || ox + tw2 > SW || oy + th2 > SH) return -1;
       let mean = 0, n = 0;
-      for (let j = 0; j < th; j += 2) for (let i = 0; i < tw; i += 2) { const p = ((oy + j) * SW + (ox + i)) * 4; mean += d[p] * 0.299 + d[p + 1] * 0.587 + d[p + 2] * 0.114; n++; }
+      for (let j = 0; j < th2; j += 2) for (let i = 0; i < tw2; i += 2) { mean += gray[(oy + j) * SW + (ox + i)]; n++; }
       mean /= n || 1;
       let dot = 0, e2 = 0;
-      for (let j = 0; j < th; j += 2) for (let i = 0; i < tw; i += 2) {
-        const p = ((oy + j) * SW + (ox + i)) * 4;
-        const g = d[p] * 0.299 + d[p + 1] * 0.587 + d[p + 2] * 0.114 - mean, t = patch.g[j * tw + i];
-        dot += g * t; e2 += g * g;
+      for (let j = 0; j < th2; j += 2) for (let i = 0; i < tw2; i += 2) {
+        const dx = (i + 0.5) / tw2 - 0.5, dy = (j + 0.5) / th2 - 0.5;
+        const wt = 0.4 + 0.6 * Math.max(0, 1 - Math.sqrt(dx * dx + dy * dy) / 0.72);
+        const g = (gray[(oy + j) * SW + (ox + i)] - mean) * wt, tv = t.g[j * tw2 + i];
+        dot += g * tv; e2 += g * g;
       }
-      const score = e2 > 1 ? dot / (Math.sqrt(e2) * patch.e) : -1;
-      if (score > best) { best = score; bx = ox; by = oy; }
+      return e2 > 1 ? dot / (Math.sqrt(e2) * t.e) : -1;
+    };
+    let best = -1, second = -1, bx = 0, by = 0;
+    const step = tw > 18 ? 3 : 2;
+    for (let oy = 0; oy <= SH - th; oy += step) for (let ox = 0; ox <= SW - tw; ox += step) {
+      const s = ncc(ox, oy, tmpl);
+      if (s > best) {
+        if (Math.hypot(ox - bx, oy - by) > Math.max(tw, th) * 0.75) second = Math.max(second, best);
+        best = s; bx = ox; by = oy;
+      } else if (s > second && Math.hypot(ox - bx, oy - by) > Math.max(tw, th) * 0.75) second = s;
     }
-    return { x: lx + (bx - expX) / SW * nw, y: ly + (by - expY) / SH * nh, score: best };
+    for (let oy = Math.max(0, by - step); oy <= Math.min(SH - th, by + step); oy++) for (let ox = Math.max(0, bx - step); ox <= Math.min(SW - tw, bx + step); ox++) {
+      const s = ncc(ox, oy, tmpl); if (s > best) { best = s; bx = ox; by = oy; }
+    }
+    let scale = 1;
+    for (const sc of [0.86, 1.16]) {
+      const t2 = prepTemplate(patch, Math.max(6, Math.round(tw * sc)), Math.max(6, Math.round(th * sc)));
+      const s = ncc(bx, by, t2);
+      if (s > best + 0.035) { best = s; scale = sc; }
+    }
+    return { x: nx + bx / SW * nw, y: ny + by / SH * nh, score: best, margin: best - Math.max(second, 0), scale };
+  }
+  function moveRegion(r, dx, dy) {
+    const ax = Math.max(-r.x, Math.min(1 - r.w - r.x, dx)), ay = Math.max(-r.y, Math.min(1 - r.h - r.y, dy));
+    r.x += ax; r.y += ay;
+    if (r.pts) for (let i = 0; i < r.pts.length; i += 2) { r.pts[i] = Math.max(0, Math.min(1, r.pts[i] + ax)); r.pts[i + 1] = Math.max(0, Math.min(1, r.pts[i + 1] + ay)); }
+  }
+  function scaleRegion(r, s) {
+    if (!s || Math.abs(s - 1) < 0.03) return;
+    const cx = r.x + r.w / 2, cy = r.y + r.h / 2;
+    const w = Math.max(0.012, Math.min(0.95, r.w * s)), h = Math.max(0.012, Math.min(0.95, r.h * s));
+    r.x = Math.max(0, Math.min(1 - w, cx - w / 2)); r.y = Math.max(0, Math.min(1 - h, cy - h / 2)); r.w = w; r.h = h;
+    if (r.pts) for (let i = 0; i < r.pts.length; i += 2) {
+      r.pts[i] = Math.max(0, Math.min(1, cx + (r.pts[i] - cx) * s));
+      r.pts[i + 1] = Math.max(0, Math.min(1, cy + (r.pts[i + 1] - cy) * s));
+    }
   }
   function armRegion(r) {
     if (!r || S.trackIds.includes(r.id)) return S.patches[r.id];
     const hit = lockDet(r.cam, r);
-    const info = { patch: grabPatch(r.cam, r.x, r.y, r.w, r.h), lost: 0 };
+    const info = { patch: grabPatch(r.cam, r.x, r.y, r.w, r.h), lost: 0, vx: 0, vy: 0 };
     if (hit && hit.id != null) { info.detId = hit.id; info.label = hit.label; info.anchor = rememberAnchor(r, hit); }
     S.patches[r.id] = info; S.trackIds.push(r.id);
     return info;
@@ -910,7 +971,7 @@
     if (!r) { msg("Couldn't read the picture. Seek or play, then circle again.", true); return; }
     const info = armRegion(r);
     if (!info.patch && !info.detId) { msg("Couldn't read the picture. Seek or play, then circle again.", true); return; }
-    msg(info.label ? "Tracking the " + info.label + "." : "Tracking. Play to follow. Circle more, or press Done.");
+    msg(info.label ? "Tracking the " + info.label + "." : "Tracking this area. Press play.");
     UI.sync(); kick();
   }
   let lastFollow = 0;
@@ -918,7 +979,7 @@
     if (!S.trackIds.length || !T.player) return;
     const playing = T.player.playing || (T.player.tiles && Object.values(T.player.tiles).some((t) => { const v = t.vids && t.vids[T.player.active]; return v && !v.paused; }));
     if (!playing) return;
-    const now = performance.now(); if (now - lastFollow < 80) return; lastFollow = now;
+    const now = performance.now(); if (now - lastFollow < 90) return; lastFollow = now;
     let moved = false, vis = false;
     S.trackIds = S.trackIds.filter((id) => G.list.some((r) => r.id === id));
     for (const id of S.trackIds) {
@@ -926,39 +987,43 @@
       const info = S.patches[id] || {};
       let hit = null;
       if (info.detId != null) hit = detBoxes(r.cam).find((b) => b.id === info.detId) || null;
-      if (!hit && !info.detId) { const found = lockDet(r.cam, r); if (found && found.id != null) { info.detId = found.id; info.label = found.label; info.anchor = rememberAnchor(r, found); hit = found; } }
       if (hit && info.anchor) {
         placeOnHit(r, info.anchor, hit);
         info.lost = 0; if (!r.on) { r.on = true; vis = true; }
         moved = true;
       } else if (info.patch) {
-        const m = matchPatch(r.cam, info.patch, r.x, r.y, r.w, r.h);
-        if (m && m.score > 0.45) {
-          const k = m.score > 0.72 ? 0.8 : 0.45;
-          const dx = (m.x - r.x) * k, dy = (m.y - r.y) * k;
-          r.x = Math.max(0, Math.min(1 - r.w, r.x + dx)); r.y = Math.max(0, Math.min(1 - r.h, r.y + dy));
-          if (r.pts) for (let i = 0; i < r.pts.length; i += 2) { r.pts[i] = Math.max(0, Math.min(1, r.pts[i] + dx)); r.pts[i + 1] = Math.max(0, Math.min(1, r.pts[i + 1] + dy)); }
-          info.lost = 0; if (!r.on) { r.on = true; vis = true; }
+        const pred = { x: r.x + (info.vx || 0), y: r.y + (info.vy || 0) };
+        const m = matchPatch(r.cam, info.patch, r.x, r.y, r.w, r.h, pred);
+        const near = m && Math.hypot(m.x - pred.x, m.y - pred.y) < Math.max(r.w, r.h, 0.05);
+        const ok = m && (m.score >= 0.4 || (m.score >= 0.28 && (near || m.margin >= 0.06)));
+        if (ok) {
+          const dx = (m.x - r.x) * 0.9, dy = (m.y - r.y) * 0.9;
+          moveRegion(r, dx, dy);
+          if (m.scale && m.score >= 0.55 && m.margin >= 0.08) scaleRegion(r, 1 + (m.scale - 1) * 0.35);
+          info.vx = dx; info.vy = dy; info.lost = 0;
+          if (!r.on) { r.on = true; vis = true; }
           moved = true;
-          if (m.score > 0.82 && (info.upd = (info.upd || 0) + 1) % 5 === 0) {
+          if (info.phase !== "on") { info.phase = "on"; msg("Following."); }
+          if (m.score > 0.62 && (info.upd = (info.upd || 0) + 1) % 6 === 0) {
             const fresh = grabPatch(r.cam, r.x, r.y, r.w, r.h);
-            if (fresh && fresh.g.length === info.patch.g.length) {
-              for (let i = 0; i < fresh.g.length; i++) info.patch.g[i] = info.patch.g[i] * 0.8 + fresh.g[i] * 0.2;
-              let e = 0; const tw = info.patch.tw;
-              for (let j = 0; j < info.patch.th; j += 2) for (let i = 0; i < tw; i += 2) { const t = info.patch.g[j * tw + i]; e += t * t; }
-              info.patch.e = Math.sqrt(e) || 1;
+            if (fresh && fresh.tw === info.patch.tw && fresh.th === info.patch.th) {
+              for (let i = 0; i < fresh.g.length; i++) info.patch.g[i] = info.patch.g[i] * 0.82 + fresh.g[i] * 0.18;
             }
           }
-        } else info.lost = (info.lost || 0) + 1;
-      } else info.lost = (info.lost || 0) + 1;
-      if ((info.lost || 0) > 12 && r.on) { r.on = false; vis = true; }
+        } else {
+          info.lost = (info.lost || 0) + 1;
+          if (info.lost < 6 && (info.vx || info.vy)) { moveRegion(r, info.vx * 0.55, info.vy * 0.55); moved = true; }
+          if (info.lost === 8 && info.phase !== "lost") { info.phase = "lost"; msg("Lost the object. The blur stays where it last matched."); }
+        }
+      }
       S.patches[id] = info;
     }
     if (vis) rebuild();
     if ((moved || vis) && R && R.paint) R.paint();
   }
   if (T.on) T.on("time", followPatches);
-  setInterval(followPatches, 160);
+  setInterval(followPatches, 180);
+
 
     /** Done: saves a drawn shape; in Move it simply closes the tray (the moves are already saved, and undoable). */
   UI.done = () => {
