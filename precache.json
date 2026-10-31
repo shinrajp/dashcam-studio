@@ -69,6 +69,7 @@
   "js/det-debug.js",
   "js/colour-constancy.js",
   "js/search-ui.js",
+  "js/patch-track.js",
   "js/custom-redact.js",
   "js/search-strip.js",
   "js/mobile-bar.js",

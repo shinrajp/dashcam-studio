@@ -15,11 +15,16 @@
  * tap-redact: no camera dropdown. "Draw region" asks you to TAP the camera (several cameras on screen) and then draws on it: a tap enlarges that
  * camera and arms the drag, a drag starting on a camera draws right there. One camera on screen: it is the camera, no question asked. The draw bar
  * shows the chosen camera as a chip; tapping the chip picks again.
- * Storage: localStorage "tdc.regions.v1" keyed by a hash of the event's file names and sizes (nothing leaves the device); JSON file import / export. */
+ * Storage: localStorage "tdc.regions.v1" keyed by a hash of the event's file names and sizes (nothing leaves the device); JSON file import / export.
+ * Track (tag track-v2): a tracked region also carries `path` (js/patch-track.js: flat keys t, x, y, w, h; w = h = 0 is "lost from here"). The path is
+ *   what the viewer, scrubbing and the exporter read (G.at resolves the region's box at time t from it), so the region follows its object everywhere,
+ *   not only while playing. Playback writes the keys; an export fills any stretch nobody played by tracking forward on the frames it decodes. The
+ *   shape fields (x, y, w, h, pts) stay "where it is at the player's time" (G.sync) so Move, the list and the editor keep working on what you see. */
 (function () {
   "use strict";
   const T = window.TDC;
   const R = T.redact;
+  const PT = T.patchTrack || null;   // js/patch-track.js (a stale cache without it just leaves tracking out)
   const $ = (id) => document.getElementById(id);
   const G = (T.regions = { list: [], key: null, MAX: 40, MAX_PTS: 96, KEY: "tdc.regions.v1", ui: { cam: null, shape: "rect", mode: "blur", whole: true, from: 0, to: 0, draft: null, editId: null, drawing: false, pick: false } });
   const EMPTY = [];
@@ -46,6 +51,7 @@
     } else { r.x = clamp01(o.x); r.y = clamp01(o.y); r.w = Math.min(1 - r.x, clamp01(o.w)); r.h = Math.min(1 - r.y, clamp01(o.h)); }
     if (r.w < 0.004 || r.h < 0.004) return null;
     for (const k of ["x", "y", "w", "h"]) r[k] = Math.round(r[k] * 10000) / 10000;
+    if (PT && o.path) { const tp = PT.cleanPath(o.path); if (tp) r.path = tp; }
     return r;
   };
   function rebuild() {
@@ -57,8 +63,24 @@
     const l = byCam[cam];
     if (!l) return EMPTY;
     let out = null;
-    for (const r of l) if ((r.start == null || t >= r.start - 1e-6) && (r.end == null || t <= r.end + 1e-6)) (out = out || []).push(r);
+    for (const r of l) {
+      if ((r.start != null && t < r.start - 1e-6) || (r.end != null && t > r.end + 1e-6)) continue;
+      if (r.path && PT) { const v = PT.view(r, t); if (!v) continue; (out = out || []).push(v); }   // tracked: where the object is at t (nothing while it is lost)
+      else (out = out || []).push(r);
+    }
     return out || EMPTY;
+  };
+  /** Make each tracked region's shape the one it has at time t (default: the player's time), so Move / the editor work on what is on screen. */
+  G.sync = (t) => {
+    if (!PT) return false;
+    if (t == null) t = T.player ? T.player.time || 0 : 0;
+    let changed = false;
+    for (const r of G.list) {
+      if (!r.path) continue;
+      const b = PT.pathAt(r.path, t);
+      if (b && (Math.abs(b.x - r.x) > 1e-6 || Math.abs(b.y - r.y) > 1e-6 || Math.abs(b.w - r.w) > 1e-6 || Math.abs(b.h - r.h) > 1e-6)) { PT.mapShape(r, b); changed = true; }
+    }
+    return changed;
   };
   G.any = () => G.list.some((r) => r.on);
 
@@ -152,7 +174,14 @@
     if (i < 0) return null;
     const r = G.clean(Object.assign({}, G.list[i], o, { id }), true);
     if (!r) return null;
-    if (JSON.stringify(r) === JSON.stringify(G.list[i])) return r;   // nothing changed: no history step
+    const old = G.list[i];
+    if (PT && old.path && r.path && (Math.abs(r.x - old.x) > 1e-6 || Math.abs(r.y - old.y) > 1e-6 || Math.abs(r.w - old.w) > 1e-6 || Math.abs(r.h - old.h) > 1e-6)) {
+      // the user moved / resized a tracked region at this moment: keep its offset from the object (every key moves the same way); where it was lost, start the path here
+      const t = T.player ? T.player.time || 0 : 0, shown = PT.pathAt(old.path, t), nb = { x: r.x, y: r.y, w: r.w, h: r.h };
+      if (shown) PT.pathRebase(r.path, shown, nb); else { r.path = []; PT.pathAdd(r.path, t, nb); }
+      const inf = S.patches && S.patches[id]; if (inf && inf.tr) { inf.tr.rebase(nb, t); inf.tx = null; }
+    }
+    if (JSON.stringify(r) === JSON.stringify(old)) return r;   // nothing changed: no history step
     record();
     if (!RH[id]) RH[id] = { u: [], r: [] };
     RH[id].u.push(JSON.stringify(G.list[i])); if (RH[id].u.length > 20) RH[id].u.shift(); RH[id].r.length = 0;
@@ -231,6 +260,7 @@
   G.paint = paint;
   /** Export: draw this camera's regions at time t into cell `cell` (ctx is already flipped for a mirrored camera). */
   G.burn = (ctx, cam, t, cell, iw, ih, img) => {
+    if (S.trackIds && S.trackIds.length) { try { exportTrack(cam, t, iw, ih, img); } catch (e) { console.warn("track (export)", e); } }
     const rs = G.at(cam, t);
     if (!rs.length || !iw || !ih) return;
     const fit = R.contain(iw, ih, cell);
@@ -244,7 +274,8 @@
     for (const r of rs) {
       paint(ctx, video, iw, ih, fit, r);
       if (S.trackIds && S.trackIds.includes(r.id)) {
-        ctx.save(); ctx.strokeStyle = "#e6b450"; ctx.lineWidth = 2; ctx.setLineDash([6, 4]);
+        const lostIt = (S.patches[r.id] && S.patches[r.id].lost >= 6);   // lost the object: the blur stays where it was last seen, outlined red
+        ctx.save(); ctx.strokeStyle = lostIt ? "#e5534b" : "#e6b450"; ctx.lineWidth = 2; ctx.setLineDash(lostIt ? [3, 5] : [6, 4]);
         ctx.beginPath(); trace(ctx, fit, r); ctx.stroke(); ctx.restore();
       }
       if (r.mode === "blur" && R.tintLike) { ctx.save(); ctx.beginPath(); trace(ctx, fit, r); ctx.clip(); R.tintLike(ctx, fit, [{ x: r.x, y: r.y, w: r.w, h: r.h }], cam); ctx.restore(); }
@@ -255,7 +286,9 @@
   G.prepareFrames = (frames, t) => {
     let out = frames;
     for (const cam of Object.keys(frames || {})) {
-      const f = frames[cam], rs = f && f.img ? G.at(cam, t) : EMPTY;
+      const f = frames[cam];
+      if (f && f.img && S.trackIds && S.trackIds.length) { try { exportTrack(cam, t, f.w, f.h, f.img); } catch (e) { console.warn("track (export)", e); } }
+      const rs = f && f.img ? G.at(cam, t) : EMPTY;
       if (!rs.length) continue;
       if (out === frames) out = Object.assign({}, frames);
       const c = pf[cam] || (pf[cam] = document.createElement("canvas"));
@@ -686,6 +719,7 @@
       if (!cam) { msg("Select a region first.", true); return false; }
       const mine = G.list.filter((r) => r.cam === cam);
       if (!mine.length) { msg("No regions on the " + camName(cam).toLowerCase() + " camera.", true); return false; }
+      G.sync();
       S.cam = cam; S.move = true; S.drawing = false; S.live = null; S.pick = false; S.draft = null; S.editId = null;
       if (!mine.some((r) => r.id === S.sel)) S.sel = mine[mine.length - 1].id;
       armMoveCapture();
@@ -845,120 +879,36 @@
     r.x = Math.max(0, Math.min(1 - r.w, r.x));
     r.y = Math.max(0, Math.min(1 - r.h, r.y));
   }
-  const grayCv = document.createElement("canvas");
-  const searchCv = document.createElement("canvas");
-  function readGray(cam, x, y, w, h, tw, th) {
-    const v = videoOf(cam); if (!v) return null;
-    grayCv.width = tw; grayCv.height = th;
-    const ctx = grayCv.getContext("2d", { willReadFrequently: true });
-    const sx = Math.max(0, x * v.videoWidth), sy = Math.max(0, y * v.videoHeight);
-    const sw = Math.max(2, Math.min(v.videoWidth - sx, w * v.videoWidth)), sh = Math.max(2, Math.min(v.videoHeight - sy, h * v.videoHeight));
-    try { ctx.drawImage(v, sx, sy, sw, sh, 0, 0, tw, th); } catch (_) { return null; }
-    const d = ctx.getImageData(0, 0, tw, th).data, g = new Float32Array(tw * th);
+  // ── tracker glue (tag track-v2) ──────────────────────────────────────────────────────────────────────────────────
+  // js/patch-track.js does the matching (motion model, scale, ambiguity test, sub-pixel). This part feeds it frames, keeps the region's PATH
+  // (r.path) and handles the detector lock, seeks, replays and the exporter. A lost object is never hidden: for redaction the blur stays where
+  // the object was last seen (a red dashed outline says so) rather than letting a face or plate show.
+  const grabCv = document.createElement("canvas");
+  /** Grey raster of the part `plan` (0..1 of the picture) of a video / canvas / bitmap / decoded frame of size iw × ih. */
+  function grabGrey(src, iw, ih, plan) {
+    if (!src || !iw || !ih) return null;
+    if (typeof VideoFrame !== "undefined" && src instanceof VideoFrame && R.frameCanvas) src = R.frameCanvas(src, iw, ih);   // WebKit ignores the source rect of a decoded frame
+    grabCv.width = plan.SW; grabCv.height = plan.SH;
+    const ctx = grabCv.getContext("2d", { willReadFrequently: true });
+    let d;
+    try { ctx.drawImage(src, plan.nx * iw, plan.ny * ih, plan.nw * iw, plan.nh * ih, 0, 0, plan.SW, plan.SH); d = ctx.getImageData(0, 0, plan.SW, plan.SH).data; } catch (_) { return null; }
+    const g = new Float32Array(plan.SW * plan.SH);
     for (let i = 0; i < g.length; i++) g[i] = d[i * 4] * 0.299 + d[i * 4 + 1] * 0.587 + d[i * 4 + 2] * 0.114;
-    return g;
+    return { g, W: plan.SW, H: plan.SH, ox: plan.nx, oy: plan.ny, ow: plan.nw, oh: plan.nh };
   }
-  function grabPatch(cam, x, y, w, h) {
-    const aspect = w / Math.max(h, 1e-4);
-    const tw = aspect >= 1 ? 36 : Math.max(8, Math.round(36 * aspect));
-    const th = aspect >= 1 ? Math.max(8, Math.round(36 / aspect)) : 36;
-    const g = readGray(cam, x, y, w, h, tw, th); if (!g) return null;
-    let mean = 0;
-    for (let i = 0; i < g.length; i++) mean += g[i];
-    mean /= g.length;
-    for (let i = 0; i < g.length; i++) g[i] -= mean;
-    return { g, tw, th };
-  }
-  function prepTemplate(patch, tw, th) {
-    const g = new Float32Array(tw * th);
-    for (let j = 0; j < th; j++) for (let i = 0; i < tw; i++) {
-      const si = Math.min(patch.tw - 1, (i + 0.5) * patch.tw / tw | 0);
-      const sj = Math.min(patch.th - 1, (j + 0.5) * patch.th / th | 0);
-      const dx = (i + 0.5) / tw - 0.5, dy = (j + 0.5) / th - 0.5;
-      const wt = 0.4 + 0.6 * Math.max(0, 1 - Math.sqrt(dx * dx + dy * dy) / 0.72);
-      g[j * tw + i] = patch.g[sj * patch.tw + si] * wt;
-    }
-    let mean = 0;
-    for (let i = 0; i < g.length; i++) mean += g[i];
-    mean /= g.length;
-    let e = 0;
-    for (let j = 0; j < th; j += 2) for (let i = 0; i < tw; i += 2) { g[j * tw + i] -= mean; e += g[j * tw + i] * g[j * tw + i]; }
-    return { g, e: Math.sqrt(e) || 1, tw, th };
-  }
-  function matchPatch(cam, patch, lx, ly, lw, lh, pred) {
-    const v = videoOf(cam); if (!v || !patch || !patch.g || lw < 0.004 || lh < 0.004) return null;
-    const radX = Math.max(lw * 2.4, 0.24), radY = Math.max(lh * 2.4, 0.24);
-    let cx = (pred ? pred.x : lx) + lw / 2, cy = (pred ? pred.y : ly) + lh / 2;
-    cx = Math.max(0.02, Math.min(0.98, cx)); cy = Math.max(0.02, Math.min(0.98, cy));
-    let nx = cx - lw / 2 - radX, ny = cy - lh / 2 - radY, nw = lw + radX * 2, nh = lh + radY * 2;
-    if (nx < 0) nx = 0; if (ny < 0) ny = 0;
-    if (nx + nw > 1) nx = Math.max(0, 1 - nw); if (ny + nh > 1) ny = Math.max(0, 1 - nh);
-    if (nx + nw > 1) nw = 1 - nx; if (ny + nh > 1) nh = 1 - ny;
-    const fit = Math.min(1, 104 / (nw / lw * patch.tw), 104 / (nh / lh * patch.th));
-    const tw = Math.max(6, Math.round(patch.tw * fit)), th = Math.max(6, Math.round(patch.th * fit));
-    const SW = Math.max(tw + 2, Math.round(nw / lw * tw)), SH = Math.max(th + 2, Math.round(nh / lh * th));
-    if (SW > 140 || SH > 140) return null;
-    const tmpl = prepTemplate(patch, tw, th);
-    searchCv.width = SW; searchCv.height = SH;
-    const ctx = searchCv.getContext("2d", { willReadFrequently: true });
-    try { ctx.drawImage(v, nx * v.videoWidth, ny * v.videoHeight, nw * v.videoWidth, nh * v.videoHeight, 0, 0, SW, SH); } catch (_) { return null; }
-    const src = ctx.getImageData(0, 0, SW, SH).data, gray = new Float32Array(SW * SH);
-    for (let i = 0; i < gray.length; i++) gray[i] = src[i * 4] * 0.299 + src[i * 4 + 1] * 0.587 + src[i * 4 + 2] * 0.114;
-    const ncc = (ox, oy, t) => {
-      const tw2 = t.tw, th2 = t.th;
-      if (ox < 0 || oy < 0 || ox + tw2 > SW || oy + th2 > SH) return -1;
-      let mean = 0, n = 0;
-      for (let j = 0; j < th2; j += 2) for (let i = 0; i < tw2; i += 2) { mean += gray[(oy + j) * SW + (ox + i)]; n++; }
-      mean /= n || 1;
-      let dot = 0, e2 = 0;
-      for (let j = 0; j < th2; j += 2) for (let i = 0; i < tw2; i += 2) {
-        const dx = (i + 0.5) / tw2 - 0.5, dy = (j + 0.5) / th2 - 0.5;
-        const wt = 0.4 + 0.6 * Math.max(0, 1 - Math.sqrt(dx * dx + dy * dy) / 0.72);
-        const g = (gray[(oy + j) * SW + (ox + i)] - mean) * wt, tv = t.g[j * tw2 + i];
-        dot += g * tv; e2 += g * g;
-      }
-      return e2 > 1 ? dot / (Math.sqrt(e2) * t.e) : -1;
-    };
-    let best = -1, second = -1, bx = 0, by = 0;
-    const step = tw > 18 ? 3 : 2;
-    for (let oy = 0; oy <= SH - th; oy += step) for (let ox = 0; ox <= SW - tw; ox += step) {
-      const s = ncc(ox, oy, tmpl);
-      if (s > best) {
-        if (Math.hypot(ox - bx, oy - by) > Math.max(tw, th) * 0.75) second = Math.max(second, best);
-        best = s; bx = ox; by = oy;
-      } else if (s > second && Math.hypot(ox - bx, oy - by) > Math.max(tw, th) * 0.75) second = s;
-    }
-    for (let oy = Math.max(0, by - step); oy <= Math.min(SH - th, by + step); oy++) for (let ox = Math.max(0, bx - step); ox <= Math.min(SW - tw, bx + step); ox++) {
-      const s = ncc(ox, oy, tmpl); if (s > best) { best = s; bx = ox; by = oy; }
-    }
-    let scale = 1;
-    for (const sc of [0.86, 1.16]) {
-      const t2 = prepTemplate(patch, Math.max(6, Math.round(tw * sc)), Math.max(6, Math.round(th * sc)));
-      const s = ncc(bx, by, t2);
-      if (s > best + 0.035) { best = s; scale = sc; }
-    }
-    return { x: nx + bx / SW * nw, y: ny + by / SH * nh, score: best, margin: best - Math.max(second, 0), scale };
-  }
-  function moveRegion(r, dx, dy) {
-    const ax = Math.max(-r.x, Math.min(1 - r.w - r.x, dx)), ay = Math.max(-r.y, Math.min(1 - r.h - r.y, dy));
-    r.x += ax; r.y += ay;
-    if (r.pts) for (let i = 0; i < r.pts.length; i += 2) { r.pts[i] = Math.max(0, Math.min(1, r.pts[i] + ax)); r.pts[i + 1] = Math.max(0, Math.min(1, r.pts[i + 1] + ay)); }
-  }
-  function scaleRegion(r, s) {
-    if (!s || Math.abs(s - 1) < 0.03) return;
-    const cx = r.x + r.w / 2, cy = r.y + r.h / 2;
-    const w = Math.max(0.012, Math.min(0.95, r.w * s)), h = Math.max(0.012, Math.min(0.95, r.h * s));
-    r.x = Math.max(0, Math.min(1 - w, cx - w / 2)); r.y = Math.max(0, Math.min(1 - h, cy - h / 2)); r.w = w; r.h = h;
-    if (r.pts) for (let i = 0; i < r.pts.length; i += 2) {
-      r.pts[i] = Math.max(0, Math.min(1, cx + (r.pts[i] - cx) * s));
-      r.pts[i + 1] = Math.max(0, Math.min(1, cy + (r.pts[i + 1] - cy) * s));
-    }
+  const nowT = () => (T.player && T.player.time) || 0;
+  const boxOf = (r) => ({ x: r.x, y: r.y, w: r.w, h: r.h });
+  function newTracker(r, t) {
+    if (!PT) return null;
+    const v = videoOf(r.cam); if (!v) return null;
+    const o = { fw: v.videoWidth, fh: v.videoHeight }, box = boxOf(r), im = grabGrey(v, o.fw, o.fh, PT.createPlan(box, o));
+    return im ? PT.create(im, box, t, o) : null;
   }
   function armRegion(r) {
     if (!r || S.trackIds.includes(r.id)) return S.patches[r.id];
-    const hit = lockDet(r.cam, r);
-    const info = { patch: grabPatch(r.cam, r.x, r.y, r.w, r.h), lost: 0, vx: 0, vy: 0 };
+    const t = nowT(), hit = lockDet(r.cam, r), info = { lost: 0, tr: newTracker(r, t) };
     if (hit && hit.id != null) { info.detId = hit.id; info.label = hit.label; info.anchor = rememberAnchor(r, hit); }
+    if (PT) { r.path = []; PT.pathAdd(r.path, t, boxOf(r)); }
     S.patches[r.id] = info; S.trackIds.push(r.id);
     return info;
   }
@@ -970,56 +920,78 @@
     } else r = G.add({ cam, shape: "rect", x, y, w, h, mode: S.mode, on: true });
     if (!r) { msg("Couldn't read the picture. Seek or play, then circle again.", true); return; }
     const info = armRegion(r);
-    if (!info.patch && !info.detId) { msg("Couldn't read the picture. Seek or play, then circle again.", true); return; }
+    if (!info.tr && !info.detId) { msg("Couldn't read the picture. Seek or play, then circle again.", true); return; }
     msg(info.label ? "Tracking the " + info.label + "." : "Tracking this area. Press play.");
     UI.sync(); kick();
   }
-  let lastFollow = 0;
+  let lastFollow = 0, saveTimer = 0;
+  const saveSoon = () => { clearTimeout(saveTimer); saveTimer = setTimeout(() => G.save(), 1200); };
+  /** Fold one look into the tracker's result: the box to show (or null), the lost counter, and a message when the state changes. */
+  function noteLook(info, res) {
+    let box = null;
+    if (res.ok) { box = res.box; info.lost = 0; if (info.phase !== "on") { info.phase = "on"; msg("Following."); } }
+    else {
+      info.lost = (info.lost || 0) + 1;
+      if (res.lostT <= PT.DEFAULTS.coastT) box = res.box;   // keeps moving on its speed for a moment
+      if (info.lost === 8 && info.phase !== "lost") { info.phase = "lost"; msg("Lost the object. The blur stays where it last matched."); }
+    }
+    return box;
+  }
   function followPatches() {
-    if (!S.trackIds.length || !T.player) return;
-    const playing = T.player.playing || (T.player.tiles && Object.values(T.player.tiles).some((t) => { const v = t.vids && t.vids[T.player.active]; return v && !v.paused; }));
-    if (!playing) return;
-    const now = performance.now(); if (now - lastFollow < 90) return; lastFollow = now;
-    let moved = false, vis = false;
+    if (!S.trackIds.length || !T.player || !PT) return;
+    const t = nowT();
     S.trackIds = S.trackIds.filter((id) => G.list.some((r) => r.id === id));
+    const playing = T.player.playing || (T.player.tiles && Object.values(T.player.tiles).some((tl) => { const v = tl.vids && tl.vids[T.player.active]; return v && !v.paused; }));
+    if (!playing) { if (G.sync(t)) { if (R && R.paint) R.paint(); kick(); } return; }   // paused / scrubbing: the region is where its path says (Move and the list act on what is shown)
+    const now = performance.now(); if (now - lastFollow < 90) return; lastFollow = now;
+    let moved = false, wrote = false;
     for (const id of S.trackIds) {
-      const r = G.list.find((x) => x.id === id); if (!r) continue;
-      const info = S.patches[id] || {};
+      const r = G.list.find((x) => x.id === id); if (!r || !r.path) continue;
+      if ((r.start != null && t < r.start) || (r.end != null && t > r.end) || !PT.pathBefore(r.path, t)) continue;
+      const info = S.patches[id] || (S.patches[id] = { lost: 0 });
+      // a stretch that was tracked before (keys ahead of the playhead) is followed, not tracked again: same result every pass, and the user's edits stay
+      if (PT.pathAhead(r.path, t) - t <= 0.3) { info.following = true; const b = PT.pathAt(r.path, t); if (b) { PT.mapShape(r, b); moved = true; } continue; }
+      if (info.tr && (info.following || info.tr.t > t + 0.05 || t - info.tr.t > 0.6)) {   // came from a followed stretch, or the playhead jumped: carry on from the last box seen
+        info.tr.rewind(PT.lastBox(r.path, t) || boxOf(r), t, PT.pathVelocity(r.path, t)); info.lost = 0;
+      }
+      info.following = false;
       let hit = null;
       if (info.detId != null) hit = detBoxes(r.cam).find((b) => b.id === info.detId) || null;
-      if (hit && info.anchor) {
-        placeOnHit(r, info.anchor, hit);
-        info.lost = 0; if (!r.on) { r.on = true; vis = true; }
-        moved = true;
-      } else if (info.patch) {
-        const pred = { x: r.x + (info.vx || 0), y: r.y + (info.vy || 0) };
-        const m = matchPatch(r.cam, info.patch, r.x, r.y, r.w, r.h, pred);
-        const near = m && Math.hypot(m.x - pred.x, m.y - pred.y) < Math.max(r.w, r.h, 0.05);
-        const ok = m && (m.score >= 0.4 || (m.score >= 0.28 && (near || m.margin >= 0.06)));
-        if (ok) {
-          const dx = (m.x - r.x) * 0.9, dy = (m.y - r.y) * 0.9;
-          moveRegion(r, dx, dy);
-          if (m.scale && m.score >= 0.55 && m.margin >= 0.08) scaleRegion(r, 1 + (m.scale - 1) * 0.35);
-          info.vx = dx; info.vy = dy; info.lost = 0;
-          if (!r.on) { r.on = true; vis = true; }
-          moved = true;
-          if (info.phase !== "on") { info.phase = "on"; msg("Following."); }
-          if (m.score > 0.62 && (info.upd = (info.upd || 0) + 1) % 6 === 0) {
-            const fresh = grabPatch(r.cam, r.x, r.y, r.w, r.h);
-            if (fresh && fresh.tw === info.patch.tw && fresh.th === info.patch.th) {
-              for (let i = 0; i < fresh.g.length; i++) info.patch.g[i] = info.patch.g[i] * 0.82 + fresh.g[i] * 0.18;
-            }
-          }
-        } else {
-          info.lost = (info.lost || 0) + 1;
-          if (info.lost < 6 && (info.vx || info.vy)) { moveRegion(r, info.vx * 0.55, info.vy * 0.55); moved = true; }
-          if (info.lost === 8 && info.phase !== "lost") { info.phase = "lost"; msg("Lost the object. The blur stays where it last matched."); }
-        }
+      let box = null;
+      if (hit && info.anchor) {   // cars / trucks: the live detection track (it resizes with the vehicle)
+        placeOnHit(r, info.anchor, hit); box = boxOf(r); info.lost = 0;
+        if (info.tr) info.tr.setBox(box, t);
+        PT.pathAdd(r.path, t, box); wrote = moved = true; continue;
       }
-      S.patches[id] = info;
+      if (!info.tr) continue;
+      const v = videoOf(r.cam), im = v && grabGrey(v, v.videoWidth, v.videoHeight, info.tr.plan(t));
+      if (!im) continue;
+      box = noteLook(info, info.tr.update(im, t));
+      if (box) { PT.mapShape(r, box); PT.pathAdd(r.path, t, box); wrote = moved = true; }
     }
-    if (vis) rebuild();
-    if ((moved || vis) && R && R.paint) R.paint();
+    if (wrote) saveSoon();
+    if (moved && R && R.paint) R.paint();
+  }
+  /** Export: carry the tracker forward on the frames the exporter decodes, for stretches nobody played (the keys it writes are the region's path from then on). */
+  const XT = {};
+  function exportTrack(cam, t, iw, ih, src) {
+    if (!PT) return;
+    for (const id of S.trackIds) {
+      const r = G.list.find((x) => x.id === id), info = S.patches[id];
+      if (!r || !r.on || r.cam !== cam || !r.path || !info || !info.tr) continue;
+      if ((r.start != null && t < r.start) || (r.end != null && t > r.end) || !PT.pathBefore(r.path, t)) continue;
+      if (PT.pathAhead(r.path, t) - t <= 0.3) { delete XT[id]; continue; }   // already tracked
+      let x = XT[id];
+      if (!x || t < x.t - 0.05 || t - x.t > 1.0) {
+        const b = PT.lastBox(r.path, t); if (!b) continue;
+        x = XT[id] = { tr: info.tr.fork(), t }; x.tr.rewind(b, t, PT.pathVelocity(r.path, t)); continue;   // the first look comes 0.1 s later
+      }
+      if (t - x.t < 0.1) continue;
+      const im = grabGrey(src, iw, ih, x.tr.plan(t)); if (!im) continue;
+      const res = x.tr.update(im, t); x.t = t;
+      const box = res.ok ? res.box : res.lostT <= PT.DEFAULTS.coastT ? res.box : null;
+      if (box) { PT.pathAdd(r.path, t, box); saveSoon(); }
+    }
   }
   if (T.on) T.on("time", followPatches);
   setInterval(followPatches, 180);
@@ -1151,6 +1123,7 @@
     $("crBarTrack").addEventListener("click", () => UI.track());
     $("crBarResetTrack").addEventListener("click", () => {
       S.trackIds = []; S.patches = {}; S.track = false; disarmTrackCapture();
+      for (const r of G.list) delete r.path;   // the regions stay where they are now; they stop following
       msg("Tracking reset.");
       UI.sync(); kick();
     });
