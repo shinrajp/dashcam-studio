@@ -629,6 +629,21 @@
     UI.sync(); kick();
   }
   /** Move mode on / off. On: the drawing pauses, the regions of this camera can be pressed and dragged. Off: back to drawing on the same camera. */
+  let moveCap = null;
+  function armMoveCapture() {
+    if (moveCap) return;
+    moveCap = (e) => {
+      if (!S.move || e.button !== 0) return;
+      const tile = e.target.closest && e.target.closest(".tile");
+      if (!tile) return;
+      const cam = tile.dataset && tile.dataset.cam;
+      if (!cam || cam !== S.cam) return;
+      e.preventDefault(); e.stopPropagation();
+      moveDown(cam, e);
+    };
+    document.addEventListener("pointerdown", moveCap, true);
+  }
+  function disarmMoveCapture() { if (moveCap) { document.removeEventListener("pointerdown", moveCap, true); moveCap = null; } }
   UI.move = (on) => {
     on = on === undefined ? !S.move : !!on;
     if (on) {
@@ -639,8 +654,9 @@
       if (!mine.length) { msg("No regions on the " + camName(cam).toLowerCase() + " camera.", true); return false; }
       S.cam = cam; S.move = true; S.drawing = false; S.live = null; S.pick = false; S.draft = null; S.editId = null;
       if (!mine.some((r) => r.id === S.sel)) S.sel = mine[mine.length - 1].id;
+      armMoveCapture();
       msg("Move: drag to move, drag a corner to resize.");
-    } else { S.move = false; S.sel = null; S.mv = null; }
+    } else { S.move = false; S.sel = null; S.mv = null; disarmMoveCapture(); }
     UI.sync(); kick(); return true;
   };
   UI.nudge = (dx, dy) => {
