@@ -736,7 +736,7 @@
   function armTrackCapture() {
     if (trackCap) return;
     trackCap = (e) => {
-      if (!S.track || e.button !== 0) return;
+      if (!S.track || S.move || e.button !== 0) return;
       const tile = e.target.closest && e.target.closest(".tile");
       if (!tile) return;
       const cam = tile.dataset && tile.dataset.cam;
