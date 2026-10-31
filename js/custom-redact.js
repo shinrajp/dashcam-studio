@@ -1152,7 +1152,7 @@
         '<span class="cr-desc"><b>' + esc(camName(r.cam)) + "</b> · " + (r.mode === "remove" ? "Remove" : "Blur") + " · " + (r.shape === "poly" ? "freehand" : "box") + "<br><small>" + esc(when) + "</small></span>" +
         '<button type="button" class="btn small ghost" data-act="go" title="Show this region in the video">Show</button>' +
         '<button type="button" class="btn small ghost icon" data-act="sticky" title="' + (r.sticky ? 'Unpin' : 'Pin') + '" aria-label="Pin" style="opacity:' + (r.sticky ? '1' : '0.4') + '">' +
-        '<svg viewBox="0 0 24 24" width="16" height="16" fill="' + (r.sticky ? '#e6b450' : 'none') + '" stroke="' + (r.sticky ? '#e6b450' : '#666') + '" stroke-width="2"><path d="M12 17v5M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/></svg></button>' +
+        '<svg viewBox="0 0 24 24" width="16" height="16" fill="' + (r.sticky ? '#e6b450' : 'none') + '" stroke="' + (r.sticky ? '#e6b450' : '#666') + '" stroke-width="2"><path d="M12 17v5M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/>' + (r.sticky ? '<path d="M19 3l.5 1.5L21 5l-1.5.5L19 7l-.5-1.5L17 5l1.5-.5z" fill="#fff" stroke="none"/>' : '') + '</svg></button>' +
         '<button type="button" class="btn small ghost" data-act="edit">Edit</button>' +
         '<button type="button" class="btn small ghost" data-act="del" aria-label="Delete region ' + (i + 1) + '">Delete</button></li>';
     }).join("");
