@@ -48,3 +48,4 @@
 
 
 - `track-freehand.js` — real-page test: outline a region freehand with Track on (before or after drawing) and check it follows the sign. Env `ORDER=track-first|draw-first`.
+- `track-exit.js` — real-page test: a tracked sign drives out of the picture and comes back. No blur while it is out; blur back on it once it returns (whole-frame search). Footage: `tools/make-track-footage.py --exit`.

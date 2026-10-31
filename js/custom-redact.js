@@ -288,7 +288,7 @@
     for (const r of rs) {
       paint(ctx, video, iw, ih, fit, r);
       if (S.trackIds && S.trackIds.includes(r.id)) {
-        const lostIt = (S.patches[r.id] && S.patches[r.id].lost >= 6);   // lost the object: the blur stays where it was last seen, outlined red
+        const lostIt = (S.patches[r.id] && S.patches[r.id].lost >= 6);   // not seen for a moment: the blur coasts on, outlined red (it goes when the object leaves the picture)
         ctx.save(); ctx.strokeStyle = lostIt ? "#e5534b" : "#e6b450"; ctx.lineWidth = 2; ctx.setLineDash(lostIt ? [3, 5] : [6, 4]);
         ctx.beginPath(); trace(ctx, fit, r); ctx.stroke(); ctx.restore();
       }
@@ -898,8 +898,9 @@
   }
   // ── tracker glue (tag track-v2) ──────────────────────────────────────────────────────────────────────────────────
   // js/patch-track.js does the matching (motion model, scale, ambiguity test, sub-pixel). This part feeds it frames, keeps the region's PATH
-  // (r.path) and handles the detector lock, seeks, replays and the exporter. A lost object is never hidden: for redaction the blur stays where
-  // the object was last seen (a red dashed outline says so) rather than letting a face or plate show.
+  // (r.path) and handles the detector lock, seeks, replays and the exporter. A lost object keeps its blur while it coasts (behind a pole, a
+  // red dashed outline says it is not seen); when it leaves the picture, or stays unseen for PT.DEFAULTS.coastT, the blur goes ("lost" key in the
+  // path) and the whole frame is searched for any of its kept looks every 0.3 s: when it shows up again the blur comes back and tracking goes on.
   const grabCv = document.createElement("canvas");
   /** Grey raster of the part `plan` (0..1 of the picture) of a video / canvas / bitmap / decoded frame of size iw × ih. */
   function grabGrey(src, iw, ih, plan) {
@@ -907,6 +908,7 @@
     if (typeof VideoFrame !== "undefined" && src instanceof VideoFrame && R.frameCanvas) src = R.frameCanvas(src, iw, ih);   // WebKit ignores the source rect of a decoded frame
     grabCv.width = plan.SW; grabCv.height = plan.SH;
     const ctx = grabCv.getContext("2d", { willReadFrequently: true });
+    ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = plan.nw * iw > 3 * plan.SW ? "high" : "low";   // a big shrink (the whole-frame search): average, don't alias
     let d;
     try { ctx.drawImage(src, plan.nx * iw, plan.ny * ih, plan.nw * iw, plan.nh * ih, 0, 0, plan.SW, plan.SH); d = ctx.getImageData(0, 0, plan.SW, plan.SH).data; } catch (_) { return null; }
     const g = new Float32Array(plan.SW * plan.SH);
@@ -949,8 +951,8 @@
     if (res.ok) { box = res.box; info.lost = 0; if (info.phase !== "on") { info.phase = "on"; msg("Following."); } }
     else {
       info.lost = (info.lost || 0) + 1;
-      if (res.lostT <= PT.DEFAULTS.coastT) box = res.box;   // keeps moving on its speed for a moment
-      if (info.lost === 8 && info.phase !== "lost") { info.phase = "lost"; msg("Lost the object. The blur stays where it last matched."); }
+      if (!res.hide) box = res.box;   // keeps moving on its speed for a moment
+      else if (!info.hidden) { info.hidden = true; info.phase = "gone"; msg(res.gone ? "The object left the picture. The blur is off until it shows up again." : "Lost the object. The blur is off until it shows up again."); }
     }
     return box;
   }
@@ -967,11 +969,21 @@
       if ((r.start != null && t < r.start) || (r.end != null && t > r.end) || !PT.pathBefore(r.path, t)) continue;
       const info = S.patches[id] || (S.patches[id] = { lost: 0 });
       // a stretch that was tracked before (keys ahead of the playhead) is followed, not tracked again: same result every pass, and the user's edits stay
-      if (PT.pathAhead(r.path, t) - t <= 0.3) { info.following = true; const b = PT.pathAt(r.path, t); if (b) { PT.mapShape(r, b); moved = true; } continue; }
+      const ahead = PT.pathAhead(r.path, t);
+      if (ahead - t <= 0.3 || (ahead < Infinity && PT.pathLostAt(r.path, t))) { info.following = true; const b = PT.pathAt(r.path, t); if (b) { PT.mapShape(r, b); moved = true; } continue; }
       if (info.tr && (info.following || info.tr.t > t + 0.05 || t - info.tr.t > 0.6)) {   // came from a followed stretch, or the playhead jumped: carry on from the last box seen
         info.tr.rewind(PT.lastBox(r.path, t) || boxOf(r), t, PT.pathVelocity(r.path, t)); info.lost = 0;
+        info.hidden = PT.pathLostAt(r.path, t); info.lastSearch = -9;   // out of sight here: keep looking for it
       }
       info.following = false;
+      if (info.hidden) {   // out of sight: look for it in the whole picture every 0.3 s
+        if (!info.tr || t - (info.lastSearch || -9) < 0.3) continue;
+        info.lastSearch = t;
+        const v = videoOf(r.cam), im = v && grabGrey(v, v.videoWidth, v.videoHeight, info.tr.searchPlan());
+        const found = im && info.tr.reacquire(im, t);
+        if (found) { info.hidden = false; info.lost = 0; info.phase = "on"; PT.mapShape(r, found.box); PT.pathAdd(r.path, t, found.box); wrote = moved = true; msg("Found it again. The blur is back."); }
+        continue;
+      }
       let hit = null;
       if (info.detId != null) hit = detBoxes(r.cam).find((b) => b.id === info.detId) || null;
       let box = null;
@@ -985,6 +997,7 @@
       if (!im) continue;
       box = noteLook(info, info.tr.update(im, t));
       if (box) { PT.mapShape(r, box); PT.pathAdd(r.path, t, box); wrote = moved = true; }
+      else if (info.hidden && !PT.pathLostAt(r.path, t)) { PT.pathAdd(r.path, t, null); info.lastSearch = t; wrote = moved = true; }   // "lost from here": nothing is drawn
     }
     if (wrote) saveSoon();
     if (moved && R && R.paint) R.paint();
@@ -997,17 +1010,26 @@
       const r = G.list.find((x) => x.id === id), info = S.patches[id];
       if (!r || !r.on || r.cam !== cam || !r.path || !info || !info.tr) continue;
       if ((r.start != null && t < r.start) || (r.end != null && t > r.end) || !PT.pathBefore(r.path, t)) continue;
-      if (PT.pathAhead(r.path, t) - t <= 0.3) { delete XT[id]; continue; }   // already tracked
+      const ahead = PT.pathAhead(r.path, t);
+      if (ahead - t <= 0.3 || (ahead < Infinity && PT.pathLostAt(r.path, t))) { delete XT[id]; continue; }   // already tracked (or out of sight until a later key)
       let x = XT[id];
       if (!x || t < x.t - 0.05 || t - x.t > 1.0) {
         const b = PT.lastBox(r.path, t); if (!b) continue;
-        x = XT[id] = { tr: info.tr.fork(), t }; x.tr.rewind(b, t, PT.pathVelocity(r.path, t)); continue;   // the first look comes 0.1 s later
+        x = XT[id] = { tr: info.tr.fork(), t, hidden: PT.pathLostAt(r.path, t), last: -9 }; x.tr.rewind(b, t, PT.pathVelocity(r.path, t)); continue;   // the first look comes 0.1 s later
+      }
+      if (x.hidden) {   // out of sight: look for it every 0.3 s on the exporter's frames
+        if (t - x.last < 0.3) { x.t = t; continue; }
+        x.last = t; x.t = t;
+        const im = grabGrey(src, iw, ih, x.tr.searchPlan()), found = im && x.tr.reacquire(im, t);
+        if (found) { x.hidden = false; PT.pathAdd(r.path, t, found.box); saveSoon(); }
+        continue;
       }
       if (t - x.t < 0.1) continue;
       const im = grabGrey(src, iw, ih, x.tr.plan(t)); if (!im) continue;
       const res = x.tr.update(im, t); x.t = t;
-      const box = res.ok ? res.box : res.lostT <= PT.DEFAULTS.coastT ? res.box : null;
+      const box = res.ok || !res.hide ? res.box : null;
       if (box) { PT.pathAdd(r.path, t, box); saveSoon(); }
+      else { x.hidden = true; x.last = t; PT.pathAdd(r.path, t, null); saveSoon(); }   // left the picture / lost for good: the blur goes until it is found
     }
   }
   if (T.on) T.on("time", followPatches);

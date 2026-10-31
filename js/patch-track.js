@@ -259,6 +259,8 @@
     prior: 0.05, sprior: 0.012,      // pull towards the predicted spot / towards the current size
     minScale: 0.2, maxScale: 10,     // box size limits relative to the one the region started with (a sign far away that drives up to you)
     flow: true, flowGap: 0.5, flowMin: 8, flowSpread: 1.5, flowAgree: 0.3, flowSure: 0.4, flowWhole: 0.7, flowOver: 0.15, flowNcc: 0.9,   // optical flow: on; longest gap between two looks it bridges (s); points that must survive; how much they may disagree (px); how far from the motion model it may be (box sizes)
+    goneIn: 0.35,                    // the object has left the picture when less than this share of where it should be is inside the frame
+    reacqOk: 0.72, reacqMargin: 0.08, reacqW: 360, reacqT: 30, reacqScales: [0.7, 0.85, 1, 1.2, 1.4], reacqCore: 0.75, reacqCand: 4, bankMax: 5,   // finding it again: score, lead over the next best spot, raster width, sizes, looks kept
     coastT: 2.0                      // seconds the box keeps moving on its speed after a miss (then it holds)
   };
   PT.DEFAULTS = DEFAULTS;
@@ -276,6 +278,7 @@
     this.tm = cloneTemplate(this.tm0);
     this.box = { x: box.x, y: box.y, w: box.w, h: box.h };
     this.size0 = { w: box.w, h: box.h };
+    this.bank = [this.tm0];   // looks of the object seen so far (it turns): used to find it again
     this.core = 1; this.age0 = null;   // 1 = the template is the whole box; less = only its middle (see update)
     this.t = t; this.vx = 0; this.vy = 0;
     this.lost = 0; this.lostT = 0; this.n = 0; this.score = 1; this.good = 0; this.weakT = 0;
@@ -424,7 +427,7 @@
       }
       if (pick) {
         mcx = best.ua + (pick.x + pick.ct.tw / 2) * best.du; mcy = best.va + (pick.y + pick.ct.th / 2) * best.dv; sc = pick.cs; margin = 1; switched = true;
-        this.tm = cropTemplate(this.tm, pick.c); this.tm0 = cropTemplate(this.tm0, pick.c); this._cores = null; this.core = pick.c;
+        this.tm = cropTemplate(this.tm, pick.c); this.tm0 = cropTemplate(this.tm0, pick.c); this._cores = null; this.core = pick.c; this.bank = [this.tm0];
       }
     }
     let viaPart = false, partScore = null;
@@ -444,6 +447,7 @@
     if (fbox && fbox.whole && !viaPart && !switched) {   // the flow saw the whole object move: it is the measurement; the template only refines it when it is sure
       const w = sc >= o.flowNcc ? 0.5 : 0;
       mcx = fbox.cx + w * (mcx - fbox.cx); mcy = fbox.cy + w * (mcy - fbox.cy);
+      best.s = fbox.s + w * (best.s - fbox.s);   // and its size (it turns away and gets smaller)
     }
 
     // accept: blend the measurement with the prediction (alpha-beta), grow / shrink the box with the matched scale
@@ -456,7 +460,7 @@
     let nw = clamp(b.w * f, this.size0.w * o.minScale, this.size0.w * o.maxScale), nh = clamp(b.h * f, this.size0.h * o.minScale, this.size0.h * o.maxScale);
     nw = Math.min(nw, 1); nh = Math.min(nh, 1);
     this.box = { x: clamp(ncx - nw / 2, 0, 1 - nw), y: clamp(ncy - nh / 2, 0, 1 - nh), w: nw, h: nh };
-    this.t = t; this.lost = 0; this.lostT = 0; this.n++; this.score = sc; this.good++; this.flowRun = 0;
+    this.t = t; this.lost = 0; this.lostT = 0; this.n++; this.score = sc; this.good++; this.flowRun = 0; this._u = null; this._lastC = { cx: ncx, cy: ncy };
     this.weakT = good ? 0 : this.weakT + dt;
 
     // template upkeep: only from a very good, same-size look that still agrees with the original (no drift onto the background)
@@ -467,6 +471,7 @@
         if (!fresh.flat && corr(fresh, this.tm0) > 0.55) {
           const g = this.tm.g; for (let i = 0; i < g.length; i++) g[i] = g[i] * 0.88 + fresh.g[i] * 0.12;
           this.tm = finishTemplate(g, tw, th);
+          if (this.good % 6 === 0) this._bankAdd(this.tm);
         }
       }
     }
@@ -484,12 +489,12 @@
     let nw = clamp(b.w * fs, this.size0.w * o.minScale, this.size0.w * o.maxScale), nh = clamp(b.h * fs, this.size0.h * o.minScale, this.size0.h * o.maxScale);
     nw = Math.min(nw, 1); nh = Math.min(nh, 1);
     this.box = { x: clamp(fb.cx - nw / 2, 0, 1 - nw), y: clamp(fb.cy - nh / 2, 0, 1 - nh), w: nw, h: nh };
-    this.t = t; this.lost = 0; this.lostT = 0; this.n++; this.weakT = 0;
+    this.t = t; this.lost = 0; this.lostT = 0; this.n++; this.weakT = 0; this._u = null; this._lastC = { cx: fb.cx, cy: fb.cy };
     this.flowRun = fb.whole ? (this.flowRun || 0) + 1 : 0;   // the template is only re-learnt while the whole object is seen
     const nb = this.box, tw = this.tm.tw, th = this.tm.th;
     if (this.flowRun >= 2 && nb.x >= img.ox && nb.y >= img.oy && nb.x + nb.w <= img.ox + img.ow && nb.y + nb.h <= img.oy + img.oh) {
       const cw = nb.w * this.core, ch = nb.h * this.core, fresh = finishTemplate(resample(img, nb.x + (nb.w - cw) / 2, nb.y + (nb.h - ch) / 2, cw / tw, ch / th, tw, th), tw, th);
-      if (!fresh.flat) { const g = this.tm.g; for (let i = 0; i < g.length; i++) g[i] = g[i] * 0.5 + fresh.g[i] * 0.5; this.tm = finishTemplate(g, tw, th); }
+      if (!fresh.flat) { const g = this.tm.g; for (let i = 0; i < g.length; i++) g[i] = g[i] * 0.5 + fresh.g[i] * 0.5; this.tm = finishTemplate(g, tw, th); if (this.flowRun % 3 === 0) this._bankAdd(this.tm); }
     }
     this._keep(img, t);
     return { ok: true, score: sc, margin: 1, scale: fb.s, box: Object.assign({}, this.box), lost: 0, lostT: 0, flow: true };
@@ -502,24 +507,104 @@
       if (this.lostT > o.coastKeep) { const f = 1 - dt / Math.max(0.1, o.coastT - o.coastKeep); this.vx *= f; this.vy *= f; }
     } else { this.vx = 0; this.vy = 0; }
     this.t = t;
-    return { ok: false, score: sc, margin, scale: 1, box: Object.assign({}, b), lost: this.lost, lostT: this.lostT };
+    // has it left the picture? (the share of where it should be that is still inside the frame)
+    // (the box is kept inside the frame, so the coasting centre is followed separately, unclamped)
+    const u = this._u || (this._u = { cx: this._lastC ? this._lastC.cx : b.x + b.w / 2, cy: this._lastC ? this._lastC.cy : b.y + b.h / 2 });
+    u.cx += this.vx * dt; u.cy += this.vy * dt;
+    const ix = Math.max(0, Math.min(1, u.cx + b.w / 2) - Math.max(0, u.cx - b.w / 2)) / b.w, iy = Math.max(0, Math.min(1, u.cy + b.h / 2) - Math.max(0, u.cy - b.h / 2)) / b.h;
+    const gone = ix * iy < o.goneIn;
+    return { ok: false, score: sc, margin, scale: 1, box: Object.assign({}, b), lost: this.lost, lostT: this.lostT, gone, hide: gone || this.lostT > o.coastT };
+  };
+  /** Remember a look of the object that differs from the ones kept (it turned, shows another side). The first look always stays. */
+  P._bankAdd = function (T) {
+    if (T.flat || this.bank.some((q) => q.tw === T.tw && q.th === T.th && corr(q, T) > 0.8)) return;
+    this.bank.push(cloneTemplate(T));
+    if (this.bank.length > this.o.bankMax) this.bank.splice(1, 1);
+  };
+  /** The whole frame, drawn at about the template's sharpness (at most reacqW wide): what reacquire() looks at. */
+  P.searchPlan = function () {
+    const b = this.box, o = this.o, tw = this.tm.tw, th = this.tm.th, f = Math.min(1, o.reacqT / Math.max(tw, th));   // the look drawn about reacqT pixels across
+    const pu = b.w * this.core / (tw * f), pv = b.h * this.core / (th * f);
+    this._sn = (this._sn || 0) + 1;
+    if (1 / pu > o.reacqW * 1.05 && this._sn % 2) {   // a small object: every other look, a window around where it was last, at full detail
+      const nw = Math.min(1, o.reacqW * pu), nh = Math.min(1, o.reacqW * pv), cx = (this._lastC ? this._lastC.cx : b.x + b.w / 2), cy = (this._lastC ? this._lastC.cy : b.y + b.h / 2);
+      return { nx: clamp(cx - nw / 2, 0, 1 - nw), ny: clamp(cy - nh / 2, 0, 1 - nh), nw, nh, SW: Math.round(nw / pu), SH: Math.round(nh / pv) };
+    }
+    const k = Math.min(1, o.reacqW * pu, o.reacqW * pv);   // the whole frame (coarser when the object is small)
+    return { nx: 0, ny: 0, nw: 1, nh: 1, SW: Math.max(16, Math.round(k / pu)), SH: Math.max(16, Math.round(k / pv)) };
+  };
+  /** The object is out of sight: look for any of its kept looks anywhere in the frame (img from searchPlan), at a few sizes. When one stands out
+   *  (good score, clearly better than the best spot elsewhere) the tracker starts again there and the box is returned; else null. */
+  /** 3 × 3 box blur (the coarse search samples every second pixel: a blurred peak is wide enough not to fall between them). */
+  function blur3(g, W, H) {
+    const a = new Float32Array(W * H), out = new Float32Array(W * H);
+    for (let j = 0; j < H; j++) for (let i = 0; i < W; i++) { const o = j * W + i, l = i > 0 ? o - 1 : o, r = i < W - 1 ? o + 1 : o; a[o] = (g[l] + g[o] + g[r]) / 3; }
+    for (let j = 0; j < H; j++) for (let i = 0; i < W; i++) { const o = j * W + i, u = j > 0 ? o - W : o, d = j < H - 1 ? o + W : o; out[o] = (a[u] + a[o] + a[d]) / 3; }
+    return out;
+  }
+  P.reacquire = function (img, t) {
+    const o = this.o, b = this.box, pu = img.ow / img.W, pv = img.oh / img.H, gb = blur3(img.g, img.W, img.H);
+    const found = [];
+    const looks = this.bank.length > 2 ? [this.bank[0], this.bank[this.bank.length - 1]] : this.bank;   // the first look and the latest
+    // each look whole, and its middle only (the box holds some background, which is different wherever the object shows up again)
+    const parts = [];
+    for (const T of looks) parts.push(this.core > o.reacqCore ? { T: cropTemplate(T, o.reacqCore / this.core), c: o.reacqCore } : { T, c: 1 });
+    for (const s of o.reacqScales) for (const { T, c } of parts) {
+      const w2 = Math.round(b.w * (c < 1 ? c : this.core) * s / pu), h2 = Math.round(b.h * (c < 1 ? c : this.core) * s / pv);
+      if (w2 < 8 || h2 < 6 || w2 > img.W - 2 || h2 > img.H - 2) continue;
+      {
+        const raw = resample({ g: T.g, W: T.tw, H: T.th, ox: 0, oy: 0, ow: 1, oh: 1 }, 0, 0, 1 / w2, 1 / h2, w2, h2);
+        const qb = finishTemplate(blur3(raw, w2, h2), w2, h2), q = finishTemplate(raw, w2, h2);
+        if (q.flat || qb.flat) continue;
+        const cols = ((img.W - w2) >> 1) + 1, rows = ((img.H - h2) >> 1) + 1;
+        const peaks = [];
+        for (let jy = 0; jy < rows; jy++) for (let ix = 0; ix < cols; ix++) {
+          const v = nccLat(gb, img.W, ix * 2, jy * 2, qb);
+          if (v > 0.4) peaks.push([v, ix * 2, jy * 2]);
+        }
+        // the few best spots of the blurred search (blur makes smooth background look alike too), each checked at full detail
+        peaks.sort((a, c) => c[0] - a[0]);
+        const cand = [];
+        for (const pk of peaks) { if (cand.length >= o.reacqCand) break; if (cand.every((c) => Math.abs(c[1] - pk[1]) > w2 * 0.6 || Math.abs(c[2] - pk[2]) > h2 * 0.6)) cand.push(pk); }
+        for (const [, bx, by] of cand) {
+          let fx = bx, fy = by, fs = -2;
+          for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) {
+            const x = bx + dx, y = by + dy; if (x < 0 || y < 0 || x > img.W - w2 || y > img.H - h2) continue;
+            const v = nccFull(img.g, img.W, x, y, q); if (v > fs) { fs = v; fx = x; fy = y; }
+          }
+          const cx = img.ox + (fx + w2 / 2) * pu, cy = img.oy + (fy + h2 / 2) * pv;
+          found.push({ score: fs, s, cx, cy });
+        }
+      }
+    }
+    // the best spot, against the best spot somewhere else (another thing that looks the same makes it ambiguous)
+    found.sort((a, c) => c.score - a.score);
+    const best = found[0] || null;
+    let second = -1;
+    for (const f of found) if (f !== best && (Math.abs(f.cx - best.cx) > b.w * 0.6 || Math.abs(f.cy - best.cy) > b.h * 0.6)) { second = f.score; break; }
+    this.t = t;
+    if (PT.debug) this._rdbg = best && { score: +best.score.toFixed(2), second: +second.toFixed(2), s: best.s, x: +best.cx.toFixed(3) };
+    if (!best || best.score < o.reacqOk || best.score - second < o.reacqMargin) return null;
+    const w = Math.min(1, b.w * best.s), h = Math.min(1, b.h * best.s), box = { x: clamp(best.cx - w / 2, 0, 1 - w), y: clamp(best.cy - h / 2, 0, 1 - h), w, h };
+    this.rewind(box, t, null);
+    return { ok: true, box: Object.assign({}, box), score: best.score };
   };
   /** An outside measurement of the box at time t (a detector box, the user's edit): follow it, learn the speed from it. */
   P.setBox = function (box, t) {
     const b = this.box, dt = t - this.t, ocx = b.x + b.w / 2, ocy = b.y + b.h / 2, ncx = box.x + box.w / 2, ncy = box.y + box.h / 2;
     if (dt > 0.02 && dt <= 0.6 && this.lost === 0) { this.vx = 0.5 * this.vx + 0.5 * (ncx - ocx) / dt; this.vy = 0.5 * this.vy + 0.5 * (ncy - ocy) / dt; }
     else if (dt < -0.05 || dt > 0.6) { this.vx = 0; this.vy = 0; }
-    this.box = { x: box.x, y: box.y, w: box.w, h: box.h }; this.t = t; this.lost = 0; this.lostT = 0; this._prev = null;
+    this.box = { x: box.x, y: box.y, w: box.w, h: box.h }; this.t = t; this.lost = 0; this.lostT = 0; this._prev = null; this._u = null; this._lastC = null;
   };
   /** Jump to a known box at time t (a seek, the start of an export pass): speed unknown again, wide first look. */
   P.rewind = function (box, t, v) {   // v = { vx, vy } when the speed is known (from the path): then the first look need not be wide
-    this.box = { x: box.x, y: box.y, w: box.w, h: box.h }; this.t = t; this.vx = v ? v.vx : 0; this.vy = v ? v.vy : 0; this.lost = 0; this.lostT = 0; this.n = v ? 3 : 0; this.weakT = 0; this._prev = null;
+    this.box = { x: box.x, y: box.y, w: box.w, h: box.h }; this.t = t; this.vx = v ? v.vx : 0; this.vy = v ? v.vy : 0; this.lost = 0; this.lostT = 0; this.n = v ? 3 : 0; this.weakT = 0; this._prev = null; this._u = null; this._lastC = null;
   };
   /** An independent copy that shares the (read-only) original template: the exporter tracks on its own while the viewer's tracker is left alone. */
   P.fork = function () {
     const c = Object.create(P);
     c.o = this.o; c.core = this.core; c.age0 = this.age0; c.tm0 = this.tm0; c.tm = cloneTemplate(this.tm); c.box = Object.assign({}, this.box); c.size0 = this.size0;
-    c._prev = null; c.t = this.t; c.vx = this.vx; c.vy = this.vy; c.lost = this.lost; c.lostT = this.lostT; c.n = this.n; c.score = this.score; c.good = this.good; c.weakT = this.weakT;
+    c._prev = null; c.bank = this.bank.slice(); c._u = this._u ? Object.assign({}, this._u) : null; c._lastC = this._lastC; c.t = this.t; c.vx = this.vx; c.vy = this.vy; c.lost = this.lost; c.lostT = this.lostT; c.n = this.n; c.score = this.score; c.good = this.good; c.weakT = this.weakT;
     return c;
   };
   /** The user moved / resized the shape: the template follows the object at its new box size. */
@@ -593,6 +678,8 @@
     const i = upper(path, t + 0.02);
     return i < path.length / KEY ? path[i * KEY] : Infinity;
   };
+  /** True when the last key at or before t says "lost" (the object was out of sight from then on). */
+  PT.pathLostAt = (path, t) => { if (!path || !path.length) return false; const i = upper(path, t) - 1; return i >= 0 && isLost(path, i); };
   /** True when some key lies at or before t. */
   PT.pathBefore = (path, t) => !!(path && path.length && path[0] <= t + 1e-6);
   /** The last box that was really seen at or before t (skips "lost" keys), or null. Where a lost region was last, and where an export carries on from. */

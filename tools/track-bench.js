@@ -76,6 +76,9 @@ const SCENARIOS = [
   { name: "turning (rotates 90 deg in 3 s)", dur: 4, box: lin(0.25, 0.40, 0.05, 0.0, 0.09, 0.09), rot: (t) => Math.min(t, 3) * Math.PI / 6, noise: 6 },
   { name: "other side shows (look changes in 2 s)", dur: 5, box: lin(0.25, 0.40, 0.06, 0.005, 0.09, 0.07), morph: (t) => Math.max(0, Math.min(1, (t - 1) / 2)), noise: 6 },
   { name: "turning + look changes + pan", dur: 5, pan: 0.04, box: (t) => ({ x: 0.25 + 0.05 * t, y: 0.40 + 0.02 * Math.sin(t), w: 0.08 * (1 + 0.08 * t), h: 0.07 * (1 + 0.08 * t) }), rot: (t) => 0.35 * t, morph: (t) => Math.max(0, Math.min(1, (t - 1.5) / 2.5)), noise: 8 },
+  { name: "drives out of the picture (blur must go)", dur: 4, box: lin(0.60, 0.40, 0.25, 0.0, 0.08, 0.06), noise: 6 },
+  { name: "drives out, comes back 1.5 s later", dur: 6, box: (t) => ({ x: t < 3 ? 0.6 + 0.25 * t : 1.35 - 0.25 * (t - 3), y: 0.40, w: 0.08, h: 0.06 }), noise: 6 },
+  { name: "hidden 3 s in the picture, then seen again", dur: 7, box: lin(0.30, 0.40, 0.03, 0.0, 0.08, 0.06), occl: [1.5, 4.5], noise: 6 },
   { name: "small + noise", dur: 6, box: lin(0.25, 0.40, 0.03, 0.002, 0.035, 0.026), noise: 10 }
 ];
 
@@ -84,9 +87,20 @@ function runNew(sc, o) {
   const out = [], b0 = padBox(sc.box(0), sc.pad);
   const cp = PT.createPlan(b0, { fw: FW, fh: FH });
   const tr = PT.create(render(sc, 0, cp), b0, 0, Object.assign({ fw: FW, fh: FH }, o));
+  let hidden = false, lastSearch = -9;   // like the page: a lost object's blur goes when it leaves the picture (or after coastT), then it is looked for every 0.3 s
   for (let t = 1 / HZ; t <= sc.dur + 1e-9; t += 1 / HZ) {
+    if (hidden) {
+      if (t - lastSearch >= 0.3 - 1e-9) {
+        lastSearch = t;
+        const r = tr.reacquire(render(sc, t, tr.searchPlan()), t);
+        if (r) { hidden = false; out.push({ t, box: r.box, shown: true, ok: true, score: r.score, found: true }); continue; }
+      }
+      out.push({ t, box: tr.box, shown: false, ok: false, score: 0 });
+      continue;
+    }
     const plan = tr.plan(t), res = tr.update(render(sc, t, plan), t);
-    out.push({ t, box: res.box, shown: res.ok || res.lostT < 1.2, ok: res.ok, score: res.score });
+    if (!res.ok && res.hide) { hidden = true; lastSearch = t; }
+    out.push({ t, box: res.box, shown: res.ok || !res.hide, ok: res.ok, score: res.score });
   }
   return out;
 }
@@ -212,6 +226,8 @@ function runBranch(sc) {
 }
 
 // ── scoring ─────────────────────────────────────────────────────────────────────────────────────────────────────
+/** The object is out of the picture when less than 35 % of it is inside the frame. */
+function absent(T) { const ix = Math.max(0, Math.min(1, T.x + T.w) - Math.max(0, T.x)) / T.w, iy = Math.max(0, Math.min(1, T.y + T.h) - Math.max(0, T.y)) / T.h; return ix * iy < 0.35; }
 function iou(a, b) {
   const x1 = Math.max(a.x, b.x), y1 = Math.max(a.y, b.y), x2 = Math.min(a.x + a.w, b.x + b.w), y2 = Math.min(a.y + a.h, b.y + b.h), i = Math.max(0, x2 - x1) * Math.max(0, y2 - y1);
   return i / (a.w * a.h + b.w * b.h - i);
@@ -220,13 +236,15 @@ function iou(a, b) {
 function score(sc, run) {
   let good = 0, errs = [], sizeErr = [], last = run.slice(-Math.max(5, run.length >> 2));
   for (const r of run) {
-    const T = padBox(sc.box(r.t), sc.pad), v = r.shown && iou(r.box, T) >= 0.5;
+    const T = padBox(sc.box(r.t), sc.pad);
+    if (absent(T)) { if (!r.shown) good++; errs.push(r.shown ? 999 : 0); sizeErr.push(0); continue; }   // out of the picture: right when nothing is shown
+    const v = r.shown && iou(r.box, T) >= 0.5;
     if (v) good++;
     errs.push(Math.hypot((r.box.x + r.box.w / 2 - T.x - T.w / 2) * FW, (r.box.y + r.box.h / 2 - T.y - T.h / 2) * FH));
     sizeErr.push(Math.abs(r.box.w / T.w - 1));
   }
   errs.sort((a, b) => a - b); sizeErr.sort((a, b) => a - b);
-  const endGood = last.filter((r) => r.shown && iou(r.box, padBox(sc.box(r.t), sc.pad)) >= 0.5).length / last.length;
+  const endGood = last.filter((r) => { const T = padBox(sc.box(r.t), sc.pad); return absent(T) ? !r.shown : r.shown && iou(r.box, T) >= 0.5; }).length / last.length;
   return { good: good / run.length, endGood, medErr: errs[errs.length >> 1], p90Err: errs[Math.floor(errs.length * 0.9)], medSize: sizeErr[sizeErr.length >> 1] };
 }
 
