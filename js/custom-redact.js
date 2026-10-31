@@ -758,9 +758,8 @@
       S.drawing = true; S.pick = false; armTrackCapture();
       const latest = S.draft || (G.list.length && G.list[G.list.length - 1]);
       if (latest && latest.cam && !latest.sticky && !S.trackIds.includes(latest.id)) {
-        const patch = grabPatch(latest.cam, latest.x, latest.y, latest.w, latest.h);
-        if (patch) { S.trackIds.push(latest.id); S.patches[latest.id] = patch; msg("Tracking the region you already drew."); }
-        else msg("Track on. Circle anything, or redraw the region.");
+        const info = armRegion(latest);
+        msg(info && info.label ? "Tracking the " + info.label + "." : "Tracking the region you already drew.");
       } else msg("Track: circle anything. It follows by matching the look.");
     }
     else { msg("Track off."); disarmTrackCapture(); }
@@ -799,110 +798,167 @@
     document.addEventListener("pointerdown", trackCap, true);
   }
   function disarmTrackCapture() { if (trackCap) { document.removeEventListener("pointerdown", trackCap, true); trackCap = null; } }
-  function grabPatch(cam, x, y, w, h) {
+  function videoOf(cam) {
     const tile = T.player && T.player.tiles && T.player.tiles[cam];
-    const v = tile && (tile.video || (tile.vids && tile.vids[T.player.active]));
-    if (!v || !v.videoWidth) return null;
-    const c = document.createElement("canvas"); c.width = 24; c.height = 24;
-    const ctx = c.getContext("2d", { willReadFrequently: true });
-    try { ctx.drawImage(v, x * v.videoWidth, y * v.videoHeight, w * v.videoWidth, h * v.videoHeight, 0, 0, 24, 24); } catch (_) { return null; }
-    const d = ctx.getImageData(0, 0, 24, 24).data;
-    const g = new Float32Array(24 * 24);
-    let mean = 0;
-    for (let i = 0; i < g.length; i++) { g[i] = (d[i * 4] + d[i * 4 + 1] + d[i * 4 + 2]) / 3; mean += g[i]; }
-    mean /= g.length;
-    for (let i = 0; i < g.length; i++) g[i] -= mean;
-    return g;
+    if (!tile) return null;
+    const v = tile.vids && T.player ? tile.vids[T.player.active] : null;
+    return v && v.videoWidth ? v : (tile.video && tile.video.videoWidth ? tile.video : null);
   }
+  function iou(a, b) {
+    const x1 = Math.max(a.x, b.x), y1 = Math.max(a.y, b.y), x2 = Math.min(a.x + a.w, b.x + b.w), y2 = Math.min(a.y + a.h, b.y + b.h);
+    const inter = Math.max(0, x2 - x1) * Math.max(0, y2 - y1);
+    const u = a.w * a.h + b.w * b.h - inter;
+    return u > 0 ? inter / u : 0;
+  }
+  function detBoxes(cam) {
+    const D = T.detect; if (!D || !D.trackedLive || !T.player) return [];
+    return D.trackedLive(cam, T.player.time || 0) || [];
+  }
+  function lockDet(cam, r) {
+    let best = null, sc = 0.22;
+    for (const b of detBoxes(cam)) {
+      const o = iou(r, b);
+      const cx = r.x + r.w / 2, cy = r.y + r.h / 2;
+      const inside = cx >= b.x && cx <= b.x + b.w && cy >= b.y && cy <= b.y + b.h;
+      const s = Math.max(o, inside ? 0.36 : 0);
+      if (s > sc) { sc = s; best = b; }
+    }
+    return best;
+  }
+  function rememberAnchor(r, hit) {
+    return { cx: hit.x + hit.w / 2, cy: hit.y + hit.h / 2, hw: hit.w || 0.01, hh: hit.h || 0.01, rx: r.x, ry: r.y, rw: r.w, rh: r.h, pts: r.pts ? r.pts.slice() : null };
+  }
+  function placeOnHit(r, a, hit) {
+    const sx = hit.w / a.hw, sy = hit.h / a.hh, ncx = hit.x + hit.w / 2, ncy = hit.y + hit.h / 2;
+    if (a.pts) {
+      const pts = [];
+      for (let i = 0; i < a.pts.length; i += 2) pts.push(ncx + (a.pts[i] - a.cx) * sx, ncy + (a.pts[i + 1] - a.cy) * sy);
+      r.pts = pts;
+      let x0 = 1, y0 = 1, x1 = 0, y1 = 0;
+      for (let i = 0; i < pts.length; i += 2) { x0 = Math.min(x0, pts[i]); x1 = Math.max(x1, pts[i]); y0 = Math.min(y0, pts[i + 1]); y1 = Math.max(y1, pts[i + 1]); }
+      r.x = x0; r.y = y0; r.w = Math.max(0.01, x1 - x0); r.h = Math.max(0.01, y1 - y0);
+    } else {
+      r.w = Math.max(0.01, a.rw * sx); r.h = Math.max(0.01, a.rh * sy);
+      r.x = ncx + (a.rx + a.rw / 2 - a.cx) * sx - r.w / 2;
+      r.y = ncy + (a.ry + a.rh / 2 - a.cy) * sy - r.h / 2;
+    }
+    r.x = Math.max(0, Math.min(1 - r.w, r.x));
+    r.y = Math.max(0, Math.min(1 - r.h, r.y));
+  }
+  const grayCv = document.createElement("canvas");
+  function grabPatch(cam, x, y, w, h) {
+    const v = videoOf(cam); if (!v) return null;
+    const tw = 32, th = 32;
+    grayCv.width = tw; grayCv.height = th;
+    const ctx = grayCv.getContext("2d", { willReadFrequently: true });
+    const sx = Math.max(0, x * v.videoWidth), sy = Math.max(0, y * v.videoHeight);
+    const sw = Math.max(2, Math.min(v.videoWidth - sx, w * v.videoWidth)), sh = Math.max(2, Math.min(v.videoHeight - sy, h * v.videoHeight));
+    try { ctx.drawImage(v, sx, sy, sw, sh, 0, 0, tw, th); } catch (_) { return null; }
+    const d = ctx.getImageData(0, 0, tw, th).data, g = new Float32Array(tw * th);
+    let mean = 0;
+    for (let i = 0; i < g.length; i++) { g[i] = d[i * 4] * 0.299 + d[i * 4 + 1] * 0.587 + d[i * 4 + 2] * 0.114; mean += g[i]; }
+    mean /= g.length;
+    let e = 0;
+    for (let i = 0; i < g.length; i++) g[i] -= mean;
+    for (let j = 0; j < th; j += 2) for (let i = 0; i < tw; i += 2) { const t = g[j * tw + i]; e += t * t; }
+    return { g, e: Math.sqrt(e) || 1, tw, th };
+  }
+  const searchCv = document.createElement("canvas");
   function matchPatch(cam, patch, lx, ly, lw, lh) {
-    const tile = T.player && T.player.tiles && T.player.tiles[cam];
-    const v = tile && (tile.video || (tile.vids && tile.vids[T.player.active]));
-    if (!v || !v.videoWidth || !patch) return null;
-    const c = document.createElement("canvas"); c.width = 40; c.height = 40;
-    const ctx = c.getContext("2d", { willReadFrequently: true });
-    const pad = Math.max(lw, lh) * 0.5;
-    const sx = Math.max(0, (lx - pad) * v.videoWidth), sy = Math.max(0, (ly - pad) * v.videoHeight);
-    const sw = Math.min(v.videoWidth - sx, (lw + pad * 2) * v.videoWidth), sh = Math.min(v.videoHeight - sy, (lh + pad * 2) * v.videoHeight);
-    try { ctx.drawImage(v, sx, sy, sw, sh, 0, 0, 40, 40); } catch (_) { return null; }
-    const d = ctx.getImageData(0, 0, 40, 40).data;
-    let best = -1e9, bx = 8, by = 8;
-    for (let oy = 0; oy <= 16; oy += 2) for (let ox = 0; ox <= 16; ox += 2) {
-      let dot = 0, n2 = 0, mean = 0, n = 0;
-      for (let j = 0; j < 24; j += 2) for (let i = 0; i < 24; i += 2) {
-        const p = ((oy + j) * 40 + (ox + i)) * 4;
-        mean += (d[p] + d[p + 1] + d[p + 2]) / 3; n++;
+    const v = videoOf(cam); if (!v || !patch || !patch.g || lw < 0.005 || lh < 0.005) return null;
+    const m = 0.55, tw = patch.tw, th = patch.th;
+    const hw = lw * (0.5 + m), hh = lh * (0.5 + m);
+    const cx = Math.max(hw, Math.min(1 - hw, lx + lw / 2)), cy = Math.max(hh, Math.min(1 - hh, ly + lh / 2));
+    const nx = cx - hw, ny = cy - hh, nw = hw * 2, nh = hh * 2;
+    const SW = Math.max(tw + 4, Math.round(nw / lw * tw)), SH = Math.max(th + 4, Math.round(nh / lh * th));
+    if (SW > 96 || SH > 96) return null;
+    searchCv.width = SW; searchCv.height = SH;
+    const ctx = searchCv.getContext("2d", { willReadFrequently: true });
+    try { ctx.drawImage(v, nx * v.videoWidth, ny * v.videoHeight, nw * v.videoWidth, nh * v.videoHeight, 0, 0, SW, SH); } catch (_) { return null; }
+    const d = ctx.getImageData(0, 0, SW, SH).data;
+    const expX = (lx - nx) / nw * SW, expY = (ly - ny) / nh * SH;
+    let best = -1, bx = expX, by = expY;
+    for (let oy = 0; oy <= SH - th; oy += 2) for (let ox = 0; ox <= SW - tw; ox += 2) {
+      let mean = 0, n = 0;
+      for (let j = 0; j < th; j += 2) for (let i = 0; i < tw; i += 2) { const p = ((oy + j) * SW + (ox + i)) * 4; mean += d[p] * 0.299 + d[p + 1] * 0.587 + d[p + 2] * 0.114; n++; }
+      mean /= n || 1;
+      let dot = 0, e2 = 0;
+      for (let j = 0; j < th; j += 2) for (let i = 0; i < tw; i += 2) {
+        const p = ((oy + j) * SW + (ox + i)) * 4;
+        const g = d[p] * 0.299 + d[p + 1] * 0.587 + d[p + 2] * 0.114 - mean, t = patch.g[j * tw + i];
+        dot += g * t; e2 += g * g;
       }
-      mean /= n;
-      for (let j = 0; j < 24; j += 2) for (let i = 0; i < 24; i += 2) {
-        const p = ((oy + j) * 40 + (ox + i)) * 4;
-        const g = (d[p] + d[p + 1] + d[p + 2]) / 3 - mean;
-        const t = patch[j * 24 + i];
-        dot += g * t; n2 += g * g;
-      }
-      const score = n2 > 1 ? dot / Math.sqrt(n2) : 0;
+      const score = e2 > 1 ? dot / (Math.sqrt(e2) * patch.e) : -1;
       if (score > best) { best = score; bx = ox; by = oy; }
     }
-    const cx = (lx * v.videoWidth - sx) / sw * 40, cy = (ly * v.videoHeight - sy) / sh * 40;
-    const dx = (bx - cx) / 40 * sw / v.videoWidth, dy = (by - cy) / 40 * sh / v.videoHeight;
-    return { x: lx + dx, y: ly + dy, w: lw, h: lh, score: best };
+    return { x: lx + (bx - expX) / SW * nw, y: ly + (by - expY) / SH * nh, score: best };
+  }
+  function armRegion(r) {
+    if (!r || S.trackIds.includes(r.id)) return S.patches[r.id];
+    const hit = lockDet(r.cam, r);
+    const info = { patch: grabPatch(r.cam, r.x, r.y, r.w, r.h), lost: 0 };
+    if (hit && hit.id != null) { info.detId = hit.id; info.label = hit.label; info.anchor = rememberAnchor(r, hit); }
+    S.patches[r.id] = info; S.trackIds.push(r.id);
+    return info;
   }
   function startTrack(cam, x, y, w, h) {
-    const patch = grabPatch(cam, x, y, w, h);
-    if (!patch) { msg("Couldn't read the picture. Seek or play, then circle again.", true); return; }
     let r;
     if (S.shape === "free" && S.draft && S.draft.cam === cam && S.draft.pts) {
       r = G.add({ cam, shape: "poly", pts: S.draft.pts.slice(), mode: S.mode, on: true });
       S.draft = null;
-    } else {
-      r = G.add({ cam, shape: "rect", x, y, w, h, mode: S.mode, on: true });
-    }
-    if (r) { S.trackIds.push(r.id); S.patches[r.id] = { patch, ox: r.x, oy: r.y }; msg("Tracking. Play to follow. Circle more, or press Done."); UI.sync(); kick(); }
+    } else r = G.add({ cam, shape: "rect", x, y, w, h, mode: S.mode, on: true });
+    if (!r) { msg("Couldn't read the picture. Seek or play, then circle again.", true); return; }
+    const info = armRegion(r);
+    if (!info.patch && !info.detId) { msg("Couldn't read the picture. Seek or play, then circle again.", true); return; }
+    msg(info.label ? "Tracking the " + info.label + "." : "Tracking. Play to follow. Circle more, or press Done.");
+    UI.sync(); kick();
   }
-  function dbg(s) {
-    let n = document.getElementById("trackDbg");
-    if (!n) { n = document.createElement("div"); n.id = "trackDbg"; n.style.cssText = "position:fixed;top:8px;left:8px;z-index:9999;background:#000;color:#0f0;padding:8px 10px;font:12px monospace;border-radius:6px;max-width:360px;pointer-events:none;white-space:pre-line;"; document.body.appendChild(n); }
-    n.textContent = s;
-  }
+  let lastFollow = 0;
   function followPatches() {
     if (!S.trackIds.length || !T.player) return;
-    const playing = T.player.playing || (T.player.tiles && Object.values(T.player.tiles).some(t => { const v = t.video || (t.vids && t.vids[T.player.active]); return v && !v.paused; }));
+    const playing = T.player.playing || (T.player.tiles && Object.values(T.player.tiles).some((t) => { const v = t.vids && t.vids[T.player.active]; return v && !v.paused; }));
     if (!playing) return;
-    let changed = false;
+    const now = performance.now(); if (now - lastFollow < 80) return; lastFollow = now;
+    let moved = false, vis = false;
     S.trackIds = S.trackIds.filter((id) => G.list.some((r) => r.id === id));
-    const cams = T.player.ev && T.player.ev.cams ? T.player.ev.cams : T.GRID;
     for (const id of S.trackIds) {
       const r = G.list.find((x) => x.id === id); if (!r) continue;
       const info = S.patches[id] || {};
-      const m = matchPatch(r.cam, info.patch || info, r.x, r.y, r.w, r.h);
-      if (m && m.score > 30 && Math.hypot(m.x - r.x, m.y - r.y) < 0.05) {
-        let dx = m.x - r.x, dy = m.y - r.y;
-        info.vx = (info.vx || 0) * 0.8 + dx * 0.2;
-        info.vy = (info.vy || 0) * 0.8 + dy * 0.2;
-        const mx = info.vx || 0, my = info.vy || 0;
-        r.x = Math.max(0, Math.min(1 - r.w, r.x + mx));
-        r.y = Math.max(0, Math.min(1 - r.h, r.y + my));
-        if (r.pts) for (let i = 0; i < r.pts.length; i += 2) { r.pts[i] = Math.max(0, Math.min(1, r.pts[i] + mx)); r.pts[i + 1] = Math.max(0, Math.min(1, r.pts[i + 1] + my)); }
-        info.lost = 0; if (!r.on) { r.on = true; changed = true; }
-        changed = true;
-      } else {
-        info.lost = (info.lost || 0) + 1;
-        if (info.lost > 10 && r.on) { r.on = false; changed = true; }
-        if (!r.sticky && info.lost > 5 && info.lost % 5 === 0) {
-          for (const cam of cams) {
-            if (cam === r.cam) continue;
-            const hit = matchPatch(cam, info.patch || info, 0.3, 0.3, r.w, r.h);
-            if (hit && hit.score > 25) {
-              r.cam = cam; r.x = hit.x; r.y = hit.y; r.on = true; info.lost = 0; info.vx = 0; info.vy = 0;
-              changed = true; break;
+      let hit = null;
+      if (info.detId != null) hit = detBoxes(r.cam).find((b) => b.id === info.detId) || null;
+      if (!hit && !info.detId) { const found = lockDet(r.cam, r); if (found && found.id != null) { info.detId = found.id; info.label = found.label; info.anchor = rememberAnchor(r, found); hit = found; } }
+      if (hit && info.anchor) {
+        placeOnHit(r, info.anchor, hit);
+        info.lost = 0; if (!r.on) { r.on = true; vis = true; }
+        moved = true;
+      } else if (info.patch) {
+        const m = matchPatch(r.cam, info.patch, r.x, r.y, r.w, r.h);
+        if (m && m.score > 0.45) {
+          const k = m.score > 0.72 ? 0.8 : 0.45;
+          const dx = (m.x - r.x) * k, dy = (m.y - r.y) * k;
+          r.x = Math.max(0, Math.min(1 - r.w, r.x + dx)); r.y = Math.max(0, Math.min(1 - r.h, r.y + dy));
+          if (r.pts) for (let i = 0; i < r.pts.length; i += 2) { r.pts[i] = Math.max(0, Math.min(1, r.pts[i] + dx)); r.pts[i + 1] = Math.max(0, Math.min(1, r.pts[i + 1] + dy)); }
+          info.lost = 0; if (!r.on) { r.on = true; vis = true; }
+          moved = true;
+          if (m.score > 0.82 && (info.upd = (info.upd || 0) + 1) % 5 === 0) {
+            const fresh = grabPatch(r.cam, r.x, r.y, r.w, r.h);
+            if (fresh && fresh.g.length === info.patch.g.length) {
+              for (let i = 0; i < fresh.g.length; i++) info.patch.g[i] = info.patch.g[i] * 0.8 + fresh.g[i] * 0.2;
+              let e = 0; const tw = info.patch.tw;
+              for (let j = 0; j < info.patch.th; j += 2) for (let i = 0; i < tw; i += 2) { const t = info.patch.g[j * tw + i]; e += t * t; }
+              info.patch.e = Math.sqrt(e) || 1;
             }
           }
-        }
-      }
+        } else info.lost = (info.lost || 0) + 1;
+      } else info.lost = (info.lost || 0) + 1;
+      if ((info.lost || 0) > 12 && r.on) { r.on = false; vis = true; }
       S.patches[id] = info;
     }
-    if (changed) { rebuild(); if (R && R.paint) R.paint(); }
+    if (vis) rebuild();
+    if ((moved || vis) && R && R.paint) R.paint();
   }
-  setInterval(followPatches, 120);
+  if (T.on) T.on("time", followPatches);
+  setInterval(followPatches, 160);
 
     /** Done: saves a drawn shape; in Move it simply closes the tray (the moves are already saved, and undoable). */
   UI.done = () => {
