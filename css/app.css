@@ -1350,3 +1350,18 @@ body.fs.kb-typing .drawer.set-panel, body.kb-up .drawer.set-panel { top: calc(en
 .us-panel.docked:not(.sheet) #crSec > #crList { width: min(560px, 94%); max-height: min(320px, 55vh); }
 .us-panel.docked:not(.sheet) #crSec .cr-desc { white-space: normal; }
 .us-panel.docked:not(.sheet) #crSec .cr-desc br { display: inline; }
+/* region bars inside the timeline's empty sections lane (no extra row under the timeline) */
+.timeline .cr-lanes.in-lane { position: absolute; left: 0; width: 100%; margin: 0; overflow: hidden; z-index: 2; }
+/* "Track drawing is on" (every camera view, the six-up grid included) */
+.cr-track-pill { position: fixed; z-index: 86; top: calc(env(safe-area-inset-top, 0px) + 64px); left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 10px; padding: 6px 6px 6px 12px; border-radius: 999px; background: rgba(20,24,32,.94); border: 1px solid #3fdc5a; color: #e8ffe9; font: 600 13px/1.3 system-ui, sans-serif; box-shadow: 0 10px 28px rgba(0,0,0,.5); }
+.cr-track-pill[hidden] { display: none; }
+.cr-track-pill .dot { width: 10px; height: 10px; border-radius: 50%; background: #3fdc5a; box-shadow: 0 0 0 0 rgba(63,220,90,.6); animation: crpulse 1.4s ease-out infinite; }
+@keyframes crpulse { to { box-shadow: 0 0 0 9px rgba(63,220,90,0); } }
+@media (prefers-reduced-motion: reduce) { .cr-track-pill .dot { animation: none; } }
+body.cr-track-on .tile { box-shadow: inset 0 0 0 2px rgba(63,220,90,.55); }
+.cr-trkbtn { display: inline-flex; align-items: center; gap: 4px; }
+.cr-trkbtn .cr-ico { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2.2; }
+.cr-trkbtn.on { color: #6be37f; border-color: rgba(63,220,90,.5); }
+.cr-badge.trk.pass { background: rgba(255,255,255,.08); color: #e8ecf2; border-color: rgba(255,255,255,.3); }
+.cr-sw-any { position: relative; display: inline-block; overflow: hidden; background: var(--sw, conic-gradient(red, yellow, lime, cyan, blue, magenta, red)); }
+.cr-sw-any input { position: absolute; inset: -6px; opacity: 0; cursor: pointer; width: 40px; height: 40px; }

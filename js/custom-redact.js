@@ -4,7 +4,7 @@
  *
  *   region = { id, cam, shape: "rect" | "poly", x, y, w, h (bounding box), pts: [x0, y0, x1, y1, …] (poly only),
  *              mode: "blur" | "remove" | "mark", start: seconds | null, end: seconds | null, on: true, v: 1,
- *              mk: "box" | "ring" | "line" (mark only: a box, a circle or the shape's own outline round the object, nothing hidden), mc: "#rrggbb" (its colour),
+ *              shape "ellipse": the circle tool (x, y, w, h is the box round it). mark: the shape's outline is drawn in mc ("#rrggbb"), nothing hidden,
  *              ci: colour index of the region on the timeline and in the list, link: id shared by the regions of one object followed across cameras }
  *   Coordinates are 0..1 of the camera's RAW picture (the frame, without the black bars of the tile, before any mirroring). Times are seconds
  *   on the event timeline (the same t the player and the exporter use, so trimmed / joined sections need no special case).
@@ -28,7 +28,7 @@
   const R = T.redact;
   const PT = T.patchTrack || null;   // js/patch-track.js (a stale cache without it just leaves tracking out)
   const $ = (id) => document.getElementById(id);
-  const G = (T.regions = { list: [], key: null, MAX: 40, MAX_PTS: 96, KEY: "tdc.regions.v1", ui: { cam: null, shape: "rect", mode: "blur", mk: "box", mc: "#ffd400", whole: true, from: 0, to: 0, draft: null, editId: null, drawing: false, pick: false } });
+  const G = (T.regions = { list: [], key: null, MAX: 40, MAX_PTS: 96, KEY: "tdc.regions.v1", ui: { cam: null, shape: "rect", tool: "rect", mode: "blur", mc: "#ffd400", whole: true, from: 0, to: 0, draft: null, editId: null, drawing: false, pick: false } });
   const EMPTY = [];
   let byCam = {};
 
@@ -46,10 +46,10 @@
   /** Validate / clamp one region (from storage, a file or the editor). Returns null when it is unusable. */
   G.clean = (o, keepId) => {
     if (!o || typeof o !== "object" || !T.GRID.includes(o.cam)) return null;
-    const r = { id: keepId && o.id ? String(o.id) : "r" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), cam: o.cam, shape: o.shape === "poly" ? "poly" : "rect",
+    const r = { id: keepId && o.id ? String(o.id) : "r" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), cam: o.cam, shape: o.shape === "poly" ? "poly" : o.shape === "ellipse" ? "ellipse" : "rect",
       mode: o.mode === "remove" ? "remove" : o.mode === "mark" ? "mark" : "blur", start: isNum(o.start) && o.start > 0 ? o.start : null, end: isNum(o.end) && o.end >= 0 ? o.end : null, on: o.on !== false, sticky: !!o.sticky, global: !!o.global, v: 1 };
     if (r.end != null && r.start != null && r.end < r.start) { const s = r.start; r.start = r.end; r.end = s; }
-    if (r.mode === "mark") { r.mk = ["box", "ring", "line"].includes(o.mk) ? o.mk : "box"; r.mc = /^#[0-9a-f]{6}$/i.test(o.mc || "") ? o.mc.toLowerCase() : MARK_COLORS[0]; }
+    if (r.mode === "mark") { r.mc = /^#[0-9a-f]{6}$/i.test(o.mc || "") ? o.mc.toLowerCase() : MARK_COLORS[0]; if (o.mk === "ring" && r.shape === "rect") r.shape = "ellipse"; }   // (older highlight regions kept a separate box / circle choice: the shape says it now)
     if (Number.isInteger(o.ci) && o.ci >= 0 && o.ci < LANE_COLORS.length) r.ci = o.ci;
     if (o.link && typeof o.link === "string") r.link = o.link.slice(0, 40);
     if (r.shape === "poly") {
@@ -98,7 +98,7 @@
   G.any = () => G.list.some((r) => r.on);
 
   /** The style fields of a new region from the form (mark: its shape and colour). */
-  const styleOf = () => (G.ui.mode === "mark" ? { mode: "mark", mk: G.ui.mk, mc: G.ui.mc } : { mode: G.ui.mode });
+  const styleOf = () => (G.ui.mode === "mark" ? { mode: "mark", mc: G.ui.mc } : { mode: G.ui.mode });
   // ── storage ────────────────────────────────────────────────────────────────────────────────────────────────────
   const mem = {};
   function fnv(str) { let h = 2166136261; for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); }
@@ -125,7 +125,7 @@
   function readGlobal() { try { return JSON.parse(localStorage.getItem("tdc.regions.global") || "[]"); } catch (_) { return []; } }
   function sameRegion(a, b) {
     if (a.id && a.id === b.id) return true;
-    if (a.cam !== b.cam || a.mode !== b.mode || a.shape !== b.shape || (a.mk || "") !== (b.mk || "")) return false;
+    if (a.cam !== b.cam || a.mode !== b.mode || a.shape !== b.shape) return false;
     if (Math.abs(a.x - b.x) > 0.002 || Math.abs(a.y - b.y) > 0.002 || Math.abs(a.w - b.w) > 0.002 || Math.abs(a.h - b.h) > 0.002) return false;
     return a.shape !== "poly" || JSON.stringify(a.pts) === JSON.stringify(b.pts);
   }
@@ -188,6 +188,7 @@
   G.resetHistory = () => { H.u.length = 0; H.r.length = 0; };
   function changed(keepUi) {
     rebuild(); G.save();
+    try { if (T.ui && T.ui.drawTimeline) T.ui.drawTimeline(); } catch (_) {}   // (the region bars, and the sections lane's hint, follow)
     if (R && R.paint) R.paint();
     if (UI.sync) UI.sync(keepUi);
     if (T.emit) T.emit("regions", G.list.length);
@@ -208,17 +209,20 @@
     // (only a change of the shape itself: switching it on / off, its time range or its style must not touch the path; the stored shape is
     //  rounded to 1e-4, so a re-save alone would look like a tiny move and, where the object is out of sight, wipe the path)
     const shapeEdit = ["x", "y", "w", "h", "pts", "shape"].some((k) => k in o);
+    let rearm = null;
     if (PT && shapeEdit && old.path && r.path && (Math.abs(r.x - old.x) > 2e-4 || Math.abs(r.y - old.y) > 2e-4 || Math.abs(r.w - old.w) > 2e-4 || Math.abs(r.h - old.h) > 2e-4)) {
       // the user moved / resized a tracked region at this moment: keep its offset from the object (every key moves the same way); where it was lost, start the path here
       const t = T.player ? T.player.time || 0 : 0, shown = PT.pathAt(old.path, t), nb = { x: r.x, y: r.y, w: r.w, h: r.h };
       if (shown) PT.pathRebase(r.path, shown, nb); else { r.path = []; PT.pathAdd(r.path, t, nb); }
-      const inf = S.patches && S.patches[id]; if (inf && inf.tr) { inf.tr.rebase(nb, t); inf.tx = null; }
+      if (S.patches && S.patches[id]) rearm = t;   // tracked: followed again from here, on the new box
     }
     if (JSON.stringify(r) === JSON.stringify(old)) return r;   // nothing changed: no history step
     record();
     if (!RH[id]) RH[id] = { u: [], r: [] };
     RH[id].u.push(JSON.stringify(G.list[i])); if (RH[id].u.length > 20) RH[id].u.shift(); RH[id].r.length = 0;
-    G.list[i] = r; changed(); return r;
+    G.list[i] = r; changed();
+    if (rearm != null) armRegion(r, rearm);
+    return r;
   };
   G.undoRegion = (id) => {
     const h = RH[id]; if (!h || !h.u.length) return false;
@@ -270,6 +274,7 @@
   // ── painter ────────────────────────────────────────────────────────────────────────────────────────────────────
   /** Trace the region's outline (pixel rect of the contain-fit `fit`). Rectangles snap OUTWARD to whole pixels so Remove leaves no seam. */
   function trace(ctx, fit, r) {
+    if (r.shape === "ellipse") { const w = r.w * fit.w, h = r.h * fit.h; ctx.ellipse(fit.x + r.x * fit.w + w / 2, fit.y + r.y * fit.h + h / 2, Math.max(1, w / 2), Math.max(1, h / 2), 0, 0, Math.PI * 2); return; }
     if (r.shape === "poly" && r.pts) {
       ctx.moveTo(fit.x + r.pts[0] * fit.w, fit.y + r.pts[1] * fit.h);
       for (let i = 2; i < r.pts.length; i += 2) ctx.lineTo(fit.x + r.pts[i] * fit.w, fit.y + r.pts[i + 1] * fit.h);
@@ -287,8 +292,8 @@
     const lw = Math.max(2, Math.min(fit.w, fit.h) * 0.007), x0 = fit.x + r.x * fit.w, y0 = fit.y + r.y * fit.h, w = r.w * fit.w, h = r.h * fit.h;
     ctx.save(); ctx.lineJoin = "round"; ctx.lineCap = "round";
     ctx.beginPath();
-    if (r.mk === "ring") { const k = 1.12; ctx.ellipse(x0 + w / 2, y0 + h / 2, Math.max(2, (w / 2) * k), Math.max(2, (h / 2) * k), 0, 0, Math.PI * 2); }
-    else if (r.mk === "line" && r.shape === "poly" && r.pts) trace(ctx, fit, r);
+    if (r.shape === "ellipse") ctx.ellipse(x0 + w / 2, y0 + h / 2, Math.max(2, w / 2), Math.max(2, h / 2), 0, 0, Math.PI * 2);
+    else if (r.shape === "poly" && r.pts) trace(ctx, fit, r);
     else { const p = lw, rad = Math.min(w, h) * 0.12; T.draw && T.draw.rr ? T.draw.rr(ctx, x0 - p, y0 - p, w + 2 * p, h + 2 * p, rad) : ctx.rect(x0 - p, y0 - p, w + 2 * p, h + 2 * p); }
     ctx.strokeStyle = "rgba(0,0,0,0.55)"; ctx.lineWidth = lw * 2.2; ctx.stroke();
     ctx.strokeStyle = r.mc || MARK_COLORS[0]; ctx.lineWidth = lw; ctx.stroke();
@@ -388,8 +393,8 @@
     const st = [[0, n - 1]];
     while (st.length) {
       const [a, b] = st.pop(); let md = 0, mi = -1;
-      const ax = p[a * 2], ay = p[a * 2 + 1], bx = p[b * 2], by = p[b * 2 + 1], dx = bx - ax, dy = by - ay, L = Math.hypot(dx, dy) || 1e-9;
-      for (let i = a + 1; i < b; i++) { const d = Math.abs((p[i * 2] - ax) * dy - (p[i * 2 + 1] - ay) * dx) / L; if (d > md) { md = d; mi = i; } }
+      const ax = p[a * 2], ay = p[a * 2 + 1], bx = p[b * 2], by = p[b * 2 + 1], dx = bx - ax, dy = by - ay, L = Math.hypot(dx, dy);
+      for (let i = a + 1; i < b; i++) { const d = L < 1e-6 ? Math.hypot(p[i * 2] - ax, p[i * 2 + 1] - ay) : Math.abs((p[i * 2] - ax) * dy - (p[i * 2 + 1] - ay) * dx) / L; if (d > md) { md = d; mi = i; } }   // (a closed loop: its ends meet, so the distance from that end)
       if (md > eps && mi > 0) { keep[mi] = 1; st.push([a, mi], [mi, b]); }
     }
     const out = []; for (let i = 0; i < n; i++) if (keep[i]) out.push(p[i * 2], p[i * 2 + 1]);
@@ -477,12 +482,13 @@
     }
   }
   const hot = (cam, on) => { const b = picks[cam]; if (b) b.classList.toggle("hot", !!on); };
-  function shapeOf(o) { return o ? (o.shape === "poly" ? { shape: "poly", pts: o.pts } : { shape: "rect", x: o.x, y: o.y, w: o.w, h: o.h }) : null; }
+  function shapeOf(o) { return o ? (o.shape === "poly" ? { shape: "poly", pts: o.pts } : { shape: o.shape === "ellipse" ? "ellipse" : "rect", x: o.x, y: o.y, w: o.w, h: o.h }) : null; }
 
   function drawOutline(ctx, f, tr, sh, strong, label) {
     ctx.beginPath();
     if (sh.shape === "poly") { sh.pts.forEach((v, i) => { if (i % 2) return; const [x, y] = G.toScreen(f, v, sh.pts[i + 1]); i ? ctx.lineTo(x - tr.left, y - tr.top) : ctx.moveTo(x - tr.left, y - tr.top); }); ctx.closePath(); }
-    else { const [xa, ya] = G.toScreen(f, sh.x, sh.y), [xb, yb] = G.toScreen(f, sh.x + sh.w, sh.y + sh.h); ctx.rect(Math.min(xa, xb) - tr.left, Math.min(ya, yb) - tr.top, Math.abs(xb - xa), Math.abs(yb - ya)); }
+    else { const [xa, ya] = G.toScreen(f, sh.x, sh.y), [xb, yb] = G.toScreen(f, sh.x + sh.w, sh.y + sh.h), x = Math.min(xa, xb) - tr.left, y = Math.min(ya, yb) - tr.top, w = Math.abs(xb - xa), h = Math.abs(yb - ya);
+      if (sh.shape === "ellipse") ctx.ellipse(x + w / 2, y + h / 2, Math.max(1, w / 2), Math.max(1, h / 2), 0, 0, Math.PI * 2); else ctx.rect(x, y, w, h); }
     if (strong) { ctx.fillStyle = "rgba(230,180,80,0.18)"; ctx.fill(); }
     ctx.lineWidth = strong ? 2.5 : 1.5; ctx.strokeStyle = "rgba(0,0,0,0.75)"; ctx.setLineDash([]); ctx.stroke();
     ctx.lineWidth = strong ? 1.5 : 1; ctx.strokeStyle = strong ? "#ffd27a" : "rgba(255,255,255,0.8)"; ctx.setLineDash(strong ? [] : [5, 4]); ctx.stroke(); ctx.setLineDash([]);
@@ -533,11 +539,11 @@
       const ctx = o.cv.getContext("2d"); ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, tr.width, tr.height);
       if (!f) continue;
       for (const r of G.list) if (r.cam === cam && r.id !== S.editId && !(S.move && r.id === S.sel)) drawOutline(ctx, f, tr, shapeOf(r), false);
-      if (S.move && S.sel && cam === S.cam) { const r = G.list.find((x) => x.id === S.sel); if (r) { const sh = S.mv && S.mv.id === r.id ? S.mv.sh : shapeOf(r); drawOutline(ctx, f, tr, sh, true); drawHandles(ctx, f, tr, sh, (r.mode === "remove" ? "Remove" : "Blur") + " · " + (r.shape === "poly" ? "Freehand" : "Box")); } }
+      if (S.move && S.sel && cam === S.cam) { const r = G.list.find((x) => x.id === S.sel); if (r) { const sh = S.mv && S.mv.id === r.id ? S.mv.sh : shapeOf(r); drawOutline(ctx, f, tr, sh, true); drawHandles(ctx, f, tr, sh, (MODE_NAME[r.mode] || "Blur") + " · " + SHAPE_NAME[r.shape] + (isTracked(r) ? " · tracking" : "")); } }
       if (S.draft && cam === S.cam) drawOutline(ctx, f, tr, shapeOf(S.draft), true);
       if (S.peek && S.peek.cam === cam) drawOutline(ctx, f, tr, S.peek.sh, true);
       if (live) {
-        const sh = S.shape === "free" ? { shape: "poly", pts: live.pts.length >= 4 ? live.pts : null } : { shape: "rect", x: Math.min(live.pts[0], live.pts[live.pts.length - 2]), y: Math.min(live.pts[1], live.pts[live.pts.length - 1]), w: Math.abs(live.pts[live.pts.length - 2] - live.pts[0]), h: Math.abs(live.pts[live.pts.length - 1] - live.pts[1]) };
+        const sh = S.shape === "free" ? { shape: "poly", pts: live.pts.length >= 4 ? live.pts : null } : { shape: S.tool === "circle" ? "ellipse" : "rect", x: Math.min(live.pts[0], live.pts[live.pts.length - 2]), y: Math.min(live.pts[1], live.pts[live.pts.length - 1]), w: Math.abs(live.pts[live.pts.length - 2] - live.pts[0]), h: Math.abs(live.pts[live.pts.length - 1] - live.pts[1]) };
         if (sh.shape === "rect" || sh.pts) drawOutline(ctx, f, tr, sh, true);
         else { ctx.beginPath(); live.pts.forEach((v, i) => { if (i % 2) return; const [x, y] = G.toScreen(f, v, live.pts[i + 1]); i ? ctx.lineTo(x - tr.left, y - tr.top) : ctx.moveTo(x - tr.left, y - tr.top); }); ctx.lineWidth = 2; ctx.strokeStyle = "#ffd27a"; ctx.stroke(); }
         // freehand: show only key points (start, end, and tap points) — not every intermediate sample
@@ -577,11 +583,6 @@
       e.stopPropagation();
       if (id !== null || (e.pointerType === "mouse" && e.button !== 0)) return;
       if (S.move && cam === S.cam) { moveDown(cam, e); return; }
-      // Track mode: always capture the gesture, even if no camera chosen yet
-      if (S.track && S.shape !== "free") {   // (freehand + Track: the outline is drawn as usual and the saved region is armed, see UI.save)
-        e.preventDefault(); id = e.pointerId; try { cv.setPointerCapture(id); } catch (_) {}
-        pend = { x: e.clientX, y: e.clientY, track: true, cam }; return;
-      }
       if (S.pick || (S.drawing && S.cam !== cam)) {   // no camera chosen yet (or another camera of the grid): wait to see whether this is a tap or a drag
         if (!S.pick && !S.drawing) return;
         e.preventDefault(); id = e.pointerId; try { cv.setPointerCapture(id); } catch (_) {}
@@ -656,18 +657,6 @@
       e.stopPropagation(); id = null;
       try { cv.releasePointerCapture(e.pointerId); } catch (_) {}
       if (S.live && S.live.dragIdx != null) { S.live.dragIdx = null; kick(); return; }
-      if (pend && pend.track) {
-        const p0 = pend; pend = null;
-        dbg("gesture captured on " + cam);
-        const tc = p0.cam || cam;
-        const f = G.screenFit(tc); if (!f) { msg("Camera not ready.", true); return; }
-        const [u, v] = G.toRaw(f, p0.x, p0.y);
-        const [u2, v2] = G.toRaw(f, e.clientX, e.clientY);
-        const x = Math.min(u, u2), y = Math.min(v, v2), w = Math.max(0.02, Math.abs(u2 - u)), h = Math.max(0.02, Math.abs(v2 - v));
-        S.cam = tc;
-        trackAt(tc, x, y, w, h);
-        return;
-      }
       if (pend) {   // a tap
         const wasFreeTap = pend.freeTap;
         pend = null; hot(cam, false);
@@ -701,7 +690,8 @@
       }
       const live = S.live;
       if (!live || e.type === "pointercancel") return;
-      // freehand: leave the shape open so more taps or drags can continue it; only double-tap / Done finishes
+      // Freehand (lasso): one stroke, closed when you let go. Outline: the shape stays open for more taps / drags; double-tap, the first point or Done closes it
+      if (S.shape === "free" && S.tool === "free" && live.pts.length >= 6) { S.live = null; finishShape(cam, live); return; }
       if (S.shape === "free") {
         msg("Tap or drag to add. Double-tap or tap near the start to finish.");
         UI.sync(); kick();
@@ -721,8 +711,9 @@
   const rawOf = (f, cx, cy) => { let u = (cx - f.x) / f.w; if (f.mirrored) u = 1 - u; return [u, (cy - f.y) / f.h]; };
   function regionAt(cam, f, cx, cy) {
     const [u, v] = rawOf(f, cx, cy), pad = 8 / Math.max(1, Math.min(f.w, f.h));
-    const sel = G.list.find((r) => r.id === S.sel && r.cam === cam);
-    const list = G.list.filter((r) => r.cam === cam).reverse();
+    const shown = new Set(G.at(cam, nowT()).map((r) => r.id));   // only what is on the picture now (not one switched off, out of its time range or out of sight)
+    const sel = G.list.find((r) => r.id === S.sel && r.cam === cam && shown.has(r.id));
+    const list = G.list.filter((r) => r.cam === cam && shown.has(r.id)).reverse();
     if (sel) list.unshift(sel);
     return list.find((r) => u >= r.x - pad && u <= r.x + r.w + pad && v >= r.y - pad && v <= r.y + r.h + pad) || null;
   }
@@ -741,10 +732,10 @@
       const ff = G.screenFit(cam) || f, p = rawOf(ff, ev.clientX, ev.clientY);
       if (kind === "size") {
         const q = [clamp01(p[0]), clamp01(p[1])], x = Math.min(anchor[0], q[0]), y = Math.min(anchor[1], q[1]);
-        S.mv.sh = { shape: "rect", x, y, w: Math.max(0.01, Math.abs(q[0] - anchor[0])), h: Math.max(0.01, Math.abs(q[1] - anchor[1])) };
+        S.mv.sh = { shape: sh0.shape === "ellipse" ? "ellipse" : "rect", x, y, w: Math.max(0.01, Math.abs(q[0] - anchor[0])), h: Math.max(0.01, Math.abs(q[1] - anchor[1])) };
       } else {
         const du = Math.min(1 - bb.x - bb.w, Math.max(-bb.x, p[0] - p0[0])), dv = Math.min(1 - bb.y - bb.h, Math.max(-bb.y, p[1] - p0[1]));
-        S.mv.sh = sh0.shape === "poly" ? { shape: "poly", pts: sh0.pts.map((t, i) => t + (i % 2 ? dv : du)) } : { shape: "rect", x: sh0.x + du, y: sh0.y + dv, w: sh0.w, h: sh0.h };
+        S.mv.sh = sh0.shape === "poly" ? { shape: "poly", pts: sh0.pts.map((t, i) => t + (i % 2 ? dv : du)) } : { shape: sh0.shape, x: sh0.x + du, y: sh0.y + dv, w: sh0.w, h: sh0.h };
       }
       UI.avoidBar(ev.clientX, ev.clientY, null); kick();
     };
@@ -767,12 +758,33 @@
       const tile = e.target.closest && e.target.closest(".tile");
       if (!tile) return;
       const cam = tile.dataset && tile.dataset.cam;
-      if (!cam || cam !== S.cam) return;
+      if (!cam) return;
+      if (cam !== S.cam) {   // a region on another camera: select that one
+        const f = G.screenFit(cam), r = f && regionAt(cam, f, e.clientX, e.clientY); if (!r) return;
+        S.cam = cam; S.sel = r.id;
+      }
       e.preventDefault(); e.stopPropagation();
       moveDown(cam, e);
     };
     document.addEventListener("pointerdown", moveCap, true);
   }
+  /* Any region can be pressed and dragged while the Redact panel (or the tray) is open, without pressing Move first: the press selects it
+     (the tray shows it: its style, Track for it, Delete), the drag moves it, a box's or circle's corner resizes it. */
+  const redactOpen = () => { const U = T.searchUI; return !!(U && U.open && U.tab === "redact") || !!($("crBar") && !$("crBar").hidden); };
+  document.addEventListener("pointerdown", (e) => {
+    if ((e.pointerType === "mouse" && e.button !== 0) || S.move || S.pick || !redactOpen()) return;
+    const tile = e.target.closest && e.target.closest(".tile"), cam = tile && tile.dataset && tile.dataset.cam; if (!cam) return;
+    if (S.drawing && S.live) return;   // (a stroke is under way)
+    const f = G.screenFit(cam); if (!f) return;
+    G.sync();
+    const r = regionAt(cam, f, e.clientX, e.clientY); if (!r) return;
+    if (S.drawing) return;   // drawing a new region: a press inside an old one still draws (Move, or Done first, picks it)
+    e.preventDefault(); e.stopPropagation();
+    addEventListener("pointerup", () => setTimeout(hidePanelForDrawing, 0), { once: true, capture: true });   // after the drag: the tray takes over (the panel comes back with Done), so the two don't sit on top of each other
+    S.sel = r.id; S.cam = cam; UI.move(true);
+    msg(camName(cam) + " · " + (MODE_NAME[r.mode] || "Blur") + " · " + SHAPE_NAME[r.shape] + " selected. Drag it to move it; Track follows it" + (isTracked(r) ? " (on)" : "") + "; Delete removes it.");
+    moveDown(cam, e);
+  }, true);
   function disarmMoveCapture() { if (moveCap) { document.removeEventListener("pointerdown", moveCap, true); moveCap = null; } }
   UI.move = (on) => {
     on = on === undefined ? !S.move : !!on;
@@ -819,7 +831,7 @@
     if (S.draft && !S.editId && !S.move) { S.undone = S.draft; S.draft = null; S.drawing = !!S.cam; msg("Shape undone. Redo to restore."); UI.sync(); kick(); return true; }
     if (S.sel && G.undoRegion && G.undoRegion(S.sel)) { msg("Region undone."); kick(); return true; }
     if (S.editId && G.undoRegion && G.undoRegion(S.editId)) { msg("Region undone."); kick(); return true; }
-    if (!S.drawing && G.undo()) { msg("Undone."); kick(); return true; }
+    if (G.undo()) { msg("Undone."); kick(); if (R && R.paint) R.paint(); return true; }   // (also while drawing: the box / circle / highlight just saved goes)
     return false;
   };
   UI.redo = () => {
@@ -845,59 +857,58 @@
     if (G.redo()) { msg("Redone."); kick(); return true; }
     return false;
   };
-  const dbg = () => {};   // (a leftover debug hook the Track gesture still called)
-  function trackAt(cam, x, y, w, h) { startTrack(cam, x, y, w, h); }
-  /** Track mode: circle anything; a patch tracker follows it (signs, cats, logos, cars). */
+  /** Track (tag track-v2). Two ways in:
+   *  · a region is selected (press it while the Redact panel is open): Track switches following on / off for that region, from the frame on screen;
+   *  · nothing selected: Track is a drawing mode. Every region you draw is followed; a "Track drawing" pill stays on screen (also in the six-camera
+   *    view) while it is on, and turning it off ends the drawing completely. */
   S.track = false;
   S.trackIds = [];
   S.patches = {};
   UI.track = (on) => {
+    const sel = S.move && S.sel && G.list.find((r) => r.id === S.sel);
+    if (sel && on === undefined) return UI.trackRegion(sel.id);
     S.track = on === undefined ? !S.track : !!on;
     if (S.track) {
-      S.drawing = true; S.pick = false; armTrackCapture();
-      const latest = S.draft || (G.list.length && G.list[G.list.length - 1]);
-      if (S.draft && !G.list.includes(S.draft)) { S.armOnSave = true; msg("Tracking: finish the outline and press Done. It will follow the object."); }   // an unsaved outline: armed when it is saved
-      else if (latest && latest.cam && !latest.sticky && !S.trackIds.includes(latest.id)) {
-        const info = armRegion(latest);
-        msg(info && info.label ? "Tracking the " + info.label + "." : "Tracking the region you already drew.");
-      } else msg("Track: circle anything. It follows by matching the look.");
-    }
-    else { S.armOnSave = false; msg("Track off."); disarmTrackCapture(); }
-    UI.sync(); kick(); return true;
+      if (S.draft && !S.editId) UI.save();   // a drawn, unsaved shape: saved now, and followed
+      if (S.move) UI.move(false);
+      if (!S.drawing && !S.pick) UI.draw();
+      msg("Track: draw round an object on any camera. It is followed from this frame on.");
+    } else { stopTrackDrawing(); msg("Track off."); }
+    UI.sync(); kick(); syncTrackPill(); return true;
   };
-  let trackCap = null;
-  function armTrackCapture() {
-    if (trackCap) return;
-    trackCap = (e) => {
-      if (!S.track || S.move || S.shape === "free" || e.button !== 0) return;
-      const tile = e.target.closest && e.target.closest(".tile");
-      if (!tile) return;
-      const cam = tile.dataset && tile.dataset.cam;
-      if (!cam) return;
-      e.preventDefault(); e.stopPropagation();
-      const p0 = { x: e.clientX, y: e.clientY, cam };
-      const ring = document.createElement("div"); ring.style.cssText = "position:fixed;border:2px solid #e6b450;border-radius:4px;pointer-events:none;z-index:90;"; document.body.appendChild(ring);
-      const move = (ev) => {
-        p0.x2 = ev.clientX; p0.y2 = ev.clientY;
-        const x = Math.min(p0.x, p0.x2), y = Math.min(p0.y, p0.y2), w = Math.abs(p0.x2 - p0.x), h = Math.abs(p0.y2 - p0.y);
-        ring.style.left = x + "px"; ring.style.top = y + "px"; ring.style.width = w + "px"; ring.style.height = h + "px";
-      };
-      const up = (ev) => {
-        document.removeEventListener("pointermove", move);
-        document.removeEventListener("pointerup", up);
-        ring.remove();
-        const f = G.screenFit(cam); if (!f) return;
-        const [u, v] = G.toRaw(f, p0.x, p0.y);
-        const [u2, v2] = G.toRaw(f, p0.x2 || p0.x, p0.y2 || p0.y);
-        const x = Math.min(u, u2), y = Math.min(v, v2), w = Math.max(0.03, Math.abs(u2 - u)), h = Math.max(0.03, Math.abs(v2 - v));
-        startTrack(cam, x, y, w, h);
-      };
-      document.addEventListener("pointermove", move);
-      document.addEventListener("pointerup", up);
-    };
-    document.addEventListener("pointerdown", trackCap, true);
+  function stopTrackDrawing() {
+    S.track = false; S.armOnSave = false;
+    if (S.drawing || S.pick || S.draft) { resetForm(); reopenPanel(true); }
+    syncTrackPill();
   }
-  function disarmTrackCapture() { if (trackCap) { document.removeEventListener("pointerdown", trackCap, true); trackCap = null; } }
+  /** Follow / stop following one region (it stays where it is on screen now when following stops). */
+  UI.trackRegion = (id, on) => {
+    const r = G.list.find((x) => x.id === id); if (!r || !PT) return false;
+    const now = isTracked(r);
+    on = on === undefined ? !now : !!on;
+    if (on && !now) { const info = armRegion(r, nowT()); msg(info ? "Tracking this region from " + fmt(nowT()) + ". The bar under the timeline fills as it is followed." : "Couldn't read the picture here. Seek a little, then press Track again.", !info); }
+    else if (!on && now) { untrack(r); msg("Tracking off. The region stays where it is now."); }
+    UI.sync(); kick(); if (R && R.paint) R.paint(); return true;
+  };
+  function untrack(r) {
+    const inf = S.patches[r.id]; if (inf) { inf.passTok = null; closeReader(inf); }
+    delete S.patches[r.id]; S.trackIds = S.trackIds.filter((x) => x !== r.id);
+    const b = r.path && PT.pathAt(r.path, nowT()); if (b) PT.mapShape(r, b);
+    delete r.path; rebuild(); G.save(); drawLanes();
+  }
+  G.untrack = (id) => { const r = G.list.find((x) => x.id === id); if (r) untrack(r); };
+  /** The pill that says Track drawing is on (every camera view, the six-up grid included), with a button to turn it off. */
+  function syncTrackPill() {
+    let p = $("crTrackPill");
+    if (!S.track) { if (p) p.hidden = true; document.body.classList.remove("cr-track-on"); return; }
+    if (!p) {
+      p = document.createElement("div"); p.id = "crTrackPill"; p.className = "cr-track-pill"; p.setAttribute("role", "status");
+      p.innerHTML = '<span class="dot" aria-hidden="true"></span><span class="t">Track drawing is on: drag round an object on any camera</span><button type="button" class="btn small" id="crTrackOff">Turn off</button>';
+      document.body.appendChild(p);
+      $("crTrackOff").addEventListener("click", () => UI.track(false));
+    }
+    p.hidden = false; document.body.classList.add("cr-track-on");
+  }
   function videoOf(cam) {
     const tile = T.player && T.player.tiles && T.player.tiles[cam];
     if (!tile) return null;
@@ -966,130 +977,168 @@
   }
   const nowT = () => (T.player && T.player.time) || 0;
   const boxOf = (r) => ({ x: r.x, y: r.y, w: r.w, h: r.h });
-  function newTracker(r, t) {
-    if (!PT) return null;
-    const v = videoOf(r.cam); if (!v) return null;
-    const o = { fw: v.videoWidth, fh: v.videoHeight }, box = boxOf(r), im = grabGrey(v, o.fw, o.fh, PT.createPlan(box, o));
-    return im ? PT.create(im, box, t, o) : null;
+  // ── the tracking pass (track-v2) ─────────────────────────────────────────────────────────────────────────────────
+  // Following an object does not depend on playback: a hidden <video> of the region's camera is stepped through the clip 0.1 s at a time
+  // (seek, wait for the frame, look), from the moment tracking starts to the end of the clip, faster than real time. Each look writes the
+  // region's path, which the viewer, scrubbing and the export read. The same result on every browser and every run (it used to depend on
+  // how fast the page could keep up while playing: on a busy Mac the box fell behind). The region's bar under the timeline fills as it goes.
+  // With Object detection on, the app's fast YOLO looks at a crop round the object every 0.5 s (0.25 s while the match is weak) and puts the
+  // box right (PT assist). When the object leaves the picture its blur goes, the whole frame is searched every 0.3 s, and the neighbouring
+  // camera is searched for it (hand-off, below).
+  const PASS_DT = 0.1;
+  const readerHost = (() => { let h = null; return () => { if (!h || !h.isConnected) { h = document.createElement("div"); h.className = "cr-readers"; h.setAttribute("aria-hidden", "true"); h.style.cssText = "position:fixed;left:-10000px;top:0;width:320px;height:200px;overflow:hidden;opacity:0;pointer-events:none"; document.body.appendChild(h); } return h; }; })();
+  const once = (el, ev, ms) => new Promise((res) => { let done = false; const f = () => { if (done) return; done = true; el.removeEventListener(ev, f); clearTimeout(tm); res(true); }; const tm = setTimeout(() => { if (!done) { done = true; el.removeEventListener(ev, f); res(false); } }, ms); el.addEventListener(ev, f); });
+  /** A hidden video of one camera that gives the frame at event time t (null when the camera has no footage there). */
+  function makeReader(cam) {
+    const v = document.createElement("video"); v.muted = true; v.playsInline = true; v.preload = "auto"; v.setAttribute("playsinline", ""); v.style.cssText = "width:320px;height:200px";
+    readerHost().appendChild(v);
+    let ci = -1, busy = Promise.resolve(), rvfcOk = true, rvfcMiss = 0;
+    const at = async (t) => {
+      const P = T.player, ev = P && P.ev; if (!ev) return null;
+      const i = P.clipIndexAt(t), c = ev.clips[i], it = c && c.files && c.files[cam];
+      if (!it || !it.blob) return null;
+      if (ci !== i) { ci = i; v.src = it.url || (it.url = URL.createObjectURL(it.blob)); if (v.readyState < 2) await once(v, "loadeddata", 4000); }
+      const lt = Math.max(0, Math.min((isFinite(v.duration) ? v.duration : c.dur || 60) - 0.04, t - c.start));
+      if (Math.abs(v.currentTime - lt) > 0.0005) {
+        const fr = v.requestVideoFrameCallback && rvfcOk ? new Promise((res) => { try { v.requestVideoFrameCallback(() => res(true)); } catch (_) { res(false); } }) : null;
+        v.currentTime = lt; await once(v, "seeked", 4000);
+        if (fr) {   // (the decoded frame is really there, not the previous one). A browser that never calls back for a hidden video: seeked only, after twice
+          const got = await Promise.race([fr, new Promise((res) => setTimeout(() => res(false), 120))]);
+          if (got) rvfcMiss = 0; else if (++rvfcMiss >= 2) rvfcOk = false;
+        }
+      }
+      return v.videoWidth && v.readyState >= 2 ? v : null;
+    };
+    return { cam, v, at: (t) => (busy = busy.then(() => at(t), () => at(t))), close: () => { try { v.removeAttribute("src"); v.load(); } catch (_) {} v.remove(); } };
   }
-  function armRegion(r) {
-    if (!r || S.trackIds.includes(r.id)) return S.patches[r.id];
+  function closeReader(info) { if (info && info.rd) { info.rd.close(); info.rd = null; } }
+  /** The kept path up to (not including) time t: re-tracking from t replaces what came after. */
+  function cutPath(path, t) { for (let i = 0; i < path.length; i += 5) if (path[i] >= t - 1e-6) { path.length = i; return; } }
+  let saveTimer = 0;
+  const saveSoon = () => { clearTimeout(saveTimer); saveTimer = setTimeout(() => G.save(), 1200); };
+  /** Start following region r from time t (default now): a key at t where the region is drawn, then the pass. */
+  function armRegion(r, t) {
+    if (!r || !PT) return null;
+    if (t == null) t = nowT();
     if (S.hoPending && S.hoPending.to === r.cam) {   // drawn after "Draw it myself": linked to the region it came from, its style and colour
       const src = G.list.find((x) => x.id === S.hoPending.from); S.hoPending = null;
-      if (src) { const link = src.link || src.id; src.link = link; r.link = link; r.ci = src.ci; if (r.start == null) r.start = Math.max(0, nowT() - 0.05); rebuild(); G.save(); }
+      if (src) { const link = src.link || src.id; src.link = link; r.link = link; r.ci = src.ci; if (r.start == null) r.start = Math.max(0, t - 0.05); }
     }
-    const t = nowT(), hit = lockDet(r.cam, r), info = { lost: 0, tr: newTracker(r, t) };
-    if (hit && hit.id != null) { info.detId = hit.id; info.label = hit.label; info.anchor = rememberAnchor(r, hit); }
-    if (PT) { r.path = []; PT.pathAdd(r.path, t, boxOf(r)); }
-    S.patches[r.id] = info; S.trackIds.push(r.id);
+    const old = S.patches[r.id]; if (old) { old.passTok = null; closeReader(old); }
+    const info = { lost: 0, t0: t };
+    if (!r.path) r.path = []; else cutPath(r.path, t);
+    PT.pathAdd(r.path, t, boxOf(r));
+    S.patches[r.id] = info; if (!S.trackIds.includes(r.id)) S.trackIds.push(r.id);
+    rebuild(); G.save();
+    runPass(r.id, info, t);
     return info;
   }
-  function startTrack(cam, x, y, w, h) {
-    let r;
-    if (S.shape === "free" && S.draft && S.draft.cam === cam && S.draft.pts) {
-      r = G.add(Object.assign({ cam, shape: "poly", pts: S.draft.pts.slice(), on: true }, styleOf()));
-      S.draft = null;
-    } else r = G.add(Object.assign({ cam, shape: "rect", x, y, w, h, on: true }, styleOf()));
-    if (!r) { msg("Couldn't read the picture. Seek or play, then circle again.", true); return; }
-    const info = armRegion(r);
-    if (!info.tr && !info.detId) { msg("Couldn't read the picture. Seek or play, then circle again.", true); return; }
-    msg(info.label ? "Tracking the " + info.label + "." : "Tracking this area. Press play.");
-    UI.sync(); kick();
+  G.arm = (id, t) => armRegion(G.list.find((x) => x.id === id), t);
+  /** One detector look round the tracker's box on frame v at time t; the box it puts right (or null). */
+  async function assistAt(tr, v, cam, t, weak) {
+    const D = T.detect, b = tr.box, cw = Math.min(1, b.w * 2.2), ch = Math.min(1, b.h * 2.2);
+    const crop = { x: Math.max(0, Math.min(1 - cw, b.x + b.w / 2 - cw / 2)), y: Math.max(0, Math.min(1 - ch, b.y + b.h / 2 - ch / 2)), w: cw, h: ch };
+    let dets = null;
+    try { dets = await D.detectImage(v, v.videoWidth, v.videoHeight, { conf: 0.3, noFix: true, cam, slot: "fast", crops: [crop], tilesOnly: true, cropConf: 0.3 }); } catch (_) { return null; }
+    return tr.assist(dets, t, Object.assign({}, b), weak);
   }
-  let lastFollow = 0, saveTimer = 0;
-  const saveSoon = () => { clearTimeout(saveTimer); saveTimer = setTimeout(() => G.save(), 1200); };
-  /** Fold one look into the tracker's result: the box to show (or null), the lost counter, and a message when the state changes. */
-  function noteLook(info, res) {
-    let box = null;
-    if (res.ok && res.probation) return null;   // found again, not confirmed yet: nothing drawn
-    if (res.ok) { box = res.box; info.lost = 0; if (info.phase !== "on") { msg(info.probation ? "Found it again. The blur is back." : "Following."); info.phase = "on"; } info.probation = false; }
-    else {
-      info.lost = (info.lost || 0) + 1;
-      if (!res.hide) box = res.box;   // keeps moving on its speed for a moment
-      else if (res.unconfirmed) { info.hidden = true; info.probation = false; }   // that was something else: keep looking
-      else if (!info.hidden) { info.hidden = true; info.phase = "gone"; msg(res.gone ? "The object left the picture. The blur is off until it shows up again." : "Lost the object. The blur is off until it shows up again."); }
+  const detOn = () => { const D = T.detect; return !!(D && D.detectImage && D.enabled && D.enabled()); };
+  /** The pass itself: from t0 to the end of the clip (or of the region's time range). Stops when the region is removed, re-armed or untracked. */
+  async function runPass(id, info, t0) {
+    const tok = (info.passTok = {}), ev = T.player && T.player.ev; if (!ev) return;
+    const cur = () => { const r = G.list.find((x) => x.id === id); return r && r.path && S.patches[id] === info && info.passTok === tok ? r : null; };
+    let r = cur(); if (!r) return;
+    const rd = (info.rd = makeReader(r.cam));
+    info.pass = { t0, t: t0, end: ev.duration, done: false };
+    drawLanes();
+    try {
+      let v = await rd.at(t0); r = cur(); if (!r) return;
+      if (!v) throw new Error("no picture at " + t0.toFixed(1) + " s");
+      const o = { fw: v.videoWidth, fh: v.videoHeight }, box0 = boxOf(r), im0 = grabGrey(v, o.fw, o.fh, PT.createPlan(box0, o));
+      if (!im0) throw new Error("the picture can't be read");
+      const tr = (info.tr = PT.create(im0, box0, t0, o));
+      info.col = colorSig(v, box0);
+      const det = detOn();
+      if (det) { try { if (T.detect.loadFast) await T.detect.loadFast(); } catch (_) {} await assistAt(tr, v, r.cam, t0, false); }   // the first look: which detection is it?
+      let hidden = false, lastSearch = -9, lastDet = t0, n = 0, tPrev = t0;
+      const P = T.player, sleep = (ms) => new Promise((res) => setTimeout(res, ms));
+      for (;;) {
+        r = cur(); if (!r) return;
+        const end = Math.min(ev.duration, r.end != null ? r.end : ev.duration); info.pass.end = end;
+        // the frame to look at: while the video plays and has caught up with the pass, the picture on screen (its exact frame time; no
+        // second decoder busy seeking); otherwise the hidden video, 0.1 s on from the last look (paused, or ahead of playback)
+        // (fallen far behind playback, e.g. seeked forward: carry on from the picture on screen; the tracker searches wider after a gap)
+        // (while it plays, never the hidden video: a second decoder seeking beside six playing ones is slow on many machines)
+        if (P && P.playing && P.time < tPrev + 0.04) { await sleep(30); continue; }
+        let t, lv = P && P.playing ? videoOf(r.cam) : null;
+        if (lv) {
+          const ft = R && R.camTime ? R.camTime(r.cam, lv) : P.time;
+          if (!(ft > tPrev + 0.03)) { await sleep(25); continue; }   // the same frame as last time: wait for the next one
+          t = +ft.toFixed(3); v = lv;
+          if (t - tPrev < 0.08) { await sleep(Math.round((0.08 - (t - tPrev)) * 1000)); continue; }   // about 10 looks a second
+        } else {
+          t = +(tPrev + PASS_DT).toFixed(3);
+          if (t > end + 1e-6) break;
+          v = await rd.at(t);
+        }
+        if (t > end + 1e-6) break;
+        r = cur(); if (!r) return; if (!v) break;
+        tPrev = t;
+        if (hidden) {
+          if (t - lastSearch >= 0.3 - 1e-6) { lastSearch = t; const im = grabGrey(v, o.fw, o.fh, tr.searchPlan()); if (im && tr.reacquire(im, t)) { hidden = false; info.hidden = false; } }   // (keys again once two more looks confirm it)
+        } else {
+          const im = grabGrey(v, o.fw, o.fh, tr.plan(t));
+          if (im) {
+            const res = tr.update(im, t);
+            let box = res.ok && res.probation ? null : res.ok || !res.hide ? res.box : null;
+            const weak = !res.ok || res.score < 0.75;
+            if (det && !res.hide && t - lastDet >= (weak || tr.assistSoon ? 0.25 : 0.5) - 1e-6) { lastDet = t; const nb = await assistAt(tr, v, r.cam, t, weak); r = cur(); if (!r) return; if (nb && box) box = nb; }
+            if (res.ok && res.probation) { /* found again, not confirmed yet: nothing drawn */ }
+            else if (box) { PT.pathAdd(r.path, t, box); info.lost = 0; if (res.ok && res.score >= 0.7 && t - (info.colT || -9) > 0.8) { info.col = colorSig(v, tr.box); info.colT = t; } }
+            else if (res.hide) {
+              hidden = true; info.hidden = true; lastSearch = t;
+              if (!PT.pathLostAt(r.path, t)) PT.pathAdd(r.path, t, null);   // "lost from here": nothing is drawn
+              if (res.gone && !info.hoDone) { info.hoDone = true; handoffFind(id, info, tr, t); }   // (looked for in the next camera, alongside)
+            }
+          }
+        }
+        info.pass.t = t;
+        if (++n % 4 === 0) { drawLanes(); saveSoon(); passBadge(id, info); if (Math.abs(nowT() - t) < 1 && R && R.paint) R.paint(); await new Promise((res) => setTimeout(res, 0)); }
+      }
+      info.pass.done = true;
+    } catch (e) { console.warn("track pass", e); if (info.pass) info.pass.err = String((e && e.message) || e); msg("Tracking stopped: " + ((e && e.message) || e) + ".", true); }
+    finally {
+      if (info.rd === rd) closeReader(info);
+      if (info.passTok === tok) { G.save(); drawLanes(); if (R && R.paint) R.paint(); try { UI.sync(); } catch (_) {} }
     }
-    return box;
   }
+  function passBadge(id, info) {
+    const el = document.querySelector('#crList li[data-id="' + id + '"] .cr-badge.trk'); if (!el || !info.pass) return;
+    const pct = Math.round(100 * Math.max(0, Math.min(1, (info.pass.t - info.pass.t0) / Math.max(0.1, info.pass.end - info.pass.t0))));
+    el.lastChild.textContent = "Tracking " + pct + " %";
+  }
+  /** Wait for a region's pass to finish (tests and tools). */
+  G.passDone = (id) => new Promise((res) => { const chk = () => { const inf = S.patches[id]; if (!inf || !inf.pass || inf.pass.done || inf.pass.err || !inf.passTok) res(inf && inf.pass); else setTimeout(chk, 100); }; chk(); });
+  /** Where the regions sit at the player's time (Move, the list and the editor act on what is shown), and hand-off questions that are due. */
   function followPatches() {
-    if (!S.trackIds.length || !T.player || !PT) return;
+    if (!T.player || !PT) return;
     const t = nowT();
+    if (HO.queue.length || HO.active) { try { handoffTick(t); } catch (e) { console.warn("hand-off", e); } }
+    if (!S.trackIds.length) return;
     S.trackIds = S.trackIds.filter((id) => G.list.some((r) => r.id === id));
-    const playing = T.player.playing || (T.player.tiles && Object.values(T.player.tiles).some((tl) => { const v = tl.vids && tl.vids[T.player.active]; return v && !v.paused; }));
-    if (!playing) { if (G.sync(t)) { if (R && R.paint) R.paint(); kick(); } return; }   // paused / scrubbing: the region is where its path says (Move and the list act on what is shown)
-    const now = performance.now(); if (now - lastFollow < 90) return; lastFollow = now;
-    if (HO.active) try { handoffLook(t); } catch (e) { console.warn("hand-off", e); }
-    let moved = false, wrote = false;
-    for (const id of S.trackIds) {
-      const r = G.list.find((x) => x.id === id); if (!r || !r.path) continue;
-      if ((r.start != null && t < r.start) || (r.end != null && t > r.end) || !PT.pathBefore(r.path, t)) continue;
-      const info = S.patches[id] || (S.patches[id] = { lost: 0 });
-      // a stretch that was tracked before (keys ahead of the playhead) is followed, not tracked again: same result every pass, and the user's edits stay
-      const ahead = PT.pathAhead(r.path, t);
-      if (ahead - t <= 0.3 || (ahead < Infinity && PT.pathLostAt(r.path, t))) { info.following = true; const b = PT.pathAt(r.path, t); if (b) { PT.mapShape(r, b); moved = true; } continue; }
-      if (info.tr && (info.following || info.tr.t > t + 0.05 || t - info.tr.t > 0.6)) {   // came from a followed stretch, or the playhead jumped: carry on from the last box seen
-        info.tr.rewind(PT.lastBox(r.path, t) || boxOf(r), t, PT.pathVelocity(r.path, t)); info.lost = 0;
-        info.hidden = PT.pathLostAt(r.path, t); info.lastSearch = -9;   // out of sight here: keep looking for it
-      }
-      info.following = false;
-      if (info.hidden) {   // out of sight: look for it in the whole picture every 0.3 s
-        if (!info.tr || t - (info.lastSearch || -9) < 0.3) continue;
-        info.lastSearch = t;
-        const v = videoOf(r.cam), im = v && grabGrey(v, v.videoWidth, v.videoHeight, info.tr.searchPlan());
-        const found = im && info.tr.reacquire(im, t);
-        if (found) { info.hidden = false; info.lost = 0; info.probation = true; }   // the blur comes back once two more looks confirm it
-        continue;
-      }
-      let hit = null;
-      if (info.detId != null) hit = detBoxes(r.cam).find((b) => b.id === info.detId) || null;
-      let box = null;
-      if (hit && info.anchor) {   // cars / trucks: the live detection track (it resizes with the vehicle)
-        placeOnHit(r, info.anchor, hit); box = boxOf(r); info.lost = 0;
-        if (info.tr) info.tr.setBox(box, t);
-        PT.pathAdd(r.path, t, box); wrote = moved = true; continue;
-      }
-      if (!info.tr) continue;
-      const v = videoOf(r.cam), im = v && grabGrey(v, v.videoWidth, v.videoHeight, info.tr.plan(t));
-      if (!im) continue;
-      const res = info.tr.update(im, t);
-      box = noteLook(info, res);
-      if (box) { PT.mapShape(r, box); PT.pathAdd(r.path, t, box); wrote = moved = true; if (res.ok && res.score >= 0.7 && t - (info.colT || -9) > 0.8) { info.col = colorSig(v, info.tr.box); info.colT = t; } }
-      if (res.hide && res.gone && info.hidden) handoffStart(r, info, t);   // it drove out of this picture: is it in the next camera?
-      if (!info.hidden && !res.hide) assistLook(r, info, t, !res.ok || res.score < 0.75);   // (also while a re-find waits for the detector to confirm it)
-      else if (info.hidden && !PT.pathLostAt(r.path, t)) { PT.pathAdd(r.path, t, null); info.lastSearch = t; wrote = moved = true; }   // "lost from here": nothing is drawn
-    }
-    if (wrote) saveSoon();
-    if (moved && R && R.paint) R.paint();
-  }
-  /** Detector assist (Object detection on in Settings): every 0.5 s (0.25 s while the match is weak) the app's YOLO looks at the frame; a car /
-   *  person / … that clearly is the tracked object puts the box right (it turned, got smaller: the template alone drifts). See PT assist(). */
-  function assistLook(r, info, t, weak) {
-    const D = T.detect;
-    if (!D || !D.enabled || !D.enabled() || !D.detectImage || !info.tr || info.detBusy) return;
-    if (t - (info.detT == null ? -9 : info.detT) < (weak || info.tr.assistSoon ? 0.25 : 0.5) || (info.detT != null && info.detT > t)) return;
-    const v = videoOf(r.cam); if (!v) return;
-    const td = t, boxAt = Object.assign({}, info.tr.box), tr = info.tr;
-    info.detBusy = true; info.detT = t;
-    // a crop round the region (2.2 × its size) through the small fast model: ~4 × less work than the whole frame, and a far car is bigger in it
-    const cw = Math.min(1, boxAt.w * 2.2), ch = Math.min(1, boxAt.h * 2.2), crop = { x: Math.max(0, Math.min(1 - cw, boxAt.x + boxAt.w / 2 - cw / 2)), y: Math.max(0, Math.min(1 - ch, boxAt.y + boxAt.h / 2 - ch / 2)), w: cw, h: ch };
-    D.detectImage(v, v.videoWidth, v.videoHeight, { conf: 0.3, noFix: true, cam: r.cam, slot: "fast", crops: [crop], tilesOnly: true, cropConf: 0.3 }).then((dets) => {
-      info.detBusy = false;
-      if (info.tr !== tr || info.hidden || !S.trackIds.includes(r.id) || Math.abs(nowT() - td) > 1.0) return;   // seeked, lost, removed meanwhile
-      const nb = tr.assist(dets, td, boxAt, weak);
-      if (nb) { PT.mapShape(r, nb); PT.pathAdd(r.path, Math.max(td, tr.t), nb); saveSoon(); if (R && R.paint) R.paint(); }
-    }).catch(() => { info.detBusy = false; });
+    if (G.sync(t)) { if (R && R.paint) R.paint(); kick(); }
   }
   // ── camera hand-off (track-v2) ──────────────────────────────────────────────────────────────────────────────────────
   // A tracked object that leaves one camera's picture through a side edge goes into the neighbouring camera (js/handoff.js: front → right
-  // pillar → right repeater → back → left repeater → left pillar → front). For a few seconds the app's detector looks at the half of that
-  // picture it comes in on, for the same kind of thing (car / person / bike …) with a similar colour. The best one is shown with a purple
-  // box and the video pauses: "Is this it?". Yes starts a region there that tracks it, in the same style and colour, linked to the first
-  // (the list shows 1/2, 2/2). Not this one keeps looking; Draw it myself lets you point it out; Stop ends the hand-off. Nothing is
-  // handed over without a yes (a fully automatic mode can come later). Off with the panel's "Follow into the next camera".
+  // pillar → right repeater → back → left repeater → left pillar → front). The pass then looks at that camera (its own hidden video) for
+  // up to 4 s: the app's detector on the half of the picture it comes in on, the same kind of thing (car / person / bike …), a similar colour.
+  // When playback reaches the moment it was found, the video pauses with a purple box: "Is this it?". Yes starts a tracked region there in
+  // the same style and colour, linked to the first (1/2, 2/2 in the list). Not this one looks on; Draw it myself lets you point it out;
+  // Stop ends it. Nothing is handed over without a yes. Off with the panel's "Follow into the next camera".
   const HOK = "tdc.regions.handoff";
   G.handoffOn = () => { try { return localStorage.getItem(HOK) !== "0"; } catch (_) { return true; } };
-  G.setHandoff = (on) => { try { localStorage.setItem(HOK, on ? "1" : "0"); } catch (_) {} if (!on) handoffEnd(); UI.sync(); };
-  const HO = (G.ho = { active: null });
+  G.setHandoff = (on) => { try { localStorage.setItem(HOK, on ? "1" : "0"); } catch (_) {} if (!on) { HO.queue.length = 0; handoffEnd(); } UI.sync(); };
+  const HO = (G.ho = { active: null, queue: [] });
   const colCv = document.createElement("canvas"); colCv.width = colCv.height = 12;
   /** Colour of the middle of a box (mean red, green, blue, 0..255), from a video or decoded frame. */
   function colorSig(src, b) {
@@ -1110,67 +1159,87 @@
   }
   const KIND = { car: "vehicle", truck: "vehicle", bus: "vehicle", motorcycle: "vehicle", bicycle: "bike", person: "person" }, kindOf = (l) => KIND[l] || l;
   const KIND_NAME = { vehicle: "vehicle", bike: "bike", person: "person" };
-  function handoffStart(r, info, t) {
-    if (!G.handoffOn() || !T.handoff || !T.handoff.entryFor || info.hoDone || (HO.active && HO.active.from === r.id)) return;
-    const tr = info.tr; if (!tr) return;
+  /** The object left region `id`'s camera at time t: which neighbour, and is it there? (runs alongside the pass) */
+  function handoffFind(id, info, tr, t) {
+    const r = G.list.find((x) => x.id === id);
+    if (!r || !G.handoffOn() || !T.handoff || !T.handoff.entryFor) return;
     const b = tr.box, u = tr._u, cx = u ? u.cx : b.x + b.w / 2;
     const side = b.x + b.w >= 0.9 || cx > 0.85 ? "right" : b.x <= 0.1 || cx < 0.15 ? "left" : null;
     if (!side) return;   // it went out at the top or bottom, or faded away in the middle: no neighbour to look in
     const e = T.handoff.entryFor(r.cam, side), ev = T.player && T.player.ev;
     if (!e || !ev || !(ev.cams || []).includes(e.to)) return;
-    info.hoDone = true;
-    const kind = tr._anchor ? tr._anchor.group : info.label ? kindOf(info.label) : null;
-    HO.active = { from: r.id, cam: r.cam, to: e.to, entry: e.entry, side, t0: t, until: t + 5, last: -9, kind, col: info.col, skip: [], busy: false, cand: null };
-    msg("The object left the " + camName(r.cam).toLowerCase() + " camera. Looking for it in the " + camName(e.to).toLowerCase() + " camera…");
+    const h = { from: id, cam: r.cam, to: e.to, entry: e.entry, side, t0: t, at: t, kind: tr._anchor ? tr._anchor.group : null, col: info.col, skip: [], cand: null, state: "search" };
+    HO.queue.push(h); drawLanes();
+    handoffSearch(h, t);
   }
+  /** Look for it in the neighbour camera from time `from`, every 0.3 s, for up to 4 s after it left. No detector: ask the user at once. */
+  async function handoffSearch(h, from) {
+    if (!detOn()) { h.state = "ask"; h.cand = null; h.at = h.t0; return; }
+    const ev = T.player.ev, rd = makeReader(h.to), until = Math.min(ev.duration, h.t0 + 4);
+    h.state = "search";
+    try {
+      for (let tt = from; tt <= until + 1e-6; tt = +(tt + 0.3).toFixed(3)) {
+        if (!HO.queue.includes(h)) return;
+        const v = await rd.at(tt); if (!v) continue;
+        const half = h.entry === "left" ? { x: 0, y: 0, w: 0.62, h: 1 } : { x: 0.38, y: 0, w: 0.62, h: 1 };
+        let dets = [];
+        try { dets = await T.detect.detectImage(v, v.videoWidth, v.videoHeight, { conf: 0.3, noFix: true, cam: h.to, slot: "fast", crops: [half], tilesOnly: true, cropConf: 0.3 }); } catch (_) { dets = []; }
+        let best = null, bs = 0.35;
+        for (const d of dets || []) {
+          if (h.kind && kindOf(d.label) !== h.kind) continue;
+          if (!h.kind && !KIND[d.label]) continue;   // unknown kind: only things that move about (vehicles, bikes, people)
+          if (h.skip.some((q) => iou(q, d) > 0.3)) continue;
+          const cx = d.x + d.w / 2, edge = h.entry === "left" ? cx : 1 - cx;   // near the edge it comes in on
+          if (edge > 0.62 || d.w * d.h < 0.002) continue;
+          const sc = 0.45 * (1 - edge / 0.62) + 0.35 * colorLike(h.col, colorSig(v, d)) + 0.2 * d.conf;
+          if (sc > bs) { bs = sc; best = d; }
+        }
+        if (best) { h.cand = { x: best.x, y: best.y, w: best.w, h: best.h, label: best.label, score: bs, t: tt }; h.at = tt; h.state = "ask"; drawLanes(); return; }
+      }
+      h.state = "none"; HO.queue.splice(HO.queue.indexOf(h), 1); drawLanes();
+      msg("The object left the " + camName(h.cam).toLowerCase() + " camera; it wasn't found in the " + camName(h.to).toLowerCase() + " camera. Draw a region there if it shows up.");
+    } finally { rd.close(); }
+  }
+  /** Ask when playback reaches the moment (or at once when paused: the player goes there). */
+  function handoffTick(t) {
+    if (HO.active) return;
+    const h = HO.queue.find((q) => q.state === "ask"); if (!h) return;
+    const P = T.player;
+    if (P.playing) { if (t < h.at - 0.06) return; }
+    else if (Math.abs(t - h.at) > 0.06) { P.seek(h.at); setTimeout(() => handoffTick(h.at), 400); return; }
+    HO.active = h; handoffAsk(h);
+  }
+  G.handoffTick = () => handoffTick(nowT());
   function handoffEnd(text) {
-    HO.active = null; const c = $("crHo"); if (c) c.hidden = true;
+    const h = HO.active; HO.active = null;
+    if (h) { const i = HO.queue.indexOf(h); if (i >= 0) HO.queue.splice(i, 1); }
+    const c = $("crHo"); if (c) c.hidden = true;
     document.querySelectorAll(".cr-ho-box").forEach((x) => x.remove());
     if (text) msg(text);
+    drawLanes();
   }
-  /** While a hand-off is open and the video plays: every 0.35 s, ask the detector about the entry half of the neighbour's picture. */
-  function handoffLook(t) {
-    const h = HO.active; if (!h || h.cand || h.busy) return;
-    if (t > h.until || t < h.t0 - 0.5) { handoffEnd(h.manual ? null : "Couldn't find it in the " + camName(h.to).toLowerCase() + " camera. Use Draw it myself next time, or draw a new region there."); return; }
-    if (t - h.last < 0.35) return;
-    const D = T.detect, v = videoOf(h.to);
-    if (!v) return;
-    h.last = t;
-    if (!D || !D.detectImage || !(D.enabled && D.enabled())) { if (!h.asked) { h.asked = true; handoffAsk(null); } return; }   // no detector: ask the user to point it out
-    const half = h.entry === "left" ? { x: 0, y: 0, w: 0.62, h: 1 } : { x: 0.38, y: 0, w: 0.62, h: 1 };
-    h.busy = true;
-    D.detectImage(v, v.videoWidth, v.videoHeight, { conf: 0.3, noFix: true, cam: h.to, slot: "fast", crops: [half], tilesOnly: true, cropConf: 0.3 }).then((dets) => {
-      h.busy = false;
-      if (HO.active !== h || h.cand) return;
-      let best = null, bs = 0.35;
-      for (const d of dets || []) {
-        if (h.kind && kindOf(d.label) !== h.kind) continue;
-        if (!h.kind && !KIND[d.label]) continue;   // unknown kind: only things that move about (vehicles, bikes, people)
-        if (h.skip.some((q) => iou(q, d) > 0.3)) continue;
-        const cx = d.x + d.w / 2, edge = h.entry === "left" ? cx : 1 - cx;   // near the edge it comes in on
-        if (edge > 0.62 || d.w * d.h < 0.002) continue;
-        const sc = 0.45 * (1 - edge / 0.62) + 0.35 * colorLike(h.col, colorSig(v, d)) + 0.2 * d.conf;
-        if (sc > bs) { bs = sc; best = d; }
-      }
-      if (best) { h.cand = { x: best.x, y: best.y, w: best.w, h: best.h, label: best.label, score: bs, t: nowT() }; handoffAsk(h.cand); }
-    }).catch(() => { h.busy = false; });
-  }
-  G.handoffLook = handoffLook;
   function hoCard() {
     let c = $("crHo"); if (c) return c;
     c = document.createElement("div"); c.id = "crHo"; c.className = "cr-handoff"; c.hidden = true; c.setAttribute("role", "dialog"); c.setAttribute("aria-live", "polite"); c.setAttribute("aria-label", "Follow into the next camera");
     c.innerHTML = '<p id="crHoText"></p><div class="row"><button type="button" class="btn small primary" id="crHoYes">Yes, keep tracking</button><button type="button" class="btn small" id="crHoNo">Not this one</button><button type="button" class="btn small ghost" id="crHoDraw">Draw it myself</button><button type="button" class="btn small ghost" id="crHoStop">Stop</button></div>';
     document.body.appendChild(c);
     $("crHoYes").addEventListener("click", () => handoffAccept());
-    $("crHoNo").addEventListener("click", () => { const h = HO.active; if (!h) return; if (h.cand) h.skip.push(h.cand); h.cand = null; c.hidden = true; document.querySelectorAll(".cr-ho-box").forEach((x) => x.remove()); h.until = Math.max(h.until, nowT() + 2); msg("Still looking in the " + camName(h.to).toLowerCase() + " camera…"); if (h.wasPlaying && T.player) T.player.play(); });
+    $("crHoNo").addEventListener("click", () => {   // look on from just after this one
+      const h = HO.active; if (!h) return;
+      if (h.cand) h.skip.push(h.cand);
+      const from = (h.cand ? h.cand.t : h.t0) + 0.3, was = h.wasPlaying; h.cand = null; HO.active = null;
+      c.hidden = true; document.querySelectorAll(".cr-ho-box").forEach((x) => x.remove());
+      msg("Still looking in the " + camName(h.to).toLowerCase() + " camera…");
+      handoffSearch(h, from);
+      if (was && T.player) T.player.play();
+    });
     $("crHoDraw").addEventListener("click", () => handoffDraw());
     $("crHoStop").addEventListener("click", () => { const h = HO.active; handoffEnd("Hand-off stopped."); if (h && h.wasPlaying && T.player) T.player.play(); });
     return c;
   }
-  /** Show the candidate (or, with no detector, ask the user to point it out) and pause. */
-  function handoffAsk(cand) {
-    const h = HO.active; if (!h) return;
-    const P = T.player; h.wasPlaying = !!(P && P.playing); if (h.wasPlaying) P.pause();
+  /** Show the candidate (or, with no detector, ask the user to point it out), paused. */
+  function handoffAsk(h) {
+    const P = T.player, cand = h.cand; h.wasPlaying = !!(P && P.playing); if (h.wasPlaying) P.pause();
     if (T.focus && T.focus.cam && T.focus.cam !== h.to && T.focus.focus) T.focus.focus(h.to);   // one big camera on screen: show the one it went into
     const src = G.list.find((x) => x.id === h.from), what = h.kind ? KIND_NAME[h.kind] || h.kind : "object";
     const c = hoCard();
@@ -1192,37 +1261,37 @@
     el.style.left = Math.min(a[0], b[0]) - tr.left + "px"; el.style.top = Math.min(a[1], b[1]) - tr.top + "px"; el.style.width = Math.abs(b[0] - a[0]) + "px"; el.style.height = Math.abs(b[1] - a[1]) + "px";
   }
   G.placeHoBox = placeHoBox;
-  /** A region on the neighbour camera round `box`, in the source's style and colour, linked to it, tracking from now. */
-  function handoffMake(h, box) {
-    const src = G.list.find((x) => x.id === h.from); if (!src) { handoffEnd(); return null; }
+  /** A region on the neighbour camera round `box` at time t, in the source's style and colour, linked to it, tracked from t. */
+  function handoffMake(h, box, t) {
+    const src = G.list.find((x) => x.id === h.from); if (!src) return null;
     const tr = S.patches[src.id] && S.patches[src.id].tr, A = tr && tr._anchor, rw = A ? A.rw : src.mode === "mark" ? 1.15 : 1.25, rh = A ? A.rh : rw;
     const w = Math.min(1, box.w * rw), hh = Math.min(1, box.h * rh), nb = { x: Math.max(0, Math.min(1 - w, box.x + box.w / 2 - w / 2)), y: Math.max(0, Math.min(1 - hh, box.y + box.h / 2 - hh / 2)), w, h: hh };
-    const link = src.link || src.id, t = nowT();
+    const link = src.link || src.id;
     if (!src.link) { src.link = link; G.save(); }
-    const o = { cam: h.to, shape: "rect", x: nb.x, y: nb.y, w: nb.w, h: nb.h, mode: src.mode, mk: src.mk, mc: src.mc, ci: src.ci != null ? src.ci : LANE_COLORS.indexOf(G.color(src)), link, start: Math.max(0, t - 0.05), end: src.end, on: true };
+    const o = { cam: h.to, shape: src.shape === "ellipse" ? "ellipse" : "rect", x: nb.x, y: nb.y, w: nb.w, h: nb.h, mode: src.mode, mc: src.mc, ci: src.ci != null ? src.ci : LANE_COLORS.indexOf(G.color(src)), link, start: Math.max(0, t - 0.05), end: src.end, on: true };
     const r = G.add(o); if (!r) return null;
-    armRegion(r);
+    armRegion(r, t);
     UI.sync(); kick();
     return r;
   }
   function handoffAccept() {
     const h = HO.active; if (!h || !h.cand) return;
-    const r = handoffMake(h, h.cand), was = h.wasPlaying;
+    const r = handoffMake(h, h.cand, h.cand.t), was = h.wasPlaying;
     handoffEnd(r ? "Tracking continues in the " + camName(h.to).toLowerCase() + " camera (linked to the first region, same colour)." : "Couldn't add the region there.");
     if (r && was && T.player) T.player.play();
   }
   /** No detector, or the wrong one shown: the user drags round it on the neighbour camera; that region is linked like a found one. */
   function handoffDraw() {
     const h = HO.active; if (!h) return;
-    const c = $("crHo"); if (c) c.hidden = true; document.querySelectorAll(".cr-ho-box").forEach((x) => x.remove());
-    h.manual = true; S.hoPending = { from: h.from, to: h.to };
+    handoffEnd();
+    S.hoPending = { from: h.from, to: h.to }; S.hoDraw = true;
     const src = G.list.find((x) => x.id === h.from);
-    if (src) { S.mode = src.mode; if (src.mode === "mark") { S.mk = src.mk; S.mc = src.mc; } }
-    S.shape = "rect"; S.track = true; armTrackCapture();
+    if (src) { S.mode = src.mode; if (src.mode === "mark") S.mc = src.mc; }
+    UI.setShape(src && src.shape === "ellipse" ? "circle" : "rect");
+    S.track = true; syncTrackPill();
     if (T.focus && T.focus.focus) T.focus.focus(h.to);
     choose(h.to, "auto");
     msg(camName(h.to) + ": drag round it. It will be tracked and linked to the first region.");
-    HO.active = null;
   }
   /** Export: carry the tracker forward on the frames the exporter decodes, for stretches nobody played (the keys it writes are the region's path from then on). */
   const XT = {};
@@ -1262,7 +1331,8 @@
     /** Done: saves a drawn shape; in Move it simply closes the tray (the moves are already saved, and undoable). */
   UI.done = () => {
     const pendingShape = S.draft || (S.shape === "free" && S.live && S.live.pts && S.live.pts.length >= 6);
-    if (S.trackIds && S.trackIds.length && !pendingShape) {
+    if (S.track && !pendingShape) { stopTrackDrawing(); UI.sync(); kick(); msg(S.trackIds.length ? S.trackIds.length + " region" + (S.trackIds.length === 1 ? "" : "s") + " tracking." : "Done."); return true; }   // Done ends Track drawing too
+    if (S.trackIds && S.trackIds.length && !pendingShape && !S.move) {
       const n = S.trackIds.length;
       S.drawing = false; S.pick = false;
       const b = $("crBar"); if (b) b.hidden = true;
@@ -1301,11 +1371,12 @@
       if (r && r.w * f.w >= 8 && r.h * f.h >= 8) sh = { shape: "poly", pts: r.pts };
     } else {
       const x = Math.min(p[0], p[2]), y = Math.min(p[1], p[3]), w = Math.abs(p[2] - p[0]), h = Math.abs(p[3] - p[1]);
-      if (w * f.w >= 8 && h * f.h >= 8) sh = { shape: "rect", x, y, w, h };
+      if (w * f.w >= 8 && h * f.h >= 8) sh = { shape: S.tool === "circle" ? "ellipse" : "rect", x, y, w, h };
     }
-    if (!sh) { S.drawing = true; msg("That was too small. Drag a bigger " + (S.shape === "free" ? "shape" : "box") + " on the picture.", true); UI.sync(); kick(); return; }
+    if (!sh) { S.drawing = true; msg("That was too small. Drag a bigger " + (S.shape === "free" ? "shape" : S.tool === "circle" ? "circle" : "box") + " on the picture.", true); UI.sync(); kick(); return; }
     S.drawing = false;
     S.draft = sh; S.undone = null;
+    if (S.track && !S.editId) { UI.save(); return; }   // Track is on: the region is saved and followed right away, and you can draw the next one
     msg(S.editId ? "Shape changed. Press Save changes." : "Shape drawn. Press Save region (or Draw again).");
     UI.sync(); kick();
     if (R && R.paint) R.paint();
@@ -1350,9 +1421,12 @@
     again: '<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="m13 7 4 4"/>',
     opts: '<path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/>',
     cancel: '<path d="M6 6l12 12M18 6 6 18"/>',
+    del: '<path d="M5 7h14M10 7V4h4v3M7 7l1 13h8l1-13"/>',
     done: '<path d="m5 12.5 4.5 4.5L19 7"/>',
     track: '<circle cx="12" cy="12" r="3"/><path d="M12 2a10 10 0 0 1 7 17M12 2a10 10 0 0 0-7 17"/>',
-    mark: '<ellipse cx="12" cy="12" rx="8.5" ry="6.5"/><path d="M15.5 6.2 18 4"/>',
+    mark: '<path d="M4 18 14.5 7.5l2 2L6 20H4z"/><path d="m13 9 2 2"/><path d="M15.5 6.5 17.5 4.5l2 2-2 2"/>',
+    circle: '<ellipse cx="12" cy="12" rx="8" ry="6.5"/>',
+    outline: '<path d="M5 17 8 6l7 2 4 8-9 3z"/><circle cx="5" cy="17" r="1.6" fill="currentColor"/><circle cx="8" cy="6" r="1.6" fill="currentColor"/><circle cx="15" cy="8" r="1.6" fill="currentColor"/><circle cx="19" cy="16" r="1.6" fill="currentColor"/>',
   };
   const ico = (k) => '<svg class="cr-ico" viewBox="0 0 24 24" aria-hidden="true">' + ICON[k] + "</svg>";
   const tb = (id, k, label, extra) => '<button type="button" class="btn small cr-tb' + (extra || "") + '" id="' + id + '" title="' + label + '" aria-label="' + label + '">' + ico(k) + '<span class="t">' + label + "</span></button>";
@@ -1364,13 +1438,15 @@
     b.innerHTML = '<button type="button" class="cr-grip" id="crBarGrip" aria-label="Move this tray (drag, or press Up / Down)" title="Drag to move this tray"><svg viewBox="0 0 14 22" aria-hidden="true"><circle cx="4" cy="4" r="1.7"/><circle cx="10" cy="4" r="1.7"/><circle cx="4" cy="11" r="1.7"/><circle cx="10" cy="11" r="1.7"/><circle cx="4" cy="18" r="1.7"/><circle cx="10" cy="18" r="1.7"/></svg></button>' +
       '<button type="button" class="btn small cr-chip" id="crBarCam" hidden></button>' +
       '<span class="cr-bar-btns">' +
-      '<span class="seg cr-tseg" id="crBarShape" role="group" aria-label="Tool">' + tb("crBarBox", "rect", "Box", " cr-sv").replace("<button", '<button data-v="rect" aria-pressed="true"') + tb("crBarFree", "free", "Freehand", " cr-sv").replace("<button", '<button data-v="free" aria-pressed="false"') + "</span>" +
+      '<span class="seg cr-tseg" id="crBarShape" role="group" aria-label="Shape">' + tb("crBarBox", "rect", "Box", " cr-sv").replace("<button", '<button data-v="rect" aria-pressed="true"') + tb("crBarCircle", "circle", "Circle", " cr-sv").replace("<button", '<button data-v="circle" aria-pressed="false"') +
+        tb("crBarOutline", "outline", "Outline", " cr-sv").replace("<button", '<button data-v="outline" aria-pressed="false" title="Outline: tap point by point round it; tap the first point (or double-tap) to close"') + tb("crBarFree", "free", "Freehand", " cr-sv").replace("<button", '<button data-v="free" aria-pressed="false" title="Freehand: drag round it in one stroke; let go to close"') + "</span>" +
       '<span class="seg cr-tseg" id="crBarMode" role="group" aria-label="How to hide">' + tb("crBarBlur", "blur", "Blur", " cr-sv").replace("<button", '<button data-v="blur" aria-pressed="true"') + tb("crBarRemove", "remove", "Remove", " cr-sv").replace("<button", '<button data-v="remove" aria-pressed="false"') + tb("crBarMark", "mark", "Highlight", " cr-sv").replace("<button", '<button data-v="mark" aria-pressed="false"') + "</span>" +
       tb("crBarUndo", "undo", "Undo (" + mod + "Z)", " ghost cr-io").replace('<span class="t">Undo (' + mod + "Z)", '<span class="t">Undo') +
       tb("crBarRedo", "redo", "Redo (" + (mac ? "⇧⌘Z" : "Ctrl+Shift+Z") + ")", " ghost cr-io").replace(/<span class="t">Redo[^<]*/, '<span class="t">Redo') +
       tb("crBarTrack", "track", "Track", " ghost").replace("<button", '<button aria-pressed="false"') +
       '<button type="button" class="btn small ghost cr-tb" id="crBarResetTrack" title="Reset tracking to default">' + ico("undo") + '<span class="t">Reset</span></button>' +
       tb("crBarMove", "move", "Move", " ghost").replace("<button", '<button aria-pressed="false"') +
+      tb("crBarDel", "del", "Delete", " ghost").replace("<button", "<button hidden") +
       tb("crBarAgain", "again", "Draw again", "") +
       '<button type="button" class="btn small ghost cr-tb" id="crBarOpts" title="Back to the Redact panel" aria-expanded="false">' + ico("opts") + '<span class="t">Options</span></button>' +
       tb("crBarCancel", "cancel", "Cancel", " ghost") +
@@ -1385,10 +1461,11 @@
     $("crBarUndo").addEventListener("click", () => UI.undo());
     $("crBarRedo").addEventListener("click", () => UI.redo());
     $("crBarMove").addEventListener("click", () => UI.move());
+    $("crBarDel").addEventListener("click", () => { if (S.sel) { const id = S.sel; G.remove(id); S.sel = null; msg("Region deleted. Undo brings it back."); if (!G.list.length) UI.move(false); UI.sync(); kick(); } });
     $("crBarTrack").addEventListener("click", () => UI.track());
     $("crBarResetTrack").addEventListener("click", () => {
-      S.trackIds = []; S.patches = {}; S.track = false; disarmTrackCapture();
-      for (const r of G.list) delete r.path;   // the regions stay where they are now; they stop following
+      for (const r of G.list.slice()) if (isTracked(r)) untrack(r);   // the regions stay where they are now; they stop following
+      HO.queue.length = 0; handoffEnd(); stopTrackDrawing();
       msg("Tracking reset.");
       UI.sync(); kick();
     });
@@ -1407,7 +1484,6 @@
   /** Tool (Box / Freehand) and mode (Blur / Remove), shared by the tray and the panel. In Move, Blur / Remove changes the selected region (one undo step). */
   /** Highlight style: box / circle / outline, and its colour (the region being edited or moved changes with it). */
   UI.setMark = (mk, mc) => {
-    if (mk) S.mk = ["box", "ring", "line"].includes(mk) ? mk : "box";
     if (mc) S.mc = mc;
     S.mode = "mark";
     const id = S.move ? S.sel : null; if (id) G.update(id, styleOf());
@@ -1415,7 +1491,8 @@
   };
   UI.setShape = (v) => {
     if (S.move) return;
-    S.shape = v === "free" ? "free" : "rect";
+    S.tool = ["rect", "circle", "outline", "free"].includes(v) ? v : "rect";
+    S.shape = S.tool === "outline" || S.tool === "free" ? "free" : "rect";   // (the drawing code knows two gestures: a drag box, and a point / stroke outline)
     if (!S.editId && S.draft) { S.draft = null; S.undone = null; if (S.cam) S.drawing = true; }   // a new tool: draw the shape again with it
     if (S.drawing) UI.draw();
     UI.sync();
@@ -1532,13 +1609,20 @@
     $("crBarAgain").hidden = !!S.drawing || !!S.pick || !!S.move;
     const setSeg = (id, v, dis) => document.querySelectorAll("#" + id + " button").forEach((x) => { x.setAttribute("aria-pressed", String(x.dataset.v === v)); x.classList.toggle("on", x.dataset.v === v); x.disabled = dis; });
     const selR = S.move && G.list.find((r) => r.id === S.sel);
-    setSeg("crBarShape", selR ? (selR.shape === "poly" ? "free" : "rect") : S.shape, !!S.move || !!S.pick);
+    setSeg("crBarShape", selR ? (selR.shape === "poly" ? "outline" : selR.shape === "ellipse" ? "circle" : "rect") : S.tool, !!S.move || !!S.pick);
     setSeg("crBarMode", selR ? selR.mode : S.mode, !!S.pick || (!!S.move && !selR));
     const u = $("crBarUndo"), r = $("crBarRedo");
     u.hidden = false; r.hidden = false;
     u.disabled = !UI.canUndo(); r.disabled = !UI.canRedo();
     u.classList.toggle("on", UI.canUndo()); r.classList.toggle("on", UI.canRedo());
-    const trb = $("crBarTrack"); if (trb) { trb.classList.toggle("on", !!S.track); trb.setAttribute("aria-pressed", String(!!S.track)); }
+    const trb = $("crBarTrack");
+    if (trb) {   // with a region selected, Track is that region's following; otherwise the Track drawing mode
+      const on = selR ? isTracked(selR) : !!S.track, t = trb.querySelector(".t");
+      trb.classList.toggle("on", on); trb.setAttribute("aria-pressed", String(on));
+      const lab = selR ? (on ? "Tracking" : "Track it") : "Track"; if (t) t.textContent = lab;
+      trb.title = selR ? (on ? "Following this region's object. Press to stop following (it stays where it is now)." : "Follow this region's object from this frame on") : on ? "Track drawing is on: every region you draw follows its object. Press to turn it off." : "Track drawing: every region you draw follows its object";
+    }
+    const dlb = $("crBarDel"); if (dlb) dlb.hidden = !selR;
     const mvb = $("crBarMove"), canMove = G.list.length > 0;
     mvb.hidden = !!S.pick; mvb.disabled = !S.move && !canMove; mvb.setAttribute("aria-pressed", String(!!S.move)); mvb.classList.toggle("on", !!S.move);
     b.classList.toggle("moving", !!S.move);
@@ -1559,9 +1643,15 @@
     if (!r) { msg("Couldn't save that region. Draw it again.", true); return null; }
     const was = S.editId;
     let tracking = false;
-    if (!was && (S.track || S.armOnSave)) { const info = armRegion(r); tracking = !!(info && (info.tr || info.detId)); S.armOnSave = false; }   // Track was on when this was drawn: it follows the object
+    if (!was && (S.track || S.armOnSave)) { tracking = !!armRegion(r); S.armOnSave = false; }   // Track was on when this was drawn: it follows the object
+    if (!was && S.track && !S.hoDraw) {   // Track drawing stays on: draw the next one right away (same camera; in the grid any camera)
+      const cam = r.cam; resetForm(); S.cam = isMulti() ? null : cam; S.drawing = !isMulti(); S.pick = isMulti(); changed();
+      msg("Tracking it. Draw round another object, or turn Track off.");
+      return r;
+    }
+    if (S.hoDraw) { S.hoDraw = false; S.track = false; syncTrackPill(); }
     resetForm(); changed(); reopenPanel(true);
-    msg(was ? "Region updated." : tracking ? "Region saved and tracking. Press play." : "Region saved. It is hidden in the viewer and in the export.");
+    msg(was ? "Region updated." : tracking ? "Region saved and tracking. The bar under the timeline fills as it is followed." : MODE_NAME[r.mode] === "Highlight" ? "Region saved. It is outlined in the viewer and in the export." : "Region saved. It is hidden in the viewer and in the export.");
     return r;
   };
   /** Draw region. With several cameras on screen: "tap the camera you want to redact" (a tap enlarges it and arms the drag, a drag starts drawing on it).
@@ -1599,38 +1689,41 @@
       setTimeout(() => fp(0), 120);   // keyboard: Tab moves between the cameras, Enter picks, Esc cancels
     } else choose(one || vis[0], "auto");
   };
-  UI.cancel = () => { const busy = !!(S.drawing || S.pick || S.draft || S.editId || S.move); resetForm(); reopenPanel(busy); UI.sync(); kick(); if (R && R.paint) R.paint(); };
+  UI.cancel = () => { const busy = !!(S.drawing || S.pick || S.draft || S.editId || S.move); if (S.track) { S.track = false; S.armOnSave = false; syncTrackPill(); } resetForm(); reopenPanel(busy); UI.sync(); kick(); if (R && R.paint) R.paint(); };
   UI.edit = (id) => {
     const r = G.list.find((x) => x.id === id); if (!r) return;
     S.pick = false; syncPicks([]);
-    S.editId = id; S.cam = r.cam; S.shape = r.shape === "poly" ? "free" : "rect"; S.mode = r.mode; if (r.mode === "mark") { S.mk = r.mk; S.mc = r.mc; } S.draft = shapeOf(r); S.drawing = false;
+    S.editId = id; S.cam = r.cam; S.shape = r.shape === "poly" ? "free" : "rect"; S.mode = r.mode; if (r.mode === "mark") S.mc = r.mc; S.tool = r.shape === "poly" ? "outline" : r.shape === "ellipse" ? "circle" : "rect"; S.draft = shapeOf(r); S.drawing = false;
     S.whole = r.start == null && r.end == null;
     $("crWhole").checked = S.whole; $("crFrom").value = fmt(r.start || 0); $("crTo").value = fmt(r.end == null ? dur() : r.end);
     if (T.focus && T.focus.focus && T.focus.cam !== r.cam) T.focus.focus(r.cam);
     msg("Editing the " + camName(r.cam).toLowerCase() + " region. Change the settings, or press Draw region to redraw the shape, then Save changes.");
     UI.sync(); kick();
   };
-  const MODE_NAME = { blur: "Blur", remove: "Remove", mark: "Highlight" }, MK_NAME = { box: "box", ring: "circle", line: "outline" };
+  const MODE_NAME = { blur: "Blur", remove: "Remove", mark: "Highlight" }, SHAPE_NAME = { rect: "box", ellipse: "circle", poly: "outline" };
   /** Is this region following an object? (tracking now, or it has a tracked path from before) */
   const isTracked = (r) => !!(r.path || (S.trackIds && S.trackIds.includes(r.id)));
   function trackState(r) {
     const inf = S.patches && S.patches[r.id];
     if (!inf || !S.trackIds || !S.trackIds.includes(r.id)) return "path";
-    return inf.hidden ? "gone" : inf.lost >= 6 ? "lost" : "on";
+    if (inf.pass && !inf.pass.done && !inf.pass.err && inf.passTok) return "pass";
+    return "on";
   }
   function listHtml() {
     return G.list.map((r, i) => {
       const when = r.start == null && r.end == null ? "whole clip" : fmt(r.start || 0) + " to " + (r.end == null ? "end" : fmt(r.end));
       const tracked = isTracked(r), st = tracked ? trackState(r) : "", link = r.link ? G.list.filter((q) => q.link === r.link) : [];
-      const badge = tracked ? '<span class="cr-badge trk ' + st + '" title="' + (st === "gone" ? "Tracking: the object is out of the picture (blur off until it is found)" : st === "lost" ? "Tracking: not seen for a moment" : st === "on" ? "Tracking: follows the object" : "Tracked: follows the path it was given") + '">' + ico("track") + "Tracking</span>" : "";
+      const inf = S.patches && S.patches[r.id], pct = st === "pass" ? Math.round(100 * Math.max(0, Math.min(1, (inf.pass.t - inf.pass.t0) / Math.max(0.1, inf.pass.end - inf.pass.t0)))) : 0;
+      const badge = tracked ? '<span class="cr-badge trk ' + st + '" title="' + (st === "pass" ? "Following the object through the clip (" + pct + " %)" : "Follows its object (the bar under the timeline is solid where it is seen)") + '">' + ico("track") + (st === "pass" ? "Tracking " + pct + " %" : "Tracking") + "</span>" : "";
       const linkB = link.length > 1 ? '<span class="cr-badge lnk" title="The same object, handed over between cameras">' + (link.indexOf(r) + 1) + "/" + link.length + "</span>" : "";
-      const style = r.mode === "mark" ? "Highlight " + (MK_NAME[r.mk] || "box") + ' <i class="cr-dot" style="--sw:' + esc(r.mc) + '"></i>' : MODE_NAME[r.mode] || "Blur";
+      const style = r.mode === "mark" ? 'Highlight <i class="cr-dot" style="--sw:' + esc(r.mc) + '"></i>' : MODE_NAME[r.mode] || "Blur";
       const open = S.timeOpen === r.id, whole = r.start == null && r.end == null;
       return '<li class="cr-item' + (r.on ? "" : " off") + (r.id === S.editId ? " editing" : "") + (tracked ? " tracked" : "") + (r.id === S.laneSel ? " sel" : "") + '" data-id="' + esc(r.id) + '" style="--lane:' + G.color(r) + '">' +
         '<label class="cr-on" title="Switch this region on or off (off: not hidden in the viewer or the export)"><input type="checkbox" data-act="on"' + (r.on ? " checked" : "") + ' aria-label="Region ' + (i + 1) + ' on"></label>' +
-        '<span class="cr-desc"><b><i class="cr-lane-dot" aria-hidden="true"></i>' + esc(camName(r.cam)) + "</b> · " + style + " · " + (r.shape === "poly" ? "freehand" : "box") +
+        '<span class="cr-desc"><b><i class="cr-lane-dot" aria-hidden="true"></i>' + esc(camName(r.cam)) + "</b> · " + style + " · " + SHAPE_NAME[r.shape] +
         '<br><button type="button" class="cr-when" data-act="time" aria-expanded="' + open + '" title="Change when this region is on">' + esc(when) + " ▾</button>" + badge + linkB + "</span>" +
         '<button type="button" class="btn small ghost icon cr-cambtn" data-act="camopen" title="Move from ' + esc(camName(r.cam)) + '" aria-label="Choose camera" aria-haspopup="listbox">' + camIco(r.cam) + '</button>' +
+        '<button type="button" class="btn small ghost cr-trkbtn' + (tracked ? " on" : "") + '" data-act="track" aria-pressed="' + tracked + '" title="' + (tracked ? "Stop following the object (the region stays where it is now)" : "Follow the object in this region from the frame on screen") + '">' + ico("track") + '<span>' + (tracked ? "Tracking" : "Track") + "</span></button>" +
         '<button type="button" class="btn small ghost" data-act="go" title="Show this region in the video">Show</button>' +
         '<button type="button" class="btn small ghost icon" data-act="sticky" title="' + (r.global ? 'Global pin' : (r.sticky ? 'Event pin' : 'Pin')) + '" aria-label="Pin" style="opacity:' + (r.sticky ? '1' : '0.4') + '">' +
         '<svg viewBox="0 0 24 24" width="16" height="16" fill="' + (r.sticky ? '#e6b450' : 'none') + '" stroke="' + (r.sticky ? '#e6b450' : '#666') + '" stroke-width="2"><path d="M12 17v5M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/>' + (r.global ? '<circle cx="19" cy="5" r="3" fill="#e6b450" stroke="none"/>' : (r.sticky ? '<path d="M19 3l.5 1.5L21 5l-1.5.5L19 7l-.5-1.5L17 5l1.5-.5z" fill="#fff" stroke="none"/>' : '')) + '</svg></button>' +
@@ -1650,7 +1743,7 @@
     if (S.cam && !cams.includes(S.cam)) S.cam = null;
     if (S.editId && !G.list.some((r) => r.id === S.editId)) { S.editId = null; S.draft = null; }   // ui-glass-7: an undo took away the region being edited
     if (S.sel && !G.list.some((r) => r.id === S.sel)) S.sel = null;
-    document.querySelectorAll("#crShape button").forEach((b) => { b.setAttribute("aria-pressed", String(b.dataset.v === S.shape)); b.classList.toggle("on", b.dataset.v === S.shape); });
+    document.querySelectorAll("#crShape button").forEach((b) => { b.setAttribute("aria-pressed", String(b.dataset.v === S.tool)); b.classList.toggle("on", b.dataset.v === S.tool); });
     document.querySelectorAll("#crMode button").forEach((b) => { b.setAttribute("aria-pressed", String(b.dataset.v === S.mode)); b.classList.toggle("on", b.dataset.v === S.mode); });
     syncMarkRows();
     $("crTimes").hidden = S.whole;
@@ -1684,7 +1777,7 @@
     const sm = sec.querySelector("summary"); if (sm) sm.addEventListener("click", (e) => e.preventDefault());
     const pop = (id, cls) => { const b = $(id); if (b) b.addEventListener("click", () => { const U = T.searchUI, on = !sec.classList.contains(cls); if (U && U.closePops) U.closePops(id); sec.classList.toggle(cls, on); b.setAttribute("aria-expanded", String(on)); }); };
     pop("crInfo", "hint-open"); pop("crRegBtn", "list-open");
-    $("crShape").addEventListener("click", (e) => { const b = e.target.closest("button"); if (!b) return; S.shape = b.dataset.v; if (!S.editId) S.draft = null; if (S.drawing) UI.draw(); UI.sync(); });
+    $("crShape").addEventListener("click", (e) => { const b = e.target.closest("button"); if (!b) return; UI.setShape(b.dataset.v); });
     $("crMode").addEventListener("click", (e) => { const b = e.target.closest("button"); if (!b) return; UI.setMode(b.dataset.v); });
     wireMarkRow($("crMarkRow"));
     $("crWhole").addEventListener("change", () => {
@@ -1705,6 +1798,7 @@
       const b = e.target.closest("[data-act]"), li = e.target.closest("li[data-id]"); if (!b || !li) return;
       const id = li.dataset.id, r = G.list.find((x) => x.id === id); if (!r) return;
       if (b.dataset.act === "del") { if (S.editId === id) resetForm(); G.remove(id); msg("Region deleted. Undo brings it back."); }
+      else if (b.dataset.act === "track") { setTimeout(() => UI.trackRegion(id), 0); }
       else if (b.dataset.act === "time") { S.timeOpen = S.timeOpen === id ? null : id; S.laneSel = id; UI.sync(); }
       else if (b.dataset.act === "tnow") { const inp = li.querySelector('input[data-k="' + b.dataset.k + '"]'); if (inp) inp.value = fmt(nowT()); }
       else if (b.dataset.act === "tapply") {
@@ -1767,20 +1861,22 @@
   }
   /** Highlight options: Box / Circle / Outline and a few colours (shared by the panel and the tray). */
   function markRowHtml(pre) {
-    return '<span class="seg cr-mk" role="group" aria-label="Highlight shape"><button type="button" data-mk="box">Box</button><button type="button" data-mk="ring">Circle</button><button type="button" data-mk="line" title="Follows the freehand outline (a box for a box region)">Outline</button></span>' +
-      '<span class="cr-swatches" role="group" aria-label="Highlight colour">' + MARK_COLORS.map((c, i) => '<button type="button" class="cr-sw" data-mc="' + c + '" style="--sw:' + c + '" aria-label="Colour ' + (i + 1) + '" id="' + pre + i + '"></button>').join("") + "</span>";
+    return '<span class="cr-swatches" role="group" aria-label="Highlight colour">' + MARK_COLORS.map((c, i) => '<button type="button" class="cr-sw" data-mc="' + c + '" style="--sw:' + c + '" aria-label="Colour ' + (i + 1) + '" id="' + pre + i + '"></button>').join("") +
+      '<label class="cr-sw cr-sw-any" title="Any colour" aria-label="Pick any colour"><input type="color" data-pick="1" value="#ff9500"></label></span>';
   }
   function wireMarkRow(el) {
     if (!el) return;
-    el.addEventListener("click", (e) => { const b = e.target.closest("button"); if (!b) return; if (b.dataset.mk) UI.setMark(b.dataset.mk); else if (b.dataset.mc) UI.setMark(null, b.dataset.mc); });
+    el.addEventListener("click", (e) => { const b = e.target.closest("button"); if (b && b.dataset.mc) UI.setMark(null, b.dataset.mc); });
+    el.addEventListener("input", (e) => { if (e.target.dataset.pick) UI.setMark(null, e.target.value.toLowerCase()); });
   }
   function syncMarkRows() {
-    const selR = S.move && G.list.find((r) => r.id === S.sel), on = selR ? selR.mode === "mark" : S.mode === "mark", mk = selR && selR.mode === "mark" ? selR.mk : S.mk, mc = selR && selR.mode === "mark" ? selR.mc : S.mc;
+    const selR = S.move && G.list.find((r) => r.id === S.sel), on = selR ? selR.mode === "mark" : S.mode === "mark", mc = selR && selR.mode === "mark" ? selR.mc : S.mc;
     for (const id of ["crMarkRow", "crBarMarkRow"]) {
       const el = $(id); if (!el) continue;
       el.hidden = !on;
-      el.querySelectorAll("[data-mk]").forEach((b) => { b.classList.toggle("on", b.dataset.mk === mk); b.setAttribute("aria-pressed", String(b.dataset.mk === mk)); });
-      el.querySelectorAll("[data-mc]").forEach((b) => { b.classList.toggle("on", b.dataset.mc === mc); b.setAttribute("aria-pressed", String(b.dataset.mc === mc)); });
+      let known = false;
+      el.querySelectorAll("[data-mc]").forEach((b) => { const o = b.dataset.mc === mc; known = known || o; b.classList.toggle("on", o); b.setAttribute("aria-pressed", String(o)); });
+      const any = el.querySelector(".cr-sw-any"); if (any) { any.classList.toggle("on", !known); any.style.setProperty("--sw", known ? "conic-gradient(red, yellow, lime, cyan, blue, magenta, red)" : mc); const inp = any.querySelector("input"); if (!known && inp && inp.value !== mc) inp.value = mc; }
     }
   }
   function build() {
@@ -1790,9 +1886,9 @@
       '<summary>Custom regions <span id="crCount"></span></summary>' +
       '<p class="cr-hint" id="crHint">For what automatic redaction misses, like a curved plate. Press <b>Draw region</b>, tap the camera you want, then drag over the area. Regions stay put on the picture and are burned into the export.</p>' +
       '<div class="cr-grid">' +
-      '<div class="cr-f"><span>Shape</span><div class="seg" id="crShape" role="group" aria-label="Shape"><button type="button" data-v="rect" aria-pressed="true">Box</button><button type="button" data-v="free" aria-pressed="false">Freehand</button></div></div>' +
+      '<div class="cr-f"><span>Shape</span><div class="seg" id="crShape" role="group" aria-label="Shape"><button type="button" data-v="rect" aria-pressed="true">Box</button><button type="button" data-v="circle" aria-pressed="false">Circle</button><button type="button" data-v="outline" aria-pressed="false" title="Tap point by point round it; tap the first point to close">Outline</button><button type="button" data-v="free" aria-pressed="false" title="Drag round it in one stroke">Freehand</button></div></div>' +
       '<div class="cr-f"><span>Hide with</span><div class="seg" id="crMode" role="group" aria-label="How to hide"><button type="button" data-v="blur" aria-pressed="true" title="A strong blur: the text can\'t be read">Blur</button><button type="button" data-v="remove" aria-pressed="false" title="A solid black shape">Remove (black)</button><button type="button" data-v="mark" aria-pressed="false" title="Nothing hidden: a box, circle or outline round it, to point it out">Highlight</button></div></div>' +
-      '<div class="cr-f cr-markrow" id="crMarkRow" hidden><span>Highlight</span>' + markRowHtml("crMk") + "</div>" +
+      '<div class="cr-f cr-markrow" id="crMarkRow" hidden><span>Colour</span>' + markRowHtml("crMk") + "</div>" +
       '<div class="cr-f"><span>When</span><label class="cr-chk"><input type="checkbox" id="crWhole" checked> Whole clip</label></div>' +
       '<div class="cr-f"><span>Tracking</span><label class="cr-chk" title="When a tracked object drives out of one camera, look for it in the next camera and ask you before following it there"><input type="checkbox" id="crHandoff" checked> Follow into the next camera (asks first)</label></div>' +
       "</div>" +
@@ -1812,18 +1908,24 @@
   }
   // ── region lanes under the timeline (one colour-coded bar per region: when it is on; for a tracked region, solid where the object is
   //    followed and faint where it is out of sight). Drag a bar's ends to trim it; tap a bar to select the region and jump there. ──
-  const LANE_H = 10, LANE_GAP = 3, LANE_MAX = 5, GRAB = 9;
-  let lanesEl = null, lanesCv = null, laneDrag = null;
+  // Where: inside the timeline's lower lane while it holds no sections (no extra bar under the timeline); below the timeline, thin, otherwise.
+  const GRAB = 9;
+  let lanesEl = null, lanesCv = null, laneDrag = null, laneRows = [];
+  /** The empty sections lane can hold the region bars. */
+  G.lanesInLane = () => { try { const g = T.ui && T.ui.tlGeom && T.ui.tlGeom(); return !!(g && g.laneH && !g.sections && G.list.length && T.player && T.player.ev); } catch (_) { return false; } };
   function ensureLanes() {
-    if (lanesEl && lanesEl.isConnected) return lanesEl;
-    const scrub = document.querySelector(".tp-scrub"); if (!scrub) return null;
-    lanesEl = document.createElement("div"); lanesEl.className = "cr-lanes"; lanesEl.id = "crLanes"; lanesEl.hidden = true;
-    lanesEl.setAttribute("role", "group"); lanesEl.setAttribute("aria-label", "Custom regions on the timeline: drag the ends of a bar to change when that region is on");
-    lanesCv = document.createElement("canvas"); lanesCv.id = "crLanesCanvas";
-    lanesEl.appendChild(lanesCv);
-    scrub.parentNode.insertBefore(lanesEl, scrub.nextSibling);
-    wireLanes();
-    return lanesEl;
+    if (!lanesEl) {
+      lanesEl = document.createElement("div"); lanesEl.className = "cr-lanes"; lanesEl.id = "crLanes"; lanesEl.hidden = true;
+      lanesEl.setAttribute("role", "group"); lanesEl.setAttribute("aria-label", "Custom regions on the timeline: drag the ends of a bar to change when that region is on");
+      lanesCv = document.createElement("canvas"); lanesCv.id = "crLanesCanvas";
+      lanesEl.appendChild(lanesCv);
+      wireLanes();
+    }
+    const tl = $("timeline"), scrub = document.querySelector(".tp-scrub"), inLane = G.lanesInLane();
+    const want = inLane ? tl : scrub && scrub.parentNode;
+    if (want && lanesEl.parentNode !== want) { if (inLane) want.appendChild(lanesEl); else want.insertBefore(lanesEl, scrub.nextSibling); }
+    lanesEl.classList.toggle("in-lane", !!inLane);
+    return want ? lanesEl : null;
   }
   /** Seen / out-of-sight stretches of a tracked region's path: [[t0, t1, seen], …] (flat keys t, x, y, w, h; w = 0 is "lost from here"). */
   function pathSpans(r, d) {
@@ -1835,17 +1937,26 @@
   }
   const laneList = () => G.list.slice(0, 40);
   function laneGeom() {
-    const tl = $("timeline"), U = T.ui; if (!tl || !U || !U.tlGeom || !lanesEl) return null;
-    const g = U.tlGeom(), host = lanesEl.getBoundingClientRect();
-    return { left: g.left - host.left, w: g.w, X: (t) => g.left - host.left + ((t - g.v0) / g.span) * g.w, T: (x) => g.v0 + ((x - (g.left - host.left)) / g.w) * g.span, v0: g.v0, span: g.span };
+    const U = T.ui; if (!U || !U.tlGeom || !lanesCv) return null;
+    const g = U.tlGeom(), host = lanesCv.getBoundingClientRect();
+    return { left: g.left - host.left, w: g.w, X: (t) => g.left - host.left + ((t - g.v0) / g.span) * g.w, T: (x) => g.v0 + ((x - (g.left - host.left)) / g.w) * g.span, g };
   }
   function drawLanes() {
     const el = ensureLanes(); if (!el) return;
     const ev = T.player && T.player.ev, list = laneList(), show = !!ev && list.length > 0 && !document.body.classList.contains("mb-slim");
     if (el.hidden === show) el.hidden = !show;
-    if (!show) return;
-    const n = list.length, H = n * (LANE_H + LANE_GAP) + LANE_GAP, vis = Math.min(n, LANE_MAX) * (LANE_H + LANE_GAP) + LANE_GAP;
-    el.style.height = vis + "px";
+    if (!show) { if (T.ui && T.ui.drawTimeline && el._was) { el._was = false; } return; }
+    const inLane = el.classList.contains("in-lane"), n = list.length, tg = T.ui.tlGeom();
+    let H, rows = [];
+    if (inLane) {   // inside the empty sections lane: bars share its height
+      const top = tg.laneTop, lh = tg.laneH, bh = Math.max(3, Math.min(10, (lh - 4) / n - 2)), gap = Math.max(1, Math.min(3, (lh - n * bh) / (n + 1)));
+      el.style.top = top + "px"; el.style.height = lh + "px"; H = lh;
+      for (let i = 0; i < n; i++) rows.push({ y: gap + i * (bh + gap), h: bh });
+    } else {
+      const bh = 7, gap = 2; H = n * (bh + gap) + gap; el.style.top = ""; el.style.height = Math.min(H, 5 * (bh + gap) + gap) + "px";
+      for (let i = 0; i < n; i++) rows.push({ y: gap + i * (bh + gap), h: bh });
+    }
+    laneRows = rows;
     const W = el.clientWidth, dpr = Math.min(2, window.devicePixelRatio || 1);
     if (!W) return;
     lanesCv.style.height = H + "px"; lanesCv.style.width = W + "px";
@@ -1854,34 +1965,47 @@
     const g = laneGeom(); if (!g) return;
     const d = dur() || 0, X = (t) => Math.max(g.left - 2, Math.min(g.left + g.w + 2, g.X(t)));
     list.forEach((r, i) => {
-      const y = LANE_GAP + i * (LANE_H + LANE_GAP), col = G.color(r);
+      const { y, h: LH } = rows[i], col = G.color(r), rad = LH / 2;
       const live = laneDrag && laneDrag.id === r.id ? laneDrag : null;
       const a = live ? live.a : r.start == null ? 0 : r.start, z = live ? live.z : r.end == null ? d : r.end;
-      ctx.fillStyle = "rgba(255,255,255,0.05)"; T.draw.rr(ctx, g.left, y, g.w, LANE_H, LANE_H / 2); ctx.fill();
+      if (!inLane) { ctx.fillStyle = "rgba(255,255,255,0.05)"; T.draw.rr(ctx, g.left, y, g.w, LH, rad); ctx.fill(); }
       const x0 = X(a), x1 = Math.max(x0 + 4, X(z));
       ctx.globalAlpha = r.on ? 1 : 0.35;
-      const spans = isTracked(r) ? pathSpans(r, d) : null;
+      const spans = isTracked(r) ? pathSpans(r, d) : null, inf = S.patches && S.patches[r.id], pass = inf && inf.pass && !inf.pass.done && inf.passTok ? inf.pass : null;
       if (spans) {   // the range faint, the stretches where the object is followed solid
-        ctx.fillStyle = col + "40"; T.draw.rr(ctx, x0, y, x1 - x0, LANE_H, LANE_H / 2); ctx.fill();
-        ctx.save(); T.draw.rr(ctx, x0, y, x1 - x0, LANE_H, LANE_H / 2); ctx.clip(); ctx.fillStyle = col;
-        for (const [s0, s1, seen] of spans) if (seen) { const sa = X(Math.max(a, s0)), sb = X(Math.min(z, s1)); if (sb > sa) ctx.fillRect(sa, y, Math.max(1.5, sb - sa), LANE_H); }
+        ctx.fillStyle = col + "40"; T.draw.rr(ctx, x0, y, x1 - x0, LH, rad); ctx.fill();
+        ctx.save(); T.draw.rr(ctx, x0, y, x1 - x0, LH, rad); ctx.clip(); ctx.fillStyle = col;
+        const upTo = pass ? pass.t : Infinity;
+        for (const [s0, s1, seen] of spans) if (seen) { const sa = X(Math.max(a, s0)), sb = X(Math.min(z, s1, upTo)); if (sb > sa) ctx.fillRect(sa, y, Math.max(1.5, sb - sa), LH); }
+        if (pass) {   // still being followed: stripes from where the pass is
+          const px = X(pass.t); ctx.fillStyle = "rgba(255,255,255,0.18)";
+          for (let x = px - (Date.now() / 40) % 8; x < x1; x += 8) ctx.fillRect(x, y, 3, LH);
+          ctx.fillStyle = "#fff"; ctx.fillRect(px - 1, y, 2, LH);
+        }
         ctx.restore();
-      } else { ctx.fillStyle = col + (r.mode === "mark" ? "c0" : "e0"); T.draw.rr(ctx, x0, y, x1 - x0, LANE_H, LANE_H / 2); ctx.fill(); }
-      if (r.id === S.laneSel || live) { ctx.strokeStyle = "#fff"; ctx.lineWidth = 1.5; T.draw.rr(ctx, x0 + 0.75, y + 0.75, x1 - x0 - 1.5, LANE_H - 1.5, LANE_H / 2); ctx.stroke(); }
-      ctx.fillStyle = "rgba(255,255,255,0.92)";   // the trim handles
-      ctx.fillRect(x0 + 2, y + 2, 2, LANE_H - 4); ctx.fillRect(x1 - 4, y + 2, 2, LANE_H - 4);
+      } else { ctx.fillStyle = col + (r.mode === "mark" ? "c0" : "e0"); T.draw.rr(ctx, x0, y, x1 - x0, LH, rad); ctx.fill(); }
+      if (r.id === S.laneSel || r.id === S.sel || live) { ctx.strokeStyle = "#fff"; ctx.lineWidth = 1.2; T.draw.rr(ctx, x0 + 0.6, y + 0.6, x1 - x0 - 1.2, LH - 1.2, rad); ctx.stroke(); }
+      if (LH >= 5) { ctx.fillStyle = "rgba(255,255,255,0.92)"; ctx.fillRect(x0 + 2, y + 1.5, 2, LH - 3); ctx.fillRect(x1 - 4, y + 1.5, 2, LH - 3); }   // the trim handles
       ctx.globalAlpha = 1;
+      for (const h of HO.queue) if (h.from === r.id && (h.state === "ask" || h.state === "search")) {   // a hand-off question waiting (purple)
+        const hx = X(h.at), cy = y + LH / 2, s2 = Math.max(4, LH / 2 + 1.5);
+        ctx.fillStyle = h.state === "ask" ? "#c39bff" : "rgba(195,155,255,0.45)"; ctx.beginPath(); ctx.moveTo(hx, cy - s2); ctx.lineTo(hx + s2, cy); ctx.lineTo(hx, cy + s2); ctx.lineTo(hx - s2, cy); ctx.closePath(); ctx.fill();
+      }
     });
     const px = g.X(nowT());   // the playhead
-    if (px >= g.left && px <= g.left + g.w) { ctx.fillStyle = "rgba(255,255,255,0.85)"; ctx.fillRect(Math.round(px) - 0.5, 0, 1, H); }
+    if (!inLane && px >= g.left && px <= g.left + g.w) { ctx.fillStyle = "rgba(255,255,255,0.85)"; ctx.fillRect(Math.round(px) - 0.5, 0, 1, H); }
+    if (list.some((r) => { const inf = S.patches && S.patches[r.id]; return inf && inf.pass && !inf.pass.done && inf.passTok; }) && !lanesEl._anim) { lanesEl._anim = setTimeout(() => { lanesEl._anim = 0; drawLanes(); }, 120); }
   }
   G.drawLanes = drawLanes;
-  /** Which region / end is under the pointer (client coords). */
+  /** Which region / end is under the pointer (client coords); a hand-off marker too. */
   function laneHit(e) {
     const g = laneGeom(); if (!g) return null;
-    const rc = lanesCv.getBoundingClientRect(), x = e.clientX - rc.left + 0, y = e.clientY - rc.top, i = Math.floor((y - LANE_GAP / 2) / (LANE_H + LANE_GAP)), r = laneList()[i];
-    if (!r) return null;
+    const rc = lanesCv.getBoundingClientRect(), x = e.clientX - rc.left, y = e.clientY - rc.top, list = laneList();
+    let i = laneRows.findIndex((q) => y >= q.y - 2 && y <= q.y + q.h + 2); if (i < 0) return null;
+    const r = list[i]; if (!r) return null;
     const d = dur() || 0, a = r.start == null ? 0 : r.start, z = r.end == null ? d : r.end, x0 = g.X(a), x1 = g.X(z);
+    const ho = HO.queue.find((h) => h.from === r.id && h.state === "ask" && Math.abs(g.X(h.at) - x) <= 7);
+    if (ho) return { r, end: "ho", ho, g };
     const end = Math.abs(x - x0) <= GRAB && Math.abs(x - x0) <= Math.abs(x - x1) ? "a" : Math.abs(x - x1) <= GRAB ? "z" : x > x0 && x < x1 ? "mid" : "out";
     return { r, end, t: Math.max(0, Math.min(d, g.T(x))), g };
   }
@@ -1889,14 +2013,15 @@
     lanesCv.addEventListener("pointermove", (e) => {
       if (laneDrag) return;
       const h = laneHit(e);
-      lanesCv.style.cursor = h && (h.end === "a" || h.end === "z") ? "ew-resize" : h && h.end === "mid" ? "pointer" : "default";
-      lanesCv.title = h ? camName(h.r.cam) + " · " + (MODE_NAME[h.r.mode] || "Blur") + (isTracked(h.r) ? " · tracking" : "") + " · " + (h.r.start == null && h.r.end == null ? "whole clip" : fmt(h.r.start || 0) + " to " + fmt(h.r.end == null ? dur() : h.r.end)) + ". Drag the ends to trim." : "";
+      lanesCv.style.cursor = h && (h.end === "a" || h.end === "z") ? "ew-resize" : h && (h.end === "mid" || h.end === "ho") ? "pointer" : "";
+      lanesCv.title = !h ? "" : h.end === "ho" ? "Hand-off: the object may be in the " + camName(h.ho.to) + " camera here. Click to check." : camName(h.r.cam) + " · " + (MODE_NAME[h.r.mode] || "Blur") + (isTracked(h.r) ? " · tracking" : "") + " · " + (h.r.start == null && h.r.end == null ? "whole clip" : fmt(h.r.start || 0) + " to " + fmt(h.r.end == null ? dur() : h.r.end)) + ". Drag the ends to trim.";
     });
     lanesCv.addEventListener("pointerdown", (e) => {
       if (e.pointerType === "mouse" && e.button !== 0) return;
-      const h = laneHit(e); if (!h) return;
+      const h = laneHit(e); if (!h || h.end === "out") return;   // (anywhere else: the timeline scrubs as usual)
       e.preventDefault(); e.stopPropagation();
       S.laneSel = h.r.id;
+      if (h.end === "ho") { if (T.player.playing) T.player.pause(); T.player.seek(h.ho.at); setTimeout(() => handoffTick(h.ho.at), 350); return; }
       if (h.end === "a" || h.end === "z") {
         const d = dur() || 0;
         laneDrag = { id: h.r.id, end: h.end, a: h.r.start == null ? 0 : h.r.start, z: h.r.end == null ? d : h.r.end, pid: e.pointerId };
@@ -1906,14 +2031,16 @@
     });
     const move = (e) => {
       if (!laneDrag || e.pointerId !== laneDrag.pid) return;
-      const h = laneHit(e) || {}, g = laneGeom(); if (!g) return;
+      e.stopPropagation();
+      const g = laneGeom(); if (!g) return;
       const rc = lanesCv.getBoundingClientRect(), d = dur() || 0, t = Math.max(0, Math.min(d, g.T(e.clientX - rc.left)));
       if (laneDrag.end === "a") laneDrag.a = Math.min(t, laneDrag.z - 0.2); else laneDrag.z = Math.max(t, laneDrag.a + 0.2);
       if (T.player && T.player.seek) T.player.seek(laneDrag.end === "a" ? laneDrag.a : laneDrag.z);   // see the frame where it starts / ends
-      drawLanes(); void h;
+      drawLanes();
     };
     const up = (e) => {
       if (!laneDrag || e.pointerId !== laneDrag.pid) return;
+      e.stopPropagation();
       const L = laneDrag; laneDrag = null;
       G.setTimes(L.id, L.a, L.z);
       const r = G.list.find((x) => x.id === L.id);
@@ -1921,6 +2048,7 @@
       drawLanes();
     };
     lanesCv.addEventListener("pointermove", move); lanesCv.addEventListener("pointerup", up); lanesCv.addEventListener("pointercancel", up);
+    for (const ev of ["click", "dblclick"]) lanesCv.addEventListener(ev, (e) => { if (laneHit(e)) e.stopPropagation(); });
   }
   /** Put the section where the Redact controls are: inside the floating search panel when it exists, else under the classic Redact bar. */
   UI.place = () => {
@@ -1950,7 +2078,11 @@
     try {
       UI.place();
       if (T.on) {
-        T.on("player-open", () => { resetForm(); removeOverlays(); G.load(); UI.sync(); });
+        T.on("player-open", () => {   // another event: its own regions; the passes and hand-off questions of the last one stop
+          for (const id of Object.keys(S.patches)) { const inf = S.patches[id]; inf.passTok = null; closeReader(inf); }
+          S.patches = {}; S.trackIds = []; HO.queue.length = 0; handoffEnd(); if (S.track) { S.track = false; syncTrackPill(); }
+          resetForm(); removeOverlays(); G.load(); UI.sync();
+        });
         T.on("layout", () => { if (R && R.paintSoon && G.any()) R.paintSoon(); kick(); if (HO.active && HO.active.cand) setTimeout(placeHoBox, 50); });   // only with regions: with none the viewer paints exactly as before
       }
       window.addEventListener("resize", () => { if (R && R.paintSoon && G.any()) R.paintSoon(); kick(); });

@@ -253,7 +253,7 @@
   U.tlGeom = () => {
     const r = $("timeline").getBoundingClientRect(), g = geom(r.height), sp = span();
     return { left: r.left, top: r.top, w: r.width, h: r.height, v0: view.v0, span: sp, z: view.z,
-      scrubY: r.top + g.top + g.bh / 2, laneY: g.laneH ? r.top + g.laneTop + g.laneH / 2 : null,
+      scrubY: r.top + g.top + g.bh / 2, laneY: g.laneH ? r.top + g.laneTop + g.laneH / 2 : null, laneTop: g.laneH ? g.laneTop : null, laneH: g.laneH, sections: U.activeSegs().length,
       x: (t) => r.left + ((t - view.v0) / sp) * r.width };
   };
   const NICE = [0.1, 0.2, 0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 900, 1800];
@@ -322,7 +322,7 @@
     if (g.laneH) {
       const ly = g.laneTop + 3, lh = g.laneH - 6;
       ctx.save(); T.draw.rr(ctx, 0, g.laneTop, w, g.laneH, RL); ctx.clip();
-      if (!secs.length) T.draw.text(ctx, isCoarse() ? "Sections: tap + to add one at the playhead" : "Sections: press + (or A) to add one at the playhead, then drag its edges", w / 2, g.laneTop + g.laneH / 2 + 0.5, 11, "rgba(255,255,255,0.32)", "center", 600);
+      if (!secs.length && !(T.regions && T.regions.lanesInLane && T.regions.lanesInLane())) T.draw.text(ctx, isCoarse() ? "Sections: tap + to add one at the playhead" : "Sections: press + (or A) to add one at the playhead, then drag its edges", w / 2, g.laneTop + g.laneH / 2 + 0.5, 11, "rgba(255,255,255,0.32)", "center", 600);
       secs.forEach((sg, i) => {
         const col = SEG_COLORS[i % SEG_COLORS.length], x0 = X(sg.start), x1 = X(sg.end), sel = sg.id === U.selSeg;
         if (x1 < -10 || x0 > w + 10) return;
