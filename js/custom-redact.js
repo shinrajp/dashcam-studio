@@ -817,32 +817,41 @@
     if (!S.trackIds.length || !T.player) return;
     const playing = T.player.playing || (T.player.tiles && Object.values(T.player.tiles).some(t => { const v = t.video || (t.vids && t.vids[T.player.active]); return v && !v.paused; }));
     if (!playing) return;
-    let moved = 0;
+    let changed = false;
     S.trackIds = S.trackIds.filter((id) => G.list.some((r) => r.id === id));
+    const cams = T.player.ev && T.player.ev.cams ? T.player.ev.cams : T.GRID;
     for (const id of S.trackIds) {
       const r = G.list.find((x) => x.id === id); if (!r) continue;
       const info = S.patches[id] || {};
       const m = matchPatch(r.cam, info.patch || info, r.x, r.y, r.w, r.h);
-      if (m && m.score > 15) {
+      if (m && m.score > 20) {
         let dx = m.x - r.x, dy = m.y - r.y;
-        const jump = Math.hypot(dx, dy);
-        if (jump > 0.08) { dx *= 0.3; dy *= 0.3; }
-        info.vx = (info.vx || 0) * 0.7 + dx * 0.3;
-        info.vy = (info.vy || 0) * 0.7 + dy * 0.3;
-        const mx = (info.vx || 0), my = (info.vy || 0);
-        r.x += mx; r.y += my;
-        if (r.pts) for (let i = 0; i < r.pts.length; i += 2) { r.pts[i] += mx; r.pts[i + 1] += my; }
-        info.lost = 0; moved++;
-      } else if ((info.vx || info.vy) && (info.lost || 0) < 15) {
-        const dx = (info.vx || 0) * 0.85, dy = (info.vy || 0) * 0.85;
-        info.vx = dx; info.vy = dy;
-        r.x += dx; r.y += dy;
-        if (r.pts) for (let i = 0; i < r.pts.length; i += 2) { r.pts[i] += dx; r.pts[i + 1] += dy; }
-        info.lost = (info.lost || 0) + 1; moved++;
+        if (Math.hypot(dx, dy) > 0.06) { dx *= 0.2; dy *= 0.2; }
+        info.vx = (info.vx || 0) * 0.8 + dx * 0.2;
+        info.vy = (info.vy || 0) * 0.8 + dy * 0.2;
+        const mx = info.vx || 0, my = info.vy || 0;
+        r.x = Math.max(0, Math.min(1 - r.w, r.x + mx));
+        r.y = Math.max(0, Math.min(1 - r.h, r.y + my));
+        if (r.pts) for (let i = 0; i < r.pts.length; i += 2) { r.pts[i] = Math.max(0, Math.min(1, r.pts[i] + mx)); r.pts[i + 1] = Math.max(0, Math.min(1, r.pts[i + 1] + my)); }
+        info.lost = 0; if (!r.on) { r.on = true; changed = true; }
+        changed = true;
+      } else {
+        info.lost = (info.lost || 0) + 1;
+        if (info.lost > 10 && r.on) { r.on = false; changed = true; }
+        if (info.lost > 5 && info.lost % 5 === 0) {
+          for (const cam of cams) {
+            if (cam === r.cam) continue;
+            const hit = matchPatch(cam, info.patch || info, 0.3, 0.3, r.w, r.h);
+            if (hit && hit.score > 25) {
+              r.cam = cam; r.x = hit.x; r.y = hit.y; r.on = true; info.lost = 0; info.vx = 0; info.vy = 0;
+              changed = true; break;
+            }
+          }
+        }
       }
       S.patches[id] = info;
     }
-    if (moved && R && R.paint) R.paint();
+    if (changed) { rebuild(); if (R && R.paint) R.paint(); }
   }
   setInterval(followPatches, 120);
 
