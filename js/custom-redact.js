@@ -99,6 +99,15 @@
     const repaint = () => { if (R && R.paint) R.paint(); };
     setTimeout(repaint, 100);
     setTimeout(repaint, 500);
+    setTimeout(repaint, 1500);
+    if (typeof ResizeObserver !== "undefined" && T.player && T.player.tiles) {
+      const ro = new ResizeObserver(repaint);
+      for (const cam of Object.keys(T.player.tiles)) {
+        const tile = T.player.tiles[cam];
+        if (tile && tile.tile) ro.observe(tile.tile);
+      }
+      setTimeout(() => ro.disconnect(), 3000);
+    }
     if (T.player && T.player.tiles) {
       for (const cam of Object.keys(T.player.tiles)) {
         const tile = T.player.tiles[cam];
