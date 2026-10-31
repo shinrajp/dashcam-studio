@@ -262,10 +262,11 @@
     if (!tile) return null;
     const v = tile.vids[T.player.active];
     if (!v || !v.videoWidth) return null;
-    const vr = v.getBoundingClientRect();
-    if (!vr.width || !vr.height) return null;
-    const s = Math.min(vr.width / v.videoWidth, vr.height / v.videoHeight), w = v.videoWidth * s, h = v.videoHeight * s;
-    return { x: vr.left + (vr.width - w) / 2, y: vr.top + (vr.height - h) / 2, w, h, mirrored: !!(T.layout && T.layout.mirrored(cam)), tile: tile.tile };
+    const tr = tile.tile.getBoundingClientRect();
+    const tw = tile.tile.clientWidth, th = tile.tile.clientHeight;
+    if (!tw || !th) return null;
+    const s = Math.min(tw / v.videoWidth, th / v.videoHeight), w = v.videoWidth * s, h = v.videoHeight * s;
+    return { x: tr.left + (tw - w) / 2, y: tr.top + (th - h) / 2, w, h, mirrored: !!(T.layout && T.layout.mirrored(cam)), tile: tile.tile };
   };
   /** client px → raw 0..1 (mirror undone); and back. */
   G.toRaw = (f, cx, cy) => { let u = (cx - f.x) / f.w; const v = (cy - f.y) / f.h; if (f.mirrored) u = 1 - u; return [clamp01(u), clamp01(v)]; };
