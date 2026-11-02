@@ -258,7 +258,8 @@
     if (a != null && z != null && a <= 0.05 && (!d || z >= d - 0.05)) { a = null; z = null; }
     const r = G.update(id, { start: a == null ? null : Math.max(0, a), end: z == null ? null : Math.max(0, z) });
     // a tracked region whose start was moved before its first tracked frame: follow it back in time to there
-    const inf = r && S.patches[id], first = r && r.path && r.path.length ? r.path[0] : null;
+    let inf = r && S.patches[id]; const first = r && r.path && r.path.length ? r.path[0] : null;
+    if (r && !inf && first != null && (a == null ? 0 : a) < first - 0.15) { inf = S.patches[id] = { lost: 0, passTok: {} }; if (!S.trackIds.includes(id)) S.trackIds.push(id); }   // (tracked in an earlier visit: its path is kept, the tracker isn't)
     if (inf && first != null && (a == null ? 0 : a) < first - 0.15 && !(inf.back && !inf.back.done)) { runBack(id, inf, first, a == null ? 0 : a); msg("Following it back to " + fmt(a || 0) + "…"); }
     return r;
   };
@@ -900,6 +901,8 @@
     const b = r.path && PT.pathAt(r.path, nowT()); if (b) PT.mapShape(r, b);
     delete r.path; rebuild(); G.save(); drawLanes();
   }
+  /** (tests) forget the session's tracker of a region but keep its path, as after a reload */
+  G.untrackSession = (id) => { const inf = S.patches[id]; if (inf) { inf.passTok = null; closeReader(inf); } delete S.patches[id]; S.trackIds = S.trackIds.filter((x) => x !== id); };
   G.untrack = (id) => { const r = G.list.find((x) => x.id === id); if (r) untrack(r); };
   /** The pill that says Track drawing is on (every camera view, the six-up grid included), with a button to turn it off. */
   function syncTrackPill() {

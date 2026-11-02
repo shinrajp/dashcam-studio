@@ -170,6 +170,12 @@ const list = (p) => p.evaluate(() => TDC.regions.list.map((r) => ({ id: r.id, ca
       await W(300); await p.evaluate(() => TDC.regions.passDone(TDC.regions.list[0].id));
       const r2 = (await list(p))[0];
       ok("K. start dragged to 3 s (the sign isn't there): it is followed back, and the start settles where the sign was first seen", r2 && r2.start != null && r2.start > 4.9 && r2.start < 5.8, { start: r2 && r2.start }); }
+    // L. a region tracked in an earlier visit (its path saved, no tracker any more: as after a reload): dragging its start back still follows it back
+    { const id = await p.evaluate(() => { const r = TDC.regions.list[0]; const P = r.path, k = []; for (let i = 0; i < P.length; i += 5) if (P[i] >= 6.0) k.push(...P.slice(i, i + 5)); r.path = k; r.start = 6.0; TDC.regions.untrackSession(r.id); return r.id; });
+      await p.evaluate((id) => TDC.regions.setTimes(id, 4.0, null), id); await W(300);
+      await p.evaluate((id) => TDC.regions.passDone(id), id);
+      const r3 = (await list(p))[0];
+      ok("L. saved tracked region (no tracker): dragging its start back follows it back to where the sign came in", r3 && r3.start != null && r3.start > 4.9 && r3.start < 5.8, { start: r3 && r3.start }); }
     await p.evaluate(() => TDC.regions.setHandoff(true));
     // E. Track drawing pill; Track off ends drawing; a click on a camera then draws nothing
     await p.evaluate(() => { TDC.regions.UI.move(false); TDC.focus.grid && TDC.focus.grid(); }); await W(500);
