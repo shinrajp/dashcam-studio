@@ -261,6 +261,19 @@
     let inf = r && S.patches[id]; const first = r && r.path && r.path.length ? r.path[0] : null;
     if (r && !inf && first != null && (a == null ? 0 : a) < first - 0.15) { inf = S.patches[id] = { lost: 0, passTok: {} }; if (!S.trackIds.includes(id)) S.trackIds.push(id); }   // (tracked in an earlier visit: its path is kept, the tracker isn't)
     if (inf && first != null && (a == null ? 0 : a) < first - 0.15 && !(inf.back && !inf.back.done)) { runBack(id, inf, first, a == null ? 0 : a); msg("Following it back to " + fmt(a || 0) + "…"); }
+    // ... and its end moved past where the forward tracking stopped (it stopped at the old end): follow it on from its last seen frame
+    const ev = T.player && T.player.ev, endNow = z == null ? (ev ? ev.duration : 0) : z;
+    if (r && r.path && r.path.length && (!inf || !inf.pass || inf.pass.done || inf.pass.err || !inf.passTok)) {
+      const P = r.path, n = P.length / 5; let k = -1;
+      for (let i = n - 1; i >= 0; i--) if (P[i * 5 + 3] > 0) { k = i; break; }
+      const lastT = k >= 0 ? P[k * 5] : null, lostAfter = k >= 0 && k < n - 1;   // (lost after it: it left the picture, the forward pass knows that already)
+      if (lastT != null && !lostAfter && endNow > lastT + 0.2) {
+        if (!inf) { inf = S.patches[id] = { lost: 0, passTok: {} }; if (!S.trackIds.includes(id)) S.trackIds.push(id); }
+        inf.autoEnd = false;
+        runPass(id, inf, lastT, { x: P[k * 5 + 1], y: P[k * 5 + 2], w: P[k * 5 + 3], h: P[k * 5 + 4] });
+        msg("Following it on to " + fmt(endNow) + "…");
+      }
+    }
     return r;
   };
   G.clear = () => { if (G.list.length) { record(); G.list = []; changed(); } };
@@ -1020,6 +1033,7 @@
   }
   function closeReader(info) { if (info && info.rd) { info.rd.close(); info.rd = null; } }
   /** The kept path up to (not including) time t: re-tracking from t replaces what came after. */
+  function dropKeys(path, a, b) { for (let i = path.length - 5; i >= 0; i -= 5) if (path[i] > a && path[i] < b) path.splice(i, 5); }
   function cutPath(path, t) { for (let i = 0; i < path.length; i += 5) if (path[i] >= t - 1e-6) { path.length = i; return; } }
   let saveTimer = 0;
   const saveSoon = () => { clearTimeout(saveTimer); saveTimer = setTimeout(() => G.save(), 1200); };
@@ -1056,8 +1070,10 @@
     return tr.assist(dets, t, Object.assign({}, b), weak);
   }
   const detOn = () => { const D = T.detect; return !!(D && D.detectImage && D.enabled && D.enabled()); };
+  /** The time of the frame a look at the playing video sees: its own presentation time (R.camTime), not the player's clock. */
+  const process_ft = (lv) => (R && R.camTime ? R.camTime(null, lv) : T.player.time);
   /** The pass itself: from t0 to the end of the clip (or of the region's time range). Stops when the region is removed, re-armed or untracked. */
-  async function runPass(id, info, t0) {
+  async function runPass(id, info, t0, boxStart) {
     const tok = (info.passTok = {}), ev = T.player && T.player.ev; if (!ev) return;
     const cur = () => { const r = G.list.find((x) => x.id === id); return r && r.path && S.patches[id] === info && info.passTok === tok ? r : null; };
     let r = cur(); if (!r) return;
@@ -1067,13 +1083,13 @@
     try {
       let v = await rd.at(t0); r = cur(); if (!r) return;
       if (!v) throw new Error("no picture at " + t0.toFixed(1) + " s");
-      const o = { fw: v.videoWidth, fh: v.videoHeight }, box0 = boxOf(r), im0 = grabGrey(v, o.fw, o.fh, PT.createPlan(box0, o));
+      const o = { fw: v.videoWidth, fh: v.videoHeight }, box0 = boxStart || boxOf(r), im0 = grabGrey(v, o.fw, o.fh, PT.createPlan(box0, o));
       if (!im0) throw new Error("the picture can't be read");
-      const tr = (info.tr = PT.create(im0, box0, t0, o));
+      let tr = (info.tr = PT.create(im0, box0, t0, o));
       info.col = colorSig(v, box0);
       const det = detOn();
       if (det) { try { if (T.detect.loadFast) await T.detect.loadFast(); } catch (_) {} await assistAt(tr, v, r.cam, t0, false); }   // the first look: which detection is it?
-      let hidden = false, lastSearch = -9, lastDet = t0, n = 0, tPrev = t0;
+      let hidden = false, lastSearch = -9, lastDet = t0, n = 0, tPrev = t0, liveFrom = null, redoTo = -1;
       const P = T.player, sleep = (ms) => new Promise((res) => setTimeout(res, ms));
       for (;;) {
         r = cur(); if (!r) return;
@@ -1083,19 +1099,31 @@
         // (fallen far behind playback, e.g. seeked forward: carry on from the picture on screen; the tracker searches wider after a gap)
         // (while it plays, never the hidden video: a second decoder seeking beside six playing ones is slow on many machines)
         if (P && P.playing && P.time < tPrev + 0.04) { await sleep(30); continue; }
+        // paused again after following it on the playing picture (looks at uneven times, a busy machine): that stretch is done again on the
+        // hidden video, every 0.1 s, from where it began. What is saved, scrubbed and exported is the careful result.
+        if (liveFrom != null && !(P && P.playing)) {
+          const b0 = PT.pathAt(r.path, liveFrom);
+          // a fresh tracker from the frame where that stretch began (what it learnt on the playing picture may have drifted), the keys of the
+          // stretch replaced one by one as it is redone (the path stays whole meanwhile)
+          const vf = b0 ? await rd.at(liveFrom) : null; r = cur(); if (!r) return;
+          const imf = vf && grabGrey(vf, o.fw, o.fh, PT.createPlan(b0, o));
+          if (imf) { redoTo = tPrev; tr = info.tr = PT.create(imf, b0, liveFrom, o); const vv = PT.pathVelocity ? PT.pathVelocity(r.path, liveFrom) : null; if (vv) tr.rewind(b0, liveFrom, vv); hidden = false; info.hidden = false; tPrev = liveFrom; lastDet = liveFrom - 1; lastSearch = -9; if (det) await assistAt(tr, vf, r.cam, liveFrom, false); }
+          liveFrom = null; continue;
+        }
         let t, lv = P && P.playing ? videoOf(r.cam) : null;
         if (lv) {
-          const ft = R && R.camTime ? R.camTime(r.cam, lv) : P.time;
+          const ft = process_ft(lv);
           if (!(ft > tPrev + 0.03)) { await sleep(25); continue; }   // the same frame as last time: wait for the next one
-          t = +ft.toFixed(3); v = lv;
+          t = +ft.toFixed(3); v = lv; if (liveFrom == null) liveFrom = tPrev;
           if (t - tPrev < 0.08) { await sleep(Math.round((0.08 - (t - tPrev)) * 1000)); continue; }   // about 10 looks a second
         } else {
           t = +(tPrev + PASS_DT).toFixed(3);
           if (t > end + 1e-6) break;
           v = await rd.at(t);
         }
-        if (t > end + 1e-6) break;
+        if (t > end + 1e-6) { if (liveFrom != null) { while (P && P.playing && cur()) await sleep(200); continue; } break; }   // (the end reached while playing: redo that stretch once paused)
         r = cur(); if (!r) return; if (!v) break;
+        if (t <= redoTo + 1e-6 || (redoTo > 0 && tPrev < redoTo)) dropKeys(r.path, tPrev + 1e-6, Math.min(t + 0.044, redoTo + 0.044));   // redoing: the live keys up to here go
         tPrev = t;
         if (hidden) {
           if (t - lastSearch >= 0.3 - 1e-6) { lastSearch = t; const im = grabGrey(v, o.fw, o.fh, tr.searchPlan()); if (im && tr.reacquire(im, t)) { hidden = false; info.hidden = false; } }   // (keys again once two more looks confirm it)
@@ -1141,8 +1169,8 @@
    *  It stops where the object is lost (it came into view, or was hidden), and the region's start moves back to the earliest frame it was
    *  seen in. Runs beside the forward pass (its own hidden video). */
   async function runBack(id, info, t0, until) {
-    const tok = info.passTok, ev = T.player && T.player.ev; if (!ev || !PT) return;
-    const cur = () => { const r = G.list.find((x) => x.id === id); return r && r.path && S.patches[id] === info && info.passTok === tok ? r : null; };
+    const btok = (info.backTok = {}), ev = T.player && T.player.ev; if (!ev || !PT) return;   // (its own token: the forward pass may be restarted beside it)
+    const cur = () => { const r = G.list.find((x) => x.id === id); return r && r.path && S.patches[id] === info && info.backTok === btok && info.passTok ? r : null; };
     let r = cur(); if (!r) return;
     const box0 = PT.pathAt(r.path, t0); if (!box0) return;
     const rd = makeReader(r.cam), lo = Math.max(0, until || 0);
@@ -1179,6 +1207,13 @@
     }
   }
   G.trackBack = (id, until) => { const r = G.list.find((x) => x.id === id), info = S.patches[id]; if (!r || !r.path || !info) return false; runBack(id, info, r.path[0], until); return true; };
+  /** Export: wait for the regions still being tracked (the export pauses the player, so a stretch followed while playing is redone first). */
+  G.whenTracked = async (status, cancelled) => {
+    const busy = () => S.trackIds.filter((id) => { const inf = S.patches[id]; return inf && inf.passTok && ((inf.pass && !inf.pass.done && !inf.pass.err) || (inf.back && !inf.back.done)); });
+    if (!busy().length) return;
+    if (status) status("Finishing the tracking of " + busy().length + " region" + (busy().length === 1 ? "" : "s") + "…");
+    for (let i = 0; i < 3000 && busy().length && !(cancelled && cancelled()); i++) await new Promise((r) => setTimeout(r, 100));
+  };
   /** Wait for a region's pass to finish (tests and tools). */
   G.passDone = (id) => new Promise((res) => { const chk = () => { const inf = S.patches[id]; if (!inf || !inf.passTok || ((!inf.pass || inf.pass.done || inf.pass.err) && (!inf.back || inf.back.done))) res(inf && inf.pass); else setTimeout(chk, 100); }; chk(); });
   /** Where the regions sit at the player's time (Move, the list and the editor act on what is shown), and hand-off questions that are due. */
@@ -1330,7 +1365,7 @@
     const w = Math.min(1, box.w * rw), hh = Math.min(1, box.h * rh), nb = { x: Math.max(0, Math.min(1 - w, box.x + box.w / 2 - w / 2)), y: Math.max(0, Math.min(1 - hh, box.y + box.h / 2 - hh / 2)), w, h: hh };
     const link = src.link || src.id;
     if (!src.link) { src.link = link; G.save(); }
-    const o = { cam: h.to, shape: src.shape === "ellipse" ? "ellipse" : "rect", x: nb.x, y: nb.y, w: nb.w, h: nb.h, mode: src.mode, mc: src.mc, ci: src.ci != null ? src.ci : LANE_COLORS.indexOf(G.color(src)), link, start: Math.max(0, t - 0.05), end: src.end, on: true };
+    const o = { cam: h.to, shape: src.shape === "ellipse" ? "ellipse" : "rect", x: nb.x, y: nb.y, w: nb.w, h: nb.h, mode: src.mode, mc: src.mc, ci: src.ci != null ? src.ci : LANE_COLORS.indexOf(G.color(src)), link, start: Math.max(0, t - 0.05), end: null, on: true };   // (its own end: the first region ends where the object left ITS camera, which is when this one starts)
     const r = G.add(o); if (!r) return null;
     armRegion(r, t, { noBack: true });
     UI.sync(); kick();
@@ -1368,7 +1403,11 @@
       let x = XT[id];
       if (!x || t < x.t - 0.05 || t - x.t > 1.0) {
         const b = PT.lastBox(r.path, t); if (!b) continue;
-        x = XT[id] = { tr: info.tr.fork(), t, hidden: PT.pathLostAt(r.path, t), last: -9 }; x.tr.rewind(b, t, PT.pathVelocity(r.path, t)); continue;   // the first look comes 0.1 s later
+        // a tracker of its own, started on THIS frame where the path last had it (the session's tracker has moved on to wherever its pass
+        // ended, and has learnt the look there), at the speed the path shows; the first look comes 0.1 s later
+        const im0 = grabGrey(src, iw, ih, PT.createPlan(b, { fw: iw, fh: ih }));
+        const tr0 = im0 ? PT.create(im0, b, t, Object.assign({}, info.tr.o, { fw: iw, fh: ih })) : info.tr.fork();
+        x = XT[id] = { tr: tr0, t, hidden: PT.pathLostAt(r.path, t), last: -9 }; x.tr.rewind(b, t, PT.pathVelocity(r.path, t)); continue;
       }
       if (x.hidden) {   // out of sight: look for it every 0.3 s on the exporter's frames
         if (t - x.last < 0.3) { x.t = t; continue; }

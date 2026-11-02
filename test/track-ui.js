@@ -205,11 +205,23 @@ const list = (p) => p.evaluate(() => TDC.regions.list.map((r) => ({ id: r.id, ca
     await W(1400); if (asked) asked.box = await p.evaluate(() => !!document.querySelector(".tile .cr-ho-box"));
     ok("H. after the sign leaves the front camera, the app asks about the right pillar (without playing)", asked && /Right/i.test(asked.text), asked);
     ok("H. it shows the moment it was found (t > 1.85 s), on the right pillar, with the purple box", asked && asked.t > 1.85 && asked.focus === "right_pillar" && asked.box, asked);
+    // (as on a real clip: the first region's own tracking has ended where the object left its camera, before the question is answered)
+    await p.evaluate((t) => { const r = TDC.regions.list[0]; r.end = +t.toFixed(3); }, asked ? asked.t : 2);
     await p.evaluate(() => document.getElementById("crHoYes").click()); await W(600);
     const L = await list(p);
     ok("H. Yes: a region on the right pillar, linked, same colour, starting then, tracked", L.length === 2 && L[1].cam === "right_pillar" && L[0].link && L[0].link === L[1].link && L[0].ci === L[1].ci && Math.abs(L[1].start - asked.t) < 0.6 && L[1].path > 0, L);
     const lb = await p.evaluate(() => [...document.querySelectorAll("#crList li")].map((li) => ({ trk: !!li.querySelector(".cr-badge.trk"), lnk: (li.querySelector(".cr-badge.lnk") || {}).textContent || "" })));
     ok("H. the list shows both tracking and linked (1/2, 2/2)", lb.length === 2 && lb.every((x) => x.trk) && lb[0].lnk === "1/2" && lb[1].lnk === "2/2", lb);
+    await p.evaluate(() => TDC.regions.passDone(TDC.regions.list[1].id));
+    const h2 = await p.evaluate(() => { const r = TDC.regions.list[1], P = r.path; let last = 0; for (let i = 0; i < P.length; i += 5) if (P[i + 3] > 0) last = P[i]; return { start: r.start, end: r.end, last }; });
+    ok("H. the hand-off region has its own end (not the first region's), and is followed on for more than a second", h2.end == null || h2.end > h2.start + 1.5, h2);
+    ok("H. ... its path goes on well past the hand-off (> 2 s)", h2.last > h2.start + 2, h2);
+    // M. its end cut short, then moved out again: tracking goes on from where it stopped
+    await p.evaluate(() => { const r = TDC.regions.list[1]; TDC.regions.untrackSession(r.id); const P = r.path, k = []; for (let i = 0; i < P.length; i += 5) if (P[i] <= r.start + 0.4) k.push(...P.slice(i, i + 5)); r.path = k; r.end = +(r.start + 0.4).toFixed(3); });
+    await p.evaluate(() => { const r = TDC.regions.list[1]; TDC.regions.setTimes(r.id, r.start, r.start + 3); }); await W(300);
+    await p.evaluate(() => TDC.regions.passDone(TDC.regions.list[1].id));
+    const m = await p.evaluate(() => { const r = TDC.regions.list[1], P = r.path; let last = 0; for (let i = 0; i < P.length; i += 5) if (P[i + 3] > 0) last = P[i]; return { start: r.start, end: r.end, last }; });
+    ok("M. a tracked region's end moved past where its tracking stopped: it is followed on to the new end", m.last > m.start + 2.5, m);
     ok("no page errors (H)", !errs.length, errs);
     await p.context().close();
   }

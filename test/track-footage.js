@@ -59,6 +59,8 @@ async function run(pw, url) {
     setTimeout(() => { clearInterval(iv); res(out); }, (end + 8) * 1000);
   }), end);
   await p.evaluate(() => TDC.player.pause());
+  // paused: the stretch followed on the playing picture is redone frame by frame (track-v2 pass); scrubbing and export read that result
+  await p.evaluate(() => TDC.regions.list[0] && TDC.regions.passDone && TDC.regions.passDone(TDC.regions.list[0].id));
   const play = rows.filter((r) => r.t > 0.3);
   const pole = rows.filter((r) => r.t >= 3.8 && r.t <= 4.8), after = rows.filter((r) => r.t >= 5.2), tail = rows.filter((r) => r.t >= end - 1.5);
   const out = { url, made, errs, rows: rows.length, raw: rows, play: stats(play), pole: stats(pole), after: stats(after), tail: stats(tail) };

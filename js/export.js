@@ -469,6 +469,7 @@
       const redacting = !!(T.search && T.search.anyRd && T.search.anyRd() && T.search.needBoxes && T.search.needBoxes());   // redacted matches are always burned in
       if (T.burnBoxes && T.burnBoxes.prepare && (redacting || (show.boxes !== undefined ? show.boxes : T.burnBoxes.enabled()))) await T.burnBoxes.prepare(ranges, status, () => X.cancelled);
       if (show.carview && T.carView && T.carView.prepareExport) { try { await T.carView.prepareExport(ranges, status, () => X.cancelled); } catch (e) { console.warn("car view export prep", e); } }   // ui-v3: where the card sits, people for the moments never played
+      if (T.regions && T.regions.whenTracked) await T.regions.whenTracked(status, () => X.cancelled);   // tracked custom regions: their paths complete first
       if (X.cancelled) throw new Error("cancelled");
       const equi = opts.preset === "equirect";
       if (equi) {   // 360 (beta): equirectangular 2:1 from the pano renderer; needs WebCodecs
