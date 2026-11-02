@@ -146,15 +146,31 @@ const list = (p) => p.evaluate(() => TDC.regions.list.map((r) => ({ id: r.id, ca
     ok("G. dragging the bar's right end to 3 s ends the region at 3 s", e1 != null && Math.abs(e1 - 3) < 0.15, { e1, cvr });
     await p.evaluate(() => TDC.regions.setTimes(TDC.regions.list[0].id, null, null));
     // J. a region tracked from the middle of the clip is on from there (not the whole clip), and ends where the object left for good
-    await p.evaluate(() => { TDC.regions.clear(); TDC.player.seek(0.6); }); await W(700);
+    await p.evaluate(() => { TDC.regions.setHandoff(false); TDC.regions.clear(); TDC.focus.focus("front"); TDC.player.seek(0.6); }); await W(900);   // (no hand-off questions here: the earlier region's would take the screen)
     { const T6 = truthAt(0.6), pd = 0.012;
       await p.evaluate(() => { const U = TDC.regions.UI; U.setShape("rect"); U.setMode("blur"); U.track(true); }); await W(300);
       await drag(p, "front", T6.x - pd, T6.y - pd, T6.x + T6.w + pd, T6.y + T6.h + pd);
       await p.evaluate(() => TDC.regions.UI.track(false));
       await p.evaluate(() => TDC.regions.passDone(TDC.regions.list[0].id));
       const r = (await list(p))[0], before = await p.evaluate(() => TDC.regions.at("front", 0.3).length);
-      ok("J. tracked from 0.6 s: the region starts at 0.6 s, nothing drawn at 0.3 s", r && Math.abs(r.start - 0.6) < 0.08 && before === 0, { start: r && r.start, before });
+      const at3 = await p.evaluate(() => { const v = TDC.regions.at("front", 0.3)[0]; return v ? { x: v.x, w: v.w } : null; }), T3 = truthAt(0.3);
+      ok("J. drawn at 0.6 s, followed BACK in time too: on from the start of the clip, on the sign at 0.3 s", r && r.start == null && before === 1 && at3 && Math.abs(at3.x + at3.w / 2 - T3.x - T3.w / 2) < 0.03, { start: r && r.start, at3, sign: T3.x + T3.w / 2, head: await p.evaluate(() => TDC.regions.list[0].path.slice(0, 30)), at03: await p.evaluate(() => TDC.patchTrack.pathAt(TDC.regions.list[0].path, 0.3)), n: await p.evaluate(() => TDC.regions.at("front", 0.3).length), raw: await p.evaluate(() => { const r = TDC.regions.list[0]; return { on: r.on, start: r.start, end: r.end, cam: r.cam, sticky: r.sticky }; }) });
       ok("J. ... the sign leaves at about 2 s but comes back at about 5 s, so it is not cut short (no end set)", r && r.end == null, { end: r && r.end }); }
+    // K. drawn on the sign after it came back (6.5 s): followed back to where it came into the picture (about 5 s), not to the start
+    await p.evaluate(() => { TDC.regions.clear(); TDC.player.seek(6.5); }); await W(800);
+    { const T = truthAt(6.5), pd = 0.012;
+      await p.evaluate(() => { const U = TDC.regions.UI; U.setShape("rect"); U.setMode("blur"); U.track(true); }); await W(300);
+      await drag(p, "front", T.x - pd, T.y - pd, T.x + T.w + pd, T.y + T.h + pd);
+      await p.evaluate(() => TDC.regions.UI.track(false));
+      await p.evaluate(() => TDC.regions.passDone(TDC.regions.list[0].id));
+      const r = (await list(p))[0];
+      ok("K. drawn at 6.5 s on the sign that came back: on from where it came into the picture (4.9-5.8 s)", r && r.start != null && r.start > 4.9 && r.start < 5.8, { start: r && r.start });
+      // dragging its start further back than that: followed back again; it can't go further, so the start comes back to where it was first seen
+      await p.evaluate(() => TDC.regions.setTimes(TDC.regions.list[0].id, 3.0, null));
+      await W(300); await p.evaluate(() => TDC.regions.passDone(TDC.regions.list[0].id));
+      const r2 = (await list(p))[0];
+      ok("K. start dragged to 3 s (the sign isn't there): it is followed back, and the start settles where the sign was first seen", r2 && r2.start != null && r2.start > 4.9 && r2.start < 5.8, { start: r2 && r2.start }); }
+    await p.evaluate(() => TDC.regions.setHandoff(true));
     // E. Track drawing pill; Track off ends drawing; a click on a camera then draws nothing
     await p.evaluate(() => { TDC.regions.UI.move(false); TDC.focus.grid && TDC.focus.grid(); }); await W(500);
     await p.evaluate(() => TDC.regions.UI.track(true)); await W(300);

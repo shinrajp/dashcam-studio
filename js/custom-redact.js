@@ -256,7 +256,11 @@
   G.setTimes = (id, a, z) => {
     const d = dur();
     if (a != null && z != null && a <= 0.05 && (!d || z >= d - 0.05)) { a = null; z = null; }
-    return G.update(id, { start: a == null ? null : Math.max(0, a), end: z == null ? null : Math.max(0, z) });
+    const r = G.update(id, { start: a == null ? null : Math.max(0, a), end: z == null ? null : Math.max(0, z) });
+    // a tracked region whose start was moved before its first tracked frame: follow it back in time to there
+    const inf = r && S.patches[id], first = r && r.path && r.path.length ? r.path[0] : null;
+    if (inf && first != null && (a == null ? 0 : a) < first - 0.15 && !(inf.back && !inf.back.done)) { runBack(id, inf, first, a == null ? 0 : a); msg("Following it back to " + fmt(a || 0) + "…"); }
+    return r;
   };
   G.clear = () => { if (G.list.length) { record(); G.list = []; changed(); } };
   G.toJSON = () => JSON.stringify({ type: "dashcam-studio-regions", version: 1, regions: G.list.map((r) => { const o = Object.assign({}, r); delete o.id; return o; }) }, null, 2);
@@ -1017,12 +1021,13 @@
   let saveTimer = 0;
   const saveSoon = () => { clearTimeout(saveTimer); saveTimer = setTimeout(() => G.save(), 1200); };
   /** Start following region r from time t (default now): a key at t where the region is drawn, then the pass. */
-  function armRegion(r, t) {
+  function armRegion(r, t, opt) {
     if (!r || !PT) return null;
     if (t == null) t = nowT();
+    let back = !(opt && opt.noBack);
     if (S.hoPending && S.hoPending.to === r.cam) {   // drawn after "Draw it myself": linked to the region it came from, its style and colour
       const src = G.list.find((x) => x.id === S.hoPending.from); S.hoPending = null;
-      if (src) { const link = src.link || src.id; src.link = link; r.link = link; r.ci = src.ci; if (r.start == null) r.start = Math.max(0, t - 0.05); }
+      if (src) { const link = src.link || src.id; src.link = link; r.link = link; r.ci = src.ci; if (r.start == null) r.start = Math.max(0, t - 0.05); back = false; }
     }
     const old = S.patches[r.id]; if (old) { old.passTok = null; closeReader(old); }
     const info = { lost: 0, t0: t };
@@ -1035,6 +1040,7 @@
     S.patches[r.id] = info; if (!S.trackIds.includes(r.id)) S.trackIds.push(r.id);
     rebuild(); G.save();
     runPass(r.id, info, t);
+    if (t > 0.15 && back) runBack(r.id, info, t, 0);   // and back in time from there, to where the object came into view (not for a hand-off: it came from the other camera then)
     return info;
   }
   G.arm = (id, t) => armRegion(G.list.find((x) => x.id === id), t);
@@ -1127,8 +1133,51 @@
     const pct = Math.round(100 * Math.max(0, Math.min(1, (info.pass.t - info.pass.t0) / Math.max(0.1, info.pass.end - info.pass.t0))));
     el.lastChild.textContent = "Tracking " + pct + " %";
   }
+  /** Tracking BACK in time from t0 (the moment it was drawn, or the earliest key) down to `until` (default the start of the clip): the same
+   *  tracker on frames taken in reverse order (its own clock runs t0 − t, so its motion model just sees the object move the other way).
+   *  It stops where the object is lost (it came into view, or was hidden), and the region's start moves back to the earliest frame it was
+   *  seen in. Runs beside the forward pass (its own hidden video). */
+  async function runBack(id, info, t0, until) {
+    const tok = info.passTok, ev = T.player && T.player.ev; if (!ev || !PT) return;
+    const cur = () => { const r = G.list.find((x) => x.id === id); return r && r.path && S.patches[id] === info && info.passTok === tok ? r : null; };
+    let r = cur(); if (!r) return;
+    const box0 = PT.pathAt(r.path, t0); if (!box0) return;
+    const rd = makeReader(r.cam), lo = Math.max(0, until || 0);
+    info.back = { t0, t: t0, lo, done: false }; drawLanes();
+    let earliest = t0;
+    try {
+      let v = await rd.at(t0); r = cur(); if (!r || !v) return;
+      const o = { fw: v.videoWidth, fh: v.videoHeight }, im0 = grabGrey(v, o.fw, o.fh, PT.createPlan(box0, o)); if (!im0) return;
+      const tr = PT.create(im0, box0, 0, o), det = detOn();
+      if (det) await assistAt(tr, v, r.cam, 0, false);
+      let lastDet = 0, n = 0;
+      for (let t = +(t0 - PASS_DT).toFixed(3); t >= lo - 1e-6; t = +(t - PASS_DT).toFixed(3)) {
+        v = await rd.at(t); r = cur(); if (!r) return; if (!v) break;
+        const tau = +(t0 - t).toFixed(3), im = grabGrey(v, o.fw, o.fh, tr.plan(tau)); if (!im) break;
+        const res = tr.update(im, tau), weak = !res.ok || res.score < 0.75;
+        let box = res.ok && res.probation ? null : res.ok || !res.hide ? res.box : null;
+        if (det && !res.hide && tau - lastDet >= (weak || tr.assistSoon ? 0.25 : 0.5) - 1e-6) { lastDet = tau; const nb = await assistAt(tr, v, r.cam, tau, weak); r = cur(); if (!r) return; if (nb && box) box = nb; }
+        if (res.hide || !box) break;   // lost going back: this is where it came into view (or was hidden)
+        if (!res.ok) continue;         // coasting a look or two: no key, go on
+        PT.pathAdd(r.path, t, box); earliest = t; info.back.t = t;
+        if (++n % 4 === 0) { drawLanes(); saveSoon(); await new Promise((res2) => setTimeout(res2, 0)); }
+      }
+    } catch (e) { console.warn("track back", e); }
+    finally {
+      rd.close();
+      r = cur();
+      if (r && info.back) {
+        info.back.done = true;
+        // on from where it was first seen: earlier than that the box would sit on nothing (also when its start was dragged further back)
+        const first = r.path.length ? r.path[0] : earliest, st = first <= 0.15 ? null : +first.toFixed(3);
+        if ((r.start == null ? 0 : r.start) !== (st == null ? 0 : st)) { r.start = st; if (until > 0.15 && st != null && st > until + 0.2) msg("Followed it back to " + fmt(st) + ": before that it isn't in the picture (or can't be told apart)."); }
+        rebuild(); G.save(); drawLanes(); if (R && R.paint) R.paint(); try { UI.sync(); } catch (_) {}
+      }
+    }
+  }
+  G.trackBack = (id, until) => { const r = G.list.find((x) => x.id === id), info = S.patches[id]; if (!r || !r.path || !info) return false; runBack(id, info, r.path[0], until); return true; };
   /** Wait for a region's pass to finish (tests and tools). */
-  G.passDone = (id) => new Promise((res) => { const chk = () => { const inf = S.patches[id]; if (!inf || !inf.pass || inf.pass.done || inf.pass.err || !inf.passTok) res(inf && inf.pass); else setTimeout(chk, 100); }; chk(); });
+  G.passDone = (id) => new Promise((res) => { const chk = () => { const inf = S.patches[id]; if (!inf || !inf.passTok || ((!inf.pass || inf.pass.done || inf.pass.err) && (!inf.back || inf.back.done))) res(inf && inf.pass); else setTimeout(chk, 100); }; chk(); });
   /** Where the regions sit at the player's time (Move, the list and the editor act on what is shown), and hand-off questions that are due. */
   function followPatches() {
     if (!T.player || !PT) return;
@@ -1280,7 +1329,7 @@
     if (!src.link) { src.link = link; G.save(); }
     const o = { cam: h.to, shape: src.shape === "ellipse" ? "ellipse" : "rect", x: nb.x, y: nb.y, w: nb.w, h: nb.h, mode: src.mode, mc: src.mc, ci: src.ci != null ? src.ci : LANE_COLORS.indexOf(G.color(src)), link, start: Math.max(0, t - 0.05), end: src.end, on: true };
     const r = G.add(o); if (!r) return null;
-    armRegion(r, t);
+    armRegion(r, t, { noBack: true });
     UI.sync(); kick();
     return r;
   }
