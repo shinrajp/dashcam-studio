@@ -1028,6 +1028,10 @@
     const info = { lost: 0, t0: t };
     if (!r.path) r.path = []; else cutPath(r.path, t);
     PT.pathAdd(r.path, t, boxOf(r));
+    // a tracked region is on from where it was put on the object (before that the box is not on anything); its bar's left end can be
+    // dragged back. An end it already has stays.
+    if (t > 0.05 && (r.start == null || r.start < t - 0.05)) r.start = +t.toFixed(3);
+    info.autoEnd = r.end == null;
     S.patches[r.id] = info; if (!S.trackIds.includes(r.id)) S.trackIds.push(r.id);
     rebuild(); G.save();
     runPass(r.id, info, t);
@@ -1106,6 +1110,12 @@
         if (++n % 4 === 0) { drawLanes(); saveSoon(); passBadge(id, info); if (Math.abs(nowT() - t) < 1 && R && R.paint) R.paint(); await new Promise((res) => setTimeout(res, 0)); }
       }
       info.pass.done = true;
+      // and it ends where the object left for good (it was lost and not found again before the end): the bar shows the stretch it is on
+      r = cur();
+      if (r && info.autoEnd && r.end == null && r.path.length >= 10) {
+        const P = r.path, n = P.length;
+        if (P[n - 2] === 0 && P[n - 1] === 0) { const tl = P[n - 5]; if (tl > (r.start || 0) + 0.2 && tl < ev.duration - 0.2) { r.end = +tl.toFixed(3); rebuild(); } }
+      }
     } catch (e) { console.warn("track pass", e); if (info.pass) info.pass.err = String((e && e.message) || e); msg("Tracking stopped: " + ((e && e.message) || e) + ".", true); }
     finally {
       if (info.rd === rd) closeReader(info);

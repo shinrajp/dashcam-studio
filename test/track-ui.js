@@ -145,6 +145,16 @@ const list = (p) => p.evaluate(() => TDC.regions.list.map((r) => ({ id: r.id, ca
     const e1 = (await list(p))[0].end;
     ok("G. dragging the bar's right end to 3 s ends the region at 3 s", e1 != null && Math.abs(e1 - 3) < 0.15, { e1, cvr });
     await p.evaluate(() => TDC.regions.setTimes(TDC.regions.list[0].id, null, null));
+    // J. a region tracked from the middle of the clip is on from there (not the whole clip), and ends where the object left for good
+    await p.evaluate(() => { TDC.regions.clear(); TDC.player.seek(0.6); }); await W(700);
+    { const T6 = truthAt(0.6), pd = 0.012;
+      await p.evaluate(() => { const U = TDC.regions.UI; U.setShape("rect"); U.setMode("blur"); U.track(true); }); await W(300);
+      await drag(p, "front", T6.x - pd, T6.y - pd, T6.x + T6.w + pd, T6.y + T6.h + pd);
+      await p.evaluate(() => TDC.regions.UI.track(false));
+      await p.evaluate(() => TDC.regions.passDone(TDC.regions.list[0].id));
+      const r = (await list(p))[0], before = await p.evaluate(() => TDC.regions.at("front", 0.3).length);
+      ok("J. tracked from 0.6 s: the region starts at 0.6 s, nothing drawn at 0.3 s", r && Math.abs(r.start - 0.6) < 0.08 && before === 0, { start: r && r.start, before });
+      ok("J. ... the sign leaves at about 2 s but comes back at about 5 s, so it is not cut short (no end set)", r && r.end == null, { end: r && r.end }); }
     // E. Track drawing pill; Track off ends drawing; a click on a camera then draws nothing
     await p.evaluate(() => { TDC.regions.UI.move(false); TDC.focus.grid && TDC.focus.grid(); }); await W(500);
     await p.evaluate(() => TDC.regions.UI.track(true)); await W(300);
