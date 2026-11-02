@@ -1031,6 +1031,7 @@
     };
     return { cam, v, at: (t) => (busy = busy.then(() => at(t), () => at(t))), close: () => { try { v.removeAttribute("src"); v.load(); } catch (_) {} v.remove(); } };
   }
+  G._mk = (cam) => makeReader(cam);   // (tests: time the hidden-video reader)
   function closeReader(info) { if (info && info.rd) { info.rd.close(); info.rd = null; } }
   /** The kept path up to (not including) time t: re-tracking from t replaces what came after. */
   function dropKeys(path, a, b) { for (let i = path.length - 5; i >= 0; i -= 5) if (path[i] > a && path[i] < b) path.splice(i, 5); }
@@ -1252,7 +1253,9 @@
     if (!a || !b) return 0.5;
     const la = (a[0] + a[1] + a[2]) / 3 + 1, lb = (b[0] + b[1] + b[2]) / 3 + 1;
     const ca = a.map((v) => v / la), cb = b.map((v) => v / lb), dc = Math.hypot(ca[0] - cb[0], ca[1] - cb[1], ca[2] - cb[2]), dl = Math.abs(Math.log(la / lb));
-    return Math.max(0, 1 - dc * 1.6 - dl * 0.35);
+    // grey cars differ by brightness alone (a dark grey car is not a white one): brightness counts more when neither colour has much hue
+    const grey = Math.max(Math.hypot(ca[0] - 1, ca[1] - 1, ca[2] - 1), Math.hypot(cb[0] - 1, cb[1] - 1, cb[2] - 1)) < 0.15;
+    return Math.max(0, 1 - dc * 1.6 - dl * (grey ? 0.7 : 0.35));
   }
   const KIND = { car: "vehicle", truck: "vehicle", bus: "vehicle", motorcycle: "vehicle", bicycle: "bike", person: "person" }, kindOf = (l) => KIND[l] || l;
   const KIND_NAME = { vehicle: "vehicle", bike: "bike", person: "person" };
@@ -1269,9 +1272,118 @@
     HO.queue.push(h); drawLanes();
     handoffSearch(h, t);
   }
+  /* ── following it across ALL the cameras (Object detection on) ──
+     From the camera it left, the next one (js/handoff.js) is searched from 1 s BEFORE it left (neighbouring cameras overlap: a car close by is
+     seen by two at once) to 2.5 s after, every 0.1 s, with the detector on the whole picture: something of the same kind near the edge it
+     comes in on, with a similar colour, that then moves on into the picture. That detection is followed from frame to frame (where its speed
+     says it should be, a similar size), back to where it first showed and on until it is gone. If it leaves through a side edge, the next
+     camera is searched the same way, and so on (each camera once). Fast and close objects (a car passing the pillar camera in half a
+     second, huge in the picture) are followed by their detections, which the look-matching tracker can't do. One question for all of them. */
+  const CHAIN_DT = 0.1;
+  const isKind = (h, d) => (h.kind ? kindOf(d.label) === h.kind : !!KIND[d.label]) && !(d.w > 0.9 && d.h > 0.7) && d.w * d.h > 0.002;   // (not the car's own body across the whole rear fisheye; a car right next to you can fill most of a picture)
+  async function detAll(rd, cam, t) {
+    const v = await rd.at(t); if (!v) return null;
+    let dets = [];
+    try { dets = await T.detect.detectImage(v, v.videoWidth, v.videoHeight, { conf: 0.3, noFix: true, cam, slot: "fast" }); } catch (_) { dets = []; }
+    return { v, dets: dets || [] };
+  }
+  /** The detection that continues a followed object: where its speed says it should be, a similar size. */
+  function nextDet(h, dets, prev, vel, dt) {
+    const pcx = prev.x + prev.w / 2 + vel.x * dt, pcy = prev.y + prev.h / 2 + vel.y * dt;
+    let best = null, bs = Infinity;
+    for (const d of dets) {
+      if (!isKind(h, d)) continue;
+      const sr = d.w / prev.w; if (sr < 0.5 || sr > 2.2) continue;
+      const dist = Math.hypot(d.x + d.w / 2 - pcx, d.y + d.h / 2 - pcy) / Math.max(prev.w, d.w, 0.05); if (dist > 0.75) continue;
+      const sc = dist + 0.6 * Math.abs(Math.log(sr)) - 0.3 * iou(d, prev);
+      if (sc < bs) { bs = sc; best = d; }
+    }
+    return bs <= 0.55 ? best : null;   // (a poor fit is another object: rather a missed frame than a jump onto it)
+  }
+  /** Follow a detection from time t0 in one direction (dir 1 forward, −1 back) until it is gone; [[t, box], …] in time order of following. */
+  async function followDets(h, rd, cam, t0, box0, dir, maxT) {
+    const keys = []; let prev = box0, vel = { x: 0, y: 0 }, miss = 0, lastT = t0;
+    for (let t = +(t0 + dir * CHAIN_DT).toFixed(3); dir > 0 ? t <= maxT + 1e-6 : t >= maxT - 1e-6; t = +(t + dir * CHAIN_DT).toFixed(3)) {
+      if (!HO.queue.includes(h)) return keys;
+      const fr = await detAll(rd, cam, t); if (!fr) break;
+      const dt = t - lastT, d = nextDet(h, fr.dets, prev, vel, dt);
+      if (!d) { if (++miss >= 3) break; continue; }
+      const nv = { x: (d.x + d.w / 2 - prev.x - prev.w / 2) / dt, y: (d.y + d.h / 2 - prev.y - prev.h / 2) / dt };
+      vel = keys.length ? { x: 0.5 * vel.x + 0.5 * nv.x, y: 0.5 * vel.y + 0.5 * nv.y } : nv;
+      prev = { x: d.x, y: d.y, w: d.w, h: d.h }; lastT = t; miss = 0; keys.push([t, prev]);
+    }
+    h._vel = vel;
+    return keys;
+  }
+  /** Where (which side) the followed object left the picture, from its last boxes; null when it faded away inside it. */
+  function exitSideOf(keys) {
+    if (!keys.length) return null;
+    const [t1, b] = keys[keys.length - 1], k0 = keys[Math.max(0, keys.length - 4)], vx = keys.length > 1 && t1 > k0[0] ? ((b.x + b.w / 2) - (k0[1].x + k0[1].w / 2)) / (t1 - k0[0]) : 0, cx = b.x + b.w / 2;
+    if (b.x < 0.03 || (cx < 0.3 && vx < -0.15)) return "left";
+    if (b.x + b.w > 0.97 || (cx > 0.7 && vx > 0.15)) return "right";
+    return null;
+  }
+  /** Find it coming into camera `cam` (through its `entry` edge) round time tExit, and follow it there. → { cam, keys, exit } or null */
+  async function chainSeg(h, cam, entry, tExit) {
+    const ev = T.player.ev, rd = makeReader(cam), lo = Math.max(0, tExit - 1.0), hi = Math.min(ev.duration, tExit + 2.5);
+    try {
+      // every frame of the window first: the best candidate overall (another car coming in a second earlier must not win just by being first)
+      const cands = [];
+      for (let t = +lo.toFixed(3); t <= hi + 1e-6; t = +(t + 2 * CHAIN_DT).toFixed(3)) {   // (every 0.2 s: the following then goes frame by frame, back and on)
+        if (!HO.queue.includes(h)) return null;
+        const fr = await detAll(rd, cam, t); if (!fr) continue;
+        for (const d of fr.dets) {
+          if (!isKind(h, d) || h.skip.some((q) => q.cam === cam && iou(q, d) > 0.3)) continue;
+          const near = entry === "left" ? d.x : 1 - (d.x + d.w);   // how far its edge is from the edge it comes in on
+          if (near > 0.2) continue;
+          const when = Math.max(0, 1 - Math.abs(t - tExit) / 1.5);   // about when it left the other camera
+          cands.push({ t, d, sc: 0.3 * (1 - near / 0.2) + 0.35 * colorLike(h.col, colorSig(fr.v, d)) + 0.15 * d.conf + 0.2 * when });
+        }
+      }
+      cands.sort((a, b) => b.sc - a.sc);
+      const tried = [];
+      for (const c of cands) {
+        if (c.sc < 0.45 || tried.length >= 4) break;
+        if (tried.some((q) => Math.abs(q.t - c.t) < 0.45 && iou(q.d, c.d) > 0.2)) continue;   // (the same object a frame later)
+        tried.push(c);
+        {
+          const t = c.t, box0 = { x: c.d.x, y: c.d.y, w: c.d.w, h: c.d.h };
+          const fwd = await followDets(h, rd, cam, t, box0, 1, Math.min(ev.duration, t + 12));
+          // it must come INTO the picture (away from the edge it came in on, or grow as it comes closer): a car parked at the edge doesn't
+          const last = fwd.length ? fwd[fwd.length - 1][1] : box0, moved = entry === "left" ? (last.x + last.w / 2) - (box0.x + box0.w / 2) : (box0.x + box0.w / 2) - (last.x + last.w / 2);
+          if (fwd.length < 2 || (moved < 0.08 && last.w < box0.w * 1.3)) continue;
+          const back = await followDets(h, rd, cam, t, box0, -1, Math.max(0, t - 1.5));
+          const keys = back.reverse().concat([[t, box0]], fwd);
+          return { cam, keys, exit: exitSideOf(keys), score: c.sc };
+        }
+      }
+      return null;
+    } finally { rd.close(); }
+  }
+  async function chainSearch(h) {
+    const ev = T.player.ev, seen = new Set([h.cam]); let cam = h.to, entry = h.entry, tExit = h.t0;
+    h.chain = []; h.state = "search"; drawLanes();
+    for (let hop = 0; hop < 5 && cam && !seen.has(cam) && (ev.cams || []).includes(cam); hop++) {
+      const seg = await chainSeg(h, cam, entry, tExit);
+      if (!HO.queue.includes(h)) return;
+      if (!seg) break;
+      h.chain.push(seg); seen.add(cam); drawLanes();
+      if (!seg.exit) break;
+      const e = T.handoff.entryFor(cam, seg.exit); if (!e) break;
+      cam = e.to; entry = e.entry; tExit = seg.keys[seg.keys.length - 1][0];
+    }
+    if (!h.chain.length) {
+      h.state = "none"; HO.queue.splice(HO.queue.indexOf(h), 1); drawLanes();
+      msg("The object left the " + camName(h.cam).toLowerCase() + " camera; it wasn't found in the " + camName(h.to).toLowerCase() + " camera. Draw a region there if it shows up.");
+      return;
+    }
+    const s0 = h.chain[0]; h.to = s0.cam; h.at = s0.keys[0][0]; h.cand = Object.assign({ t: h.at }, s0.keys[0][1]); h.pick = h.chain.map(() => true); h.show = 0;
+    h.state = "ask"; drawLanes();
+  }
   /** Look for it in the neighbour camera from time `from`, every 0.3 s, for up to 4 s after it left. No detector: ask the user at once. */
   async function handoffSearch(h, from) {
     if (!detOn()) { h.state = "ask"; h.cand = null; h.at = h.t0; return; }
+    if (!h.single) return chainSearch(h);
     const ev = T.player.ev, rd = makeReader(h.to), until = Math.min(ev.duration, h.t0 + 4);
     h.state = "search";
     try {
@@ -1331,6 +1443,8 @@
       if (was && T.player) T.player.play();
     });
     $("crHoDraw").addEventListener("click", () => handoffDraw());
+    c.addEventListener("click", (e) => { const b = e.target.closest("[data-show]"); if (b) { e.preventDefault(); hoShow(+b.dataset.show); } });
+    c.addEventListener("change", (e) => { const x = e.target.closest("[data-seg]"), h = HO.active; if (x && h && h.pick) { h.pick[+x.dataset.seg] = x.checked; $("crHoYes").disabled = !h.pick.some(Boolean); } });
     $("crHoStop").addEventListener("click", () => { const h = HO.active; handoffEnd("Hand-off stopped."); if (h && h.wasPlaying && T.player) T.player.play(); });
     return c;
   }
@@ -1340,10 +1454,14 @@
     if (T.focus && T.focus.cam && T.focus.cam !== h.to && T.focus.focus) T.focus.focus(h.to);   // one big camera on screen: show the one it went into
     const src = G.list.find((x) => x.id === h.from), what = h.kind ? KIND_NAME[h.kind] || h.kind : "object";
     const c = hoCard();
-    $("crHoText").innerHTML = cand
+    $("crHoText").innerHTML = h.chain && h.chain.length
+      ? "The tracked " + esc(what) + " left the <b>" + esc(camName(h.cam)) + "</b> camera. It was followed into " + (h.chain.length === 1 ? "the <b>" + esc(camName(h.chain[0].cam)) + "</b> camera" : h.chain.length + " more cameras") + ". Untick any that is not it (Show puts the purple box on it):" +
+        '<span class="cr-ho-list">' + h.chain.map((sg, i) => '<label class="cr-ho-row"><input type="checkbox" data-seg="' + i + '"' + (h.pick[i] ? " checked" : "") + "> <b>" + esc(camName(sg.cam)) + "</b> " + fmt(sg.keys[0][0]) + "–" + fmt(sg.keys[sg.keys.length - 1][0]) + ' <button type="button" class="btn small ghost" data-show="' + i + '">Show</button></label>').join("") + "</span>"
+      : cand
       ? "The tracked " + esc(what) + " left the <b>" + esc(camName(h.cam)) + "</b> camera. Is this it in the <b>" + esc(camName(h.to)) + "</b> camera (purple box)?"
       : "The tracked " + esc(what) + " left the <b>" + esc(camName(h.cam)) + "</b> camera towards the <b>" + esc(camName(h.to)) + "</b> camera. Object detection is off, so it can't be found there for you: press <b>Draw it myself</b> and drag round it.";
-    $("crHoYes").hidden = !cand; $("crHoNo").hidden = !cand;
+    $("crHoYes").hidden = !cand; $("crHoNo").hidden = !cand || !!(h.chain && h.chain.length);
+    $("crHoYes").textContent = h.chain && h.chain.length > 1 ? "Yes, track it in these" : "Yes, keep tracking";
     c.style.borderColor = src ? G.color(src) : "";
     c.hidden = false;
     document.querySelectorAll(".cr-ho-box").forEach((x) => x.remove());
@@ -1352,12 +1470,23 @@
   }
   function placeHoBox() {
     const h = HO.active; if (!h || !h.cand || !T.player || !T.player.tiles) return;
-    const f = G.screenFit(h.to), tile = T.player.tiles[h.to]; if (!f || !tile) return;
-    const tr = tile.tile.getBoundingClientRect(), a = G.toScreen(f, h.cand.x, h.cand.y), b = G.toScreen(f, h.cand.x + h.cand.w, h.cand.y + h.cand.h);
+    const sg = h.chain && h.chain[h.show || 0], cam = sg ? sg.cam : h.to, bx = sg ? segBoxAt(sg, nowT()) || sg.keys[0][1] : h.cand;
+    const f = G.screenFit(cam), tile = T.player.tiles[cam]; if (!f || !tile) return;
+    const tr = tile.tile.getBoundingClientRect(), a = G.toScreen(f, bx.x, bx.y), b = G.toScreen(f, bx.x + bx.w, bx.y + bx.h);
     let el = tile.tile.querySelector(".cr-ho-box"); if (!el) { el = document.createElement("div"); el.className = "cr-ho-box"; el.innerHTML = "<span>Same one?</span>"; tile.tile.appendChild(el); }
     el.style.left = Math.min(a[0], b[0]) - tr.left + "px"; el.style.top = Math.min(a[1], b[1]) - tr.top + "px"; el.style.width = Math.abs(b[0] - a[0]) + "px"; el.style.height = Math.abs(b[1] - a[1]) + "px";
   }
   G.placeHoBox = placeHoBox;
+  const segBoxAt = (sg, t) => { let k = null; for (const q of sg.keys) if (q[0] <= t + 0.051) k = q[1]; return k; };
+  /** Show one found stretch: the player goes to its middle, that camera is shown, the purple box on it. */
+  function hoShow(i) {
+    const h = HO.active; if (!h || !h.chain || !h.chain[i]) return;
+    const sg = h.chain[i], tm = sg.keys[Math.floor(sg.keys.length / 2)][0];
+    h.show = i; document.querySelectorAll(".cr-ho-box").forEach((x) => x.remove());
+    if (T.focus && T.focus.cam && T.focus.cam !== sg.cam && T.focus.focus) T.focus.focus(sg.cam);
+    T.player.seek(tm);
+    for (const ms of [120, 400, 900]) setTimeout(placeHoBox, ms);
+  }
   /** A region on the neighbour camera round `box` at time t, in the source's style and colour, linked to it, tracked from t. */
   function handoffMake(h, box, t) {
     const src = G.list.find((x) => x.id === h.from); if (!src) return null;
@@ -1371,8 +1500,30 @@
     UI.sync(); kick();
     return r;
   }
+  /** A region for one followed stretch: its path is the detections (grown by the first region's room round the object), no tracker needed. */
+  function chainMake(h, sg) {
+    const src = G.list.find((x) => x.id === h.from); if (!src) return null;
+    const tr = S.patches[src.id] && S.patches[src.id].tr, A = tr && tr._anchor, rw = A ? A.rw : src.mode === "mark" ? 1.15 : 1.25, rh = A ? A.rh : rw;
+    const grow = (b) => { const w = Math.min(1, b.w * rw), hh = Math.min(1, b.h * rh); return { x: Math.max(0, Math.min(1 - w, b.x + b.w / 2 - w / 2)), y: Math.max(0, Math.min(1 - hh, b.y + b.h / 2 - hh / 2)), w, h: hh }; };
+    const link = src.link || src.id; if (!src.link) { src.link = link; G.save(); }
+    const b0 = grow(sg.keys[0][1]), t0 = sg.keys[0][0], t1 = sg.keys[sg.keys.length - 1][0];
+    const r = G.add({ cam: sg.cam, shape: src.shape === "ellipse" ? "ellipse" : "rect", x: b0.x, y: b0.y, w: b0.w, h: b0.h, mode: src.mode, mc: src.mc, ci: src.ci != null ? src.ci : LANE_COLORS.indexOf(G.color(src)), link, start: t0 > 0.15 ? Math.max(0, t0 - 0.05) : null, end: Math.min(dur() || t1 + 0.15, t1 + 0.15), on: true });
+    if (!r) return null;
+    r.path = []; for (const [t, b] of sg.keys) PT.pathAdd(r.path, t, grow(b));
+    if (t1 + 0.15 < (dur() || 0) - 0.05) PT.pathAdd(r.path, t1 + 0.1, null);   // gone from here
+    if (!S.trackIds.includes(r.id)) S.trackIds.push(r.id);
+    rebuild(); G.save();
+    return r;
+  }
   function handoffAccept() {
     const h = HO.active; if (!h || !h.cand) return;
+    if (h.chain && h.chain.length) {
+      const made = h.chain.filter((sg, i) => h.pick[i]).map((sg) => chainMake(h, sg)).filter(Boolean), was = h.wasPlaying;
+      handoffEnd(made.length ? "Tracking it in " + made.map((r) => camName(r.cam).toLowerCase()).join(", ") + " too (linked, same colour)." : "Nothing added.");
+      UI.sync(); kick(); if (R && R.paint) R.paint();
+      if (was && T.player) T.player.play();
+      return;
+    }
     const r = handoffMake(h, h.cand, h.cand.t), was = h.wasPlaying;
     handoffEnd(r ? "Tracking continues in the " + camName(h.to).toLowerCase() + " camera (linked to the first region, same colour)." : "Couldn't add the region there.");
     if (r && was && T.player) T.player.play();

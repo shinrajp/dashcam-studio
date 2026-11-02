@@ -50,7 +50,8 @@ function detail(F, b) {
   await p.evaluate(() => { TDC.player.pause(); TDC.setPref("mapTiles", false); TDC.setPref("layout", "current"); TDC.focus.focus("front"); TDC.player.seek(0); }); await W(900);
   await p.evaluate(() => {   // the detector, stubbed: a car near the left edge of the right pillar's picture (the hand-off finds it); nothing elsewhere
     const D = TDC.detect; D.enabled = () => true; D.loadFast = async () => null;
-    D.detectImage = async (img, iw, ih, o) => (o && o.cam === "right_pillar" ? [{ x: 0.06, y: 0.42, w: 0.12, h: 0.1, label: "car", conf: 0.9 }] : []);
+    // a car that drives into the right pillar's picture from its left edge from 1.7 s on (the frame's own time: the hidden video's currentTime)
+    D.detectImage = async (img, iw, ih, o) => { if (!o || o.cam !== "right_pillar") return []; const t = img && img.currentTime || 0; if (t < 1.7) return []; return [{ x: Math.min(0.7, 0.12 * (t - 1.7)), y: 0.42, w: 0.12, h: 0.1, label: "car", conf: 0.9 }]; };
   });
   // 1. Track drawing, Circle, Highlight red, round the sign at t = 0
   const t0 = TRUTH.frames[0], pad = 0.015;
@@ -60,7 +61,7 @@ function detail(F, b) {
   await p.evaluate(() => TDC.regions.UI.track(false));
   // 2. the hand-off question comes (the player goes to it); Yes, in Blur
   let asked = null;
-  for (let i = 0; i < 150 && !asked; i++) { await W(200); asked = await p.evaluate(() => { const c = document.getElementById("crHo"); return c && !c.hidden ? TDC.player.time : null; }); }
+  for (let i = 0; i < 600 && !asked; i++) { await W(200); asked = await p.evaluate(() => { const c = document.getElementById("crHo"); return c && !c.hidden ? TDC.player.time : null; }); }
   ok("the hand-off question came", asked != null, asked);
   if (asked != null) await p.evaluate(() => document.getElementById("crHoYes").click());
   await W(500);

@@ -36,7 +36,8 @@ async function open(b, det) {
   for (let i = 0; i < 60 && !(await p.evaluate(() => { const t = TDC.player.tiles.front; const v = t && t.vids && t.vids[TDC.player.active]; return v && v.videoWidth; })); i++) await W(150);
   if (det) await p.evaluate(() => {   // the detector, stubbed: a car near the left edge of the right pillar's picture; nothing elsewhere
     const D = TDC.detect; D.enabled = () => true; D.loadFast = async () => null;
-    D.detectImage = async (img, iw, ih, o) => (o && o.cam === "right_pillar" ? [{ x: 0.06, y: 0.42, w: 0.12, h: 0.1, label: "car", conf: 0.9 }] : []);
+    // a car that drives into the right pillar's picture from its left edge from 1.7 s on (the frame's own time: the hidden video's currentTime)
+    D.detectImage = async (img, iw, ih, o) => { if (!o || o.cam !== "right_pillar") return []; const t = img && img.currentTime || 0; if (t < 1.7) return []; return [{ x: Math.min(0.7, 0.12 * (t - 1.7)), y: 0.42, w: 0.12, h: 0.1, label: "car", conf: 0.9 }]; };
   });
   return { p, errs };
 }
@@ -201,10 +202,11 @@ const list = (p) => p.evaluate(() => TDC.regions.list.map((r) => ({ id: r.id, ca
     await drag(p, "front", t0.x - pad, t0.y - pad, t0.x + t0.w + pad, t0.y + t0.h + pad);
     await p.evaluate(() => TDC.regions.UI.track(false)); await W(200);
     let asked = null;
-    for (let i = 0; i < 120 && !asked; i++) { await W(200); asked = await p.evaluate(() => { const c = document.getElementById("crHo"); return c && !c.hidden ? { text: document.getElementById("crHoText").textContent, t: TDC.player.time, focus: TDC.focus.cam } : null; }); }
+    for (let i = 0; i < 600 && !asked; i++) { await W(200); asked = await p.evaluate(() => { const c = document.getElementById("crHo"); return c && !c.hidden ? { text: document.getElementById("crHoText").textContent, t: TDC.player.time, focus: TDC.focus.cam } : null; }); }
     await W(1400); if (asked) asked.box = await p.evaluate(() => !!document.querySelector(".tile .cr-ho-box"));
+    if (!asked) console.log("  (no question; hand-off queue: " + JSON.stringify(await p.evaluate(() => TDC.regions.ho.queue.map((h) => ({ to: h.to, state: h.state, chain: h.chain && h.chain.length, t0: h.t0 })))) + ")");
     ok("H. after the sign leaves the front camera, the app asks about the right pillar (without playing)", asked && /Right/i.test(asked.text), asked);
-    ok("H. it shows the moment it was found (t > 1.85 s), on the right pillar, with the purple box", asked && asked.t > 1.85 && asked.focus === "right_pillar" && asked.box, asked);
+    ok("H. it shows the moment it came into the right pillar (the stubbed car from 1.7 s; cameras overlap, so before the sign is fully out of the front), with the purple box", asked && asked.t > 1.6 && asked.t < 2.2 && asked.focus === "right_pillar" && asked.box, asked);
     // (as on a real clip: the first region's own tracking has ended where the object left its camera, before the question is answered)
     await p.evaluate((t) => { const r = TDC.regions.list[0]; r.end = +t.toFixed(3); }, asked ? asked.t : 2);
     await p.evaluate(() => document.getElementById("crHoYes").click()); await W(600);
