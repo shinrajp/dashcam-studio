@@ -465,6 +465,7 @@
     const head = o.marks[0];
     if (!head.link) G.update(head.id, { link: head.id });
     const was = r.link; G.update(id, { link: head.link || head.id, ci: head.ci });
+    LAB.push({ obj: head.link || head.id, cam: r.cam, label: "it", source: "linked", mark: id });
     if (was) { const rest = G.list.filter((x) => x.link === was); if (rest.length === 1) G.update(rest[0].id, { link: "" }); }
     return true;
   };
@@ -1478,6 +1479,90 @@
     const rd = makeReader(sg.cam);
     try { const v = await rd.at(k[0]); return await vembed(v, k[1], sg.cam + "|" + k[0].toFixed(3) + "|" + cropKey(k[1])); } finally { rd.close(); }
   }
+  /* ho-geo: where the cameras point (js/pano.js calibration: direction, field of view, lens) turns a place in a picture into a direction round
+     the car. From how fast the object turns round the car as it leaves one camera, the moment it should come into the next one follows
+     (cameras that overlap: before it has left). A soft guide for the search, not a rule: a car close by is seen from cameras a metre or two
+     apart, so the directions don't quite agree. */
+  // (js/pano.js DEFAULTS, for when the 360 view hasn't been loaded; its saved calibration wins when it has)
+  const GEO0 = { front: { yaw: 0, fov: 70, model: "rect" }, back: { yaw: 180, fov: 125, model: "kb" }, left_pillar: { yaw: -58, fov: 90, model: "kb" }, right_pillar: { yaw: 58, fov: 90, model: "kb" }, left_repeater: { yaw: -132, fov: 85, model: "kb" }, right_repeater: { yaw: 132, fov: 85, model: "kb" } };
+  function camGeo(cam) {
+    let c = null; try { const N = T.pano; c = N && N.calib ? N.calib() : null; } catch (_) { c = null; }
+    if (!c) { try { const v = JSON.parse(localStorage.getItem("tdc.pano.calib.v1") || "null"); if (v && v[cam]) { const o = Object.assign({}, GEO0[cam]); for (const f of ["yaw", "fov"]) if (isFinite(+v[cam][f])) o[f] = +v[cam][f]; if (v[cam].model === "rect" || v[cam].model === "kb") o.model = v[cam].model; return o; } } catch (_) {} }
+    const k = (c && c[cam]) || GEO0[cam];
+    return k && isFinite(k.yaw) && isFinite(k.fov) ? k : null;
+  }
+  /** The direction round the car (degrees, + = clockwise / to the right) of picture position x (0..1, raw picture) on camera `cam`. */
+  function bearingOf(cam, x) {
+    const g = camGeo(cam); if (!g) return null;
+    const half = (g.fov / 2) * Math.PI / 180, u = (x - 0.5) * 2;
+    const off = g.model === "rect" ? Math.atan(u * Math.tan(half)) : u * half;   // (fisheye: about equidistant)
+    return g.yaw + off * 180 / Math.PI;
+  }
+  const angDiff = (a, b) => { let d = a - b; while (d > 180) d -= 360; while (d < -180) d += 360; return d; };
+  /** When should the object, last seen on `keys` (camera `cam`), come into camera `to` through its `entry` edge? → { t, sigma } or null */
+  function predictEntry(cam, keys, to, entry) {
+    if (!keys || keys.length < 2) return null;
+    const last = keys[keys.length - 1]; let first = null;
+    for (let i = keys.length - 2; i >= 0; i--) { first = keys[i]; if (last[0] - first[0] >= 0.25) break; }
+    const dt = last[0] - first[0]; if (!(dt > 0.05)) return null;
+    const cx = (k) => Math.max(0, Math.min(1, k[1].x + k[1].w / 2));
+    const b0 = bearingOf(cam, cx(first)), b1 = bearingOf(cam, cx(last)), g = camGeo(to); if (b0 == null || b1 == null || !g) return null;
+    const om = angDiff(b1, b0) / dt; if (Math.abs(om) < 3) return null;   // (hardly turning round the car: no telling when)
+    const edge = g.yaw + (entry === "left" ? -1 : 1) * g.fov / 2, inner = edge + (entry === "left" ? 1 : -1) * 4;   // (a little inside: its middle in the picture)
+    const dtp = angDiff(inner, b1) / om;
+    if (!isFinite(dtp) || dtp < -2 || dtp > 6) return null;
+    return { t: last[0] + dtp, sigma: Math.max(0.45, Math.abs(dtp) * 0.6) };
+  }
+  G.predictEntry = predictEntry;   // (tests)
+  /* ho-labels: your answers as training data. Every Yes / Not it / untick of a hand-off, and every mark you link by hand, is noted (which
+     object, which camera, when, where); "Export training data" turns them, with the marks you keep, into small pictures of the object
+     labelled it / not it, in one file on this device (for fine-tuning the models later; it holds pictures of cars, so plates may be
+     readable: it goes nowhere unless you send it). */
+  const LAB = [];
+  function labelSeg(obj, cam, keys, label, source) {
+    if (!obj || !cam || !keys || !keys.length) return;
+    LAB.push({ obj, cam, label, source, keys: bestViews(keys, 3).map(([t, b]) => [+t.toFixed(3), { x: b.x, y: b.y, w: b.w, h: b.h }]) });
+    if (LAB.length > 400) LAB.shift();
+  }
+  G.labels = () => LAB.slice();   // (tests)
+  /** The training-data file: labelled pictures of each object (it / not it) from this event. */
+  async function exportTraining() {
+    const ev = T.player && T.player.ev; if (!ev) { msg("Open an event first.", true); return; }
+    const items = [];
+    // the marks you keep: each is its object on its camera ("it"), a few of its best views along its path
+    for (const r of G.list) {
+      if (!r.on) continue;
+      const keys = []; if (r.path) for (let i = 0; i < r.path.length; i += 5) if (r.path[i + 3] > 0) keys.push([r.path[i], { x: r.path[i + 1], y: r.path[i + 2], w: r.path[i + 3], h: r.path[i + 4] }]);
+      const views = keys.length ? bestViews(keys, 3) : [[r.start || 0, { x: r.x, y: r.y, w: r.w, h: r.h }]];
+      for (const [t, b] of views) items.push({ obj: r.link || r.id, cam: r.cam, t, box: b, label: "it", source: r.path ? "mark" : "mark-still" });
+    }
+    for (const L of LAB) for (const [t, b] of L.keys || []) items.push({ obj: L.obj, cam: L.cam, t, box: b, label: L.label, source: L.source });
+    if (!items.length) { msg("Nothing to export yet: track a mark, answer a hand-off or link marks first.", true); return; }
+    msg("Exporting " + items.length + " pictures…");
+    const objs = G.objects(), num = (k) => { const o = objs.find((x) => x.key === k); return o ? o.n : null; };
+    const cv = document.createElement("canvas"), x = cv.getContext("2d"), rds = {}, out = [];
+    try {
+      items.sort((a, b) => (a.cam < b.cam ? -1 : a.cam > b.cam ? 1 : a.t - b.t));
+      for (const it of items) {
+        const rd = rds[it.cam] || (rds[it.cam] = makeReader(it.cam)), v = await rd.at(it.t); if (!v || !v.videoWidth) continue;
+        const iw = v.videoWidth, ih = v.videoHeight, b = it.box, px = b.w * 0.1, py = b.h * 0.1;
+        const x0 = Math.max(0, b.x - px), y0 = Math.max(0, b.y - py), x1 = Math.min(1, b.x + b.w + px), y1 = Math.min(1, b.y + b.h + py);
+        const sw = (x1 - x0) * iw, sh = (y1 - y0) * ih; if (sw < 8 || sh < 8) continue;
+        const k = Math.min(1, 256 / Math.max(sw, sh)); cv.width = Math.max(1, Math.round(sw * k)); cv.height = Math.max(1, Math.round(sh * k));
+        x.drawImage(v, x0 * iw, y0 * ih, sw, sh, 0, 0, cv.width, cv.height);
+        out.push({ object: it.obj, objectNo: num(it.obj), label: it.label, source: it.source, cam: it.cam, t: +(+it.t).toFixed(3), box: { x: +b.x.toFixed(4), y: +b.y.toFixed(4), w: +b.w.toFixed(4), h: +b.h.toFixed(4) }, crop: { x: +x0.toFixed(4), y: +y0.toFixed(4), w: +(x1 - x0).toFixed(4), h: +(y1 - y0).toFixed(4) }, image: cv.toDataURL("image/jpeg", 0.85) });
+      }
+    } finally { for (const k in rds) rds[k].close(); }
+    const file = { format: "dashcam-studio-reid-v1", created: new Date().toISOString(), event: { dir: ev.dir || null, source: ev.source || null, time: ev.time ? new Date(ev.time).toISOString() : null, duration: ev.duration, cams: ev.cams || [] },
+      note: "Labelled pictures of tracked objects for training re-identification / detection models. label: it = this object, not = not this object (a hand-off answer). Pictures of vehicles: number plates may be readable.",
+      objects: objs.map((o) => ({ key: o.key, n: o.n, cams: [...new Set(o.marks.map((m) => m.cam))] })), samples: out };
+    const a = document.createElement("a"), u = URL.createObjectURL(new Blob([JSON.stringify(file)], { type: "application/json" })), nm = "dashcam-training-" + (String((ev.dir || "").split("/").pop() || "event").replace(/[^\w.-]+/g, "_")) + ".json";
+    a.href = u; a.download = nm; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(u), 8000);
+    const nIt = out.filter((q) => q.label === "it").length;
+    msg("Saved " + nm + ": " + out.length + " pictures (" + nIt + " it, " + (out.length - nIt) + " not it) of " + objs.length + " object" + (objs.length === 1 ? "" : "s") + ". It stays on this device unless you send it.");
+    return file;
+  }
+  G.exportTraining = exportTraining;   // (tests)
   /** "Not this one": a rejected stretch (or candidate) is not offered again, at any moment it was seen (where it was then). */
   function skipped(h, cam, t, d) {
     return h.skip.some((q) => {
@@ -1560,8 +1645,10 @@
     return null;
   }
   /** Find it coming into camera `cam` (through its `entry` edge) round time tExit, and follow it there. → { cam, keys, exit } or null */
-  async function chainSeg(h, cam, entry, tExit) {
-    const ev = T.player.ev, rd = makeReader(cam), lo = Math.max(0, tExit - 1.0), hi = Math.min(ev.duration, tExit + 2.5);
+  async function chainSeg(h, cam, entry, tExit, pred) {
+    const ev = T.player.ev, rd = makeReader(cam);
+    // the window round the moment it left, widened to take in the moment the camera layout predicts
+    const lo = Math.max(0, Math.min(tExit - 1.0, pred ? pred.t - 1.0 : Infinity)), hi = Math.min(ev.duration, Math.max(tExit + 2.5, pred ? Math.min(tExit + 5, pred.t + 1.2) : -Infinity));
     try {
       // every frame of the window first: the best candidate overall (another car coming in a second earlier must not win just by being first)
       const cands = [], strip = entry === "left" ? { x: 0, y: 0, w: 0.65, h: 1 } : { x: 0.35, y: 0, w: 0.65, h: 1 };
@@ -1580,13 +1667,15 @@
           lastHad = true;
           const near = entry === "left" ? d.x : 1 - (d.x + d.w);   // how far its edge is from the edge it comes in on
           if (near > 0.2) continue;
-          const when = Math.max(0, 1 - Math.abs(t - tExit) / 1.5);   // about when it left the other camera
+          const when = pred ? Math.max(0.6 * Math.max(0, 1 - Math.abs(t - tExit) / 1.5), Math.exp(-((t - pred.t) ** 2) / (2 * pred.sigma * pred.sigma)))   // about when the layout says (or, near enough, when it left)
+            : Math.max(0, 1 - Math.abs(t - tExit) / 1.5);   // about when it left the other camera
           cands.push({ t, d, v: fr.v, look: colorLike(h.col, colorSig(fr.v, d)), near, when });
         }
       };
       // round the moment it left first (cameras overlap: a little before, to a second after); the rest of the window only if nothing good was there
       const grid = []; for (let t = +lo.toFixed(3); t <= hi + 1e-6; t = +(t + 2 * CHAIN_DT).toFixed(3)) grid.push(t);   // (every 0.2 s: the following then goes frame by frame, back and on)
-      const core = grid.filter((t) => t >= tExit - 0.6 - 1e-6 && t <= tExit + 1.2 + 1e-6), rest = grid.filter((t) => !core.includes(t));
+      const near0 = (t) => (t >= tExit - 0.6 - 1e-6 && t <= tExit + 1.2 + 1e-6) || (pred && Math.abs(t - pred.t) <= Math.max(0.6, pred.sigma) + 1e-6);
+      const core = grid.filter(near0), rest = grid.filter((t) => !core.includes(t));
       for (const t of core) { if (!HO.queue.includes(h)) return null; await scan(t); }
       if (!cands.some((c) => c.sc >= 0.6)) { lastThumb = null; lastHad = true; for (const t of rest) { if (!HO.queue.includes(h)) return null; await scan(t); } }
       // place and time first; how it looks: the colour now, the appearance model below on the stretch it is followed along (a single
@@ -1640,8 +1729,15 @@
     else h.chain = [];
     h.state = "search"; drawLanes();
     try { await appInit(h); } catch (_) {}
+    let exitKeys = null;
+    if (resume && resume.at > 0) exitKeys = h.chain[resume.at - 1].keys;
+    else { const src = G.list.find((x) => x.id === h.from); if (src && src.path) { exitKeys = []; const P = src.path; for (let i = 0; i < P.length; i += 5) if (P[i + 3] > 0 && P[i] >= h.t0 - 0.8 && P[i] <= h.t0 + 0.05) exitKeys.push([P[i], { x: P[i + 1], y: P[i + 2], w: P[i + 3], h: P[i + 4] }]); } }
+    let fromCam = resume && resume.at > 0 ? h.chain[resume.at - 1].cam : h.cam;
     for (let hop = 0; hop < 5 && cam && !seen.has(cam) && (ev.cams || []).includes(cam); hop++) {
-      const seg = await chainSeg(h, cam, entry, tExit);
+      const pred = predictEntry(fromCam, exitKeys, cam, entry);
+      if (G.hoDebug) G.hoDebug.push({ cam, pred: pred && { t: +pred.t.toFixed(2), sigma: +pred.sigma.toFixed(2) }, tExit });
+      const seg = await chainSeg(h, cam, entry, tExit, pred);
+      if (seg) { seg.pred = pred; exitKeys = seg.keys; fromCam = cam; }
       if (seg && h.app && !seg.emb) { try { seg.emb = await segEmbed(seg); } catch (_) {} }   // (kept: Yes adds it to the object's looks, Not it to the "not it" ones)
       if (!HO.queue.includes(h)) return;
       if (!seg) break;
@@ -1715,7 +1811,7 @@
     $("crHoNo").addEventListener("click", () => {   // look on from just after this one
       const h = HO.active; if (!h) return;
       if (h.chain && h.chain.length) { hoReject(Math.min(h.chain.length - 1, h.show || 0)); return; }
-      if (h.cand) h.skip.push(h.cand);
+      if (h.cand) { h.skip.push(h.cand); const src = G.list.find((x) => x.id === h.from); if (src) labelSeg(src.link || src.id, h.to, [[h.cand.t, h.cand]], "not", "notit"); }
       const from = (h.cand ? h.cand.t : h.t0) + 0.3, was = h.wasPlaying; h.cand = null; HO.active = null;
       c.hidden = true; document.querySelectorAll(".cr-ho-box").forEach((x) => x.remove());
       msg("Still looking in the " + camName(h.to).toLowerCase() + " camera…");
@@ -1777,6 +1873,7 @@
     const sg = h.chain[i], was = h.wasPlaying, c = $("crHo");
     h.skip.push({ cam: sg.cam, keys: sg.keys });
     if (h.app && sg.emb) h.app.neg.push(sg.emb);   // (learns: this look is not it)
+    { const src = G.list.find((x) => x.id === h.from); if (src) labelSeg(src.link || src.id, sg.cam, sg.keys, "not", "notit"); }
     HO.active = null; if (c) c.hidden = true; document.querySelectorAll(".cr-ho-box").forEach((x) => x.remove());
     if (!HO.queue.includes(h)) HO.queue.push(h);
     msg("Still looking in the " + camName(sg.cam).toLowerCase() + " camera…");
@@ -1827,6 +1924,7 @@
     const h = HO.active; if (!h || !h.cand) return;
     if (h.chain && h.chain.length) {
       if (h.app) h.chain.forEach((sg, i) => { if (sg.emb) (h.pick[i] ? h.app.pos : h.app.neg).push(sg.emb); });   // (learns: these looks are it / unticked: not it)
+      { const src = G.list.find((x) => x.id === h.from), ok = src ? src.link || src.id : null; h.chain.forEach((sg, i) => labelSeg(ok, sg.cam, sg.keys, h.pick[i] ? "it" : "not", h.pick[i] ? "yes" : "untick")); }
       if (h.app) { h.app.pos = h.app.pos.slice(-12); h.app.neg = h.app.neg.slice(-24); }
       const made = h.chain.filter((sg, i) => h.pick[i]).map((sg) => chainMake(h, sg)).filter(Boolean), was = h.wasPlaying;
       handoffEnd(made.length ? "Tracking it in " + made.map((r) => camName(r.cam).toLowerCase()).join(", ") + " too (linked, same colour)." : "Nothing added.");
@@ -1834,6 +1932,7 @@
       if (was && T.player) T.player.play();
       return;
     }
+    { const src = G.list.find((x) => x.id === h.from); if (src) labelSeg(src.link || src.id, h.to, [[h.cand.t, h.cand]], "it", "yes"); }
     const r = handoffMake(h, h.cand, h.cand.t), was = h.wasPlaying;
     handoffEnd(r ? "Tracking continues in the " + camName(h.to).toLowerCase() + " camera (linked to the first mark, same colour)." : "Couldn't add the mark there.");
     if (r && was && T.player) T.player.play();
@@ -2419,6 +2518,7 @@
         msg("Saved dashcam-regions.json.");
       } catch (e) { msg("Couldn't save the file: " + (e.message || e), true); }
     });
+    $("crTrainFile").addEventListener("click", () => exportTraining());
     $("crImportFile").addEventListener("click", () => $("crFile").click());
     $("crFile").addEventListener("change", async () => {
       const f = $("crFile").files && $("crFile").files[0]; $("crFile").value = "";
@@ -2476,7 +2576,7 @@
       '<div class="cr-msg" id="crMsg" aria-live="polite"></div>' +
       '<ul class="cr-list" id="crList" hidden></ul>' +
       '<div class="cr-actions" id="crHistRow"><button type="button" class="btn ghost small" id="crUndo" disabled>Undo</button><button type="button" class="btn ghost small" id="crRedo" disabled>Redo</button></div>' +
-      '<div class="cr-actions" id="crFileRow"><button type="button" class="btn ghost small" id="crExportFile" title="Save the marks as a small file">Save as file</button><button type="button" class="btn ghost small" id="crImportFile" title="Add marks from a file">Load from file</button><button type="button" class="btn ghost small" id="crClearPinned" title="Remove all pinned marks">Clear pinned</button><input type="file" id="crFile" accept=".json,application/json" hidden></div>' +
+      '<div class="cr-actions" id="crFileRow"><button type="button" class="btn ghost small" id="crExportFile" title="Save the marks as a small file">Save as file</button><button type="button" class="btn ghost small" id="crImportFile" title="Add marks from a file">Load from file</button><button type="button" class="btn ghost small" id="crTrainFile" title="Save your hand-off answers and linked marks as labelled pictures (it / not it) for training the models later. Pictures of cars: plates may be readable. It stays on this device unless you send it">Export training data</button><button type="button" class="btn ghost small" id="crClearPinned" title="Remove all pinned marks">Clear pinned</button><input type="file" id="crFile" accept=".json,application/json" hidden></div>' +
       '<p class="cr-hint" id="crStore" hidden>This browser is not keeping the marks between visits (storage is blocked). Use Save as file.</p>';
     return sec;
   }
@@ -2510,6 +2610,23 @@
     return out;
   }
   const laneList = () => G.list.slice(0, 40);
+  /** ho-rows: the timeline rows. One per object (its cameras side by side along the row; a gap is where it wasn't marked on any
+   *  camera); a second line for an object only where two of its cameras overlap for more than 0.3 s. → [{ obj, marks: [r…] }] */
+  function laneLines() {
+    const list = laneList(), ids = new Set(list.map((r) => r.id)), d = dur() || 0, lines = [];
+    for (const o of G.objects()) {
+      const ms = o.marks.filter((r) => ids.has(r.id)).sort((a, b) => (a.start || 0) - (b.start || 0)), subs = [];
+      for (const r of ms) {
+        const a = r.start || 0, z = r.end == null ? d : r.end;
+        let sub = subs.find((q) => q.end <= a + 0.3);
+        if (!sub) { sub = { obj: o, marks: [], end: -Infinity }; subs.push(sub); }
+        sub.marks.push(r); sub.end = Math.max(sub.end, z);
+      }
+      lines.push(...subs);
+    }
+    return lines;
+  }
+  const CAM_SHORT = { front: "F", right_pillar: "RP", right_repeater: "RR", back: "B", left_repeater: "LR", left_pillar: "LP" };
   function laneGeom() {
     const U = T.ui; if (!U || !U.tlGeom || !lanesCv) return null;
     const g = U.tlGeom(), host = lanesCv.getBoundingClientRect();
@@ -2520,7 +2637,7 @@
     const ev = T.player && T.player.ev, list = laneList(), show = !!ev && list.length > 0 && !document.body.classList.contains("mb-slim");
     if (el.hidden === show) el.hidden = !show;
     if (!show) { if (T.ui && T.ui.drawTimeline && el._was) { el._was = false; } return; }
-    const inLane = el.classList.contains("in-lane"), n = list.length, tg = T.ui.tlGeom();
+    const lines = laneLines(), inLane = el.classList.contains("in-lane"), n = lines.length, tg = T.ui.tlGeom();
     let H, rows = [];
     if (inLane) {   // inside the empty sections lane: bars share its height
       const top = tg.laneTop, lh = tg.laneH, bh = Math.max(3, Math.min(10, (lh - 4) / n - 2)), gap = Math.max(1, Math.min(3, (lh - n * bh) / (n + 1)));
@@ -2530,7 +2647,8 @@
       const bh = 7, gap = 2; H = n * (bh + gap) + gap; el.style.top = ""; el.style.height = Math.min(H, 5 * (bh + gap) + gap) + "px";
       for (let i = 0; i < n; i++) rows.push({ y: gap + i * (bh + gap), h: bh });
     }
-    laneRows = rows;
+    laneRows = [];   // one per mark: its line's place
+    lines.forEach((ln, i) => { for (const r of ln.marks) laneRows.push({ r, y: rows[i].y, h: rows[i].h, line: i, obj: ln.obj }); });
     const W = el.clientWidth, dpr = Math.min(2, window.devicePixelRatio || 1);
     if (!W) return;
     lanesCv.style.height = H + "px"; lanesCv.style.width = W + "px";
@@ -2538,11 +2656,11 @@
     const ctx = lanesCv.getContext("2d"); ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, W, H);
     const g = laneGeom(); if (!g) return;
     const d = dur() || 0, X = (t) => Math.max(g.left - 2, Math.min(g.left + g.w + 2, g.X(t)));
-    list.forEach((r, i) => {
-      const { y, h: LH } = rows[i], col = G.color(r), rad = LH / 2;
+    if (!inLane) for (const q of rows) { ctx.fillStyle = "rgba(255,255,255,0.05)"; T.draw.rr(ctx, g.left, q.y, g.w, q.h, q.h / 2); ctx.fill(); }
+    laneRows.forEach(({ r, y, h: LH, obj }) => {
+      const col = G.color(r), rad = LH / 2;
       const live = laneDrag && laneDrag.id === r.id ? laneDrag : null;
       const a = live ? live.a : r.start == null ? 0 : r.start, z = live ? live.z : r.end == null ? d : r.end;
-      if (!inLane) { ctx.fillStyle = "rgba(255,255,255,0.05)"; T.draw.rr(ctx, g.left, y, g.w, LH, rad); ctx.fill(); }
       const x0 = X(a), x1 = Math.max(x0 + 4, X(z));
       ctx.globalAlpha = r.on ? 1 : 0.35;
       const spans = isTracked(r) ? pathSpans(r, d) : null, inf = S.patches && S.patches[r.id], pass = inf && inf.pass && !inf.pass.done && inf.passTok ? inf.pass : null;
@@ -2560,6 +2678,10 @@
       } else { ctx.fillStyle = col + (r.mode === "mark" ? "c0" : "e0"); T.draw.rr(ctx, x0, y, x1 - x0, LH, rad); ctx.fill(); }
       if (r.id === S.laneSel || r.id === S.sel || live) { ctx.strokeStyle = "#fff"; ctx.lineWidth = 1.2; T.draw.rr(ctx, x0 + 0.6, y + 0.6, x1 - x0 - 1.2, LH - 1.2, rad); ctx.stroke(); }
       if (LH >= 5) { ctx.fillStyle = "rgba(255,255,255,0.92)"; ctx.fillRect(x0 + 2, y + 1.5, 2, LH - 3); ctx.fillRect(x1 - 4, y + 1.5, 2, LH - 3); }   // the trim handles
+      if (obj.marks.length > 1 && LH >= 7 && x1 - x0 >= 26) {   // an object on several cameras: each stretch says which camera
+        ctx.save(); ctx.font = "700 " + Math.min(10, LH - 1) + "px system-ui, sans-serif"; ctx.textBaseline = "middle"; ctx.fillStyle = "rgba(0,0,0,0.75)";
+        ctx.fillText(CAM_SHORT[r.cam] || "", x0 + 7, y + LH / 2 + 0.5); ctx.restore();
+      }
       ctx.globalAlpha = 1;
       for (const h of HO.queue) if (h.from === r.id && (h.state === "ask" || h.state === "search")) {   // a hand-off question waiting (purple)
         const hx = X(h.at), cy = y + LH / 2, s2 = Math.max(4, LH / 2 + 1.5);
@@ -2575,9 +2697,13 @@
   function laneHit(e) {
     const g = laneGeom(); if (!g) return null;
     const rc = lanesCv.getBoundingClientRect(), x = e.clientX - rc.left, y = e.clientY - rc.top, list = laneList();
-    let i = laneRows.findIndex((q) => y >= q.y - 2 && y <= q.y + q.h + 2); if (i < 0) return null;
-    const r = list[i]; if (!r) return null;
-    const d = dur() || 0, a = r.start == null ? 0 : r.start, z = r.end == null ? d : r.end, x0 = g.X(a), x1 = g.X(z);
+    const d = dur() || 0, on = laneRows.filter((q) => y >= q.y - 2 && y <= q.y + q.h + 2); if (!on.length) return null;
+    const span = (q) => { const a = q.r.start == null ? 0 : q.r.start, z = q.r.end == null ? d : q.r.end; return [g.X(a), g.X(z)]; };
+    // the bar the pointer is on (or whose end it is nearest), on that row
+    let hit = null, hd = Infinity;
+    for (const q of on) { const [a, b] = span(q), dd = x >= a && x <= b ? 0 : Math.min(Math.abs(x - a), Math.abs(x - b)); if (dd < hd || (dd === hd && dd === 0 && Math.min(Math.abs(x - a), Math.abs(x - b)) < 6)) { hd = dd; hit = q; } }
+    const r = hit && hit.r; if (!r) return null;
+    const [x0, x1] = span(hit);
     const ho = HO.queue.find((h) => h.from === r.id && h.state === "ask" && Math.abs(g.X(h.at) - x) <= 7);
     if (ho) return { r, end: "ho", ho, g };
     const end = Math.abs(x - x0) <= GRAB && Math.abs(x - x0) <= Math.abs(x - x1) ? "a" : Math.abs(x - x1) <= GRAB ? "z" : x > x0 && x < x1 ? "mid" : "out";
@@ -2588,7 +2714,7 @@
       if (laneDrag) return;
       const h = laneHit(e);
       lanesCv.style.cursor = h && (h.end === "a" || h.end === "z") ? "ew-resize" : h && (h.end === "mid" || h.end === "ho") ? "pointer" : "";
-      lanesCv.title = !h ? "" : h.end === "ho" ? "Hand-off: the object may be in the " + camName(h.ho.to) + " camera here. Click to check." : camName(h.r.cam) + " · " + (MODE_NAME[h.r.mode] || "Blur") + (isTracked(h.r) ? " · tracking" : "") + " · " + (h.r.start == null && h.r.end == null ? "whole clip" : fmt(h.r.start || 0) + " to " + fmt(h.r.end == null ? dur() : h.r.end)) + ". Drag the ends to trim.";
+      lanesCv.title = !h ? "" : h.end === "ho" ? "Hand-off: the object may be in the " + camName(h.ho.to) + " camera here. Click to check." : (objOf(h.r) ? "Object #" + objOf(h.r).n + " · " : "") + camName(h.r.cam) + " · " + (MODE_NAME[h.r.mode] || "Blur") + (isTracked(h.r) ? " · tracking" : "") + " · " + (h.r.start == null && h.r.end == null ? "whole clip" : fmt(h.r.start || 0) + " to " + fmt(h.r.end == null ? dur() : h.r.end)) + ". Drag the ends to trim.";
     });
     lanesCv.addEventListener("pointerdown", (e) => {
       if (e.pointerType === "mouse" && e.button !== 0) return;
