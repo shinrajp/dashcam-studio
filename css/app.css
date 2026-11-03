@@ -1417,3 +1417,19 @@ body.mbar .transport > .us-btn.rd-btn svg { width: 20px; height: 20px; }
   .us-panel.docked:not(.sheet) #crSec > #crHistRow { display: inline-flex; vertical-align: middle; margin: 0 0 0 6px; gap: 6px; }
   .us-panel.docked:not(.sheet) #crSec > #crHistRow .btn { min-height: 30px; height: 30px; }
 }
+/* ho-ids: object numbers (same object on several cameras), per-camera confirmation in the hand-off card */
+.cr-ho-row { justify-content: space-between; flex-wrap: wrap; }
+.cr-ho-row > label { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
+.cr-ho-row .cr-ho-acts { display: inline-flex; gap: 4px; margin-left: auto; }
+.cr-ho-row .cr-ho-acts .btn { margin-left: 0; min-height: 30px; }
+.cr-ho-n { display: inline-grid; place-items: center; width: 18px; height: 18px; border-radius: 50%; background: #c39bff; color: #120c1d; font: 700 11px/1 system-ui, sans-serif; font-style: normal; }
+.tile .cr-ho-box[hidden] { display: none; }
+.cr-objbtn { cursor: pointer; font: inherit; font-size: 11px; font-weight: 700; margin-left: 6px; }
+.cr-objbtn:hover, .cr-objbtn:focus-visible { border-color: #c39bff; color: #fff; }
+.cr-objpop { grid-template-columns: 1fr; min-width: 220px; }
+.cr-objpop .cr-objh { padding: 4px 8px 2px; font-size: 11px; color: var(--dim); }
+.cr-objopt { justify-content: flex-start; gap: 8px; }
+.cr-objopt .cr-lane-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--lane); flex: none; }
+.cr-objchip { box-shadow: inset 3px 0 0 var(--lane, transparent); }
+.cr-objpop .cr-objopt { flex-direction: row; align-items: center; font-size: 12.5px; padding: 7px 8px; text-align: left; }
+.cr-objpop .cr-objopt:hover, .cr-objpop .cr-objopt.on { background: rgba(255,255,255,.08); }

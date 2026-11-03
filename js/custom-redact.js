@@ -445,6 +445,62 @@
     const tile = T.player && T.player.tiles && T.player.tiles[cam] && T.player.tiles[cam].tile;
     if (tile) tile.classList.add("cr-cam-hover");
   }
+  /* ── objects (ho-ids): marks of the same thing, on any cameras, share one object id (`link`); a mark without one is an object of its
+     own. Numbered #1, #2, … in the order of the list; the same object keeps one colour. Set by a hand-off, or by hand (the Object button
+     of a mark, or the Object chip while drawing). ── */
+  const objKey = (r) => r.link || r.id;
+  G.objects = () => { const m = new Map(); for (const r of G.list) { const k = objKey(r); if (!m.has(k)) m.set(k, { key: k, n: m.size + 1, marks: [] }); m.get(k).marks.push(r); } return [...m.values()]; };
+  const objOf = (r) => G.objects().find((o) => o.key === objKey(r));
+  const objLabel = (o) => "#" + o.n + " · " + [...new Set(o.marks.map((x) => camName(x.cam)))].join(", ");
+  /** Make mark `id` part of object `key` (another mark's object), or (key null) an object of its own. Undoable, one colour per object. */
+  G.setObject = (id, key) => {
+    const r = G.list.find((x) => x.id === id); if (!r) return false;
+    if (!key) {
+      if (!r.link) return true;
+      const old = r.link; G.update(id, { link: "" });
+      const rest = G.list.filter((x) => x.link === old); if (rest.length === 1) G.update(rest[0].id, { link: "" });   // (one left on its own)
+      return true;
+    }
+    const o = G.objects().find((x) => x.key === key); if (!o || o.key === objKey(r)) return !!o;
+    const head = o.marks[0];
+    if (!head.link) G.update(head.id, { link: head.id });
+    const was = r.link; G.update(id, { link: head.link || head.id, ci: head.ci });
+    if (was) { const rest = G.list.filter((x) => x.link === was); if (rest.length === 1) G.update(rest[0].id, { link: "" }); }
+    return true;
+  };
+  function openObjMenu(btn, r) {
+    let pop = document.getElementById("crObjPop");
+    if (pop && !pop.hidden && pop.dataset.for === (r ? r.id : "draw")) { pop.hidden = true; return; }
+    if (!pop) {
+      pop = document.createElement("div"); pop.id = "crObjPop"; pop.className = "cr-campop cr-objpop"; pop.setAttribute("role", "listbox"); document.body.appendChild(pop);
+      pop.addEventListener("click", (e) => {
+        const opt = e.target.closest("[data-obj]"); if (!opt) return;
+        pop.hidden = true; const key = opt.dataset.obj || null;
+        if (pop.dataset.for === "draw") { S.linkTo = key; syncObjChip(); msg(key ? "The next mark you draw is " + objLabel(G.objects().find((o) => o.key === key)).split(" · ")[0] + " (the same object)." : "The next mark you draw is a new object."); return; }
+        const reg = G.list.find((x) => x.id === pop.dataset.for); if (!reg) return;
+        G.setObject(reg.id, key); const o = objOf(reg);
+        msg(key ? camName(reg.cam) + " mark is now object #" + o.n + " (the same object as its other marks, same colour)." : camName(reg.cam) + " mark is now an object of its own (#" + o.n + ").");
+        UI.sync(); drawLanes(); kick();
+      });
+      document.addEventListener("pointerdown", (e) => { if (!pop.hidden && !e.target.closest("#crObjPop") && !e.target.closest("[data-act='obj']") && !e.target.closest("#crBarObj")) pop.hidden = true; });
+    }
+    pop.dataset.for = r ? r.id : "draw";
+    const cur = r ? objKey(r) : S.linkTo || null, objs = G.objects().filter((o) => !r || o.key !== objKey(r) || o.marks.length > 1);
+    pop.innerHTML = '<div class="cr-objh">' + (r ? "This mark shows object…" : "The next mark is object…") + "</div>" +
+      objs.map((o) => '<button type="button" class="cr-camopt cr-objopt' + (o.key === cur ? " on" : "") + '" data-obj="' + esc(o.key) + '" role="option" style="--lane:' + G.color(o.marks[0]) + '"><i class="cr-lane-dot"></i><span>' + esc(objLabel(o)) + "</span></button>").join("") +
+      '<button type="button" class="cr-camopt cr-objopt' + (r && !r.link ? " on" : !r && !cur ? " on" : "") + '" data-obj="" role="option"><span>' + (r ? "Its own object (unlink)" : "A new object") + "</span></button>";
+    pop.hidden = false;
+    const box = btn.getBoundingClientRect(), w = pop.offsetWidth, h = pop.offsetHeight;
+    pop.style.left = Math.max(8, Math.min(box.left, innerWidth - w - 8)) + "px";
+    let top = box.bottom + 6; if (top + h > innerHeight - 8) top = Math.max(8, box.top - h - 6); pop.style.top = top + "px";
+  }
+  function syncObjChip() {
+    const b = $("crBarObj"); if (!b) return;
+    if (S.linkTo && !G.objects().some((o) => o.key === S.linkTo)) S.linkTo = null;
+    const o = S.linkTo && G.objects().find((x) => x.key === S.linkTo);
+    b.hidden = !G.list.length; b.innerHTML = '<span class="t">' + (o ? "Object #" + o.n : "New object") + "</span> ▾";
+    b.style.setProperty("--lane", o ? G.color(o.marks[0]) : "transparent");
+  }
   function openCamMenu(btn, r) {
     let pop = document.getElementById("crCamPop");
     if (pop && !pop.hidden && pop.dataset.for === r.id) { pop.hidden = true; clearCamHover(); return; }
@@ -1502,7 +1558,8 @@
       msg("The object left the " + camName(h.cam).toLowerCase() + " camera; it wasn't found in the " + camName(h.to).toLowerCase() + " camera. Draw a mark there if it shows up.");
       return;
     }
-    const s0 = h.chain[0]; h.to = s0.cam; h.at = s0.keys[0][0]; h.cand = Object.assign({ t: h.at }, s0.keys[0][1]); h.pick = h.chain.map(() => true); h.show = 0;
+    const ri = resume ? Math.min(resume.at, h.chain.length - 1) : 0, s0 = h.chain[ri];   // (after Not it: the camera that was searched again is shown first)
+    h.to = s0.cam; h.at = s0.keys[0][0]; h.cand = Object.assign({ t: h.at }, s0.keys[0][1]); h.pick = h.chain.map((_, i) => (h.pick && h.pick[i] === false ? false : true)); h.show = ri;
     h.state = "ask"; drawLanes();
   }
   /** Look for it in the neighbour camera from time `from`, every 0.3 s, for up to 4 s after it left. No detector: ask the user at once. */
@@ -1560,16 +1617,7 @@
     $("crHoYes").addEventListener("click", () => handoffAccept());
     $("crHoNo").addEventListener("click", () => {   // look on from just after this one
       const h = HO.active; if (!h) return;
-      if (h.chain && h.chain.length) {   // the stretch on show is not it: never offer it again, look for another one in that camera (and on from there)
-        const i = Math.min(h.chain.length - 1, h.show || 0), sg = h.chain[i], was = h.wasPlaying;
-        h.skip.push({ cam: sg.cam, keys: sg.keys });
-        HO.active = null; c.hidden = true; document.querySelectorAll(".cr-ho-box").forEach((x) => x.remove());
-        if (!HO.queue.includes(h)) HO.queue.push(h);
-        msg("Still looking in the " + camName(sg.cam).toLowerCase() + " camera…");
-        chainSearch(h, { at: i, cam: sg.cam, entry: sg.entry, tExit: sg.tExit });
-        if (was && T.player) T.player.play();
-        return;
-      }
+      if (h.chain && h.chain.length) { hoReject(Math.min(h.chain.length - 1, h.show || 0)); return; }
       if (h.cand) h.skip.push(h.cand);
       const from = (h.cand ? h.cand.t : h.t0) + 0.3, was = h.wasPlaying; h.cand = null; HO.active = null;
       c.hidden = true; document.querySelectorAll(".cr-ho-box").forEach((x) => x.remove());
@@ -1578,7 +1626,10 @@
       if (was && T.player) T.player.play();
     });
     $("crHoDraw").addEventListener("click", () => handoffDraw());
-    c.addEventListener("click", (e) => { const b = e.target.closest("[data-show]"); if (b) { e.preventDefault(); hoShow(+b.dataset.show); } });
+    c.addEventListener("click", (e) => {
+      const b = e.target.closest("[data-show]"); if (b) { e.preventDefault(); hoShow(+b.dataset.show); return; }
+      const n = e.target.closest("[data-not]"); if (n) { e.preventDefault(); hoReject(+n.dataset.not); }
+    });
     c.addEventListener("change", (e) => { const x = e.target.closest("[data-seg]"), h = HO.active; if (x && h && h.pick) { h.pick[+x.dataset.seg] = x.checked; $("crHoYes").disabled = !h.pick.some(Boolean); } });
     $("crHoStop").addEventListener("click", () => { const h = HO.active; handoffEnd("Hand-off stopped."); if (h && h.wasPlaying && T.player) T.player.play(); });
     return c;
@@ -1590,12 +1641,12 @@
     const src = G.list.find((x) => x.id === h.from), what = h.kind ? KIND_NAME[h.kind] || h.kind : "object";
     const c = hoCard();
     $("crHoText").innerHTML = h.chain && h.chain.length
-      ? "The tracked " + esc(what) + " left the <b>" + esc(camName(h.cam)) + "</b> camera. It was followed into " + (h.chain.length === 1 ? "the <b>" + esc(camName(h.chain[0].cam)) + "</b> camera" : h.chain.length + " more cameras") + ". Show puts the purple box on it; untick any that is not it, or press <b>Not this one</b> to look for another:" +
-        '<span class="cr-ho-list">' + h.chain.map((sg, i) => '<label class="cr-ho-row"><input type="checkbox" data-seg="' + i + '"' + (h.pick[i] ? " checked" : "") + "> <b>" + esc(camName(sg.cam)) + "</b> " + fmt(sg.keys[0][0]) + "–" + fmt(sg.keys[sg.keys.length - 1][0]) + ' <button type="button" class="btn small ghost" data-show="' + i + '">Show</button></label>').join("") + "</span>"
+      ? "The tracked " + esc(what) + " left the <b>" + esc(camName(h.cam)) + "</b> camera. It was followed into " + (h.chain.length === 1 ? "the <b>" + esc(camName(h.chain[0].cam)) + "</b> camera" : h.chain.length + " more cameras") + ". Check each camera: <b>Show</b> (or play) puts the numbered purple box on it, and it follows it; untick one to leave it out, or <b>Not it</b> to look for another object there:" +
+        '<span class="cr-ho-list">' + h.chain.map((sg, i) => '<span class="cr-ho-row"><label><input type="checkbox" data-seg="' + i + '"' + (h.pick[i] ? " checked" : "") + '> <i class="cr-ho-n">' + (i + 1) + "</i> <b>" + esc(camName(sg.cam)) + "</b> " + fmt(sg.keys[0][0]) + "–" + fmt(sg.keys[sg.keys.length - 1][0]) + '</label><span class="cr-ho-acts"><button type="button" class="btn small ghost" data-show="' + i + '">Show</button><button type="button" class="btn small ghost" data-not="' + i + '" title="Not the same object: look for another one in this camera (and the cameras after it)">Not it</button></span></span>').join("") + "</span>"
       : cand
       ? "The tracked " + esc(what) + " left the <b>" + esc(camName(h.cam)) + "</b> camera. Is this it in the <b>" + esc(camName(h.to)) + "</b> camera (purple box)?"
       : "The tracked " + esc(what) + " left the <b>" + esc(camName(h.cam)) + "</b> camera towards the <b>" + esc(camName(h.to)) + "</b> camera. Object detection is off, so it can't be found there for you: press <b>Draw it myself</b> and drag round it.";
-    $("crHoYes").hidden = !cand; $("crHoNo").hidden = !cand;
+    $("crHoYes").hidden = !cand; $("crHoNo").hidden = !cand || !!(h.chain && h.chain.length);   // (a chain: Not it on each camera's row)
     $("crHoYes").textContent = h.chain && h.chain.length > 1 ? "Yes, track it in these" : "Yes, keep tracking";
     c.style.borderColor = src ? G.color(src) : "";
     c.hidden = false;
@@ -1605,11 +1656,35 @@
   }
   function placeHoBox() {
     const h = HO.active; if (!h || !h.cand || !T.player || !T.player.tiles) return;
-    const sg = h.chain && h.chain[h.show || 0], cam = sg ? sg.cam : h.to, bx = sg ? segBoxAt(sg, nowT()) || sg.keys[0][1] : h.cand;
-    const f = G.screenFit(cam), tile = T.player.tiles[cam]; if (!f || !tile) return;
-    const tr = tile.tile.getBoundingClientRect(), a = G.toScreen(f, bx.x, bx.y), b = G.toScreen(f, bx.x + bx.w, bx.y + bx.h);
-    let el = tile.tile.querySelector(".cr-ho-box"); if (!el) { el = document.createElement("div"); el.className = "cr-ho-box"; el.innerHTML = "<span>Same one?</span>"; tile.tile.appendChild(el); }
-    el.style.left = Math.min(a[0], b[0]) - tr.left + "px"; el.style.top = Math.min(a[1], b[1]) - tr.top + "px"; el.style.width = Math.abs(b[0] - a[0]) + "px"; el.style.height = Math.abs(b[1] - a[1]) + "px";
+    const put = (cam, bx, label, key) => {
+      const f = G.screenFit(cam), tile = T.player.tiles[cam]; if (!f || !tile) return;
+      const tr = tile.tile.getBoundingClientRect(), a = G.toScreen(f, bx.x, bx.y), b = G.toScreen(f, bx.x + bx.w, bx.y + bx.h);
+      let el = tile.tile.querySelector('.cr-ho-box[data-k="' + key + '"]'); if (!el) { el = document.createElement("div"); el.className = "cr-ho-box"; el.dataset.k = key; el.innerHTML = "<span></span>"; tile.tile.appendChild(el); }
+      el.firstChild.textContent = label; el.hidden = false;
+      el.style.left = Math.min(a[0], b[0]) - tr.left + "px"; el.style.top = Math.min(a[1], b[1]) - tr.top + "px"; el.style.width = Math.abs(b[0] - a[0]) + "px"; el.style.height = Math.abs(b[1] - a[1]) + "px";
+    };
+    if (!h.chain || !h.chain.length) { put(h.to, h.cand, "Same one?", "c"); return; }
+    // every camera it was followed into: its box at the moment on screen, numbered as in the card (where the stretch isn't on now: none, so
+    // a box never sits on something else at another moment)
+    const t = nowT();
+    h.chain.forEach((sg, i) => {
+      const on = h.pick[i] !== false && t >= sg.keys[0][0] - 0.06 && t <= sg.keys[sg.keys.length - 1][0] + 0.06, bx = on ? segBoxAt(sg, t) : null;
+      if (bx) put(sg.cam, bx, (i + 1) + " · same one?", "s" + i);
+      else document.querySelectorAll('.cr-ho-box[data-k="s' + i + '"]').forEach((x) => (x.hidden = true));
+    });
+  }
+  if (T.on) T.on("time", () => { if (HO.active && HO.active.chain) placeHoBox(); });
+  /** "Not it" for one camera of a chain: that stretch is never offered again; that camera (and the ones after it) is searched for another. */
+  function hoReject(i) {
+    const h = HO.active; if (!h || !h.chain || !h.chain[i]) return;
+    const sg = h.chain[i], was = h.wasPlaying, c = $("crHo");
+    h.skip.push({ cam: sg.cam, keys: sg.keys });
+    HO.active = null; if (c) c.hidden = true; document.querySelectorAll(".cr-ho-box").forEach((x) => x.remove());
+    if (!HO.queue.includes(h)) HO.queue.push(h);
+    msg("Still looking in the " + camName(sg.cam).toLowerCase() + " camera…");
+    h.pick = h.pick.slice(0, i);
+    chainSearch(h, { at: i, cam: sg.cam, entry: sg.entry, tExit: sg.tExit });
+    if (was && T.player) T.player.play();
   }
   G.placeHoBox = placeHoBox;
   const segBoxAt = (sg, t) => { let k = null; for (const q of sg.keys) if (q[0] <= t + 0.051) k = q[1]; return k; };
@@ -1824,6 +1899,7 @@
     const mac = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent || ""), mod = mac ? "⌘" : "Ctrl+";
     b.innerHTML = '<button type="button" class="cr-grip" id="crBarGrip" aria-label="Move this tray (drag, or press Up / Down)" title="Drag to move this tray"><svg viewBox="0 0 14 22" aria-hidden="true"><circle cx="4" cy="4" r="1.7"/><circle cx="10" cy="4" r="1.7"/><circle cx="4" cy="11" r="1.7"/><circle cx="10" cy="11" r="1.7"/><circle cx="4" cy="18" r="1.7"/><circle cx="10" cy="18" r="1.7"/></svg></button>' +
       '<button type="button" class="btn small cr-chip" id="crBarCam" hidden></button>' +
+      '<button type="button" class="btn small cr-chip cr-objchip" id="crBarObj" hidden aria-haspopup="listbox" title="Which object the next mark shows: pick one to give it the same object number on this camera"></button>' +
       '<span class="cr-bar-btns">' +
       '<span class="seg cr-tseg" id="crBarShape" role="group" aria-label="Shape">' + tb("crBarBox", "rect", "Box", " cr-sv").replace("<button", '<button data-v="rect" aria-pressed="true"') + tb("crBarCircle", "circle", "Circle", " cr-sv").replace("<button", '<button data-v="circle" aria-pressed="false"') +
         tb("crBarFree", "free", "Freehand", " cr-sv").replace("<button", '<button data-v="free" aria-pressed="false" title="Freehand: drag round it in one stroke (it closes when you let go), or tap point by point and tap the first point to close"') + "</span>" +
@@ -1860,6 +1936,7 @@
     $("crBarMode").addEventListener("click", (e) => { const x = e.target.closest("button"); if (x && !x.disabled) UI.setMode(x.dataset.v); });
     wireMarkRow($("crBarMarkRow"));
     $("crBarCam").addEventListener("click", () => UI.draw(true));   // the chip names the camera; tapping it picks another one (no dropdown)
+    $("crBarObj").addEventListener("click", (e) => openObjMenu(e.currentTarget, null));
     $("crBarOpts").addEventListener("click", () => {   // a toggle: Options opens the Redact panel, "Back to drawing" tucks it away again (the picture is never left covered with no way back)
       const U = T.searchUI;
       if (U && U.open) { if (U.hide) U.hide(); S.reopen = true; } else { S.reopen = true; reopenPanel(); }
@@ -1983,6 +2060,7 @@
     o.title = open ? "Hide the panel so you can draw" : "Back to the Redact panel";
   }
   function syncBar() {
+    try { syncObjChip(); } catch (_) {}
     const b = ensureBar(), show = !!(S.drawing || S.draft || S.pick || S.move || (S.live && S.live.pts && S.live.pts.length));
     drawClass();
     b.hidden = !show; document.body.classList.toggle("cr-bar-on", !!show);
@@ -2028,6 +2106,7 @@
     if (S.editId) r = G.update(S.editId, o);
     else { if (G.list.length >= G.MAX) { msg("That is the most marks for one event (" + G.MAX + "). Delete one first.", true); return null; } r = G.add(o); }
     if (!r) { msg("Couldn't save that mark. Draw it again.", true); return null; }
+    if (!S.editId && S.linkTo && G.objects().some((ob) => ob.key === S.linkTo && ob.key !== r.id)) { G.setObject(r.id, S.linkTo); r = G.list.find((x) => x.id === r.id) || r; }   // drawn as an object already marked on another camera
     const was = S.editId;
     let tracking = false;
     if (!was && (S.track || S.armOnSave)) { tracking = !!armRegion(r); S.armOnSave = false; }   // Track was on when this was drawn: it follows the object
@@ -2102,7 +2181,7 @@
       const tracked = isTracked(r), st = tracked ? trackState(r) : "", link = r.link ? G.list.filter((q) => q.link === r.link) : [];
       const inf = S.patches && S.patches[r.id], pct = st === "pass" ? Math.round(100 * Math.max(0, Math.min(1, (inf.pass.t - inf.pass.t0) / Math.max(0.1, inf.pass.end - inf.pass.t0)))) : 0;
       const badge = tracked ? '<span class="cr-badge trk ' + st + '" title="' + (st === "pass" ? "Following the object through the clip (" + pct + " %)" : "Follows its object (the bar under the timeline is solid where it is seen)") + '">' + ico("track") + (st === "pass" ? "Tracking " + pct + " %" : "Tracking") + "</span>" : "";
-      const linkB = link.length > 1 ? '<span class="cr-badge lnk" title="The same object, handed over between cameras">' + (link.indexOf(r) + 1) + "/" + link.length + "</span>" : "";
+      const ob = objOf(r), linkB = '<button type="button" class="cr-badge lnk cr-objbtn" data-act="obj" aria-haspopup="listbox" title="Which object this mark shows: marks of the same object on other cameras share its number and colour. Click to change">#' + ob.n + (link.length > 1 ? " · " + (link.indexOf(r) + 1) + "/" + link.length : "") + " ▾</button>";
       const style = r.mode === "mark" ? 'Highlight <i class="cr-dot" style="--sw:' + esc(r.mc) + '"></i>' : MODE_NAME[r.mode] || "Blur";
       const open = S.timeOpen === r.id, whole = r.start == null && r.end == null;
       return '<li class="cr-item' + (r.on ? "" : " off") + (r.id === S.editId ? " editing" : "") + (tracked ? " tracked" : "") + (r.id === S.laneSel ? " sel" : "") + '" data-id="' + esc(r.id) + '" style="--lane:' + G.color(r) + '">' +
@@ -2195,6 +2274,7 @@
         G.setTimes(id, a, z); msg("Mark on from " + fmt(a) + " to " + fmt(z) + ".");
       }
       else if (b.dataset.act === "camopen") openCamMenu(b, r);
+      else if (b.dataset.act === "obj") openObjMenu(b, r);
       else if (b.dataset.act === "sticky") {
         const cur = r.global ? "global" : (r.sticky ? "event" : "off");
         const next = cur === "off" ? "event" : (cur === "event" ? "global" : "off");

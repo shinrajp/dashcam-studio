@@ -214,7 +214,7 @@ const list = (p) => p.evaluate(() => TDC.regions.list.map((r) => ({ id: r.id, ca
     const L = await list(p);
     ok("H. Yes: a region on the right pillar, linked, same colour, starting then, tracked", L.length === 2 && L[1].cam === "right_pillar" && L[0].link && L[0].link === L[1].link && L[0].ci === L[1].ci && Math.abs(L[1].start - asked.t) < 0.6 && L[1].path > 0, L);
     const lb = await p.evaluate(() => [...document.querySelectorAll("#crList li")].map((li) => ({ trk: !!li.querySelector(".cr-trkbtn.on"), lnk: (li.querySelector(".cr-badge.lnk") || {}).textContent || "" })));
-    ok("H. the list shows both tracking and linked (1/2, 2/2)", lb.length === 2 && lb.every((x) => x.trk) && lb[0].lnk === "1/2" && lb[1].lnk === "2/2", lb);
+    ok("H. the list shows both tracking and as one object (#1 · 1/2, #1 · 2/2)", lb.length === 2 && lb.every((x) => x.trk) && /#1 · 1\/2/.test(lb[0].lnk) && /#1 · 2\/2/.test(lb[1].lnk), lb);
     await p.evaluate(() => TDC.regions.passDone(TDC.regions.list[1].id));
     const h2 = await p.evaluate(() => { const r = TDC.regions.list[1], P = r.path; let last = 0; for (let i = 0; i < P.length; i += 5) if (P[i + 3] > 0) last = P[i]; return { start: r.start, end: r.end, last }; });
     ok("H. the hand-off region has its own end (not the first region's), and is followed on for more than a second", h2.end == null || h2.end > h2.start + 1.5, h2);
