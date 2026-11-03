@@ -1483,20 +1483,80 @@
      the car. From how fast the object turns round the car as it leaves one camera, the moment it should come into the next one follows
      (cameras that overlap: before it has left). A soft guide for the search, not a rule: a car close by is seen from cameras a metre or two
      apart, so the directions don't quite agree. */
-  // (js/pano.js DEFAULTS, for when the 360 view hasn't been loaded; its saved calibration wins when it has)
-  const GEO0 = { front: { yaw: 0, fov: 70, model: "rect" }, back: { yaw: 180, fov: 125, model: "kb" }, left_pillar: { yaw: -58, fov: 90, model: "kb" }, right_pillar: { yaw: 58, fov: 90, model: "kb" }, left_repeater: { yaw: -132, fov: 85, model: "kb" }, right_repeater: { yaw: 132, fov: 85, model: "kb" } };
+  /* ho-3d: the road round the car. Each camera's direction, tilt and field of view, and where it is mounted (metres: x right, y up,
+     z forward); a point in a picture is a ray from the camera, and where a vehicle's box touches the road (its bottom middle) is a place on
+     the road round the car. The same vehicle seen by two cameras lands on the same place, and a vehicle moves smoothly from one camera's
+     part of the road into the next: the hand-off checks both.
+     HW4 cameras (pictures about 3:2): fitted on a real minute of footage (2026-10-19 10:53:18, 500 vehicles seen by two cameras at once;
+     their positions agree to ~2.4 m, directions to ~3.7°), left and right kept symmetric. Other cameras: js/pano.js's defaults.
+     Pixels are square: a vertical offset is measured in picture widths (h/w), as horizontally. */
+  const GEO0 = { front: { yaw: 0, pitch: -3, fov: 70, model: "rect", pos: [0, 1.3, 0.6] }, back: { yaw: 180, pitch: -18, fov: 125, model: "kb", pos: [0, 1.0, -2.3] },
+    left_pillar: { yaw: -58, pitch: -6, fov: 90, model: "kb", pos: [-0.85, 1.2, -0.1] }, right_pillar: { yaw: 58, pitch: -6, fov: 90, model: "kb", pos: [0.85, 1.2, -0.1] },
+    left_repeater: { yaw: -132, pitch: -8, fov: 85, model: "kb", pos: [-0.95, 0.9, 1.2] }, right_repeater: { yaw: 132, pitch: -8, fov: 85, model: "kb", pos: [0.95, 0.9, 1.2] } };
+  const GEO_HW4 = { front: { yaw: 0, pitch: -6.1, fov: 127.1, model: "rect", pos: [0, 1.3, 0.6] }, back: { yaw: 180, pitch: -36, fov: 176.1, model: "kb", pos: [0, 1.0, -2.3] },
+    left_pillar: { yaw: -70.1, pitch: -5.6, fov: 76.3, model: "kb", pos: [-0.85, 1.2, -0.1] }, right_pillar: { yaw: 70.1, pitch: -5.6, fov: 76.3, model: "kb", pos: [0.85, 1.2, -0.1] },
+    left_repeater: { yaw: -128.8, pitch: -6.1, fov: 94.8, model: "kb", pos: [-0.95, 0.9, 1.2] }, right_repeater: { yaw: 128.8, pitch: -6.1, fov: 94.8, model: "kb", pos: [0.95, 0.9, 1.2] } };
+  /** Which camera set made this event: HW4 (pictures about 3:2, e.g. 1448 × 938, front 2896 × 1876) or older (4:3, 1280 × 960); by shape,
+   *  so a scaled-down copy is recognised too. */
+  function camSet() {
+    try {
+      const P = T.player; if (P && P.tiles) for (const c of ["front", "left_pillar", "back"]) { const v = P.tiles[c] && P.tiles[c].vids[P.active]; if (v && v.videoWidth) return v.videoWidth / v.videoHeight > 1.45 ? "hw4" : "hw3"; }
+    } catch (_) {}
+    return S.camSet || "hw3";
+  }
   function camGeo(cam) {
-    let c = null; try { const N = T.pano; c = N && N.calib ? N.calib() : null; } catch (_) { c = null; }
-    if (!c) { try { const v = JSON.parse(localStorage.getItem("tdc.pano.calib.v1") || "null"); if (v && v[cam]) { const o = Object.assign({}, GEO0[cam]); for (const f of ["yaw", "fov"]) if (isFinite(+v[cam][f])) o[f] = +v[cam][f]; if (v[cam].model === "rect" || v[cam].model === "kb") o.model = v[cam].model; return o; } } catch (_) {} }
-    const k = (c && c[cam]) || GEO0[cam];
+    const set = camSet(); S.camSet = set;
+    const k = (set === "hw4" ? GEO_HW4 : GEO0)[cam];
     return k && isFinite(k.yaw) && isFinite(k.fov) ? k : null;
   }
+  function camAspect(cam) {
+    try { const P = T.player, v = P.tiles[cam].vids[P.active]; if (v && v.videoWidth) return v.videoHeight / v.videoWidth; } catch (_) {}
+    return camSet() === "hw4" ? (cam === "front" ? 1876 / 2896 : 938 / 1448) : 0.75;
+  }
+  const rd2 = (d) => (d * Math.PI) / 180;
+  /** The ray (unit vector, car frame) through picture point (u, v) of camera `cam`. */
+  function rayOf(cam, u, v) {
+    const g = camGeo(cam); if (!g) return null;
+    const asp = camAspect(cam), dx = (u - 0.5) * 2, dy = -(v - 0.5) * 2 * asp, r = Math.hypot(dx, dy), half = rd2(g.fov / 2);
+    const th = g.model === "rect" ? Math.atan(r * Math.tan(half)) : r * half, s = r > 1e-9 ? Math.sin(th) / r : 0;
+    const p = [dx * s, dy * s, Math.cos(th)];
+    const cy = Math.cos(rd2(g.yaw)), sy = Math.sin(rd2(g.yaw)), cp = Math.cos(rd2(g.pitch)), sp = Math.sin(rd2(g.pitch));
+    // R = Ry(yaw)·Rx(pitch) (no roll): x' = cy·x + sy·(sp·y + cp·z), y' = cp·y − sp·z, z' = −sy·x + cy·(sp·y + cp·z)
+    const yz = sp * p[1] + cp * p[2];
+    return [cy * p[0] + sy * yz, cp * p[1] - sp * p[2], -sy * p[0] + cy * yz];
+  }
+  /** Where a vehicle's box (0..1 of camera `cam`'s picture) stands on the road: { x, z, r } metres round the car, or null (its bottom is
+   *  above the horizon / too far to place). A box cut off by a side of the picture gives a rougher place (cut: true). */
+  function groundOf(cam, b) {
+    if (!b) return null;
+    const d = rayOf(cam, Math.max(0, Math.min(1, b.x + b.w / 2)), Math.min(1, b.y + b.h), cam); if (!d || d[1] > -0.012) return null;
+    const g = camGeo(cam), P = g.pos, t = -P[1] / d[1], x = P[0] + t * d[0], z = P[2] + t * d[2], r = Math.hypot(x, z);
+    return r < 70 ? { x, z, r, cut: b.x < 0.004 || b.x + b.w > 0.996 } : null;
+  }
+  G.groundOf = groundOf; G.camSet = camSet;   // (tests)
+  /** How the object was moving on the road as it left: its place and speed (metres, m/s, car frame) from its last ~0.8 s. */
+  function roadState(cam, keys) {
+    if (!keys || !keys.length) return null;
+    const tl = keys[keys.length - 1][0], pts = [];
+    for (const [t, b] of keys) if (t >= tl - 0.8) { const g = groundOf(cam, b); if (g && !g.cut) pts.push([t, g.x, g.z]); }
+    if (!pts.length) { const g = groundOf(cam, keys[keys.length - 1][1]); return g ? { t: tl, x: g.x, z: g.z, vx: 0, vz: 0, n: 1 } : null; }
+    const n = pts.length, mt = pts.reduce((a, q) => a + q[0], 0) / n, mx = pts.reduce((a, q) => a + q[1], 0) / n, mz = pts.reduce((a, q) => a + q[2], 0) / n;
+    let stt = 0, stx = 0, stz = 0; for (const [t, x, z] of pts) { stt += (t - mt) ** 2; stx += (t - mt) * (x - mx); stz += (t - mt) * (z - mz); }
+    const vx = stt > 1e-4 ? stx / stt : 0, vz = stt > 1e-4 ? stz / stt : 0, lim = 45;   // (m/s: a bad fit can't fling it across the map)
+    const cvx = Math.max(-lim, Math.min(lim, vx)), cvz = Math.max(-lim, Math.min(lim, vz));
+    return { t: tl, x: mx + cvx * (tl - mt), z: mz + cvz * (tl - mt), vx: cvx, vz: cvz, n };
+  }
+  /** 0..1: does a vehicle at box b on camera cam at time t continue that movement on the road? (null: can't tell) */
+  function roadLike(rs, cam, b, t) {
+    if (!rs) return null; const g = groundOf(cam, b); if (!g) return null;
+    const dt = t - rs.t, px = rs.x + rs.vx * dt, pz = rs.z + rs.vz * dt, d = Math.hypot(g.x - px, g.z - pz);
+    const sg = (g.cut ? 4 : 2.5) + 0.15 * Math.max(g.r, Math.hypot(px, pz)) + 1.5 * Math.abs(dt) + (rs.n < 2 ? 2 : 0);
+    return Math.exp(-(d * d) / (2 * sg * sg));
+  }
+  G.roadState = roadState; G.roadLike = roadLike;   // (tests)
   /** The direction round the car (degrees, + = clockwise / to the right) of picture position x (0..1, raw picture) on camera `cam`. */
   function bearingOf(cam, x) {
-    const g = camGeo(cam); if (!g) return null;
-    const half = (g.fov / 2) * Math.PI / 180, u = (x - 0.5) * 2;
-    const off = g.model === "rect" ? Math.atan(u * Math.tan(half)) : u * half;   // (fisheye: about equidistant)
-    return g.yaw + off * 180 / Math.PI;
+    const d = rayOf(cam, x, 0.5); return d ? Math.atan2(d[0], d[2]) * 180 / Math.PI : null;
   }
   const angDiff = (a, b) => { let d = a - b; while (d > 180) d -= 360; while (d < -180) d += 360; return d; };
   /** When should the object, last seen on `keys` (camera `cam`), come into camera `to` through its `entry` edge? → { t, sigma } or null */
@@ -1645,7 +1705,7 @@
     return null;
   }
   /** Find it coming into camera `cam` (through its `entry` edge) round time tExit, and follow it there. → { cam, keys, exit } or null */
-  async function chainSeg(h, cam, entry, tExit, pred) {
+  async function chainSeg(h, cam, entry, tExit, pred, rs) {
     const ev = T.player.ev, rd = makeReader(cam);
     // the window round the moment it left, widened to take in the moment the camera layout predicts
     const lo = Math.max(0, Math.min(tExit - 1.0, pred ? pred.t - 1.0 : Infinity)), hi = Math.min(ev.duration, Math.max(tExit + 2.5, pred ? Math.min(tExit + 5, pred.t + 1.2) : -Infinity));
@@ -1669,7 +1729,7 @@
           if (near > 0.2) continue;
           const when = pred ? Math.max(0.6 * Math.max(0, 1 - Math.abs(t - tExit) / 1.5), Math.exp(-((t - pred.t) ** 2) / (2 * pred.sigma * pred.sigma)))   // about when the layout says (or, near enough, when it left)
             : Math.max(0, 1 - Math.abs(t - tExit) / 1.5);   // about when it left the other camera
-          cands.push({ t, d, v: fr.v, look: colorLike(h.col, colorSig(fr.v, d)), near, when });
+          cands.push({ t, d, v: fr.v, look: colorLike(h.col, colorSig(fr.v, d)), near, when, road: roadLike(rs, cam, d, t) });   // (does it carry on where the object was going on the road?)
         }
       };
       // round the moment it left first (cameras overlap: a little before, to a second after); the rest of the window only if nothing good was there
@@ -1680,9 +1740,13 @@
       if (!cands.some((c) => c.sc >= 0.6)) { lastThumb = null; lastHad = true; for (const t of rest) { if (!HO.queue.includes(h)) return null; await scan(t); } }
       // place and time first; how it looks: the colour now, the appearance model below on the stretch it is followed along (a single
       // frame where it comes in is often cut off by the edge or huge and close: a poor look)
-      for (const c of cands) { c.sc = 0.3 * (1 - c.near / 0.2) + 0.15 * c.d.conf + 0.2 * c.when + 0.35 * c.look; c.v = null; }
+      for (const c of cands) {
+        c.sc = c.road == null ? 0.3 * (1 - c.near / 0.2) + 0.15 * c.d.conf + 0.2 * c.when + 0.35 * c.look
+          : 0.24 * (1 - c.near / 0.2) + 0.12 * c.d.conf + 0.14 * c.when + 0.25 * c.look + 0.25 * c.road;
+        c.v = null;
+      }
       cands.sort((a, b) => b.sc - a.sc);
-      if (G.hoDebug) G.hoDebug.push({ cam, cands: cands.slice(0, 8).map((c) => ({ t: c.t, cx: +(c.d.x + c.d.w / 2).toFixed(2), w: +c.d.w.toFixed(2), near: +c.near.toFixed(2), app: c.app == null ? null : +c.app.toFixed(2), look: +c.look.toFixed(2), sc: +c.sc.toFixed(2) })) });
+      if (G.hoDebug) G.hoDebug.push({ cam, cands: cands.slice(0, 8).map((c) => ({ t: c.t, cx: +(c.d.x + c.d.w / 2).toFixed(2), w: +c.d.w.toFixed(2), near: +c.near.toFixed(2), app: c.app == null ? null : +c.app.toFixed(2), look: +c.look.toFixed(2), road: c.road == null ? null : +c.road.toFixed(2), sc: +c.sc.toFixed(2) })) });
       const tried = [], found = [], withApp = !!(h.app && vreidOn());
       for (const c of cands) {
         if (c.sc < 0.45 || tried.length >= 4 || (withApp && found.length >= 3)) break;
@@ -1706,9 +1770,9 @@
           }
           // its best looks so far (whole in the picture, not tiny, not huge) against the object's looks
           const part = { cam, keys: [[t, box0]].concat(fwd) }, lk = await stretchLook(h, part);
-          const f = { c, t, box0, fwd, like: lk.like, emb: lk.emb, final: lk.like == null ? c.sc : 0.3 * (1 - c.near / 0.2) + 0.15 * c.when + 0.55 * lk.like };
+          const f = { c, t, box0, fwd, like: lk.like, emb: lk.emb, final: lk.like == null ? c.sc : c.road == null ? 0.3 * (1 - c.near / 0.2) + 0.15 * c.when + 0.55 * lk.like : 0.2 * (1 - c.near / 0.2) + 0.1 * c.when + 0.2 * c.road + 0.5 * lk.like };
           found.push(f);
-          if (G.hoDebug) G.hoDebug.push({ cam, tried: { t, cx: +(box0.x + box0.w / 2).toFixed(2), w: +box0.w.toFixed(2), like: lk.like == null ? null : +lk.like.toFixed(2), final: +f.final.toFixed(2) } });
+          if (G.hoDebug) G.hoDebug.push({ cam, tried: { t, cx: +(box0.x + box0.w / 2).toFixed(2), w: +box0.w.toFixed(2), road: c.road == null ? null : +c.road.toFixed(2), like: lk.like == null ? null : +lk.like.toFixed(2), final: +f.final.toFixed(2) } });
           if (lk.like != null && lk.like >= 0.55) break;   // clearly it: no need to look at the others
         }
       }
@@ -1734,9 +1798,9 @@
     else { const src = G.list.find((x) => x.id === h.from); if (src && src.path) { exitKeys = []; const P = src.path; for (let i = 0; i < P.length; i += 5) if (P[i + 3] > 0 && P[i] >= h.t0 - 0.8 && P[i] <= h.t0 + 0.05) exitKeys.push([P[i], { x: P[i + 1], y: P[i + 2], w: P[i + 3], h: P[i + 4] }]); } }
     let fromCam = resume && resume.at > 0 ? h.chain[resume.at - 1].cam : h.cam;
     for (let hop = 0; hop < 5 && cam && !seen.has(cam) && (ev.cams || []).includes(cam); hop++) {
-      const pred = predictEntry(fromCam, exitKeys, cam, entry);
-      if (G.hoDebug) G.hoDebug.push({ cam, pred: pred && { t: +pred.t.toFixed(2), sigma: +pred.sigma.toFixed(2) }, tExit });
-      const seg = await chainSeg(h, cam, entry, tExit, pred);
+      const pred = predictEntry(fromCam, exitKeys, cam, entry), rs = roadState(fromCam, exitKeys);
+      if (G.hoDebug) G.hoDebug.push({ cam, pred: pred && { t: +pred.t.toFixed(2), sigma: +pred.sigma.toFixed(2) }, tExit, road: rs && { x: +rs.x.toFixed(1), z: +rs.z.toFixed(1), vx: +rs.vx.toFixed(1), vz: +rs.vz.toFixed(1), n: rs.n }, set: camSet() });
+      const seg = await chainSeg(h, cam, entry, tExit, pred, rs);
       if (seg) { seg.pred = pred; exitKeys = seg.keys; fromCam = cam; }
       if (seg && h.app && !seg.emb) { try { seg.emb = await segEmbed(seg); } catch (_) {} }   // (kept: Yes adds it to the object's looks, Not it to the "not it" ones)
       if (!HO.queue.includes(h)) return;
