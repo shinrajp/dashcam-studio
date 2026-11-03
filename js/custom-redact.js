@@ -1342,6 +1342,20 @@
     } catch (_) { return null; }
   }
   const thumbDiff = (a, b) => { if (!a || !b) return Infinity; let s = 0; for (let i = 0; i < a.length; i++) s += Math.abs(a[i] - b[i]); return s / a.length; };
+  /** How different two colours are in hue alone (brightness left out: sun and shade change it on the same car). 0 = same. */
+  function hueOff(a, b) {
+    if (!a || !b) return 0;
+    const la = (a[0] + a[1] + a[2]) / 3 + 1, lb = (b[0] + b[1] + b[2]) / 3 + 1;
+    return Math.hypot(a[0] / la - b[0] / lb, a[1] / la - b[1] / lb, a[2] / la - b[2] / lb);
+  }
+  /** "Not this one": a rejected stretch (or candidate) is not offered again, at any moment it was seen (where it was then). */
+  function skipped(h, cam, t, d) {
+    return h.skip.some((q) => {
+      if (q.cam && q.cam !== cam) return false;
+      if (q.keys) { const b = segBoxAt(q, t); return !!b && t >= q.keys[0][0] - 0.3 && t <= q.keys[q.keys.length - 1][0] + 0.3 && iou(b, d) > 0.25; }
+      return iou(q, d) > 0.3;
+    });
+  }
   /** The detection that continues a followed object: where its speed says it should be, a similar size. */
   function nextDet(h, dets, prev, vel, dt) {
     const pcx = prev.x + prev.w / 2 + vel.x * dt, pcy = prev.y + prev.h / 2 + vel.y * dt;
@@ -1360,10 +1374,10 @@
    *  when the tracker is unsure, when it grows or shrinks fast, and to confirm it is still the same kind of thing. */
   const FOLLOW_DET = 0.4;
   async function followDets(h, rd, cam, t0, box0, dir, maxT) {
-    const keys = []; let prev = box0, vel = { x: 0, y: 0 }, miss = 0, lastT = t0, lastDet = t0, tr = null, o = null;
+    const keys = []; let prev = box0, vel = { x: 0, y: 0 }, miss = 0, lastT = t0, lastDet = t0, tr = null, o = null, offCol = 0, col0 = null;
     const tauOf = (t) => +(dir > 0 ? t - t0 : t0 - t).toFixed(3);   // the tracker's clock always runs forwards
     const startTr = (v, b, t) => { o = { fw: v.videoWidth, fh: v.videoHeight }; const im = grabGrey(v, o.fw, o.fh, PT.createPlan(b, o)); tr = im ? PT.create(im, b, tauOf(t), o) : null; };
-    if (PT) { const v0 = await rd.at(t0); if (v0) startTr(v0, box0, t0); }
+    { const v0 = await rd.at(t0); if (v0) { if (PT) startTr(v0, box0, t0); col0 = colorSig(v0, box0); } }
     for (let t = +(t0 + dir * CHAIN_DT).toFixed(3); dir > 0 ? t <= maxT + 1e-6 : t >= maxT - 1e-6; t = +(t + dir * CHAIN_DT).toFixed(3)) {
       if (!HO.queue.includes(h)) return keys;
       const v = await rd.at(t); if (!v) break;
@@ -1390,6 +1404,16 @@
         else tr = null;
       }
       if (!d) { if (++miss >= 3) break; continue; }
+      // a jump onto something else (a parked car it drove past): its colour no longer matches what it was when this stretch began, in this
+      // same camera (same exposure), at two detector looks in a row → stop there
+      if (lastDet === t) {
+        const cs = colorSig(v, d);
+        if (!col0) col0 = cs;
+        else if (cs && hueOff(col0, cs) > 0.45) { if (++offCol >= 2) break; continue; }
+        else offCol = 0;
+      }
+      // gone off into the distance (a few pixels): no use following it on, and the easiest moment to slip onto another one
+      if (d.w < 0.035 && d.h < 0.05) break;
       const nv = { x: (d.x + d.w / 2 - prev.x - prev.w / 2) / dt, y: (d.y + d.h / 2 - prev.y - prev.h / 2) / dt };
       vel = keys.length ? { x: 0.5 * vel.x + 0.5 * nv.x, y: 0.5 * vel.y + 0.5 * nv.y } : nv;
       prev = { x: d.x, y: d.y, w: d.w, h: d.h }; lastT = t; miss = 0; keys.push([t, prev]);
@@ -1422,7 +1446,7 @@
         const fr = await detAt(rd, cam, t, strip); if (!fr) return;
         lastHad = false;
         for (const d of fr.dets) {
-          if (!isKind(h, d) || h.skip.some((q) => q.cam === cam && iou(q, d) > 0.3)) continue;
+          if (!isKind(h, d) || skipped(h, cam, t, d)) continue;
           lastHad = true;
           const near = entry === "left" ? d.x : 1 - (d.x + d.w);   // how far its edge is from the edge it comes in on
           if (near > 0.2) continue;
@@ -1453,15 +1477,17 @@
           if (fwd.length < 2 || (moved < 0.08 && last.w < box0.w * 1.3)) continue;
           const back = await followDets(h, rd, cam, t, box0, -1, Math.max(0, t - 1.5));
           const keys = back.reverse().concat([[t, box0]], fwd);
-          return { cam, keys, exit: exitSideOf(keys), score: c.sc };
+          return { cam, keys, exit: exitSideOf(keys), score: c.sc, entry, tExit };
         }
       }
       return null;
     } finally { rd.close(); }
   }
-  async function chainSearch(h) {
+  async function chainSearch(h, resume) {
     const ev = T.player.ev, seen = new Set([h.cam]); let cam = h.to, entry = h.entry, tExit = h.t0;
-    h.chain = []; h.state = "search"; drawLanes();
+    if (resume) { h.chain = h.chain.slice(0, resume.at); for (const sg of h.chain) seen.add(sg.cam); cam = resume.cam; entry = resume.entry; tExit = resume.tExit; }
+    else h.chain = [];
+    h.state = "search"; drawLanes();
     for (let hop = 0; hop < 5 && cam && !seen.has(cam) && (ev.cams || []).includes(cam); hop++) {
       const seg = await chainSeg(h, cam, entry, tExit);
       if (!HO.queue.includes(h)) return;
@@ -1472,7 +1498,7 @@
       cam = e.to; entry = e.entry; tExit = seg.keys[seg.keys.length - 1][0];
     }
     if (!h.chain.length) {
-      h.state = "none"; HO.queue.splice(HO.queue.indexOf(h), 1); drawLanes();
+      h.state = "none"; const qi = HO.queue.indexOf(h); if (qi >= 0) HO.queue.splice(qi, 1); drawLanes();
       msg("The object left the " + camName(h.cam).toLowerCase() + " camera; it wasn't found in the " + camName(h.to).toLowerCase() + " camera. Draw a mark there if it shows up.");
       return;
     }
@@ -1534,6 +1560,16 @@
     $("crHoYes").addEventListener("click", () => handoffAccept());
     $("crHoNo").addEventListener("click", () => {   // look on from just after this one
       const h = HO.active; if (!h) return;
+      if (h.chain && h.chain.length) {   // the stretch on show is not it: never offer it again, look for another one in that camera (and on from there)
+        const i = Math.min(h.chain.length - 1, h.show || 0), sg = h.chain[i], was = h.wasPlaying;
+        h.skip.push({ cam: sg.cam, keys: sg.keys });
+        HO.active = null; c.hidden = true; document.querySelectorAll(".cr-ho-box").forEach((x) => x.remove());
+        if (!HO.queue.includes(h)) HO.queue.push(h);
+        msg("Still looking in the " + camName(sg.cam).toLowerCase() + " camera…");
+        chainSearch(h, { at: i, cam: sg.cam, entry: sg.entry, tExit: sg.tExit });
+        if (was && T.player) T.player.play();
+        return;
+      }
       if (h.cand) h.skip.push(h.cand);
       const from = (h.cand ? h.cand.t : h.t0) + 0.3, was = h.wasPlaying; h.cand = null; HO.active = null;
       c.hidden = true; document.querySelectorAll(".cr-ho-box").forEach((x) => x.remove());
@@ -1554,12 +1590,12 @@
     const src = G.list.find((x) => x.id === h.from), what = h.kind ? KIND_NAME[h.kind] || h.kind : "object";
     const c = hoCard();
     $("crHoText").innerHTML = h.chain && h.chain.length
-      ? "The tracked " + esc(what) + " left the <b>" + esc(camName(h.cam)) + "</b> camera. It was followed into " + (h.chain.length === 1 ? "the <b>" + esc(camName(h.chain[0].cam)) + "</b> camera" : h.chain.length + " more cameras") + ". Untick any that is not it (Show puts the purple box on it):" +
+      ? "The tracked " + esc(what) + " left the <b>" + esc(camName(h.cam)) + "</b> camera. It was followed into " + (h.chain.length === 1 ? "the <b>" + esc(camName(h.chain[0].cam)) + "</b> camera" : h.chain.length + " more cameras") + ". Show puts the purple box on it; untick any that is not it, or press <b>Not this one</b> to look for another:" +
         '<span class="cr-ho-list">' + h.chain.map((sg, i) => '<label class="cr-ho-row"><input type="checkbox" data-seg="' + i + '"' + (h.pick[i] ? " checked" : "") + "> <b>" + esc(camName(sg.cam)) + "</b> " + fmt(sg.keys[0][0]) + "–" + fmt(sg.keys[sg.keys.length - 1][0]) + ' <button type="button" class="btn small ghost" data-show="' + i + '">Show</button></label>').join("") + "</span>"
       : cand
       ? "The tracked " + esc(what) + " left the <b>" + esc(camName(h.cam)) + "</b> camera. Is this it in the <b>" + esc(camName(h.to)) + "</b> camera (purple box)?"
       : "The tracked " + esc(what) + " left the <b>" + esc(camName(h.cam)) + "</b> camera towards the <b>" + esc(camName(h.to)) + "</b> camera. Object detection is off, so it can't be found there for you: press <b>Draw it myself</b> and drag round it.";
-    $("crHoYes").hidden = !cand; $("crHoNo").hidden = !cand || !!(h.chain && h.chain.length);
+    $("crHoYes").hidden = !cand; $("crHoNo").hidden = !cand;
     $("crHoYes").textContent = h.chain && h.chain.length > 1 ? "Yes, track it in these" : "Yes, keep tracking";
     c.style.borderColor = src ? G.color(src) : "";
     c.hidden = false;
@@ -1580,7 +1616,7 @@
   /** Show one found stretch: the player goes to its middle, that camera is shown, the purple box on it. */
   function hoShow(i) {
     const h = HO.active; if (!h || !h.chain || !h.chain[i]) return;
-    const sg = h.chain[i], tm = sg.keys[Math.floor(sg.keys.length / 2)][0];
+    const sg = h.chain[i], tm = sg.keys[Math.min(sg.keys.length - 1, 2)][0];   // just after it came in (all of it in the picture, easiest to recognise)
     h.show = i; document.querySelectorAll(".cr-ho-box").forEach((x) => x.remove());
     if (T.focus && T.focus.cam && T.focus.cam !== sg.cam && T.focus.focus) T.focus.focus(sg.cam);
     T.player.seek(tm);
