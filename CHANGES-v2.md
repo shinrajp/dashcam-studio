@@ -886,4 +886,6 @@ Item 2 of the rig plan: any HW4 car's six cameras measured from one of its own d
 - `tools/rig/make-footage.py` (new): a synthetic HW4 clip of a known rig (textured road + posts, the fixture drive's path, each
   camera's delay, SEI on every frame) for the end-to-end test. `tools/rig/handoff-check.js --rig <exported.json>`.
 - Tests: `node test/rig-calib.test.js` (29; `--all` for six cameras), `node test/rig-calib-page.js <url>` (in the page, Chromium);
-  `test/rig.test.js` and `test/handoff.test.js` unchanged and passing.
+  `test/rig.test.js` and `test/handoff.test.js` unchanged and passing. In the page on the synthetic clip: front and left pillar
+  within 0.2°, right repeater yaw 0.9° off (lens width 3.5 %), back roll 0.7° off, all passing the gate (2 of 23 checks fail: the
+  0.5° target); delays within 4 ms, heights within 4 cm. Not yet checked on real footage (tools/rig/README.md lists what to run).

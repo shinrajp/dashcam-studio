@@ -105,6 +105,14 @@ angles within 0.5°, f within 1.5 %, delay within 20 ms, height within 5 cm; roa
 `tools/rig/make-footage.py` (textured road + posts, the fixture's path, SEI on every frame; ~7 min on 4 cores) and runs the whole
 thing in the page: Settings section, worker, progress, page stays responsive, result vs truth, save, reload, export / import, reset.
 
+**In-page result on the synthetic clip** (`test/rig-calib-page.js`, 30 s, four cameras, Chromium, 358 s in all, page answering
+within 0.33 s throughout): front Δ yaw/pitch/roll 0.00/0.05/−0.09°, left pillar −0.18/0.06/−0.03°, right repeater **0.90**/0.21/0.09°
+(f 3.5 % wide), back 0.37/0.45/**0.70**°; delays within 4 ms, heights within 4 cm, medians 0.29–0.47 px; model guess Model Y/YL.
+The node solver test on the same motion with 3D points everywhere gets all within 0.3°, so the remaining error is the scene
+(mostly flat road, a few posts, 30 s) letting yaw trade against lens width on the repeater and roll on the fisheye: real streets
+(kerbs, cars, walls, a 60 s drive) should do better, but that is exactly what the real-clip check must show. The quality gate
+does not catch a 0.9° yaw error at 0.3 px: on real clips compare against the measured Model X before trusting the gate.
+
 **Still to check on real clips** (not possible without the footage):
 1. Calibrate the 2026-10-19 Model X drive in the app (Chrome and Safari): each camera's angles against the MEASURED block of
    `js/rig.js` (expect within ~0.5°; pillar / repeater pitch may differ by up to ~0.5° because of the body-tilt term above), lens
