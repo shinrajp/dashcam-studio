@@ -31,4 +31,4 @@ for ax, (C, title) in zip(axs, [(DEFAULTS, "App defaults"), (FIT, "Fitted on thi
     ax.set_xlabel("metres to the right of the car", color="#888"); ax.set_ylabel("metres ahead", color="#888")
 leg = axs[1].legend(loc="upper right", facecolor="#161a22", edgecolor="#333", labelcolor="#ddd", fontsize=9)
 fig.suptitle("Vehicles placed on the road from all six cameras at " + ", ".join("%g s" % t for t in TIMES) + "  (2026-10-19 10:53:18)", color="#eee", fontsize=13)
-plt.tight_layout(); plt.savefig("birdseye.png", dpi=110, facecolor=fig.get_facecolor()); print("saved")
+plt.tight_layout(rect=[0, 0, 1, 0.95]); plt.savefig("birdseye.png", dpi=110, facecolor=fig.get_facecolor()); print("saved")
