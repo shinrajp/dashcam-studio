@@ -1,7 +1,8 @@
 /* rig.js — the six cameras as measured instruments: lens, where each is mounted and points, the road under it, the
  * car's own body in its picture, and its clock.
  *
- * Measured by tools/rig on a real drive (2024 Model X, HW4, six cameras, 2026-10-19, 60 s with two right-angle turns), without a chart:
+ * Measured by tools/rig on two real drives of a 2024 Model X (HW4, six cameras; 2026-10-19, 60 s, and 2026-10-07, 46 s, each with
+ * real turns) and averaged; the two agree within ~1° in direction and tilt and 0–5 % in focal length (front lens 9 %). Without a chart:
  * the car's own motion is the reference. The telemetry (speed, heading) says how the car moved between two frames; points
  * tracked across those frames must agree with that move, which fixes each camera's lens (Kannala-Brandt fisheye
  * r = f·θ(1 + k1θ² + k2θ⁴ + k3θ⁶)) and mounting angles (tools/rig/calibrate.py; 0.12–0.22 px median error). The road
@@ -16,8 +17,8 @@
  * cameras from one of its drives in the browser (Settings ▸ Advanced & Labs ▸ Camera calibration); set() loads the result.
  *
  * Clocks: the six files of a clip do not start together. Each file carries the telemetry stamped on its own frames, so
- * matching the speed and heading curves gives each camera's offset (on the drive above: back +0.35 s, right pillar
- * +0.18 s, left pillar +0.07 s, repeaters −0.03 s against the front). clock(cam) = seconds to add to that camera's
+ * matching the speed and heading curves gives each camera's offset. They change from clip to clip (back +0.35 s on the
+ * 10-19 drive, −0.45 s on the 10-07 one), so they are measured per clip; CLOCK0 is the 10-19 drive's, for tests. clock(cam) = seconds to add to that camera's
  * clip time to get the front camera's clip time of the same moment.
  *
  * Pure functions (node tests: module.exports); the browser part adds per-clip clocks from the files' telemetry. */
@@ -30,15 +31,16 @@
   const CAMS = ["front", "back", "left_pillar", "right_pillar", "left_repeater", "right_repeater"];
   const D2R = Math.PI / 180;
   // ── measured (tools/rig/to-js.py writes this block) ──
+  // mean of the two drives; heights weighted by how precisely each drive measured them, left and right taken together.
   // f, cx, cy in picture widths; thmax: the widest angle off the lens axis the drive showed (beyond it the lens is a guess);
   // aspect = height / width of the measured picture (HW4 1448×938, front 2896×1876)
   const MEASURED = {
-    front:          { yaw: 0.98, pitch: -0.7, roll: 1.46, f: 1.32617, cx: 0.00957, cy: -0.01206, k: [-0.06024, -0.02021, 0.0], thmax: 24.1, pos: [0, 1.3, 2.05], px: 0.172 },
-    back:           { yaw: -179.9, pitch: -32.01, roll: 0.19, f: 0.33678, cx: 0.00437, cy: -0.02206, k: [-0.03411, 0.00032, 0.0], thmax: 96.9, pos: [0, 1.0, -1.04], px: 0.101 },
-    left_pillar:    { yaw: -70.63, pitch: -4.82, roll: 0.42, f: 0.70043, cx: -0.00278, cy: -0.00142, k: [-0.05474, -0.02416, 0.0], thmax: 46.4, pos: [-0.92, 1.317, 1.55], px: 0.157 },
-    right_pillar:   { yaw: 71.66, pitch: -5.25, roll: -0.16, f: 0.70242, cx: 0.00221, cy: -0.00104, k: [-0.0597, -0.01962, 0.0], thmax: 48.8, pos: [0.92, 1.317, 1.55], px: 0.22 },
-    left_repeater:  { yaw: -139.84, pitch: -4.88, roll: 0.26, f: 0.69812, cx: 0.00476, cy: 0.00147, k: [-0.02037, -0.01163, 0.0], thmax: 42.1, pos: [-1.02, 0.99, 2.45], px: 0.186 },
-    right_repeater: { yaw: 140.07, pitch: -4.92, roll: 1.31, f: 0.71164, cx: -0.00294, cy: 0.0128, k: [-0.05051, -0.02271, 0.0], thmax: 42.4, pos: [1.02, 0.99, 2.45], px: 0.179 },
+    front:          { yaw: 0.655, pitch: -1.045, roll: 1.215, f: 1.26725, cx: 0.00506, cy: -0.00468, k: [-0.07051, -0.02308, 0.0], thmax: 24.1, pos: [0, 1.295, 2.05], px: 0.188 },
+    back:           { yaw: -179.52, pitch: -32.905, roll: 0.7, f: 0.33239, cx: 0.00458, cy: -0.01665, k: [-0.03084, 0.00036, 0.0], thmax: 96.9, pos: [0, 0.996, -1.04], px: 0.139 },
+    left_pillar:    { yaw: -70.83, pitch: -5.375, roll: 0.505, f: 0.70112, cx: -0.00516, cy: -0.00148, k: [-0.05559, -0.02423, 0.0], thmax: 46.4, pos: [-0.92, 1.334, 1.55], px: 0.173 },
+    right_pillar:   { yaw: 71.75, pitch: -5.755, roll: -0.415, f: 0.69698, cx: 0.00079, cy: -0.00147, k: [-0.05511, -0.02142, 0.0], thmax: 48.8, pos: [0.92, 1.334, 1.55], px: 0.213 },
+    left_repeater:  { yaw: -139.945, pitch: -4.755, roll: 0.195, f: 0.67978, cx: -0.00264, cy: -0.00018, k: [-0.01926, -0.01238, 0.0], thmax: 42.1, pos: [-1.02, 0.956, 2.45], px: 0.208 },
+    right_repeater: { yaw: 139.5, pitch: -4.48, roll: 1.41, f: 0.69922, cx: -0.00253, cy: 0.00582, k: [-0.04616, -0.01877, 0.0], thmax: 42.4, pos: [1.02, 0.956, 2.45], px: 0.192 },
   };
   const ASPECT = 938 / 1448;
   const CLOCK0 = { front: 0, back: 0.346, left_pillar: 0.067, right_pillar: 0.175, left_repeater: -0.025, right_repeater: -0.029 };
@@ -58,7 +60,7 @@
      The files don't say which model recorded them, and each model mounts its cameras in other places. All HW4 cars use the
      same camera modules, so every preset takes the lenses and the mounting ANGLES measured on the Model X (MEASURED above):
      those are a starting point to refine by calibration, not a measurement of that model.
-       MEASURED (2026-10-19 drive): Model X — angles, lenses, the six heights above the road.
+       MEASURED (2026-10-19 and 2026-10-07 drives, averaged): Model X — angles, lenses, the six heights above the road.
        ESTIMATED: everything else — every other model's camera positions and heights, and all body boxes (also the Model X's
          positions along and across the car), from published dimensions (length, width without mirrors, height, wheelbase)
          and where the cameras sit on photos of each car (windscreen top, B-pillar badge, front-fender repeater, above the
@@ -67,7 +69,7 @@
      middle of the rear axle). One side only: the other side mirrors x. body: as BODY above. */
   const PRESETS = {
     model_x: { name: "Model X", note: "2021 on (HW4); heights measured", measured: true, dims: [5.057, 1.999, 1.68, 2.965],
-      pos: { front: [0, 1.3, 2.05], back: [0, 1.0, -1.04], pillar: [0.92, 1.317, 1.55], repeater: [1.02, 0.99, 2.45] }, body: BODY },
+      pos: { front: [0, 1.295, 2.05], back: [0, 0.996, -1.04], pillar: [0.92, 1.334, 1.55], repeater: [1.02, 0.956, 2.45] }, body: BODY },
     model_s: { name: "Model S", note: "2021 on (HW4); estimated", dims: [5.021, 1.987, 1.431, 2.96],
       pos: { front: [0, 1.2, 1.95], back: [0, 0.98, -1.08], pillar: [0.9, 1.12, 1.45], repeater: [0.98, 0.88, 2.45] },
       body: [{ x: 0.99, y0: 0.15, y1: 0.95, z0: -1.08, z1: 2.5 }, { x: 0.99, y0: 0.15, y1: 0.85, z0: 2.5, z1: 3.9, not: ["front"] },

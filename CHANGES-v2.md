@@ -889,3 +889,14 @@ Item 2 of the rig plan: any HW4 car's six cameras measured from one of its own d
   `test/rig.test.js` and `test/handoff.test.js` unchanged and passing. In the page on the synthetic clip: front and left pillar
   within 0.2°, right repeater yaw 0.9° off (lens width 3.5 %), back roll 0.7° off, all passing the gate (2 of 23 checks fail: the
   0.5° target); delays within 4 ms, heights within 4 cm. Not yet checked on real footage (tools/rig/README.md lists what to run).
+
+## Camera rig: two drives averaged, rear-camera unwarp mock-up (branch track-v2)
+- A second drive of the same car (2026-10-07, 46 s, turns of ~75° and ~45°) calibrated the same way repeats the first within ~1°
+  in direction and tilt and 0–5 % in focal length (front lens 9 %). `js/rig.js` MEASURED is now the mean of the two; heights are
+  weighted by how precisely each drive measured them, left and right together (front 1.30 m, pillars 1.33 m, repeaters 0.96 m,
+  back 1.00 m).
+- The files' clock offsets on that clip are entirely different (back −0.45 s against +0.35 s), so per-clip measuring is needed.
+- Hand-off check with the averaged rig: 10-19 73/73 predictions matched (was 68/68), 10-07 52/55 (49/53 with the 10-19 rig alone),
+  median timing error 0.21 / 0.22 s, place error 5.4 / 5.8 % of the picture width.
+- `tools/rig/unwarp.py`: the back camera re-rendered without its fisheye (cylindrical panorama, three virtual pinhole cameras) with
+  YOLO boxes on each; details and numbers in `tools/rig/README.md`.

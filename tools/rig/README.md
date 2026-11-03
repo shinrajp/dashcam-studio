@@ -43,28 +43,42 @@ alone can't tell a wide lens from a narrow one), some texture on the road.
   still, so `js/rig.js` uses a geometric body (boxes) instead; kept as a diagnostic.
 - **rectify.py** — each camera re-rendered as a level pinhole view with the horizon and the car's straight-ahead/back marked.
 - **to-js.py** — copies the measured values (and the files' clock offsets from their telemetry) into `js/rig.js`.
+- **unwarp.py** — mock-up of the back camera without its fisheye (cylindrical panorama + three virtual pinhole cameras), with
+  YOLO boxes on each, from the lens in `js/rig.js`.
 - **detect-tracks.py + handoff-check.js** — YOLO tracks in every camera; for each object leaving a camera, the predicted entry
   into the neighbour against the track that really appears there, with and without the clock offsets.
 
-## Measured (2026-10-19, 2024 Model X, HW4, six cameras)
+## Measured (2024 Model X, HW4, six cameras; two drives averaged)
+
+Drives: 2026-10-19 (60 s, two right-angle turns) and 2026-10-07 (46 s, turns of ~75° and ~45°, a stop). `js/rig.js` holds the mean;
+heights are weighted by how precisely each drive measured them, left and right together.
 
 | camera | yaw | pitch | roll | horizontal view | height above road | fit (median) |
 |---|---|---|---|---|---|---|
-| front | 1.0° | −0.7° | 1.5° | 44° | 1.30 m | 0.17 px |
-| left / right pillar | −70.6° / 71.7° | −4.8° / −5.3° | 0.4° / −0.2° | 85° / 85° | 1.32 m (1.38 / 1.26) | 0.16 / 0.22 px |
-| left / right repeater | −139.8° / 140.1° | −4.9° / −4.9° | 0.3° / 1.3° | 83° / 83° | 0.99 m (1.06 / 0.92) | 0.19 / 0.18 px |
-| back | 180° | −32.0° | 0.2° | ~187° fisheye | 1.00 m | 0.10 px |
+| front | 0.7° | −1.0° | 1.2° | ~44° | 1.30 m | 0.19 px |
+| left / right pillar | −70.8° / 71.8° | −5.4° / −5.8° | 0.5° / −0.4° | ~85° | 1.33 m | 0.17 / 0.21 px |
+| left / right repeater | −139.9° / 139.5° | −4.8° / −4.5° | 0.2° / 1.4° | ~83° | 0.96 m | 0.21 / 0.19 px |
+| back | −179.5° | −32.9° | 0.7° | ~187° fisheye | 1.00 m | 0.14 px |
 
-Left/right heights differ by less than their spread (±0.13–0.19 m), so each pair gets their mean. The positions along and across
-the car are a 2024 Model X's from its dimensions (other models mount their cameras elsewhere: measure them).
+**Repeatability (drive 10-07 against 10-19):** yaw within 1.1° (most within 0.8°); pitch within 1.8° — the front, back and
+pillars all ~1° lower together, i.e. the car sat a little differently, not the cameras; roll within 1°; focal length within 0–5 %
+for the wide cameras, 9 % for the narrow front lens (its 44° view gets least from the turns). Heights per drive and camera ranged
+±0.1 m (repeater 0.79–1.06 m), so a profile should combine drives.
 
 - **Blind wedges:** 8 m out, nothing sees the road from about 20° to 30° either side of straight ahead (between the 44° front
   camera and the pillars). Pillars ∩ repeaters and repeaters ∩ back overlap.
 - **File clocks:** the six files of a clip don't start together. From their own telemetry: back +0.35 s, right pillar +0.18 s,
   left pillar +0.07 s, repeaters −0.03 s against the front. Each file's frames agree with its own telemetry within ±0.07 s
   (2 frames), so offsets above that are real; `js/rig.js` measures them per clip.
-- **Hand-off check on this drive** (YOLO11s tracks, 103 objects leaving a camera through a side edge): 68 got a road-based
-  prediction, all 68 matched a track in the neighbour; median timing error 0.2 s, place error 5 % of the picture width.
+- **File clocks change from clip to clip:** on the 10-07 drive back −0.45 s, left pillar −0.41 s, right pillar −0.25 s, repeaters
+  −0.14 / −0.36 s (10-19: +0.35, +0.07, +0.18, −0.03 / −0.03 s). Measure them per clip; never use a fixed table.
+- **Hand-off check with the averaged rig** (YOLO11s tracks, objects leaving a camera through a side edge, each clip's own clocks):
+  10-19: 73 road-based predictions, all matched a track in the neighbour, median timing error 0.21 s, place error 5.4 % of the
+  picture width; 10-07: 55 predictions, 52 matched, 0.22 s, 5.8 %.
+- **Rear camera unwarped** (`unwarp.py`): the fisheye re-rendered as a cylindrical panorama and as three virtual pinhole cameras
+  with the measured lens. YOLO on 10-19: the white car close behind 54 % with an oversized box on the fisheye → 91 % (panorama) /
+  94 % (pinhole), parked cars down the street 42–80 % → 62–91 %; on 10-07 the panorama finds 6 objects against 4. The pinhole
+  views split an object across their seams (one van read as a bus and a truck); the panorama has no seams.
 
 ## In the app: Calibrate from this drive (`js/rig-calib.js`, `js/rig-calib-ui.js`)
 
