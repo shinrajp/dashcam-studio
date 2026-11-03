@@ -9,8 +9,9 @@ from PIL import Image, ImageDraw, ImageFont, ImageFilter
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 STILLS = os.path.join(ROOT, "tools", "mock-stills")
 OUT = os.path.join(ROOT, "test", "fixtures")
-SANS = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
-SERIF = "/usr/share/fonts/truetype/dejavu/DejaVuSerif-Bold.ttf"
+_pick = lambda *fs: next((f for f in fs if os.path.exists(f)), fs[0])   # (Linux; macOS)
+SANS = _pick("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", "/System/Library/Fonts/Supplemental/Arial Bold.ttf")
+SERIF = _pick("/usr/share/fonts/truetype/dejavu/DejaVuSerif-Bold.ttf", "/System/Library/Fonts/Supplemental/Times New Roman Bold.ttf")
 random.seed(6)
 
 def plate_img(text, w=600):

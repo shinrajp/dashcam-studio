@@ -21,7 +21,8 @@ from PIL import Image, ImageDraw, ImageFilter, ImageFont
 HERE = os.path.dirname(os.path.abspath(__file__))
 _spec = importlib.util.spec_from_file_location("make_samples", os.path.join(HERE, "make-samples.py"))
 MS = importlib.util.module_from_spec(_spec); _spec.loader.exec_module(MS)
-FONT = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+FONT = next((f for f in ("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", "/System/Library/Fonts/Supplemental/Arial Bold.ttf")
+             if os.path.exists(f)), "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf")   # (Linux; macOS)
 FPS = 36
 
 # ───────────────────────── world layout (metres; x right, y forward along the road, z up) ─────────────────────────

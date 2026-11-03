@@ -1504,6 +1504,32 @@
     } catch (_) {}
     return S.camSet || "hw3";
   }
+  /* ho-rig: the measured rig (js/rig.js: lens, mounting, the road under each camera). Where the object stands on the road and how it moves
+     round the car give when AND where it comes into the next camera and how big it is there; each file's own telemetry gives its clock (the
+     six files of a clip don't start together: on the measured drive the back file is 0.35 s off the front). Used for pictures of the
+     measured shape (HW4); the direction-only guess below stays for others and for objects whose feet can't be placed. */
+  function rigOk(cam, t) {
+    const RG = T.rig, P = T.player, ev = P && P.ev; if (!RG || !RG.ok || !ev) return false;
+    const c = ev.clips[P.clipIndexAt(t)], inf = c && c.files && c.files[cam] && c.files[cam].info;
+    return !!(inf && RG.ok(cam, inf.width, inf.height));
+  }
+  async function rigClocks(t) {
+    const RG = T.rig, P = T.player; if (!RG || !RG.clocksFor || !P || !P.ev) return {};
+    try { return (await RG.clocksFor(P.ev, P.clipIndexAt(t))) || {}; } catch (_) { return {}; }
+  }
+  /** predictEntry, from the road when it can be: → { t, sigma, box?, hM?, src } with t in camera `to`'s clip time, or null. */
+  async function predictEntryRig(cam, keys, to, entry) {
+    const RG = T.rig, last = keys && keys.length ? keys[keys.length - 1][0] : null;
+    if (last != null && rigOk(cam, last) && rigOk(to, last)) {
+      const clk = await rigClocks(last), shift = RG.clock(cam, clk) - RG.clock(to, clk);
+      const p = RG.predictEntry(cam, keys, to);
+      if (p) return { t: p.t + shift, sigma: p.sigma, box: p.box, hM: p.hM, dist: p.dist, shift, src: "rig" };
+      const q = predictEntry(cam, keys, to, entry); if (q) return Object.assign(q, { t: q.t + shift, shift, src: "bearing" });
+      return shift ? { t: null, shift, src: "clock" } : null;
+    }
+    const q = predictEntry(cam, keys, to, entry); return q && Object.assign(q, { src: "bearing" });
+  }
+  G.predictEntryRig = predictEntryRig;   // (tests)
   function camGeo(cam) {
     const set = camSet(); S.camSet = set;
     const k = (set === "hw4" ? GEO_HW4 : GEO0)[cam];
@@ -1529,6 +1555,10 @@
    *  above the horizon / too far to place). A box cut off by a side of the picture gives a rougher place (cut: true). */
   function groundOf(cam, b) {
     if (!b) return null;
+    if (rigOk(cam, 0)) {   // (the measured rig: lens, height and mounting; its own origin, used the same way for every camera)
+      const g = T.rig.ground(cam, Math.max(0, Math.min(1, b.x + b.w / 2)), Math.min(1, b.y + b.h), 70);
+      return g ? { x: g.x, z: g.z, r: g.dist, cut: b.x < 0.004 || b.x + b.w > 0.996 } : null;
+    }
     const d = rayOf(cam, Math.max(0, Math.min(1, b.x + b.w / 2)), Math.min(1, b.y + b.h), cam); if (!d || d[1] > -0.012) return null;
     const g = camGeo(cam), P = g.pos, t = -P[1] / d[1], x = P[0] + t * d[0], z = P[2] + t * d[2], r = Math.hypot(x, z);
     return r < 70 ? { x, z, r, cut: b.x < 0.004 || b.x + b.w > 0.996 } : null;
@@ -1549,13 +1579,15 @@
   /** 0..1: does a vehicle at box b on camera cam at time t continue that movement on the road? (null: can't tell) */
   function roadLike(rs, cam, b, t) {
     if (!rs) return null; const g = groundOf(cam, b); if (!g) return null;
-    const dt = t - rs.t, px = rs.x + rs.vx * dt, pz = rs.z + rs.vz * dt, d = Math.hypot(g.x - px, g.z - pz);
+    const dt = t - rs.t - (rs.shift || 0), px = rs.x + rs.vx * dt, pz = rs.z + rs.vz * dt, d = Math.hypot(g.x - px, g.z - pz);
     const sg = (g.cut ? 4 : 2.5) + 0.15 * Math.max(g.r, Math.hypot(px, pz)) + 1.5 * Math.abs(dt) + (rs.n < 2 ? 2 : 0);
     return Math.exp(-(d * d) / (2 * sg * sg));
   }
   G.roadState = roadState; G.roadLike = roadLike;   // (tests)
   /** The direction round the car (degrees, + = clockwise / to the right) of picture position x (0..1, raw picture) on camera `cam`. */
   function bearingOf(cam, x) {
+    const P = T.player;
+    if (T.rig && P && P.ev && rigOk(cam, 0)) { const b = T.rig.bearing(cam, x, 0.5); if (b != null) return b; }   // (the measured lens)
     const d = rayOf(cam, x, 0.5); return d ? Math.atan2(d[0], d[2]) * 180 / Math.PI : null;
   }
   const angDiff = (a, b) => { let d = a - b; while (d > 180) d -= 360; while (d < -180) d += 360; return d; };
@@ -1712,6 +1744,19 @@
     try {
       // every frame of the window first: the best candidate overall (another car coming in a second earlier must not win just by being first)
       const cands = [], strip = entry === "left" ? { x: 0, y: 0, w: 0.65, h: 1 } : { x: 0.35, y: 0, w: 0.65, h: 1 };
+      if (pred && pred.box) { const x0 = Math.max(0, Math.min(strip.x, pred.box.x - 0.05)), x1 = Math.min(1, Math.max(strip.x + strip.w, pred.box.x + pred.box.w + 0.05)); strip.x = x0; strip.w = x1 - x0; }   // (the rig says where it comes in: that is looked at too)
+      const RG = rigOk(cam, tExit) ? T.rig : null;
+      /* where and when it is against where the object should be: the edge it comes in on, the moment, the rig's predicted box, and whether it
+         carries on the object's path on the road; each term only when known, the weights shared out among those present (sum 0.65) */
+      const placeOf = (c) => {
+        const nr = Math.max(0, 1 - c.near / 0.2), parts = [[0.3, nr], [0.2, c.when]];
+        if (c.where != null) parts.push([0.25, c.where]);
+        if (c.road != null) parts.push([0.25, c.road]);
+        const wsum = parts.reduce((a, q) => a + q[0], 0);
+        return 0.65 * parts.reduce((a, q) => a + q[0] * q[1], 0) / wsum;
+      };
+      const scoreOf = (c) => (c.where == null && c.road == null ? 0.3 * Math.max(0, 1 - c.near / 0.2) + 0.15 * c.d.conf + 0.2 * c.when + 0.35 * c.look   // (as before: no geometry known)
+        : placeOf(c) + 0.1 * c.d.conf + 0.25 * c.look) * c.fits;
       let lastThumb = null, lastHad = true, gatedRun = 0;
       const scan = async (t) => {
         const v = await rd.at(t); if (!v) return;
@@ -1724,12 +1769,16 @@
         lastHad = false;
         for (const d of fr.dets) {
           if (!isKind(h, d) || skipped(h, cam, t, d)) continue;
+          if (RG && RG.bodyShare(cam, d) > 0.5) continue;   // (the car's own bodywork: a reflection, not a car)
           lastHad = true;
           const near = entry === "left" ? d.x : 1 - (d.x + d.w);   // how far its edge is from the edge it comes in on
-          if (near > 0.2) continue;
+          // where the rig says it comes in (its middle against the predicted box's), and whether it is the object's size where it stands
+          const where = pred && pred.box ? Math.exp(-(((d.x + d.w / 2) - (pred.box.x + pred.box.w / 2)) ** 2 + ((d.y + d.h / 2) - (pred.box.y + pred.box.h / 2)) ** 2) / (2 * 0.12 * 0.12)) : null;
+          if (near > 0.2 && !(where != null && where > 0.5)) continue;
+          let fits = 1; if (RG && pred && pred.hM) { const f = RG.footprint(cam, d); if (f && f.hM > 0 && (f.hM / pred.hM < 0.6 || f.hM / pred.hM > 1.6)) fits = 0.7; }
           const when = pred ? Math.max(0.6 * Math.max(0, 1 - Math.abs(t - tExit) / 1.5), Math.exp(-((t - pred.t) ** 2) / (2 * pred.sigma * pred.sigma)))   // about when the layout says (or, near enough, when it left)
             : Math.max(0, 1 - Math.abs(t - tExit) / 1.5);   // about when it left the other camera
-          cands.push({ t, d, v: fr.v, look: colorLike(h.col, colorSig(fr.v, d)), near, when, road: roadLike(rs, cam, d, t) });   // (does it carry on where the object was going on the road?)
+          cands.push({ t, d, v: fr.v, look: colorLike(h.col, colorSig(fr.v, d)), near, when, where, fits, road: roadLike(rs, cam, d, t) });   // (does it carry on where the object was going on the road?)
         }
       };
       // round the moment it left first (cameras overlap: a little before, to a second after); the rest of the window only if nothing good was there
@@ -1737,14 +1786,10 @@
       const near0 = (t) => (t >= tExit - 0.6 - 1e-6 && t <= tExit + 1.2 + 1e-6) || (pred && Math.abs(t - pred.t) <= Math.max(0.6, pred.sigma) + 1e-6);
       const core = grid.filter(near0), rest = grid.filter((t) => !core.includes(t));
       for (const t of core) { if (!HO.queue.includes(h)) return null; await scan(t); }
-      if (!cands.some((c) => c.sc >= 0.6)) { lastThumb = null; lastHad = true; for (const t of rest) { if (!HO.queue.includes(h)) return null; await scan(t); } }
+      if (!cands.some((c) => scoreOf(c) >= 0.6)) { lastThumb = null; lastHad = true; for (const t of rest) { if (!HO.queue.includes(h)) return null; await scan(t); } }
       // place and time first; how it looks: the colour now, the appearance model below on the stretch it is followed along (a single
       // frame where it comes in is often cut off by the edge or huge and close: a poor look)
-      for (const c of cands) {
-        c.sc = c.road == null ? 0.3 * (1 - c.near / 0.2) + 0.15 * c.d.conf + 0.2 * c.when + 0.35 * c.look
-          : 0.24 * (1 - c.near / 0.2) + 0.12 * c.d.conf + 0.14 * c.when + 0.25 * c.look + 0.25 * c.road;
-        c.v = null;
-      }
+      for (const c of cands) { c.sc = scoreOf(c); c.v = null; }
       cands.sort((a, b) => b.sc - a.sc);
       if (G.hoDebug) G.hoDebug.push({ cam, cands: cands.slice(0, 8).map((c) => ({ t: c.t, cx: +(c.d.x + c.d.w / 2).toFixed(2), w: +c.d.w.toFixed(2), near: +c.near.toFixed(2), app: c.app == null ? null : +c.app.toFixed(2), look: +c.look.toFixed(2), road: c.road == null ? null : +c.road.toFixed(2), sc: +c.sc.toFixed(2) })) });
       const tried = [], found = [], withApp = !!(h.app && vreidOn());
@@ -1770,7 +1815,7 @@
           }
           // its best looks so far (whole in the picture, not tiny, not huge) against the object's looks
           const part = { cam, keys: [[t, box0]].concat(fwd) }, lk = await stretchLook(h, part);
-          const f = { c, t, box0, fwd, like: lk.like, emb: lk.emb, final: lk.like == null ? c.sc : c.road == null ? 0.3 * (1 - c.near / 0.2) + 0.15 * c.when + 0.55 * lk.like : 0.2 * (1 - c.near / 0.2) + 0.1 * c.when + 0.2 * c.road + 0.5 * lk.like };
+          const f = { c, t, box0, fwd, like: lk.like, emb: lk.emb, final: lk.like == null ? c.sc : (c.where == null && c.road == null ? 0.3 * Math.max(0, 1 - c.near / 0.2) + 0.15 * c.when : placeOf(c) * 0.45 / 0.65) + 0.55 * lk.like };
           found.push(f);
           if (G.hoDebug) G.hoDebug.push({ cam, tried: { t, cx: +(box0.x + box0.w / 2).toFixed(2), w: +box0.w.toFixed(2), road: c.road == null ? null : +c.road.toFixed(2), like: lk.like == null ? null : +lk.like.toFixed(2), final: +f.final.toFixed(2) } });
           if (lk.like != null && lk.like >= 0.55) break;   // clearly it: no need to look at the others
@@ -1798,9 +1843,11 @@
     else { const src = G.list.find((x) => x.id === h.from); if (src && src.path) { exitKeys = []; const P = src.path; for (let i = 0; i < P.length; i += 5) if (P[i + 3] > 0 && P[i] >= h.t0 - 0.8 && P[i] <= h.t0 + 0.05) exitKeys.push([P[i], { x: P[i + 1], y: P[i + 2], w: P[i + 3], h: P[i + 4] }]); } }
     let fromCam = resume && resume.at > 0 ? h.chain[resume.at - 1].cam : h.cam;
     for (let hop = 0; hop < 5 && cam && !seen.has(cam) && (ev.cams || []).includes(cam); hop++) {
-      const pred = predictEntry(fromCam, exitKeys, cam, entry), rs = roadState(fromCam, exitKeys);
-      if (G.hoDebug) G.hoDebug.push({ cam, pred: pred && { t: +pred.t.toFixed(2), sigma: +pred.sigma.toFixed(2) }, tExit, road: rs && { x: +rs.x.toFixed(1), z: +rs.z.toFixed(1), vx: +rs.vx.toFixed(1), vz: +rs.vz.toFixed(1), n: rs.n }, set: camSet() });
-      const seg = await chainSeg(h, cam, entry, tExit, pred, rs);
+      const pr = await predictEntryRig(fromCam, exitKeys, cam, entry), pred = pr && pr.t != null ? pr : null, rs = roadState(fromCam, exitKeys);
+      const tx = tExit + ((pr && pr.shift) || 0);   // the moment it left, on this camera's clock
+      if (rs) rs.shift = (pr && pr.shift) || 0;
+      if (G.hoDebug) G.hoDebug.push({ cam, pred: pred && { t: +pred.t.toFixed(2), sigma: +pred.sigma.toFixed(2), src: pred.src, box: pred.box && [+(pred.box.x + pred.box.w / 2).toFixed(2), +(pred.box.y + pred.box.h / 2).toFixed(2)] }, tExit, shift: pr && pr.shift, road: rs && { x: +rs.x.toFixed(1), z: +rs.z.toFixed(1), vx: +rs.vx.toFixed(1), vz: +rs.vz.toFixed(1), n: rs.n }, set: camSet() });
+      const seg = await chainSeg(h, cam, entry, tx, pred, rs);
       if (seg) { seg.pred = pred; exitKeys = seg.keys; fromCam = cam; }
       if (seg && h.app && !seg.emb) { try { seg.emb = await segEmbed(seg); } catch (_) {} }   // (kept: Yes adds it to the object's looks, Not it to the "not it" ones)
       if (!HO.queue.includes(h)) return;

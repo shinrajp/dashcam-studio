@@ -821,3 +821,37 @@ What changed, in one place (details per step below):
 - Lite: pref `lite` (`auto`|`on`|`off`, default auto), `?lite=`, `#segLite`, `#liteNote`. Lite = effective Solid (`why: "lite"`) plus `html[data-lite=on|slow|low-memory]`, which removes every `backdrop-filter` (css/glass.css). Auto-lite: `navigator.deviceMemory ≤ 2` at load, or `G.liteMon` (rAF frame times, 1 s window, < 40 fps for 3 s, reset at ≥ 45; holds 1.2 s after seeking, resize, orientation / fullscreen change, tab switch, play start; a > 400 ms gap resets) → `G.goLite("slow")`, latched for the session, one toast per session (`sessionStorage tdc.liteSaid`); changing the pref resets it. The fps monitor is off under `navigator.webdriver` (tests drive `liteMon.feed`).
 - `css/settings.css`: on `pointer: coarse` Settings `.seg` buttons are 44 px (seg padding / border 0 so rows stay 44 px).
 - Tests: `test/ui-glass-9.js` (new).
+
+## Camera rig: the six cameras measured (branch track-v2, assets track-v2-21)
+The cameras of a 2024 Model X (HW4) measured from one real drive (2026-10-19, 60 s, two right-angle turns) without a chart: the car's own
+telemetry is the reference. Tools and method: `tools/rig/README.md`.
+- `tools/rig/`: `sei-dump.js` (telemetry per frame), `tracks.py` (KLT point tracks), `calibrate.py` (lens + mounting from the epipolar
+  geometry of the car's known move; per-pair body pitch/roll for the suspension; lens terms kept physical), `roadheight.py` (height
+  above the road by road-surface alignment), `rectify.py` (level pinhole views to check by eye), `to-js.py` (writes `js/rig.js`),
+  `detect-tracks.py` + `handoff-check.js` (YOLO tracks per camera; predicted vs real entry into the neighbour), `bodymask.py` (diagnostic).
+- Measured: front 1.0° / −0.7° / 44° wide / 1.30 m; pillars ±70.6–71.7°, −5°, 85°, 1.32 m; repeaters ±140°, −4.9°, 83°, 0.99 m;
+  back 180°, −32°, ~187° fisheye, 1.00 m. Median fit 0.10–0.22 px. Blind wedges 20–30° either side of straight ahead at 8 m.
+- **The six files of a clip don't start together.** From each file's own telemetry: back +0.35 s, right pillar +0.18 s, left pillar
+  +0.07 s, repeaters −0.03 s against the front (frames agree with their own telemetry within ±0.07 s). Playback still starts them
+  together (unchanged); the hand-off converts its times between cameras.
+- `js/rig.js` (new, node-testable): `ray` / `pixel` (measured Kannala-Brandt lens), `ground` and `footprint` (where a box stands on the
+  road, its height and width in metres), `sizeRatio` (a box's height against its kind's), `isBody` / `bodyShare` (the car's own body:
+  Model X boxes, bumper lip under the back camera), `boxAt` (the box an object makes in a camera), `predictEntry` (when, where and how
+  big an object comes into another camera, from its feet's motion on the road), `clockOffsets` / `clocksFor` (per clip, from the six
+  files' telemetry), `coverage`, `set` / `reset` (another car's measured rig), `ok` (pictures of the measured shape only: HW3 keeps the
+  old guess).
+- Hand-off (`js/custom-redact.js` ho-rig): the entry prediction is road-based when the rig fits (time on the neighbour's clock, the
+  predicted box and the object's height); the search strip takes in the predicted box; candidates score on where the rig says it comes
+  in and are marked down when the wrong size for where they stand; boxes mostly on the car's own body are skipped. Fixed: the "skip
+  the rest of the window when a good candidate was found" check read scores before they were computed, so it never skipped.
+- With the road map round the car (ho-3d, the commit before): `groundOf` places boxes with the measured rig when it fits (HW4), the
+  fitted layout otherwise; the road-continuity term compares on the next camera's clock. Candidate place score = edge, moment, the
+  rig's predicted box and road continuity, each when known (weights shared among those present); with none known (HW3) the score is
+  the one from before.
+- `js/handoff.js` HEADING and `js/pano.js` DEFAULTS (360 view) take the measured directions and lenses (were ±58° / ±105° guesses for
+  the pillars).
+- Real drive, hand-off check (103 objects leaving a camera): 68 road-based predictions, all matched a real track in the neighbour;
+  median timing error 0.2 s, place error 5 % of the picture width.
+- Tests: `node test/rig.test.js` (28: lens round trip, road, size, body, coverage and blind wedges, entry prediction, real-drive
+  clocks from `test/fixtures/rig-telemetry-2026-10-19.json`); `node test/rig-page.js <url> <event folder> <dets.json>` (the page on
+  the real event: rig taken, clocks in the page, road-based prediction). `tools/make-mock-footage.py` finds a font on macOS too.

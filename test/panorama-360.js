@@ -53,7 +53,7 @@ async function load(b, vp, ua) {
   ok("blind spot rendered dark", sky.mean < 30, sky);
   // calibration
   const cal = await p.evaluate(() => { const P = TDC.pano; const c = P.calib(); c.front.yaw = 3; P.saveCalib(c); const saved = P.calib().front.yaw; const json = P.exportCalib(); P.resetCalib(); const reset = P.calib().front.yaw; const n = P.importCalib(json); let bad = null; try { P.importCalib('{"cameras":{"front":{"yaw":"x","fov":9999}}}'); } catch (e) { bad = e.message; } const after = P.calib().front; P.resetCalib(); return { saved, reset, n, back: after.yaw, fovClamp: after.fov, bad }; });
-  ok("calibration: save, export, reset, import (sanitised)", cal.saved === 3 && cal.reset === 0 && cal.n === 6 && cal.back === 3 && cal.fovClamp === 220, cal);
+  ok("calibration: save, export, reset, import (sanitised)", cal.saved === 3 && cal.reset === 1 && cal.n === 6 && cal.back === 3 && cal.fovClamp === 220, cal);
   await p.evaluate(() => { TDC.setPref("advanced", true); document.body.classList.add("adv"); });
   await p.evaluate(() => TDC.pano.toggleCalib(true)); await W(300);
   ok("calibration panel opens with sliders", await p.evaluate(() => document.querySelectorAll("#panoCalibPanel input[type=range]").length === 5));

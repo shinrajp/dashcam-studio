@@ -3,8 +3,9 @@
  * from the live tracker) and lights up the neighbouring tile's ENTRY edge — wherever that tile currently sits (layout preset, mirror,
  * portrait grid, focused camera), because the neighbour is looked up from a fixed PHYSICAL table, not from the screen.
  *
- * Physical model. Seen from above, the six cameras look in these directions (degrees clockwise from the car's nose; approximate):
- *     front 0 · right_pillar ~105 · right_repeater ~150 · back 180 · left_repeater ~210 · left_pillar ~255
+ * Physical model. Seen from above, the six cameras look in these directions (degrees clockwise from the car's nose; measured on a
+ * HW4 car by tools/rig, see js/rig.js):
+ *     front 0 · right_pillar 71 · right_repeater 142 · back 179 · left_repeater 217 · left_pillar 290
  * Every Tesla camera feed is a normal (un-mirrored) picture, so the right edge of a picture is always the direction of INCREASING
  * bearing: someone leaving a tile through its RIGHT edge moves clockwise around the car and enters the next camera on the chain
  * through that camera's LEFT edge; leaving through the LEFT edge goes counter-clockwise, entering the previous camera on its RIGHT edge.
@@ -15,7 +16,7 @@
 (function (root) {
   "use strict";
   const CHAIN = ["front", "right_pillar", "right_repeater", "back", "left_repeater", "left_pillar"];
-  const HEADING = { front: 0, right_pillar: 105, right_repeater: 150, back: 180, left_repeater: 210, left_pillar: 255 };
+  const HEADING = { front: 0, right_pillar: 71, right_repeater: 142, back: 179, left_repeater: 217, left_pillar: 290 };
   const SHORT = { front: "F", right_pillar: "RP", right_repeater: "RR", back: "B", left_repeater: "LR", left_pillar: "LP" };
   const OPPOSITE = { left: "right", right: "left" };
   /** Neighbour of a camera in a direction: "cw" (clockwise: the way the picture's right edge points) or "ccw". */

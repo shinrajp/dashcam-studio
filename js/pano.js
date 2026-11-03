@@ -14,14 +14,16 @@
   const CAMS = ["front", "back", "left_pillar", "right_pillar", "left_repeater", "right_repeater"];
   const KEY = "tdc.pano.calib.v1", VKEY = "tdc.pano.view.v1";
   // yaw: + = to the right of straight ahead; pitch: + = up; fov = horizontal degrees; pos = metres (x right, y up, z forward) — not used yet
+  // Angles and lenses measured on a 2024 Model X (HW4) by tools/rig (js/rig.js has the full rig); other cars: Calibrate
   const DEFAULTS = {
-    front:          { yaw: 0,    pitch: -3,  roll: 0, fov: 70,  model: "rect", k1: 0, k2: 0, k3: 0, k4: 0, cx: 0, cy: 0, flip: false, pos: [0, 1.3, 0.6] },
-    back:           { yaw: 180,  pitch: -18, roll: 0, fov: 125, model: "kb",   k1: 0, k2: 0, k3: 0, k4: 0, cx: 0, cy: 0, flip: false, pos: [0, 1.0, -2.3] },
-    left_pillar:    { yaw: -58,  pitch: -6,  roll: 0, fov: 90,  model: "kb",   k1: 0, k2: 0, k3: 0, k4: 0, cx: 0, cy: 0, flip: false, pos: [-0.85, 1.2, -0.1] },
-    right_pillar:   { yaw: 58,   pitch: -6,  roll: 0, fov: 90,  model: "kb",   k1: 0, k2: 0, k3: 0, k4: 0, cx: 0, cy: 0, flip: false, pos: [0.85, 1.2, -0.1] },
-    left_repeater:  { yaw: -132, pitch: -8,  roll: 0, fov: 85,  model: "kb",   k1: 0, k2: 0, k3: 0, k4: 0, cx: 0, cy: 0, flip: false, pos: [-0.95, 0.9, 1.2] },
-    right_repeater: { yaw: 132,  pitch: -8,  roll: 0, fov: 85,  model: "kb",   k1: 0, k2: 0, k3: 0, k4: 0, cx: 0, cy: 0, flip: false, pos: [0.95, 0.9, 1.2] },
+    front:          { yaw: 1,    pitch: -0.7, roll: 1.5,  fov: 43.6,  model: "kb", k1: -0.0602, k2: -0.0202, k3: 0, k4: 0, cx: 0, cy: 0, flip: false, pos: [0, 1.3, 0.6] },
+    back:           { yaw: -180, pitch: -32,  roll: 0.2,  fov: 186.6, model: "kb", k1: -0.0341, k2: 0.0003,  k3: 0, k4: 0, cx: 0, cy: 0, flip: false, pos: [0, 1.0, -2.3] },
+    left_pillar:    { yaw: -70.6, pitch: -4.8, roll: 0.4, fov: 85,    model: "kb", k1: -0.0547, k2: -0.0242, k3: 0, k4: 0, cx: 0, cy: 0, flip: false, pos: [-0.85, 1.2, -0.1] },
+    right_pillar:   { yaw: 71.7, pitch: -5.3, roll: -0.2, fov: 84.8,  model: "kb", k1: -0.0597, k2: -0.0196, k3: 0, k4: 0, cx: 0, cy: 0, flip: false, pos: [0.85, 1.2, -0.1] },
+    left_repeater:  { yaw: -139.8, pitch: -4.9, roll: 0.3, fov: 83.2, model: "kb", k1: -0.0204, k2: -0.0116, k3: 0, k4: 0, cx: 0, cy: 0, flip: false, pos: [-0.95, 0.9, 1.2] },
+    right_repeater: { yaw: 140.1, pitch: -4.9, roll: 1.3, fov: 83.3,  model: "kb", k1: -0.0505, k2: -0.0227, k3: 0, k4: 0, cx: 0, cy: 0, flip: false, pos: [0.95, 0.9, 1.2] },
   };
+
   const isMobile = () => { try { return /iPhone|iPad|iPod|Android/i.test(navigator.userAgent) || matchMedia("(pointer: coarse)").matches; } catch (_) { return false; } };
   const clone = (o) => JSON.parse(JSON.stringify(o));
   const N = (T.pano = { on: false, CAMS, DEFAULTS, mode: "look", yaw: 0, pitch: -5, fov: 90, gl: null, gl2: false, frames: 0, scale: isMobile() ? 0.5 : 1 });
