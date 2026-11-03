@@ -11,8 +11,9 @@
  * Axes (as js/pano.js): car x right, y up, z forward, metres; origin on the road under the middle of the rear axle (the
  * point that moves along the heading). Camera yaw + = to the right of straight ahead, pitch + = up. Pictures: raw
  * (un-mirrored) u, v in 0..1 of width and height. The along/across positions (x, z) are a 2024 Model X's (from its
- * dimensions); the heights are measured. Other models (3, Y, Cybertruck…) mount their cameras elsewhere: measure them with
- * tools/rig and load the result with set().
+ * dimensions); the heights are measured. Other models (3, Y, Cybertruck…) mount their cameras elsewhere: PRESETS has a
+ * starting point per model (positions from published dimensions, ESTIMATED), and js/rig-calib.js measures a car's own
+ * cameras from one of its drives in the browser (Settings ▸ Advanced & Labs ▸ Camera calibration); set() loads the result.
  *
  * Clocks: the six files of a clip do not start together. Each file carries the telemetry stamped on its own frames, so
  * matching the speed and heading curves gives each camera's offset (on the drive above: back +0.35 s, right pillar
@@ -52,10 +53,74 @@
     { x: 0.85, y0: 1.05, y1: 1.68, z0: -0.6, z1: 2.5, not: ["front"] },    // cabin
     { x: 0.95, y0: 0.25, y1: 0.62, z0: -1.25, z1: -1.03 },                 // rear bumper lip
   ];
+
+  /* ── presets: one per model, as the starting point for a car's own calibration (js/rig-calib.js) ──
+     The files don't say which model recorded them, and each model mounts its cameras in other places. All HW4 cars use the
+     same camera modules, so every preset takes the lenses and the mounting ANGLES measured on the Model X (MEASURED above):
+     those are a starting point to refine by calibration, not a measurement of that model.
+       MEASURED (2026-10-19 drive): Model X — angles, lenses, the six heights above the road.
+       ESTIMATED: everything else — every other model's camera positions and heights, and all body boxes (also the Model X's
+         positions along and across the car), from published dimensions (length, width without mirrors, height, wheelbase)
+         and where the cameras sit on photos of each car (windscreen top, B-pillar badge, front-fender repeater, above the
+         number plate / on the tailgate). Expect ±0.1 m on heights and ±0.2 m along the car until calibrated.
+     dims: [length, width (no mirrors), height, wheelbase] in metres; pos: camera [x, y, z] (origin on the road under the
+     middle of the rear axle). One side only: the other side mirrors x. body: as BODY above. */
+  const PRESETS = {
+    model_x: { name: "Model X", note: "2021 on (HW4); heights measured", measured: true, dims: [5.057, 1.999, 1.68, 2.965],
+      pos: { front: [0, 1.3, 2.05], back: [0, 1.0, -1.04], pillar: [0.92, 1.317, 1.55], repeater: [1.02, 0.99, 2.45] }, body: BODY },
+    model_s: { name: "Model S", note: "2021 on (HW4); estimated", dims: [5.021, 1.987, 1.431, 2.96],
+      pos: { front: [0, 1.2, 1.95], back: [0, 0.98, -1.08], pillar: [0.9, 1.12, 1.45], repeater: [0.98, 0.88, 2.45] },
+      body: [{ x: 0.99, y0: 0.15, y1: 0.95, z0: -1.08, z1: 2.5 }, { x: 0.99, y0: 0.15, y1: 0.85, z0: 2.5, z1: 3.9, not: ["front"] },
+        { x: 0.8, y0: 0.95, y1: 1.43, z0: -0.5, z1: 2.35, not: ["front"] }, { x: 0.94, y0: 0.25, y1: 0.58, z0: -1.25, z1: -1.08 }] },
+    model_3: { name: "Model 3", note: "incl. Highland (HW4); estimated", dims: [4.72, 1.85, 1.441, 2.875],
+      pos: { front: [0, 1.18, 1.9], back: [0, 0.95, -0.97], pillar: [0.84, 1.1, 1.4], repeater: [0.92, 0.86, 2.38] },
+      body: [{ x: 0.925, y0: 0.15, y1: 0.95, z0: -0.97, z1: 2.4 }, { x: 0.925, y0: 0.15, y1: 0.82, z0: 2.4, z1: 3.72, not: ["front"] },
+        { x: 0.76, y0: 0.95, y1: 1.44, z0: -0.4, z1: 2.3, not: ["front"] }, { x: 0.88, y0: 0.25, y1: 0.56, z0: -1.12, z1: -0.97 }] },
+    model_y: { name: "Model Y", note: "incl. Juniper (HW4); estimated", dims: [4.797, 1.921, 1.624, 2.89],
+      pos: { front: [0, 1.35, 1.95], back: [0, 1.02, -1.02], pillar: [0.88, 1.24, 1.45], repeater: [0.96, 0.95, 2.4] },
+      body: [{ x: 0.96, y0: 0.17, y1: 1.02, z0: -1.02, z1: 2.45 }, { x: 0.96, y0: 0.17, y1: 0.92, z0: 2.45, z1: 3.77, not: ["front"] },
+        { x: 0.8, y0: 1.02, y1: 1.62, z0: -0.6, z1: 2.35, not: ["front"] }, { x: 0.92, y0: 0.27, y1: 0.6, z0: -1.18, z1: -1.02 }] },
+    model_yl: { name: "Model YL", note: "Model Y L, six seats (HW4); estimated", dims: [4.976, 1.92, 1.668, 3.04],
+      pos: { front: [0, 1.38, 2.1], back: [0, 1.04, -1.05], pillar: [0.88, 1.27, 1.55], repeater: [0.96, 0.96, 2.55] },
+      body: [{ x: 0.96, y0: 0.17, y1: 1.04, z0: -1.05, z1: 2.6 }, { x: 0.96, y0: 0.17, y1: 0.93, z0: 2.6, z1: 3.92, not: ["front"] },
+        { x: 0.8, y0: 1.04, y1: 1.67, z0: -0.7, z1: 2.5, not: ["front"] }, { x: 0.92, y0: 0.27, y1: 0.6, z0: -1.21, z1: -1.05 }] },
+    cybertruck: { name: "Cybertruck", note: "estimated", dims: [5.683, 2.201, 1.791, 3.807],
+      pos: { front: [0, 1.65, 2.45], back: [0, 1.12, -0.95], pillar: [1.0, 1.45, 2.0], repeater: [1.08, 1.15, 3.0] },
+      body: [{ x: 1.1, y0: 0.3, y1: 1.2, z0: -0.95, z1: 3.2 }, { x: 1.1, y0: 0.3, y1: 1.12, z0: 3.2, z1: 4.75, not: ["front"] },
+        { x: 0.95, y0: 1.2, y1: 1.79, z0: 0.6, z1: 2.9, not: ["front"] }, { x: 1.05, y0: 1.2, y1: 1.28, z0: -0.95, z1: 0.6, not: ["back"] },
+        { x: 1.05, y0: 0.45, y1: 0.75, z0: -1.1, z1: -0.95 }] },
+  };
+  const posOf = (p, cam) => {
+    if (cam === "front" || cam === "back") return p.pos[cam].slice();
+    const a = p.pos[cam.endsWith("pillar") ? "pillar" : "repeater"];
+    return [cam.startsWith("left") ? -a[0] : a[0], a[1], a[2]];
+  };
+  /** A model's preset as a rig JSON for set(): the measured Model X lenses and angles, that model's positions and body. */
+  function preset(id) {
+    const p = PRESETS[id]; if (!p) return null;
+    const out = { preset: id, source: "preset", cams: {}, body: clone(p.body) };
+    for (const cam of CAMS) out.cams[cam] = Object.assign(clone(MEASURED[cam]), { pos: posOf(p, cam) });
+    return out;
+  }
+  /** Which preset a measured rig looks like: by the cameras' heights above the road (the angles are the same modules on
+   *  every model; positions along the car can't be measured from the pictures). heights: { cam: metres }. →
+   *  [{ id, name, rms (m), n }] best first. Left and right are averaged (their difference is within the measuring spread). */
+  function closestPreset(heights) {
+    const grp = (h, a, b) => [h[a], h[b]].filter((v) => isFinite(v) && v > 0);
+    const meas = {}; const H = heights || {};
+    for (const [k, a, b] of [["front", "front"], ["back", "back"], ["pillar", "left_pillar", "right_pillar"], ["repeater", "left_repeater", "right_repeater"]]) {
+      const v = grp(H, a, b || a); if (v.length) meas[k] = v.reduce((s, x) => s + x, 0) / v.length;
+    }
+    const keys = Object.keys(meas); if (!keys.length) return [];
+    return Object.keys(PRESETS).map((id) => {
+      const p = PRESETS[id]; let e = 0; for (const k of keys) e += (meas[k] - p.pos[k][1]) ** 2;
+      return { id, name: p.name, rms: Math.sqrt(e / keys.length), n: keys.length };
+    }).sort((a, b) => a.rms - b.rms);
+  }
   // typical real heights (m) of what the detector finds: a box far off these is the wrong size for where it stands
   const HEIGHT = { car: 1.5, truck: 2.8, bus: 3.1, motorcycle: 1.4, bicycle: 1.5, person: 1.7, vehicle: 1.6 };
 
-  let cams = clone(MEASURED);
+  let cams = clone(MEASURED), body = BODY, info = { preset: "model_x", source: "measured" };
   function clone(o) { return JSON.parse(JSON.stringify(o)); }
   const R = {};   // rotation matrices, camera → car (cached per camera)
 
@@ -116,7 +181,7 @@
   function isBody(cam, u, v) {
     const c = cams[cam], d = ray(cam, u, v); if (!d) return false;   // (beyond the lens's measured reach: unknown, not body)
     const o = c.pos.map((p, i) => p + d[i] * 0.03);
-    for (const b of BODY) {
+    for (const b of body) {
       if (b.not && b.not.includes(cam)) continue;
       let t0 = 0, t1 = 6;
       for (const [lo, hi, oi, di] of [[-b.x, b.x, o[0], d[0]], [b.y0, b.y1, o[1], d[1]], [b.z0, b.z1, o[2], d[2]]]) {
@@ -259,7 +324,10 @@
     return out;
   }
 
-  /** Replace the rig (a JSON from tools/rig, or { cams: … }); returns the cameras taken. reset() goes back to the measured one. */
+  /** Replace the rig (a JSON from tools/rig or js/rig-calib.js, a preset(), or { cams: … }); returns the cameras taken.
+   *  Optional: j.body (body boxes, e.g. a preset's), j.preset (the model it starts from), j.source ("preset" | "calibrated"),
+   *  per camera `delay` (seconds: its pictures' lag behind its own telemetry, added in clock()). reset() goes back to the
+   *  measured Model X. */
   function set(j) {
     const src = (j && (j.cams || j)) || {}, took = [];
     for (const cam of CAMS) {
@@ -268,13 +336,22 @@
       if (!nums || !(+c.f > 0.1 && +c.f < 3)) continue;
       cams[cam] = { yaw: +c.yaw, pitch: +c.pitch, roll: +c.roll, f: +c.f, cx: +c.cx, cy: +c.cy, k: c.k.slice(0, 3).map(Number),
         thmax: isFinite(+c.thmax) ? +c.thmax : MEASURED[cam].thmax,
-        pos: Array.isArray(c.pos) && c.pos.length === 3 ? c.pos.map(Number) : MEASURED[cam].pos.slice(), px: c.px };
+        pos: Array.isArray(c.pos) && c.pos.length === 3 && c.pos.every((v) => isFinite(+v)) ? c.pos.map(Number) : MEASURED[cam].pos.slice(), px: c.px };
+      if (isFinite(+c.delay) && Math.abs(+c.delay) < 0.5) cams[cam].delay = +c.delay;
       if (c.road && isFinite(+c.road.height)) cams[cam].pos[1] = +c.road.height;
       took.push(cam); delete R[cam]; delete bodyGrids[cam];
     }
+    if (j && Array.isArray(j.body) && j.body.length && j.body.every((b) => b && ["x", "y0", "y1", "z0", "z1"].every((k) => isFinite(+b[k])))) {
+      body = j.body.map((b) => ({ x: +b.x, y0: +b.y0, y1: +b.y1, z0: +b.z0, z1: +b.z1, not: Array.isArray(b.not) ? b.not.slice() : undefined }));
+      for (const k of Object.keys(bodyGrids)) delete bodyGrids[k];
+    }
+    if (took.length && j && typeof j === "object") info = { preset: PRESETS[j.preset] ? j.preset : null, source: j.source || "custom", name: j.name || null };
     return took;
   }
-  function reset() { cams = clone(MEASURED); for (const k of Object.keys(R)) delete R[k]; for (const k of Object.keys(bodyGrids)) delete bodyGrids[k]; }
+  function reset() { cams = clone(MEASURED); body = BODY; info = { preset: "model_x", source: "measured" }; for (const k of Object.keys(R)) delete R[k]; for (const k of Object.keys(bodyGrids)) delete bodyGrids[k]; }
+  /** What the rig in use is: { preset, source: "measured" | "preset" | "calibrated" | "custom", name }. */
+  const current = () => Object.assign({}, info);
+  const bodyBoxes = () => clone(body);
   const get = (cam) => cams[cam] || null;
 
   /* ── browser: per-clip clocks from the six files' own telemetry (read when first asked for, then kept) ── */
@@ -294,8 +371,13 @@
     };
   }
   /** Seconds to add to `cam`'s clip time for the reference camera's clip time (0 while unknown). */
-  function clock(cam, offs) { const o = offs || (this && this.clocks) || {}; return isFinite(o[cam]) ? o[cam] : 0; }
+  function clock(cam, offs) {
+    const o = offs || (this && this.clocks) || {}, ref = isFinite(o.front) ? "front" : Object.keys(o).find((k) => o[k] === 0);
+    // a calibrated camera's pictures lag its own telemetry by `delay`: the same moment is that much later on its clip
+    const d = (c) => (cams[c] && isFinite(cams[c].delay) ? cams[c].delay : 0);
+    return (isFinite(o[cam]) ? o[cam] : 0) + (isFinite(o[cam]) && ref ? d(cam) - d(ref) : 0);
+  }
 
-  return { CAMS, MEASURED, CLOCK0, BODY, HEIGHT, ASPECT, rot, ok, ray, pixel, ground, bearing, isBody, bodyShare, footprint,
-    sizeRatio, boxAt, predictEntry, clockOffsets, coverage, clock, set, reset, get, browser };
+  return { CAMS, MEASURED, CLOCK0, BODY, PRESETS, HEIGHT, ASPECT, rot, ok, ray, pixel, ground, bearing, isBody, bodyShare, footprint,
+    sizeRatio, boxAt, predictEntry, clockOffsets, coverage, clock, set, reset, get, current, bodyBoxes, preset, closestPreset, browser };
 });
