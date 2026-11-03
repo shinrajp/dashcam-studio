@@ -21,7 +21,7 @@
   const isNode = typeof module === "object" && module.exports;
   const m = factory(isNode ? require("./rig.js") : (root.TDC && root.TDC.rig));
   if (isNode) module.exports = m;
-  else { const T = (root.TDC = root.TDC || {}); T.rigCalib = Object.assign(T.rigCalib || {}, m); }
+  else { const T = (root.TDC = root.TDC || {}); T.rigCalib = Object.assign(T.rigCalib || {}, m, { factory }); }
 })(typeof self !== "undefined" ? self : this, function (RIG) {
   "use strict";
   const D2R = Math.PI / 180, R2D = 180 / Math.PI;
@@ -162,8 +162,11 @@
     return (d[i] * (1 - fx) + d[i + 1] * fx) * (1 - fy) + (d[i + w] * (1 - fx) + d[i + w + 1] * fx) * fy;
   }
   /** One point from pyramid A to pyramid B (start guess gx, gy at level 0); → [x, y] or null. */
+  let lkBuf = null;
   function lkPoint(A, B, x, y, gx, gy, win, iters) {
-    const r = win >> 1, nw = win * win, Ix = new Float32Array(nw), Iy = new Float32Array(nw), I0 = new Float32Array(nw);
+    const r = win >> 1, nw = win * win;
+    if (!lkBuf || lkBuf.n !== nw) lkBuf = { n: nw, Ix: new Float32Array(nw), Iy: new Float32Array(nw), I0: new Float32Array(nw) };
+    const { Ix, Iy, I0 } = lkBuf;
     let dx = (gx - x) / (1 << (A.length - 1)), dy = (gy - y) / (1 << (A.length - 1));
     for (let l = A.length - 1; l >= 0; l--) {
       const a = A[l], b = B[l], s = 1 / (1 << l), px = x * s, py = y * s;
@@ -189,24 +192,29 @@
     }
     return [x + dx, y + dy];
   }
-  /** Shi-Tomasi corners: the best in each cell of a `cell`-px grid, above `quality` × the strongest; skip(x, y) → true leaves a spot out. */
+  /** Shi-Tomasi corners: the best in each cell of a `cell`-px grid, above 1 % of the strongest; skip(x, y) → true leaves a spot
+   *  out. The 7 × 7 structure tensor comes from box sums (one pass over the picture). */
   function corners(img, max, cell, skip) {
-    const { d, w, h } = img, out = [];
-    const gx = new Float32Array(w * h), gy = new Float32Array(w * h);
-    for (let y = 1; y < h - 1; y++) for (let x = 1; x < w - 1; x++) { const i = y * w + x; gx[i] = 0.5 * (d[i + 1] - d[i - 1]); gy[i] = 0.5 * (d[i + w] - d[i - w]); }
-    const cand = []; let top = 0; const r = 3, m = 12;
+    const { d, w, h } = img, out = [], n = w * h, r = 3, m = 12;
+    const a = new Float32Array(n), b = new Float32Array(n), c = new Float32Array(n);
+    for (let y = 1; y < h - 1; y++) for (let x = 1; x < w - 1; x++) { const i = y * w + x, gx = 0.5 * (d[i + 1] - d[i - 1]), gy = 0.5 * (d[i + w] - d[i - w]); a[i] = gx * gx; b[i] = gx * gy; c[i] = gy * gy; }
+    const box = (src) => {   // separable 7-wide running sums, in place via a temp
+      const t = new Float32Array(n);
+      for (let y = 0; y < h; y++) { let s = 0; const o = y * w; for (let x = 0; x < w; x++) { s += src[o + x]; if (x > 2 * r) s -= src[o + x - 2 * r - 1]; if (x >= 2 * r) t[o + x - r] = s; } }
+      for (let x = 0; x < w; x++) { let s = 0; for (let y = 0; y < h; y++) { s += t[y * w + x]; if (y > 2 * r) s -= t[(y - 2 * r - 1) * w + x]; if (y >= 2 * r) src[(y - r) * w + x] = s; } }
+    };
+    box(a); box(b); box(c);
+    const cand = []; let top = 0;
     for (let cy = m; cy + cell <= h - m; cy += cell) for (let cx = m; cx + cell <= w - m; cx += cell) {
       let best = 0, bx = 0, by = 0;
-      for (let y = cy; y < cy + cell; y += 2) for (let x = cx; x < cx + cell; x += 2) {
-        let a = 0, b = 0, c = 0;
-        for (let j = -r; j <= r; j++) { let i = (y + j) * w + x - r; for (let k = -r; k <= r; k++, i++) { a += gx[i] * gx[i]; b += gx[i] * gy[i]; c += gy[i] * gy[i]; } }
-        const t2 = 0.5 * (a + c), e = t2 - Math.sqrt(Math.max(0, t2 * t2 - (a * c - b * b)));
+      for (let y = cy; y < cy + cell; y++) for (let x = cx; x < cx + cell; x++) {
+        const i = y * w + x, t2 = 0.5 * (a[i] + c[i]), e = t2 - Math.sqrt(Math.max(0, t2 * t2 - (a[i] * c[i] - b[i] * b[i])));
         if (e > best) { best = e; bx = x; by = y; }
       }
       if (best > 0 && !(skip && skip(bx, by))) { cand.push([best, bx, by]); if (best > top) top = best; }
     }
     cand.sort((p, q) => q[0] - p[0]);
-    for (const c of cand) { if (c[0] < 0.01 * top || out.length >= max) break; out.push([c[1], c[2]]); }
+    for (const k of cand) { if (k[0] < 0.01 * top || out.length >= max) break; out.push([k[1], k[2]]); }
     return out;
   }
   /** Frame-to-frame tracker. push(grey Uint8Array/Float32Array, w, h) per frame (in order); frames[] = { ids Int32Array,
@@ -594,6 +602,96 @@
     return Object.assign(r || {}, { judge: j });
   }
 
+
+  /* ── the worker (js/rig-calib-ui.js starts it from a blob: its source is this function and the two modules' factories,
+     so it runs from file:// and from servers that send the wrong file type too) ──
+     In:  { type: "cam", cam, blob, info (js/mp4.js demux: codec, description, width, height, n, sizes, offsets, pts, isKey, fps),
+            rows: [[t, speed, heading]] (that file's own telemetry), start (the preset's camera), body (its body boxes) }
+     Out: { type: "progress", cam, stage, done, total } … { type: "result", cam, result } | { type: "error", cam, message }.
+     Pictures are decoded with WebCodecs (VideoDecoder) inside the worker, tracked at about half width, never kept (only a few
+     dozen frames for the road height). Cancel = terminate the worker. */
+  function workerMain(self, RIG, C) {
+    const post = (m) => self.postMessage(m);
+    self.onmessage = async (e) => {
+      const d = e.data || {};
+      if (d.type !== "cam") return;
+      try { post({ type: "result", cam: d.cam, result: await runCam(d) }); }
+      catch (err) { post({ type: "error", cam: d.cam, message: String((err && err.message) || err) }); }
+    };
+    async function runCam(d) {
+      const { cam, blob, info, rows, start } = d;
+      if (typeof VideoDecoder === "undefined") throw new Error("no-webcodecs");
+      RIG.reset(); RIG.set({ cams: { [cam]: start }, body: d.body });
+      const path = C.Path(rows), wFull = info.width, k = cam === "front" && wFull > 2000 ? 3 : wFull > 1000 ? 2 : 1;
+      const w = Math.floor(wFull / k), h = Math.floor(info.height / k);
+      // presentation order of the samples; every 2nd frame above 30 fps (the tracker follows a few pixels a frame either way)
+      const order = Array.from(info.pts).map((p, i) => [p, i]).sort((a, b) => a[0] - b[0]), every = info.fps > 30 ? 2 : 1;
+      const idxOf = new Map(); order.forEach(([p], j) => idxOf.set(Math.round(p), j));
+      const ftimes = []; for (let j = 0; j < order.length; j += every) ftimes.push(order[j][0] / 1e6);
+      const roadPairs = C.roadPairs(ftimes, path), roadNeed = new Set(roadPairs.flat()), roadImgs = new Map();
+      // the car's own body, on a coarse grid (no tracks start there)
+      const G = 64, GH = 42, grid = new Uint8Array(G * GH);
+      for (let j = 0; j < GH; j++) for (let i = 0; i < G; i++) grid[j * G + i] = RIG.isBody(cam, (i + 0.5) / G, (j + 0.5) / GH) ? 1 : 0;
+      const isBody = (u, v) => grid[Math.min(GH - 1, Math.max(0, Math.floor(v * GH))) * G + Math.min(G - 1, Math.max(0, Math.floor(u * G)))] === 1;
+      const tracker = C.Tracker({ max: 300, mask: isBody });
+      let canvas = null, ctx = null, done = 0, failed = null, lastPost = 0;
+      const pending = [];
+      const grey = (frame) => {
+        const vr = frame.visibleRect || { x: 0, y: 0, width: frame.displayWidth, height: frame.displayHeight };
+        const g = new Float32Array(w * h), kk = Math.max(1, Math.round(vr.width / w)), inv = 1 / (kk * kk);
+        if (/^(I420|I420A|NV12|I422|I444)$/.test(frame.format || "")) {
+          const buf = new Uint8Array(frame.allocationSize()); return frame.copyTo(buf).then((layout) => {
+            const off = layout[0].offset, st = layout[0].stride;
+            for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+              let s = 0; for (let b = 0; b < kk; b++) { const row = off + (vr.y + y * kk + b) * st + vr.x + x * kk; for (let a = 0; a < kk; a++) s += buf[row + a]; }
+              g[y * w + x] = s * inv;
+            }
+            return g;
+          });
+        }
+        if (!canvas) { canvas = new OffscreenCanvas(w, h); ctx = canvas.getContext("2d", { willReadFrequently: true }); }
+        ctx.drawImage(frame, 0, 0, w, h); const px = ctx.getImageData(0, 0, w, h).data;
+        for (let i = 0, j = 0; i < w * h; i++, j += 4) g[i] = 0.299 * px[j] + 0.587 * px[j + 1] + 0.114 * px[j + 2];
+        return Promise.resolve(g);
+      };
+      const work = async () => {
+        while (pending.length) {
+          const f = pending.shift(), j = idxOf.get(Math.round(f.timestamp));
+          if (j == null || j % every) { f.close(); continue; }
+          let g; try { g = await grey(f); } finally { f.close(); }
+          const ti = j / every;
+          if (tracker.frames.length !== ti) { while (tracker.frames.length < ti) tracker.frames.push({ ids: new Int32Array(0), x: new Float32Array(0), y: new Float32Array(0) }); }
+          tracker.push(g, w, h);
+          if (roadNeed.has(ti)) roadImgs.set(ti, Uint8Array.from(g, (v) => v));
+          done++;
+          const now = Date.now(); if (now - lastPost > 400) { lastPost = now; post({ type: "progress", cam, stage: "track", done: done * every, total: order.length }); }
+        }
+      };
+      const tic = Date.now();
+      const dec = new VideoDecoder({ output: (f) => pending.push(f), error: (e) => { failed = e; } });
+      dec.configure({ codec: info.codec, codedWidth: info.width, codedHeight: info.height, description: info.description, optimizeForLatency: false });
+      let bufA = -1, buf = null;
+      for (let i = 0; i < info.n && !failed; i++) {
+        const a = info.offsets[i], b = a + info.sizes[i];
+        if (!buf || a < bufA || b > bufA + buf.length) { bufA = a; buf = new Uint8Array(await blob.slice(a, Math.max(b, Math.min(blob.size, a + (8 << 20)))).arrayBuffer()); }
+        dec.decode(new EncodedVideoChunk({ type: info.isKey[i] ? "key" : "delta", timestamp: Math.round(info.pts[i]), data: buf.subarray(a - bufA, b - bufA) }));
+        while (!failed && (dec.decodeQueueSize > 4 || pending.length > 2)) { if (pending.length) await work(); else await new Promise((r) => setTimeout(r, 2)); }
+      }
+      if (!failed) await dec.flush().catch((e) => { failed = e; });
+      await work(); try { dec.close(); } catch (_) {}
+      if (failed) throw new Error("decode: " + ((failed && failed.message) || failed));
+      while (tracker.frames.length < ftimes.length) tracker.frames.push({ ids: new Int32Array(0), x: new Float32Array(0), y: new Float32Array(0) });
+      post({ type: "progress", cam, stage: "fit", done: order.length, total: order.length });
+      const tic2 = Date.now(), r = C.calibrateTracked(tracker.frames, ftimes, path, start, w, h, { wFull, back: cam === "back", roadImgs, roadPairs, isBody });
+      r.tracked = { width: w, height: h, frames: tracker.frames.length, tracks: tracker.count, every, trackMs: tic2 - tic, fitMs: Date.now() - tic2 };
+      return r;
+    }
+  }
+  /** The worker's whole source (classic script, no imports). rigFactory: js/rig.js's factory (T.rig.factory). */
+  function workerSource(rigFactory, calibFactory) {
+    return '"use strict";self.TDC={};(function(){var RIG=(' + rigFactory.toString() + ')();var C=(' + calibFactory.toString() + ')(RIG);(' + workerMain.toString() + ')(self,RIG,C);})();';
+  }
+
   return { rot3, Path, driveStats, unproject, project, scaleAt, lensOk, pyramid, lkPoint, corners, Tracker, makePairs, Problem, lm, fitCamera,
-    heightFromPoints, heightFromRoad, roadPairs, judge, calibrateTracked, QUALITY, rng, median };
+    heightFromPoints, heightFromRoad, roadPairs, judge, calibrateTracked, QUALITY, rng, median, workerMain, workerSource };
 });

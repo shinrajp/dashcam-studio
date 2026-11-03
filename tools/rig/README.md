@@ -65,3 +65,52 @@ the car are a 2024 Model X's from its dimensions (other models mount their camer
   (2 frames), so offsets above that are real; `js/rig.js` measures them per clip.
 - **Hand-off check on this drive** (YOLO11s tracks, 103 objects leaving a camera through a side edge): 68 got a road-based
   prediction, all 68 matched a track in the neighbour; median timing error 0.2 s, place error 5 % of the picture width.
+
+## In the app: Calibrate from this drive (`js/rig-calib.js`, `js/rig-calib-ui.js`)
+
+The same method runs in the browser, for any HW4 car, from a drive opened in the app: Settings ▸ Advanced & Labs ▸ Camera
+calibration ▸ **Calibrate from this drive**. A Web Worker (started from a blob, so it works from `file://` and behind servers with
+wrong MIME types) decodes each camera's file with WebCodecs, follows points with pyramidal Lucas-Kanade (half width: 724 px; the
+2896-px front camera at a third, 966 px; every frame up to 30 fps, every 2nd above), builds the car's path from that file's own SEI
+(rear-axle bicycle model, as `calibrate.py`) and fits, per camera: yaw, pitch, roll, lens width f and k1, k2 (k3 = 0, centre kept),
+and the delay between the pictures and the telemetry. Then the height above the road by road-surface alignment
+(`roadheight.py`'s NCC on gradient pictures), with triangulated road points as the fallback.
+
+What differs from the offline fit, and why:
+- **Start from a preset, tightly bounded.** `js/rig.js` PRESETS has one per model (Model 3 incl. Highland, Model Y incl. Juniper,
+  Model YL, Model S, Model X, Cybertruck). All take the Model X's measured lenses and angles (same HW4 camera modules); positions
+  and body boxes come from published dimensions and are **estimates** (only the Model X heights are measured). The fit allows
+  yaw ±25°, pitch ±15°, roll ±8°, f ±12 %, k1 ±0.05, k2 ±0.03 round the preset and starts at 3 yaws × 3 lens widths; a value that
+  ends on its bound fails the quality gate.
+- **The body's attitude, two ways.** Per frame pair the car body can tilt between the two frames (Δ pitch/roll, as `calibrate.py`)
+  *and* be tilted against the road at the first frame (B: the nose dips when braking, so the body's forward axis is not the
+  direction of travel). Synthetic drives with ~0.1° of suspension motion showed that with Δ alone a side camera's pitch drifts
+  0.5–0.7° (B can only be explained by tilting the camera); with B (prior 0.5°) it stays within 0.3°. `calibrate.py` has Δ only:
+  the measured Model X pitches may carry part of that bias (worth re-running with B added).
+- **Solver:** Levenberg-Marquardt on the Cauchy cost (IRLS), the 4 body unknowns per pair folded out by a Schur complement, outliers
+  trimmed twice (4 × the robust spread). About 30–45 s per camera on 300 pairs × 60 points in Chromium.
+- **Quality gate** (`QUALITY` in `js/rig-calib.js`): a camera is saved only with ≥ 40 frame pairs, ≥ 6 of them turning, ≥ 50 % of
+  its points agreeing, no angle or lens width on its bound, and a median error ≤ 1.2 px in full-resolution pixels (≤ 0.6 = "good").
+  Cameras that fail keep the starting values; nothing is saved when none passes. These limits are a first guess (see below).
+- **Which model:** the measured heights are compared with each preset's (`closestPreset`, left and right averaged); the saved rig
+  takes that model's positions along and across the car and its body boxes. Model Y and Model YL differ by only 2–3 cm in camera
+  height and can't be told apart this way.
+- **Per car:** `localStorage` `tdc.rig.v1` (several named cars; one active, applied with `T.rig.set()` at load). Export / import as
+  JSON (`format: "dashcam-studio-rig"`, the same fields `set()` reads). A calibrated camera's `delay` is added to its file clock in
+  `T.rig.clock()`.
+
+Tests: `node test/rig-calib.test.js` (presets, path, tracker, the solver on synthetic tracks from the fixture drive's real motion:
+angles within 0.5°, f within 1.5 %, delay within 20 ms, height within 5 cm; road-surface height on rendered pictures; the gate;
+`--all` for all six cameras). `node test/rig-calib-page.js <url>` renders a synthetic six-camera clip of a known rig with
+`tools/rig/make-footage.py` (textured road + posts, the fixture's path, SEI on every frame; ~7 min on 4 cores) and runs the whole
+thing in the page: Settings section, worker, progress, page stays responsive, result vs truth, save, reload, export / import, reset.
+
+**Still to check on real clips** (not possible without the footage):
+1. Calibrate the 2026-10-19 Model X drive in the app (Chrome and Safari): each camera's angles against the MEASURED block of
+   `js/rig.js` (expect within ~0.5°; pillar / repeater pitch may differ by up to ~0.5° because of the body-tilt term above), lens
+   width within ~2 %, heights within ~5 cm, delays within ±0.07 s, and the closest preset = Model X.
+2. The median error on real half-width tracks, to set `QUALITY.good` / `QUALITY.max` (offline full-width: 0.10–0.22 px).
+3. The time it takes per camera on the Mac and on an iPhone/iPad (Safari's VideoDecoder in a worker; frames of `format` null take
+   the OffscreenCanvas path), and that playback stays smooth meanwhile.
+4. Hand-off with the in-app rig: `node tools/rig/handoff-check.js dets.json --rig <exported.json>` (68/68 matched with the offline rig).
+5. Another model (a Model 3 or Y) if one is at hand: does `closestPreset` name it, and do the estimated positions need correcting?

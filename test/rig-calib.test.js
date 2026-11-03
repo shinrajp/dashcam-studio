@@ -40,13 +40,13 @@ ok("tracker: corners found and followed across a (3.4, −1.7) px shift within 0
 // ── a synthetic drive: a known rig, the fixture's car motion, a static world ──
 const W = 724, H = Math.round(W * R.ASPECT), rnd = C.rng(11);
 const gauss = () => { let u = 0, v = 0; while (!u) u = rnd(); v = rnd(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v); };
-const fps = 15, t0 = rows[0][0] + 0.5, t1 = rows[rows.length - 1][0] - 0.5, ftimes = []; for (let t = t0; t < t1; t += 1 / fps) ftimes.push(t);
+const fps = +(process.env.FPS || 15), t0 = rows[0][0] + 0.5 + +(process.env.T0 || 0), t1 = Math.min(rows[rows.length - 1][0] - 0.5, t0 + +(process.env.SEC || 1e9)), ftimes = []; for (let t = t0; t < t1; t += 1 / fps) ftimes.push(t);
 // world points: along the route, kerbside clutter (walls, poles, parked cars) and the road itself
 const world = [];
 for (let t = t0 - 3; t < t1 + 3; t += 0.12) {
   const p = path.pose(t), fx = Math.sin(p.h), fz = Math.cos(p.h), rx = Math.cos(p.h), rz = -Math.sin(p.h);
   for (let k = 0; k < 6; k++) {
-    const side = rnd() < 0.5 ? -1 : 1, lat = side * (3 + 22 * rnd() ** 1.5), up = rnd() < 0.3 ? 0 : 6 * rnd(), ah = (rnd() - 0.5) * 3;
+    const side = rnd() < 0.5 ? -1 : 1, lat = side * (3 + 22 * rnd() ** 1.5), up = rnd() < 0.3 || process.env.GROUND ? 0 : 6 * rnd(), ah = (rnd() - 0.5) * 3;
     world.push([p.e + rx * lat + fx * ah, up, p.n + rz * lat + fz * ah]);
   }
   for (let k = 0; k < 3; k++) { const lat = (rnd() - 0.5) * 16, ah = (rnd() - 0.5) * 3; world.push([p.e + rx * lat + fx * ah, 0, p.n + rz * lat + fz * ah]); }

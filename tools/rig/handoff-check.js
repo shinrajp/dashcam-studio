@@ -3,12 +3,15 @@
  * Input: tools/rig/detect-tracks.py's JSON (tracks per camera, own clip times). For every track that leaves its picture through a
  * side edge, predictEntry() gives when and where it comes into the neighbour (js/handoff.js entryFor); the neighbour's track of the
  * same kind that starts nearest that time and place is taken as the truth. Run with and without the files' clock offsets.
- *   node tools/rig/handoff-check.js dets.json [--clocks back=0.348,…]   (default: js/rig.js CLOCK0) */
+ *   node tools/rig/handoff-check.js dets.json [--clocks back=0.348,…] [--rig exported.json]   (default: js/rig.js CLOCK0; --rig: a
+ *   camera set exported from the app's Settings ▸ Camera calibration, loaded with set() instead of the measured rig) */
 "use strict";
 const R = require("../../js/rig.js"), H = require("../../js/handoff.js"), fs = require("fs");
 const dets = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
 let clocks = R.CLOCK0; const ci = process.argv.indexOf("--clocks");
 if (ci > 0) { clocks = { front: 0 }; for (const kv of process.argv[ci + 1].split(",")) { const [k, v] = kv.split("="); clocks[k] = +v; } }
+const ri = process.argv.indexOf("--rig");
+if (ri > 0) { const took = R.set(JSON.parse(fs.readFileSync(process.argv[ri + 1], "utf8"))); console.log("rig from " + process.argv[ri + 1] + ": " + took.join(", ")); }
 const kind = (c) => (c === "person" ? "person" : c === "bicycle" || c === "motorcycle" ? "bike" : "vehicle");
 const mid = (b) => [b.x + b.w / 2, b.y + b.h / 2];
 

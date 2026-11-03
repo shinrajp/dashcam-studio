@@ -855,3 +855,35 @@ telemetry is the reference. Tools and method: `tools/rig/README.md`.
 - Tests: `node test/rig.test.js` (28: lens round trip, road, size, body, coverage and blind wedges, entry prediction, real-drive
   clocks from `test/fixtures/rig-telemetry-2026-10-19.json`); `node test/rig-page.js <url> <event folder> <dets.json>` (the page on
   the real event: rig taken, clocks in the page, road-based prediction). `tools/make-mock-footage.py` finds a font on macOS too.
+
+## Camera calibration in the app + per-model presets (branch track-v2, assets track-v2-22)
+Item 2 of the rig plan: any HW4 car's six cameras measured from one of its own drives, in the browser, with the method of
+`tools/rig` (the car's telemetry as the reference, no chart). Method and limits: `tools/rig/README.md` ("In the app").
+- `js/rig.js`: `PRESETS` for Model 3 (incl. Highland), Model Y (incl. Juniper), Model YL, Model S, Model X, Cybertruck: camera
+  positions and body boxes per model. **Measured:** the Model X's lenses, angles and heights (2026-10-19). **Estimated:** every
+  other model's positions / heights and all body boxes, from published dimensions; all presets take the Model X lenses and angles
+  (same HW4 modules) as the starting point. `preset(id)`, `closestPreset(heights)` (by camera heights; Y and YL can't be told apart),
+  `current()`, `bodyBoxes()`; `set()` also takes `body`, `preset`, `source` and a per-camera `delay` (added to that camera's file
+  clock in `clock()`). HW3 (4:3 pictures) still fails `ok()` and keeps the direction-only guess.
+- `js/rig-calib.js` (new, node-testable): car path from speed + heading (rear-axle bicycle model), Kannala-Brandt lens, pyramidal
+  Lucas-Kanade tracker with a forward-backward check and Shi-Tomasi top-ups (box-filtered structure tensor), frame pairs (moved
+  ≥ 0.6 m or turned ≥ 1.5°), epipolar residual in pixels at the lens's local scale, Levenberg-Marquardt on a Cauchy cost with the
+  per-pair body unknowns folded out (Schur). Unknowns per camera: yaw, pitch, roll, f, k1, k2 (k3 = 0, centre from the preset),
+  telemetry delay; per pair the body's tilt between the frames **and its tilt against the road** (new: without it a side camera's
+  pitch drifts 0.5–0.7° on synthetic drives with suspension motion; `calibrate.py` lacks it). Bounds round the preset; 3 × 3
+  starts; two outlier trims. Height above the road by road-surface alignment (NCC of gradient pictures), triangulated road
+  points as the fallback. Quality gate `QUALITY` (≥ 40 pairs, ≥ 6 turning, ≥ 50 % inliers, nothing on a bound, median ≤ 1.2 px
+  full-resolution; ≤ 0.6 "good"). The worker (`workerMain`, `workerSource`): WebCodecs decode in the worker, Y plane straight from
+  `VideoFrame.copyTo` (OffscreenCanvas otherwise), every frame up to 30 fps; started from a blob built from the modules' own
+  factories (works from `file://`).
+- `js/rig-calib-ui.js` (new): Settings ▸ Advanced & Labs ▸ **Camera calibration** (`#rigSec`): Car picker (your saved cars, then
+  the presets marked measured / estimated), status line, **Calibrate from this drive** (picks the clip of the open event with the
+  biggest turn: the current one if it has ≥ 45°, else the best of up to 12 near it; refuses parked / straight / HW3 / locked /
+  no-WebCodecs with a plain reason), progress bar + Cancel, the result per camera (fit px, height, or why it kept the starting
+  values), the model it looks like, Name + **Save for this car** (only if at least one camera passed), Discard; Export / Import
+  camera set (JSON `format: "dashcam-studio-rig"`), Forget this car's calibration, **Reset to measured (Model X)**. Stored in
+  `localStorage` `tdc.rig.v1`, applied at load. `T.rigCal` for tests.
+- `tools/rig/make-footage.py` (new): a synthetic HW4 clip of a known rig (textured road + posts, the fixture drive's path, each
+  camera's delay, SEI on every frame) for the end-to-end test. `tools/rig/handoff-check.js --rig <exported.json>`.
+- Tests: `node test/rig-calib.test.js` (29; `--all` for six cameras), `node test/rig-calib-page.js <url>` (in the page, Chromium);
+  `test/rig.test.js` and `test/handoff.test.js` unchanged and passing.

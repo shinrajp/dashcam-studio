@@ -21,12 +21,12 @@
     { g: "overlays", name: "Overlays & HUD", sub: "Labels and HUD items" },
     { g: "redact", name: "Redaction & detection", sub: "Recognition, plates, search" },
     { g: "export", name: "Export", sub: "Cameras, quality, burn-in" },
-    { g: "advanced", name: "Advanced & Labs", sub: "360 view, Debug (tuning, calibration, models), reset" },
+    { g: "advanced", name: "Advanced & Labs", sub: "360 view, camera calibration, Debug, reset" },
     { g: "keys", name: "Keys & unlock", sub: "Encrypted clips, keyboard shortcuts" },
   ];
   const NAME = Object.fromEntries(GROUPS.map((x) => [x.g, x.name]));
   // which group an existing section belongs to (by id, then by its heading)
-  const BY_ID = { appearSec: "appearance", calibSec: "advanced", debugSec: "advanced", recogSec: "redact", setSearchSec: "redact", setTextSec: "redact", setExportSec: "export", setKeysSec: "keys", setModelsSec: "advanced" };
+  const BY_ID = { appearSec: "appearance", calibSec: "advanced", debugSec: "advanced", recogSec: "redact", setSearchSec: "redact", setTextSec: "redact", setExportSec: "export", setKeysSec: "keys", setModelsSec: "advanced", rigSec: "advanced" };
   const BY_H = [[/^overlays$/i, "overlays"], [/^hud/i, "overlays"], [/^map$/i, "playback"], [/^units/i, "playback"], [/^camera bar/i, "playback"], [/^white balance/i, "appearance"], [/^labs/i, "advanced"], [/^calibration/i, "advanced"], [/^search/i, "redact"], [/recogn|detect|plate|redact/i, "redact"]];
   const groupOf = (sec) => {
     if (BY_ID[sec.id]) return BY_ID[sec.id];

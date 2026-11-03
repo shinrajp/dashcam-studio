@@ -24,7 +24,7 @@
 (function (root, factory) {
   const m = factory();
   if (typeof module === "object" && module.exports) module.exports = m;
-  else { const T = (root.TDC = root.TDC || {}); T.rig = Object.assign(m, T.rig || {}); if (m.browser) m.browser(T); }
+  else { const T = (root.TDC = root.TDC || {}); T.rig = Object.assign(m, T.rig || {}); m.factory = factory; if (m.browser && typeof document !== "undefined") m.browser(T); }
 })(typeof self !== "undefined" ? self : this, function () {
   "use strict";
   const CAMS = ["front", "back", "left_pillar", "right_pillar", "left_repeater", "right_repeater"];

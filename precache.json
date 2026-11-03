@@ -34,6 +34,8 @@
   "js/layout.js",
   "js/handoff.js",
   "js/rig.js",
+  "js/rig-calib.js",
+  "js/rig-calib-ui.js",
   "js/reid.js",
   "js/people.js",
   "js/car-view.js",
