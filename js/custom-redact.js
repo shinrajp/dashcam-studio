@@ -1299,12 +1299,49 @@
      second, huge in the picture) are followed by their detections, which the look-matching tracker can't do. One question for all of them. */
   const CHAIN_DT = 0.1;
   const isKind = (h, d) => (h.kind ? kindOf(d.label) === h.kind : !!KIND[d.label]) && !(d.w > 0.9 && d.h > 0.7) && d.w * d.h > 0.002;   // (not the car's own body across the whole rear fisheye; a car right next to you can fill most of a picture)
-  async function detAll(rd, cam, t) {
+  /* ho-perf: what the hand-off costs. The detector is the expensive part (one run per look); the looks are cut down four ways:
+     · a shared cache of detections per camera, frame and crop (the search window, the following back and on, and every candidate tried
+       look at the same frames: each frame is run once);
+     · the window is searched in the strip the object comes in through (a zoomed look: small cars far off are found better too), first
+       round the moment it left, the rest of the window only when nothing good was there;
+     · a frame of that strip that hasn't changed since the last look (parked, waiting at a light) is not looked at again;
+     · once found, it is followed by the look-matching tracker, with the detector checking every 0.4 s and whenever the tracker is unsure
+       or the object changes size fast (a car passing close by), on a crop round where it should be. */
+  const DC = new Map(), DC_MAX = 500;
+  HO.stats = { calls: 0, cached: 0, gated: 0 };
+  G.hoStats = () => Object.assign({}, HO.stats);
+  const cropKey = (c) => (c ? [c.x, c.y, c.w, c.h].map((v) => v.toFixed(3)).join(",") : "all");
+  /** Detections on camera `cam` at time t (the whole picture, or a zoomed look at `crop`), each frame and crop run once. → { v, dets } */
+  async function detAt(rd, cam, t, crop) {
+    const ev = T.player && T.player.ev; if (DC.ev !== ev) { DC.clear(); DC.ev = ev; }
     const v = await rd.at(t); if (!v) return null;
+    const k = cam + "|" + t.toFixed(3) + "|" + cropKey(crop);
+    if (DC.has(k)) { HO.stats.cached++; return { v, dets: DC.get(k) }; }
     let dets = [];
-    try { dets = await T.detect.detectImage(v, v.videoWidth, v.videoHeight, { conf: 0.3, noFix: true, cam, slot: "fast" }); } catch (_) { dets = []; }
-    return { v, dets: dets || [] };
+    HO.stats.calls++;
+    try { dets = await T.detect.detectImage(v, v.videoWidth, v.videoHeight, crop ? { conf: 0.3, noFix: true, cam, slot: "fast", crops: [crop], tilesOnly: true, cropConf: 0.3 } : { conf: 0.3, noFix: true, cam, slot: "fast" }); } catch (_) { dets = []; }
+    dets = dets || []; DC.set(k, dets); if (DC.size > DC_MAX) DC.delete(DC.keys().next().value);
+    return { v, dets };
   }
+  const detAll = (rd, cam, t) => detAt(rd, cam, t, null);
+  /** A crop round box b, `k` times its size (null: as good as the whole picture). */
+  function cropRound(b, k) {
+    const cw = Math.min(1, Math.max(0.12, b.w * k)), ch = Math.min(1, Math.max(0.12, b.h * k));
+    if (cw > 0.8 && ch > 0.8) return null;
+    return { x: Math.max(0, Math.min(1 - cw, b.x + b.w / 2 - cw / 2)), y: Math.max(0, Math.min(1 - ch, b.y + b.h / 2 - ch / 2)), w: cw, h: ch };
+  }
+  /** A tiny grey copy of part of the picture (motion gating: has anything changed there since the last look?). */
+  const gateCv = document.createElement("canvas"); gateCv.width = 24; gateCv.height = 18;
+  function thumbOf(v, c) {
+    try {
+      const iw = v.videoWidth, ih = v.videoHeight, x = gateCv.getContext("2d", { willReadFrequently: true });
+      x.drawImage(v, c.x * iw, c.y * ih, c.w * iw, c.h * ih, 0, 0, 24, 18);
+      const d = x.getImageData(0, 0, 24, 18).data, g = new Float32Array(24 * 18);
+      for (let i = 0; i < g.length; i++) g[i] = 0.299 * d[i * 4] + 0.587 * d[i * 4 + 1] + 0.114 * d[i * 4 + 2];
+      return g;
+    } catch (_) { return null; }
+  }
+  const thumbDiff = (a, b) => { if (!a || !b) return Infinity; let s = 0; for (let i = 0; i < a.length; i++) s += Math.abs(a[i] - b[i]); return s / a.length; };
   /** The detection that continues a followed object: where its speed says it should be, a similar size. */
   function nextDet(h, dets, prev, vel, dt) {
     const pcx = prev.x + prev.w / 2 + vel.x * dt, pcy = prev.y + prev.h / 2 + vel.y * dt;
@@ -1318,13 +1355,40 @@
     }
     return bs <= 0.55 ? best : null;   // (a poor fit is another object: rather a missed frame than a jump onto it)
   }
-  /** Follow a detection from time t0 in one direction (dir 1 forward, −1 back) until it is gone; [[t, box], …] in time order of following. */
+  /** Follow a detection from time t0 in one direction (dir 1 forward, −1 back) until it is gone; [[t, box], …] in time order of following.
+   *  Between detector checks (every FOLLOW_DET s) the look-matching tracker carries it; the detector looks (round where it should be)
+   *  when the tracker is unsure, when it grows or shrinks fast, and to confirm it is still the same kind of thing. */
+  const FOLLOW_DET = 0.4;
   async function followDets(h, rd, cam, t0, box0, dir, maxT) {
-    const keys = []; let prev = box0, vel = { x: 0, y: 0 }, miss = 0, lastT = t0;
+    const keys = []; let prev = box0, vel = { x: 0, y: 0 }, miss = 0, lastT = t0, lastDet = t0, tr = null, o = null;
+    const tauOf = (t) => +(dir > 0 ? t - t0 : t0 - t).toFixed(3);   // the tracker's clock always runs forwards
+    const startTr = (v, b, t) => { o = { fw: v.videoWidth, fh: v.videoHeight }; const im = grabGrey(v, o.fw, o.fh, PT.createPlan(b, o)); tr = im ? PT.create(im, b, tauOf(t), o) : null; };
+    if (PT) { const v0 = await rd.at(t0); if (v0) startTr(v0, box0, t0); }
     for (let t = +(t0 + dir * CHAIN_DT).toFixed(3); dir > 0 ? t <= maxT + 1e-6 : t >= maxT - 1e-6; t = +(t + dir * CHAIN_DT).toFixed(3)) {
       if (!HO.queue.includes(h)) return keys;
-      const fr = await detAll(rd, cam, t); if (!fr) break;
-      const dt = t - lastT, d = nextDet(h, fr.dets, prev, vel, dt);
+      const v = await rd.at(t); if (!v) break;
+      const dt = t - lastT;
+      let d = null;
+      // (close or fast: a car passing right by, big in the picture or crossing it in a second, changes too much between frames for the
+      // look-matching tracker; the detector follows it every frame, as before)
+      const close = prev.w > 0.28 || prev.h > 0.4 || Math.hypot(vel.x, vel.y) > 0.8 || keys.length < 2;
+      if (tr && !close && Math.abs(t - lastDet) < FOLLOW_DET - 1e-6) {
+        try {
+          const im = grabGrey(v, o.fw, o.fh, tr.plan(tauOf(t))), res = im ? tr.update(im, tauOf(t)) : null;
+          const sr = res && res.box ? res.box.w / prev.w : 0;
+          // (a box at the edge: about to leave or coming in, half of it outside: the detector judges that better)
+          if (res && res.ok && !res.probation && res.score >= 0.75 && sr > 0.75 && sr < 1.35 && res.box.x > 0.01 && res.box.x + res.box.w < 0.99) d = res.box;
+        } catch (_) { d = null; }
+      }
+      if (!d) {
+        const pred = { x: prev.x + vel.x * dt, y: prev.y + vel.y * dt, w: prev.w, h: prev.h };
+        let fr = await detAt(rd, cam, t, cropRound(pred, 2.6));
+        d = fr && nextDet(h, fr.dets, prev, vel, dt);
+        if (!d && fr && cropRound(pred, 2.6)) { fr = await detAll(rd, cam, t); d = fr && nextDet(h, fr.dets, prev, vel, dt); }   // (not round where it should be: the whole picture)
+        lastDet = t;
+        if (d) { d = { x: d.x, y: d.y, w: d.w, h: d.h }; if (PT) startTr(v, d, t); }   // the tracker starts again on the detector's box
+        else tr = null;
+      }
       if (!d) { if (++miss >= 3) break; continue; }
       const nv = { x: (d.x + d.w / 2 - prev.x - prev.w / 2) / dt, y: (d.y + d.h / 2 - prev.y - prev.h / 2) / dt };
       vel = keys.length ? { x: 0.5 * vel.x + 0.5 * nv.x, y: 0.5 * vel.y + 0.5 * nv.y } : nv;
@@ -1346,18 +1410,31 @@
     const ev = T.player.ev, rd = makeReader(cam), lo = Math.max(0, tExit - 1.0), hi = Math.min(ev.duration, tExit + 2.5);
     try {
       // every frame of the window first: the best candidate overall (another car coming in a second earlier must not win just by being first)
-      const cands = [];
-      for (let t = +lo.toFixed(3); t <= hi + 1e-6; t = +(t + 2 * CHAIN_DT).toFixed(3)) {   // (every 0.2 s: the following then goes frame by frame, back and on)
-        if (!HO.queue.includes(h)) return null;
-        const fr = await detAll(rd, cam, t); if (!fr) continue;
+      const cands = [], strip = entry === "left" ? { x: 0, y: 0, w: 0.65, h: 1 } : { x: 0.35, y: 0, w: 0.65, h: 1 };
+      let lastThumb = null, lastHad = true, gatedRun = 0;
+      const scan = async (t) => {
+        const v = await rd.at(t); if (!v) return;
+        // motion gating: the strip looks just as it did at the last look, which found nothing coming in: nothing new there now
+        const th = thumbOf(v, strip);
+        // (at most two looks in a row are skipped: something dark coming into a dark corner changes little)
+        if (!lastHad && gatedRun < 2 && thumbDiff(th, lastThumb) < 2.5) { HO.stats.gated++; gatedRun++; return; }
+        lastThumb = th; gatedRun = 0;
+        const fr = await detAt(rd, cam, t, strip); if (!fr) return;
+        lastHad = false;
         for (const d of fr.dets) {
           if (!isKind(h, d) || h.skip.some((q) => q.cam === cam && iou(q, d) > 0.3)) continue;
+          lastHad = true;
           const near = entry === "left" ? d.x : 1 - (d.x + d.w);   // how far its edge is from the edge it comes in on
           if (near > 0.2) continue;
           const when = Math.max(0, 1 - Math.abs(t - tExit) / 1.5);   // about when it left the other camera
           cands.push({ t, d, sc: 0.3 * (1 - near / 0.2) + 0.35 * colorLike(h.col, colorSig(fr.v, d)) + 0.15 * d.conf + 0.2 * when });
         }
-      }
+      };
+      // round the moment it left first (cameras overlap: a little before, to a second after); the rest of the window only if nothing good was there
+      const grid = []; for (let t = +lo.toFixed(3); t <= hi + 1e-6; t = +(t + 2 * CHAIN_DT).toFixed(3)) grid.push(t);   // (every 0.2 s: the following then goes frame by frame, back and on)
+      const core = grid.filter((t) => t >= tExit - 0.6 - 1e-6 && t <= tExit + 1.2 + 1e-6), rest = grid.filter((t) => !core.includes(t));
+      for (const t of core) { if (!HO.queue.includes(h)) return null; await scan(t); }
+      if (!cands.some((c) => c.sc >= 0.6)) { lastThumb = null; lastHad = true; for (const t of rest) { if (!HO.queue.includes(h)) return null; await scan(t); } }
       cands.sort((a, b) => b.sc - a.sc);
       const tried = [];
       for (const c of cands) {
@@ -1365,7 +1442,11 @@
         if (tried.some((q) => Math.abs(q.t - c.t) < 0.45 && iou(q.d, c.d) > 0.2)) continue;   // (the same object a frame later)
         tried.push(c);
         {
-          const t = c.t, box0 = { x: c.d.x, y: c.d.y, w: c.d.w, h: c.d.h };
+          const t = c.t; let box0 = { x: c.d.x, y: c.d.y, w: c.d.w, h: c.d.h };
+          { // the strip is a zoomed look: a car that reaches past it is cut off there. Its whole box, from a look at the whole picture
+            const fa = await detAll(rd, cam, t); let bo = 0;
+            for (const d of (fa && fa.dets) || []) { if (!isKind(h, d)) continue; const x1 = Math.max(d.x, box0.x), x2 = Math.min(d.x + d.w, box0.x + box0.w), y1 = Math.max(d.y, box0.y), y2 = Math.min(d.y + d.h, box0.y + box0.h), inter = Math.max(0, x2 - x1) * Math.max(0, y2 - y1), cov = inter / Math.max(1e-6, box0.w * box0.h); if (cov > 0.6 && cov > bo) { bo = cov; box0 = { x: d.x, y: d.y, w: d.w, h: d.h }; } }
+          }
           const fwd = await followDets(h, rd, cam, t, box0, 1, Math.min(ev.duration, t + 12));
           // it must come INTO the picture (away from the edge it came in on, or grow as it comes closer): a car parked at the edge doesn't
           const last = fwd.length ? fwd[fwd.length - 1][1] : box0, moved = entry === "left" ? (last.x + last.w / 2) - (box0.x + box0.w / 2) : (box0.x + box0.w / 2) - (last.x + last.w / 2);
