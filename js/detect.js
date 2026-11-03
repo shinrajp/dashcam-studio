@@ -190,8 +190,15 @@
     let slot = "main";
     if (opts.slot === "fast" && D.prefs().model !== "gdino") { const fi = await D.loadFast(); if (fi) slot = "fast"; }
     const S = slotSize(slot);
-    const one = async (crop, cf) => {
+    // rear camera (HW4): the detector looks at the fisheye redrawn as a panorama (js/rear-unwarp.js); its boxes are mapped
+    // back to the recorded picture. Zoomed crops (opts.crops) stay on the recorded picture.
+    const RU = T.rearUnwarp, pano = opts.cam === "back" && !opts.prompt && RU && RU.on() && RU.usable(T.rig, iw, ih) && (!opts.tilesOnly || opts.tiles) ? (() => { try { const f = RU.frame(T.rig, img, iw, ih); D.lastUnwarpMs = f.ms; return f; } catch (e) { console.warn("rear unwarp skipped", e); return null; } })() : null;
+    const one = async (crop, cf, src) => {
       const conf0 = cf || conf;
+      if (src) { const r = await oneOn(src.img, src.iw, src.ih, crop, conf0); return RU.back(r, src); }
+      return oneOn(img, iw, ih, crop, conf0);
+    };
+    const oneOn = async (img, iw, ih, crop, conf0) => {
       let r = null;
       // transferable ImageBitmap → the worker letterboxes it (no getImageData on the main thread); plain RGBA otherwise
       if (!noBitmap && typeof createImageBitmap === "function" && D.info && D.info.offscreen && !opts.prompt) {
@@ -215,8 +222,8 @@
       D.timings.push(r.ms); if (D.timings.length > 50) D.timings.shift();
       return crop ? r.dets.map((b) => ({ ...b, x: crop.x + b.x * crop.w, y: crop.y + b.y * crop.h, w: b.w * crop.w, h: b.h * crop.h, tiled: true })) : r.dets;
     };
-    let dets = opts.tilesOnly ? [] : await one(null);
-    if (opts.tiles) { for (const c of D.TILES) dets = dets.concat(await one(c)); dets = D.nms(dets, 0.5); }
+    let dets = opts.tilesOnly ? [] : await one(null, null, pano);
+    if (opts.tiles) { for (const c of D.TILES) dets = dets.concat(await one(c, null, pano)); dets = D.nms(dets, 0.5); }
     // opts.crops: zoomed second looks at given regions (hand-off cue: small or half-hidden people), own cut-off opts.cropConf
     if (opts.crops && opts.crops.length) { for (const c of opts.crops) dets = dets.concat(await one(c, opts.cropConf)); dets = D.nms(dets, 0.5); }
     return dets.map(named);
@@ -394,7 +401,7 @@
       for (const t of times) {
         if (performance.now() > until && frames.length >= 3) break;
         const v = await frameAt(hit.cam, t); if (!v) continue;
-        let dets = []; try { dets = await D.detectImage(v, v.videoWidth, v.videoHeight, { prompt: opts.prompt, conf: hit.det && hit.label ? D.classConf(hit.label) : undefined, tiles: !!hit.tiled, pool: hit.label === "person" && !opts.prompt && D.byteOn() ? D.BYTE.floor : 0 }); } catch (e) { console.warn("track frame", e); if (!frames.length) throw e; continue; }
+        let dets = []; try { dets = await D.detectImage(v, v.videoWidth, v.videoHeight, { prompt: opts.prompt, conf: hit.det && hit.label ? D.classConf(hit.label) : undefined, tiles: !!hit.tiled, cam: hit.cam, pool: hit.label === "person" && !opts.prompt && D.byteOn() ? D.BYTE.floor : 0 }); } catch (e) { console.warn("track frame", e); if (!frames.length) throw e; continue; }
         frames.push({ t, dets, pool: dets.pool });
         if (opts.onProgress) opts.onProgress(frames.length, times.length);
       }
@@ -989,6 +996,8 @@
     if (P.model === "medium" && T.modelStore && !isMobile()) { const mp = document.createElement("div"); mp.id = "detMedPanel"; box.appendChild(mp); T.modelStore.render(mp); }   // js/model-picker.js
     row('<span>Confidence</span><input type="range" id="detConf" min="0.1" max="0.9" step="0.05" value="' + P.conf + '"><b id="detConfV">' + Math.round(P.conf * 100) + "%</b>");
     row('<span>Small objects</span><select class="select" id="detSmall"><option value="auto"' + (P.small === "auto" ? " selected" : "") + '>Auto (umbrella, bag, sign…: zoomed second look)</option><option value="on"' + (P.small === "on" ? " selected" : "") + '>Always zoom (5× slower)</option><option value="off"' + (P.small === "off" ? " selected" : "") + ">Off</option></select>");
+    { const ru = T.rearUnwarp, r = row('<label style="display:flex;gap:.5rem;align-items:center"><input type="checkbox" id="detRearPano"' + (ru && ru.on() ? " checked" : "") + (ru ? "" : " disabled") + "> Rear camera: look at it unwarped (fisheye flattened into a panorama; finds cars close behind)</label>");
+      const h = document.createElement("span"); h.className = "hint"; h.style.display = "block"; h.textContent = "HW4 cars. The boxes are drawn on the rear camera as recorded. Uses the rear lens from Settings ▸ Camera calibration."; r.appendChild(h); }
     row('<label style="display:flex;gap:.5rem;align-items:center"><input type="checkbox" id="detLive"' + (P.live ? " checked" : "") + "> Detect while playing (boxes follow objects every frame)</label>");
     const lc = D.liveCamsMode(), sp = D.speed();
     row('<span>Cameras</span><select class="select" id="detLiveCams"><option value="focused"' + (lc === "focused" ? " selected" : "") + '>Focused camera' + (isMobile() ? " (default on phones)" : "") + '</option><option value="all"' + (lc === "all" ? " selected" : "") + '>All cameras, in turn' + (isMobile() ? "" : " (default on computers)") + "</option></select>");
@@ -1016,6 +1025,7 @@
     box.querySelector("#detOccl").onchange = (e) => D.setPref("occl", +e.target.value);
     box.querySelector("#detByte").onchange = (e) => D.setPref("byte", e.target.checked ? "on" : "off");
     box.querySelector("#detSmall").onchange = (e) => D.setPref("small", e.target.value);
+    { const rp = box.querySelector("#detRearPano"); if (rp) rp.onchange = (e) => { T.rearUnwarp && T.rearUnwarp.setOn(e.target.checked); D.frameCache && D.frameCache.clear && D.frameCache.clear(); }; }
     box.querySelector("#detCross").onchange = (e) => { T.setPref("crossCam", e.target.checked ? "on" : "off"); if (T.people && T.people.reset) T.people.reset(); const c = box.querySelector("#detCrossStatus"); if (c && T.reid) c.textContent = T.reid.statusText(); };
     box.querySelector("#detLive").onchange = (e) => D.setPref("live", e.target.checked);
     box.querySelector("#detLiveCams").onchange = (e) => { D.setPref("liveCams", e.target.value); D.liveTracks = {}; };

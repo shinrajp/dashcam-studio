@@ -174,10 +174,10 @@
     const body = document.querySelector("#settings .drawer-body"); if (!body || $("rigSec")) return;
     const sec = document.createElement("section"); sec.id = "rigSec";
     sec.innerHTML = '<h3>Camera calibration</h3>' +
-      '<p class="hint">Where each camera points, its lens and how high it sits. Following an object from camera to camera uses this to place it on the road round the car. Measured on a 2024 Model X; other models start from an estimate, and you can measure your own car from one of its drives.</p>' +
+      '<p class="hint">Where each camera points, its lens and how high it sits. Following an object from camera to camera uses this to place it on the road round the car. Pick your car’s model and its vehicle profile is used. Calibrating is optional: it measures your own car from one of its drives, and goes back to the profile if you forget it.</p>' +
       '<div class="row"><span>Car</span><select class="select" id="rigPick" aria-label="Camera set"></select></div>' +
       '<p class="hint" id="rigStatus" role="status"></p>' +
-      '<button type="button" class="btn ghost wide" id="rigCalibrate">Calibrate from this drive</button>' +
+      '<button type="button" class="btn ghost wide" id="rigCalibrate">Calibrate from this drive (optional)</button>' +
       '<div class="progress" id="rigRun" hidden><div class="bar"><div class="fill" id="rigBar"></div></div><div class="progress-text" id="rigRunText" aria-live="polite"></div><button type="button" class="btn ghost wide" id="rigCancel">Cancel</button></div>' +
       '<div id="rigResult" hidden></div>' +
       '<p class="hint">Needs a drive of a minute or more with at least one real turn. It runs in the background (about a minute per camera) while you keep watching.</p>' +
@@ -212,12 +212,12 @@
     const RG = T.rig, v = load(), act = v.active || "preset:model_x";
     const cars = Object.entries(v.cars).sort((a, b) => String(b[1].date).localeCompare(String(a[1].date)));
     pick.innerHTML = (cars.length ? '<optgroup label="Your cars">' + cars.map(([id, c]) => '<option value="car:' + id + '">' + esc(c.name) + "</option>").join("") + "</optgroup>" : "") +
-      '<optgroup label="Starting points">' + Object.keys(RG.PRESETS).map((id) => '<option value="preset:' + id + '">' + esc(RG.PRESETS[id].name) + (RG.PRESETS[id].measured ? " (measured)" : " (estimated)") + "</option>").join("") + "</optgroup>";
+      '<optgroup label="Vehicle profiles">' + Object.keys(RG.PRESETS).map((id) => '<option value="preset:' + id + '">' + esc(RG.PRESETS[id].name) + (RG.PRESETS[id].measured ? " (measured)" : " (estimated)") + "</option>").join("") + "</optgroup>";
     pick.value = act; pick.disabled = S.state === "running";
     const st = $("rigStatus"), car = act.startsWith("car:") ? v.cars[act.slice(4)] : null;
     let txt;
     if (car) txt = "Using your calibration from " + day(car.date) + ": looks like a " + (RG.PRESETS[car.preset] ? RG.PRESETS[car.preset].name : "Tesla") + (car.quality != null ? ", fit error " + car.quality.toFixed(2) + " px" : "") + (car.cams && car.cams.length < 6 ? " (" + car.cams.length + " of 6 cameras measured)" : "") + ".";
-    else { const id = act.slice(7); txt = id === "model_x" || !RG.PRESETS[id] ? "Using the cameras measured on a 2024 Model X." : "Using an estimate for a " + RG.PRESETS[id].name + ": positions from its published size, angles from the Model X. Calibrate to measure your car."; }
+    else { const id = act.slice(7); txt = id === "model_x" || !RG.PRESETS[id] ? "Using the cameras measured on a 2024 Model X." : "Using the " + RG.PRESETS[id].name + " profile: positions from its published size, angles from the Model X. Calibrating (optional) measures your car."; }
     st.textContent = txt + (S.msg && S.state !== "running" ? " " + S.msg : "");
     $("rigRun").hidden = S.state !== "running";
     $("rigCalibrate").hidden = S.state === "running" || S.state === "done";
