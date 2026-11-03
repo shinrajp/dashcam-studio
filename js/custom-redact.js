@@ -1404,6 +1404,80 @@
     const la = (a[0] + a[1] + a[2]) / 3 + 1, lb = (b[0] + b[1] + b[2]) / 3 + 1;
     return Math.hypot(a[0] / la - b[0] / lb, a[1] / la - b[1] / lb, a[2] / la - b[2] / lb);
   }
+  /* vreid-1: what the object looks like (vehicle re-identification, js/detect.js loadVehReid). Each object keeps, for this session, the looks
+     that are it (the tracked mark itself, and every camera you said Yes to or that was found for it) and the ones that are not ("Not it").
+     A candidate's likeness = its best match with the "it" looks, held down by its best match with the "not it" ones. Without the model
+     (it couldn't load on this device): the old colour comparison. */
+  const OBJAPP = new Map();   // object key (link or id) → { pos: [Float32Array], neg: [Float32Array] }
+  const VE = new Map(), VE_MAX = 300;
+  const vcv = document.createElement("canvas"); vcv.width = vcv.height = 208;
+  const vreidOn = () => !!(T.detect && T.detect.vreidInfo && T.detect.vreidInfo());
+  async function vembed(v, b, key) {
+    if (!vreidOn() || !v || !b || !v.videoWidth) return null;
+    if (key && VE.has(key)) return VE.get(key);
+    const iw = v.videoWidth, ih = v.videoHeight, x0 = Math.max(0, b.x) * iw, y0 = Math.max(0, b.y) * ih, x1 = Math.min(1, b.x + b.w) * iw, y1 = Math.min(1, b.y + b.h) * ih;
+    if (x1 - x0 < 6 || y1 - y0 < 6) return null;
+    let e = null;
+    try {
+      const x = vcv.getContext("2d", { willReadFrequently: true }); x.drawImage(v, x0, y0, x1 - x0, y1 - y0, 0, 0, 208, 208);
+      const px = x.getImageData(0, 0, 208, 208).data; HO.stats.embeds = (HO.stats.embeds || 0) + 1;
+      const r = await T.detect.embedVehicle(px.buffer.slice(0)); e = r.emb; HO.stats.embMs = (HO.stats.embMs || 0) + (r.ms || 0);
+    } catch (_) { e = null; }
+    if (key && e) { VE.set(key, e); if (VE.size > VE_MAX) VE.delete(VE.keys().next().value); }
+    return e;
+  }
+  const dot = (a, b) => { let s = 0; for (let i = 0; i < a.length; i++) s += a[i] * b[i]; return s; };
+  /** 0..1 likeness of embedding e to the object (null: no model or no looks yet). */
+  function appLike(app, e) {
+    if (!app || !e || !app.pos.length) return null;
+    const p = Math.max(...app.pos.map((q) => dot(q, e))), n = app.neg.length ? Math.max(...app.neg.map((q) => dot(q, e))) : -1;
+    // (cosines of the same car seen by two cameras ~0.35-0.6, of other cars ~0.1-0.3: mapped onto 0..1; a closer "not it" look pulls it down)
+    const lp = Math.max(0, Math.min(1, (p - 0.15) / 0.4)), ln = Math.max(0, Math.min(1, (n - 0.15) / 0.4));
+    return n > p ? lp * 0.3 : Math.max(0, lp - 0.5 * ln);
+  }
+  G.appOf = (key) => OBJAPP.get(key) || null;   // (tests)
+  /** The looks of the object a hand-off is for: from the tracked mark's own path (a few frames where it was whole in the picture). */
+  async function appInit(h) {
+    const D = T.detect; if (!D || !D.loadVehReid) return null;
+    if (h.kind && h.kind !== "vehicle") return null;
+    await D.loadVehReid();
+    if (!vreidOn()) return null;
+    const src = G.list.find((x) => x.id === h.from); if (!src) return null;
+    const key = src.link || src.id, app = OBJAPP.get(key) || { pos: [], neg: [] }; OBJAPP.set(key, app); h.app = app; h.appKey = key;
+    if (app.pos.length >= 3 || !src.path) return app;
+    const P = src.path, ts = [];
+    for (let i = 0; i < P.length; i += 5) { const t = P[i], x = P[i + 1], w = P[i + 3]; if (w > 0 && t <= h.t0 + 0.05 && t >= h.t0 - 3 && x > 0.02 && x + w < 0.98 && w > 0.04) ts.push(i); }
+    const pick = ts.length <= 3 ? ts : [ts[ts.length - 1], ts[Math.floor(ts.length / 2)], ts[0]];
+    const rd = makeReader(src.cam);
+    try {
+      for (const i of pick) { const v = await rd.at(P[i]); const e = await vembed(v, { x: P[i + 1], y: P[i + 2], w: P[i + 3], h: P[i + 4] }, src.cam + "|" + P[i].toFixed(3) + "|src"); if (e) app.pos.push(e); }
+    } finally { rd.close(); }
+    return app;
+  }
+  /** The keys of a stretch that show it best: whole in the picture (not cut off by an edge), neither tiny nor filling it; up to n, spread out. */
+  function bestViews(keys, n) {
+    const ok = keys.filter(([, b]) => b.x > 0.015 && b.x + b.w < 0.985 && b.y > 0.01 && b.y + b.h < 0.99 && b.w >= 0.05 && b.w <= 0.55);
+    const pool = ok.length ? ok : keys.filter(([, b]) => b.w >= 0.04).sort((a, b) => Math.min(b[1].x + b[1].w, 1) - Math.max(b[1].x, 0) - (Math.min(a[1].x + a[1].w, 1) - Math.max(a[1].x, 0))).slice(0, 2);
+    const by = pool.slice().sort((a, b) => b[1].w - a[1].w), out = [];
+    for (const k of by) { if (out.length >= n) break; if (out.every((q) => Math.abs(q[0] - k[0]) >= 0.25)) out.push(k); }
+    return out;
+  }
+  /** How much a found stretch looks like the object: its best looks (two), the best match → { like 0..1 | null, emb }. */
+  async function stretchLook(h, sg) {
+    const views = bestViews(sg.keys, 2); if (!views.length) return { like: null, emb: null };
+    const app = { pos: h.app.pos.concat(h.chain.map((q) => q.emb).filter(Boolean)), neg: h.app.neg };
+    const rd = makeReader(sg.cam); let best = null, emb = null;
+    try {
+      for (const [t, b] of views) { const v = await rd.at(t); const e = await vembed(v, b, sg.cam + "|" + t.toFixed(3) + "|" + cropKey(b)); const l = appLike(app, e); if (l != null && (best == null || l > best)) { best = l; emb = e; } }
+    } finally { rd.close(); }
+    return { like: best, emb };
+  }
+  /** One look of a found stretch (its best view). */
+  async function segEmbed(sg) {
+    const k = bestViews(sg.keys, 1)[0]; if (!k) return null;
+    const rd = makeReader(sg.cam);
+    try { const v = await rd.at(k[0]); return await vembed(v, k[1], sg.cam + "|" + k[0].toFixed(3) + "|" + cropKey(k[1])); } finally { rd.close(); }
+  }
   /** "Not this one": a rejected stretch (or candidate) is not offered again, at any moment it was seen (where it was then). */
   function skipped(h, cam, t, d) {
     return h.skip.some((q) => {
@@ -1507,7 +1581,7 @@
           const near = entry === "left" ? d.x : 1 - (d.x + d.w);   // how far its edge is from the edge it comes in on
           if (near > 0.2) continue;
           const when = Math.max(0, 1 - Math.abs(t - tExit) / 1.5);   // about when it left the other camera
-          cands.push({ t, d, sc: 0.3 * (1 - near / 0.2) + 0.35 * colorLike(h.col, colorSig(fr.v, d)) + 0.15 * d.conf + 0.2 * when });
+          cands.push({ t, d, v: fr.v, look: colorLike(h.col, colorSig(fr.v, d)), near, when });
         }
       };
       // round the moment it left first (cameras overlap: a little before, to a second after); the rest of the window only if nothing good was there
@@ -1515,10 +1589,14 @@
       const core = grid.filter((t) => t >= tExit - 0.6 - 1e-6 && t <= tExit + 1.2 + 1e-6), rest = grid.filter((t) => !core.includes(t));
       for (const t of core) { if (!HO.queue.includes(h)) return null; await scan(t); }
       if (!cands.some((c) => c.sc >= 0.6)) { lastThumb = null; lastHad = true; for (const t of rest) { if (!HO.queue.includes(h)) return null; await scan(t); } }
+      // place and time first; how it looks: the colour now, the appearance model below on the stretch it is followed along (a single
+      // frame where it comes in is often cut off by the edge or huge and close: a poor look)
+      for (const c of cands) { c.sc = 0.3 * (1 - c.near / 0.2) + 0.15 * c.d.conf + 0.2 * c.when + 0.35 * c.look; c.v = null; }
       cands.sort((a, b) => b.sc - a.sc);
-      const tried = [];
+      if (G.hoDebug) G.hoDebug.push({ cam, cands: cands.slice(0, 8).map((c) => ({ t: c.t, cx: +(c.d.x + c.d.w / 2).toFixed(2), w: +c.d.w.toFixed(2), near: +c.near.toFixed(2), app: c.app == null ? null : +c.app.toFixed(2), look: +c.look.toFixed(2), sc: +c.sc.toFixed(2) })) });
+      const tried = [], found = [], withApp = !!(h.app && vreidOn());
       for (const c of cands) {
-        if (c.sc < 0.45 || tried.length >= 4) break;
+        if (c.sc < 0.45 || tried.length >= 4 || (withApp && found.length >= 3)) break;
         if (tried.some((q) => Math.abs(q.t - c.t) < 0.45 && iou(q.d, c.d) > 0.2)) continue;   // (the same object a frame later)
         tried.push(c);
         {
@@ -1527,16 +1605,33 @@
             const fa = await detAll(rd, cam, t); let bo = 0;
             for (const d of (fa && fa.dets) || []) { if (!isKind(h, d)) continue; const x1 = Math.max(d.x, box0.x), x2 = Math.min(d.x + d.w, box0.x + box0.w), y1 = Math.max(d.y, box0.y), y2 = Math.min(d.y + d.h, box0.y + box0.h), inter = Math.max(0, x2 - x1) * Math.max(0, y2 - y1), cov = inter / Math.max(1e-6, box0.w * box0.h); if (cov > 0.6 && cov > bo) { bo = cov; box0 = { x: d.x, y: d.y, w: d.w, h: d.h }; } }
           }
-          const fwd = await followDets(h, rd, cam, t, box0, 1, Math.min(ev.duration, t + 12));
+          // with the model, a candidate is first followed only a little (enough to see it whole); the one chosen is followed on afterwards
+          const fwd = await followDets(h, rd, cam, t, box0, 1, Math.min(ev.duration, t + (withApp ? 1.5 : 12)));
           // it must come INTO the picture (away from the edge it came in on, or grow as it comes closer): a car parked at the edge doesn't
           const last = fwd.length ? fwd[fwd.length - 1][1] : box0, moved = entry === "left" ? (last.x + last.w / 2) - (box0.x + box0.w / 2) : (box0.x + box0.w / 2) - (last.x + last.w / 2);
           if (fwd.length < 2 || (moved < 0.08 && last.w < box0.w * 1.3)) continue;
-          const back = await followDets(h, rd, cam, t, box0, -1, Math.max(0, t - 1.5));
-          const keys = back.reverse().concat([[t, box0]], fwd);
-          return { cam, keys, exit: exitSideOf(keys), score: c.sc, entry, tExit };
+          if (!withApp) {
+            const back = await followDets(h, rd, cam, t, box0, -1, Math.max(0, t - 1.5));
+            const keys = back.reverse().concat([[t, box0]], fwd);
+            return { cam, keys, exit: exitSideOf(keys), score: c.sc, entry, tExit };
+          }
+          // its best looks so far (whole in the picture, not tiny, not huge) against the object's looks
+          const part = { cam, keys: [[t, box0]].concat(fwd) }, lk = await stretchLook(h, part);
+          const f = { c, t, box0, fwd, like: lk.like, emb: lk.emb, final: lk.like == null ? c.sc : 0.3 * (1 - c.near / 0.2) + 0.15 * c.when + 0.55 * lk.like };
+          found.push(f);
+          if (G.hoDebug) G.hoDebug.push({ cam, tried: { t, cx: +(box0.x + box0.w / 2).toFixed(2), w: +box0.w.toFixed(2), like: lk.like == null ? null : +lk.like.toFixed(2), final: +f.final.toFixed(2) } });
+          if (lk.like != null && lk.like >= 0.55) break;   // clearly it: no need to look at the others
         }
       }
-      return null;
+      if (!found.length) return null;
+      found.sort((a, b) => b.final - a.final);
+      const w = found[0];
+      // the chosen one: followed on to where it leaves, and back to where it came in
+      let fwd = w.fwd;
+      if (fwd.length && w.t + 1.5 < ev.duration - 0.05) { const [tl, bl] = fwd[fwd.length - 1]; fwd = fwd.concat(await followDets(h, rd, cam, tl, bl, 1, Math.min(ev.duration, w.t + 12))); }
+      const back = await followDets(h, rd, cam, w.t, w.box0, -1, Math.max(0, w.t - 1.5));
+      const keys = back.reverse().concat([[w.t, w.box0]], fwd);
+      return { cam, keys, exit: exitSideOf(keys), score: w.c.sc, entry, tExit, emb: w.emb, app: w.like };
     } finally { rd.close(); }
   }
   async function chainSearch(h, resume) {
@@ -1544,8 +1639,10 @@
     if (resume) { h.chain = h.chain.slice(0, resume.at); for (const sg of h.chain) seen.add(sg.cam); cam = resume.cam; entry = resume.entry; tExit = resume.tExit; }
     else h.chain = [];
     h.state = "search"; drawLanes();
+    try { await appInit(h); } catch (_) {}
     for (let hop = 0; hop < 5 && cam && !seen.has(cam) && (ev.cams || []).includes(cam); hop++) {
       const seg = await chainSeg(h, cam, entry, tExit);
+      if (seg && h.app && !seg.emb) { try { seg.emb = await segEmbed(seg); } catch (_) {} }   // (kept: Yes adds it to the object's looks, Not it to the "not it" ones)
       if (!HO.queue.includes(h)) return;
       if (!seg) break;
       h.chain.push(seg); seen.add(cam); drawLanes();
@@ -1679,6 +1776,7 @@
     const h = HO.active; if (!h || !h.chain || !h.chain[i]) return;
     const sg = h.chain[i], was = h.wasPlaying, c = $("crHo");
     h.skip.push({ cam: sg.cam, keys: sg.keys });
+    if (h.app && sg.emb) h.app.neg.push(sg.emb);   // (learns: this look is not it)
     HO.active = null; if (c) c.hidden = true; document.querySelectorAll(".cr-ho-box").forEach((x) => x.remove());
     if (!HO.queue.includes(h)) HO.queue.push(h);
     msg("Still looking in the " + camName(sg.cam).toLowerCase() + " camera…");
@@ -1728,6 +1826,8 @@
   function handoffAccept() {
     const h = HO.active; if (!h || !h.cand) return;
     if (h.chain && h.chain.length) {
+      if (h.app) h.chain.forEach((sg, i) => { if (sg.emb) (h.pick[i] ? h.app.pos : h.app.neg).push(sg.emb); });   // (learns: these looks are it / unticked: not it)
+      if (h.app) { h.app.pos = h.app.pos.slice(-12); h.app.neg = h.app.neg.slice(-24); }
       const made = h.chain.filter((sg, i) => h.pick[i]).map((sg) => chainMake(h, sg)).filter(Boolean), was = h.wasPlaying;
       handoffEnd(made.length ? "Tracking it in " + made.map((r) => camName(r.cam).toLowerCase()).join(", ") + " too (linked, same colour)." : "Nothing added.");
       UI.sync(); kick(); if (R && R.paint) R.paint();

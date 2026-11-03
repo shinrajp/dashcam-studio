@@ -151,6 +151,23 @@
     return reidLoading;
   };
   D.reidInfo = () => reidInfo;
+  /* vreid-1: vehicle re-identification (models/reid-vehicle/vehicle-reid-0001.onnx: Intel OMZ vehicle-reid-0001, torchreid OSNet-AIN, MIT,
+     8.8 MB): what a car looks like, so the same car is recognised in another camera. 208×208 crop in, 512-d out. Loaded only when a hand-off
+     needs it. Resolves to { backend, selfTestMs, … } or null (the hand-off then compares colours only). */
+  let vreidLoading = null, vreidInfo = null;
+  D.VREID = { w: 208, h: 208, dim: 512 };
+  D.loadVehReid = async () => {
+    if (D._vreidMock) return (vreidInfo = { backend: "mock" });
+    await D.load();
+    if (D._mock) return null;
+    if (vreidLoading) return vreidLoading;
+    vreidLoading = call({ type: "loadReid", kind: "vehicle", w: 208, h: 208, dim: 512, urls: [new URL("models/reid-vehicle/vehicle-reid-0001.onnx", location.href).href], ortBases: D.config.ortBases.map((u) => new URL(u, location.href).href), useCache: D.cacheOk(), preferGpu: gpuPref() })
+      .then((info) => (vreidInfo = info)).catch((e) => { console.warn("vehicle re-identification model unavailable, colours only", e); vreidInfo = null; return null; });
+    return vreidLoading;
+  };
+  D.vreidInfo = () => vreidInfo;
+  /** One vehicle embedding (Float32Array(512), L2-normalised) for a 208×208 RGBA crop (ArrayBuffer, transferred). */
+  D.embedVehicle = (rgbaBuf) => D._vreidMock ? Promise.resolve(D._vreidMock(rgbaBuf)) : call({ type: "embed", kind: "vehicle", rgba: rgbaBuf }, [rgbaBuf]).then((r) => ({ emb: new Float32Array(r.emb), ms: r.ms, backend: r.backend }));
   /** One embedding (Float32Array(256), L2-normalised) for a 128×256 RGBA crop (ArrayBuffer, transferred). */
   D.embed = (rgbaBuf) => D._reidMock ? Promise.resolve(D._reidMock(rgbaBuf)) : call({ type: "embed", rgba: rgbaBuf }, [rgbaBuf]).then((r) => ({ emb: new Float32Array(r.emb), ms: r.ms, backend: r.backend }));
   let bitmapFails = 0, noBitmap = false;

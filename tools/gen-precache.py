@@ -12,7 +12,7 @@ core += [m for m in re.findall(r'(?:src|href)="((?:js|vendor|css)/[^"?]+)', html
 core += sorted(glob.glob("js/*.js")) + sorted(glob.glob("css/*.css"))
 core += ["vendor/en_dict.txt", "vendor/ort/ort-wasm-simd-threaded.mjs"]
 seen = set(); core = [p for p in core if os.path.isfile(p) and not (p in seen or seen.add(p))]
-extra = ["vendor/ort/ort-wasm-simd-threaded.wasm", "models/yolo11n.onnx", "models/reid/person-reidentification-retail-0288.onnx",
+extra = ["vendor/ort/ort-wasm-simd-threaded.wasm", "models/yolo11n.onnx", "models/reid/person-reidentification-retail-0288.onnx", "models/reid-vehicle/vehicle-reid-0001.onnx",
          "models/cc/fc4-squeezenet11-int8.onnx"]
 # models/plates/* (13.0 MB for the phone finder + reader) are NOT pre-cached: plates are off by default, so nobody pays 13 MB of
 # background download for a feature they never switch on. When plates are turned on, the files are fetched once from models/plates/

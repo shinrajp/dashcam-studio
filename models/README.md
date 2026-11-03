@@ -91,3 +91,14 @@ Type prompts for buses were picked by comparing four prompt sets on the 17 bus p
 * **Another model:** put an ONNX with input `[1, 3, 256, 128]` (BGR, 0–255) and a single 256-d output in this folder and change the file name in `D.loadReid` (`js/detect.js`). Anything else needs `reidInput` / the output size in `js/detect-worker.js` and `BINS`-independent code in `js/people.js` (`cosine` works for any length).
 * **Considered and not shipped:** larger OSNet / FastReID models (several MB, licences that need a closer look), CLIP crops (150 MB, already used for search but far too slow per person).
 
+
+## vreid-1: vehicle re-identification (`models/reid-vehicle/`)
+
+| File | Model | Size | License | Source |
+|---|---|---|---|---|
+| `reid-vehicle/vehicle-reid-0001.onnx` | Intel Open Model Zoo **vehicle-reid-0001** (public model): torchreid OSNet-AIN x1.0 trained for vehicles, input `[1, 3, 208, 208]` (the app feeds BGR 0–255; the network normalises its input, so scaling doesn't matter), output a 512-d appearance vector compared by cosine. 2.18 M parameters, 2.64 GFLOPs. VeRi-776 rank-1 96.3 %, mAP 85.2 % (Intel's figures, traffic cameras) | 8.8 MB | **MIT** (Kaiyang Zhou, torchreid; OMZ `model.yml` names `sovrasov/deep-person-reid` branch `vehicle_reid`) | `https://storage.openvinotoolkit.org/repositories/open_model_zoo/public/2022.1/vehicle-reid-0001/osnet_ain_x1_0_vehicle_reid.onnx` (sha384 `0515ce72…0ef7abb7`, as in OMZ `model.yml`) |
+
+* **Modified:** re-saved with onnxruntime (no optimisation) to drop unused batch-norm counters that made the runtime print warnings; outputs identical (cosine ≥ 0.9999999 on random inputs). sha256 of the stored file `e853244cb7af95fba9f8001f4ea62b9fa98937fe9050e15e8c606ef0403e94c0`. `reid-vehicle/LICENSE-MIT.txt` is the licence text.
+* **Training data:** not named by Intel; most likely public vehicle re-ID sets (VeRi-776 and similar), several of which are licensed for research only. This is a note, not legal advice: check the weights' terms before a commercial release.
+* **Checked on real footage** (2026-10-19 clip, crops of the tracked car in the left pillar and left repeater vs the other cars there): same-car vs other-car separation across cameras AUC 0.89 (BGR) / 0.83 (RGB); the average-colour comparison it replaces: 0.54.
+* **Where it runs:** the detection worker (`loadReid` / `embed` with `kind: "vehicle"`), WebGPU or WASM like the person model; loaded only when a vehicle hand-off searches (`js/detect.js` `D.loadVehReid`). About 150 ms per crop on WASM (headless Chromium); a hand-off needs a handful.
