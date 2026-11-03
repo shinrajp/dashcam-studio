@@ -213,7 +213,7 @@
     for (const [id, t] of [["usTabFind", "find"], ["usTabRedact", "redact"]]) { const b = $(id); if (b) { b.setAttribute("aria-selected", String(t === tab)); b.tabIndex = t === tab ? 0 : -1; } }
     const q = $("usQuery");
     if (q) { q.placeholder = tab === "redact" ? "Text to hide: Oak Ave, a name, a plate" : "A cyclist in the bike lane · text Oak Ave · 20:53:46 · 2:30"; q.setAttribute("aria-label", tab === "redact" ? "Text to hide" : "Search"); }
-    const h = $("usHeadLbl"); if (h) h.textContent = tab === "redact" ? "Redact" : "Search";
+    const h = $("usHeadLbl"); if (h) h.textContent = tab === "redact" ? "Markup" : "Search";
     p.setAttribute("aria-label", tab === "redact" ? "Redact the video" : "Search the video");
     syncBtns();
     if (U.ok || p) { try { results(); } catch (e) {} }
@@ -404,9 +404,9 @@
     const clock = $("clockLabel");
     clock.parentNode.insertBefore(btn, clock.nextSibling);
     built.push(btn);
-    const rsvg = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="15" rx="2.5"/><path d="M7 10h10M7 14.5h6" stroke-width="3"/></svg>';
-    const rbtn = el("button", { class: "chip us-btn rd-btn", id: "rdBtn", type: "button", "aria-label": "Redact", "aria-haspopup": "dialog", "aria-expanded": "false", "aria-controls": "usPanel", title: "Redact: hide plates, faces and text, or draw your own region" },
-      rsvg + '<span class="us-lbl">Redact</span>');
+    const rsvg = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20l1-4.5L15.5 5a2.1 2.1 0 0 1 3 3L8 18.5z"/><path d="M13.5 7l3 3"/><path d="M4 20h7"/></svg>';   // a pen: Markup
+    const rbtn = el("button", { class: "chip us-btn rd-btn", id: "rdBtn", type: "button", "aria-label": "Markup", "aria-haspopup": "dialog", "aria-expanded": "false", "aria-controls": "usPanel", title: "Markup: hide plates, faces and text, or draw your own marks (blur, black or highlight; tracked if you like)" },
+      rsvg + '<span class="us-lbl">Markup</span>');
     btn.parentNode.insertBefore(rbtn, btn.nextSibling);
     built.push(rbtn);
     // tap-redact: when the show chips scroll inside their strip (narrow window), fade the right edge so it is clear there is more
@@ -423,7 +423,7 @@
       '<div class="us-grab" aria-hidden="true"></div>' +
       '<div class="us-head" id="usHead"><span class="us-grip" id="usGrip" role="button" tabindex="-1" aria-label="Move the window (arrow keys, Shift for bigger steps)" title="Drag to move · arrow keys move it">' +
       '<svg viewBox="0 0 10 16" aria-hidden="true"><circle cx="3" cy="3" r="1.4"/><circle cx="7" cy="3" r="1.4"/><circle cx="3" cy="8" r="1.4"/><circle cx="7" cy="8" r="1.4"/><circle cx="3" cy="13" r="1.4"/><circle cx="7" cy="13" r="1.4"/></svg><span id="usHeadLbl" class="us-headlbl">Search</span></span>' +
-      '<div class="us-tabs" id="usTabs" role="tablist" aria-label="Search or redact"><button type="button" role="tab" class="us-tab" id="usTabFind" aria-selected="true" aria-controls="usPanel">Find</button><button type="button" role="tab" class="us-tab" id="usTabRedact" aria-selected="false" aria-controls="usPanel" tabindex="-1">Redact</button></div>' +
+      '<div class="us-tabs" id="usTabs" role="tablist" aria-label="Find or markup"><button type="button" role="tab" class="us-tab" id="usTabFind" aria-selected="true" aria-controls="usPanel">Find</button><button type="button" role="tab" class="us-tab" id="usTabRedact" aria-selected="false" aria-controls="usPanel" tabindex="-1">Markup</button></div>' +
       '<button type="button" class="btn icon sm us-more" id="usMore" aria-expanded="false" aria-haspopup="true" aria-label="More: regions file, classic search bars" title="More"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg></button>' +
       '<button type="button" class="btn icon sm us-float" id="usFloat" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true" class="i-float"><rect x="3" y="12" width="18" height="9" rx="2"/><rect x="7" y="3" width="12" height="7" rx="1.5"/></svg><svg viewBox="0 0 24 24" aria-hidden="true" class="i-dock"><rect x="3" y="3" width="18" height="11" rx="2"/><path d="M3 19h18"/></svg></button>' +
       '<button type="button" class="btn icon sm us-pin" id="usPin" aria-pressed="false" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3h6l-1 6 3 3v2H7v-2l3-3z"/><path d="M12 14v7"/></svg></button>' +
@@ -437,7 +437,7 @@
       '<button type="button" class="style-tgl" data-style="hl" id="usHl" aria-pressed="true"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2.5" y="3.5" width="11" height="9" rx="1"/></svg>Highlight</button>' +
       '<button type="button" class="style-tgl" data-style="rd" id="usRd" aria-pressed="false"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2.5" y="3.5" width="11" height="9" rx="1" class="fill"/></svg>Redact</button>' +
       '</div>' +
-      '<div class="us-auto-h us-t-redact" id="usAutoH">Automatic: hide text, plates and faces</div>' +
+      '<div class="us-auto-h us-t-redact" id="usAutoH">Auto-redact: plates, faces and text</div>' +
       '<div class="us-presets us-t-redact">' + presets + "</div>" +
       '<div class="us-style res-style us-t-redact" id="usShowRow"><button type="button" class="style-tgl blur-shown" id="usRedactShow" aria-pressed="true" hidden title="Show or hide the blur from Blur text, Blur plates, Blur faces, Street signs and All text (the export follows)">Show blur</button></div>' +
       '<div class="q-chips us-t-find" id="usChips" hidden></div>' +

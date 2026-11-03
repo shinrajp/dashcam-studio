@@ -338,7 +338,7 @@ async function openEvent(p, URL0) {
         const lb = await p.evaluate((PB) => ({ lb: __cr.layerBox("back"), ex: __cr.expect("back", PB) }), PB);
         ok(tag + "the saved region is hidden at once on the same pixels", lb.lb && lb.lb.n > 0 && iouBox({ x: lb.lb.x, y: lb.lb.y, w: lb.lb.w, h: lb.lb.h }, lb.ex) > 0.85, lb);
         if (phone) await open();
-        ok(tag + "list shows it with Show / Edit / Delete and the export dialog note counts it", await p.evaluate(() => { const li = document.querySelector("#crList li"); const n = document.getElementById("exportRegionsNote"); return !!li && /Back|Rear/i.test(li.textContent) && /Remove/.test(li.textContent) && li.querySelectorAll("button").length === 3 && !n.hidden && /1 custom region/.test(n.textContent); }));
+        ok(tag + "list shows it with Show / Edit / Delete and the export dialog note counts it", await p.evaluate(() => { const li = document.querySelector("#crList li"); const n = document.getElementById("exportRegionsNote"); return !!li && /Back|Rear/i.test(li.textContent) && /Black|Remove/.test(li.textContent) && li.querySelectorAll("button").length === 3 && !n.hidden && /1 mark/.test(n.textContent); }));
         // zoomed
         await p.evaluate(() => { TDC.regions.clear(); TDC.focus.zoomTo(1.6); }); await W(400);
         await clk("#crDraw"); await W(300); await drawBox("mouse"); await save(); await W(200);

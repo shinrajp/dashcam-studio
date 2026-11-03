@@ -83,19 +83,29 @@ function detail(F, b) {
   const ef = await exportCam("front"), er = await exportCam("right_pillar");
   ok("both exports made (" + ef.W + "×" + ef.H + ", " + er.W + "×" + er.H + ")", fs.statSync(ef.file).size > 10000 && fs.statSync(er.file).size > 10000, { ef, er });
   // where a region was at time t (its path), 0..1 of the picture
-  const boxAt = (r, t) => { const P = r.path; let k = -1; for (let i = 0; i < P.length; i += 5) if (P[i] <= t + 1e-6) k = i; return k < 0 ? null : P[k + 3] > 0 ? { x: P[k + 1], y: P[k + 2], w: P[k + 3], h: P[k + 4] } : null; };
+  // (keys carry the time of the frame they were measured on, so between keys: interpolated, as the app's PT.pathAt does)
+  const boxAt = (r, t) => { const P = r.path; let k = -1; for (let i = 0; i < P.length; i += 5) if (P[i] <= t + 1e-6) k = i; if (k < 0 || !(P[k + 3] > 0)) return null;
+    const a = { x: P[k + 1], y: P[k + 2], w: P[k + 3], h: P[k + 4] }, j = k + 5; if (j >= P.length || !(P[j + 3] > 0) || P[j] - P[k] > 1.2) return a;
+    const f = (t - P[k]) / (P[j] - P[k]); return { x: a.x + (P[j + 1] - a.x) * f, y: a.y + (P[j + 2] - a.y) * f, w: a.w + (P[j + 3] - a.w) * f, h: a.h + (P[j + 4] - a.h) * f }; };
   // the export's picture is the camera's picture fitted into W × H (contain); a point 0..1 of the camera → pixel of the export
   const fit = (F, cw, ch) => { const s = Math.min(F.w / cw, F.h / ch), w = cw * s, h = ch * s; return { x: (F.w - w) / 2, y: (F.h - h) / 2, w, h }; };
   // 1. the red ring on the sign in the front export
   const ring = [], inside = [];
   for (const t of [0.5, 1.0, 1.4]) {
-    const F = frame(ef.file, t - RANGE[0]), S = frame(FRONT, t), q = fit(F, 1280, 960), bx = boxAt(regs[0], t), T = truthAt(t);
-    let red = 0, n = 0;
-    for (let k = 0; k < 36; k++) {   // points on the ellipse of the region's box at t
-      const a = k / 36 * 2 * Math.PI, u = bx.x + bx.w / 2 + Math.cos(a) * bx.w / 2, v = bx.y + bx.h / 2 + Math.sin(a) * bx.h / 2;
-      const c = F.px(q.x + u * q.w, q.y + v * q.h); n++; if (c[0] > 170 && c[1] < 110 && c[2] < 110) red++;
+    const F = frame(ef.file, t - RANGE[0]), S = frame(FRONT, t), q = fit(F, 1280, 960), T = truthAt(t);
+    // points on the ellipse of the region's box for the source frame this export frame shows: that frame starts up to one source frame
+    // (1/24 s) before t, so the box of any moment in [t - 1/24, t] (the best of them)
+    let best = 0, bx = null;
+    for (let d = 0; d <= 1 / TRUTH.fps + 1e-6; d += 1 / TRUTH.fps / 4) {
+      const b = boxAt(regs[0], t - d); if (!b) continue;
+      let red = 0, n = 0;
+      for (let k = 0; k < 36; k++) {
+        const a = k / 36 * 2 * Math.PI, u = b.x + b.w / 2 + Math.cos(a) * b.w / 2, v = b.y + b.h / 2 + Math.sin(a) * b.h / 2;
+        const c = F.px(q.x + u * q.w, q.y + v * q.h); n++; if (c[0] > 170 && c[1] < 110 && c[2] < 110) red++;
+      }
+      if (!bx || red / n > best) { best = red / n; bx = b; }
     }
-    ring.push(+(red / n).toFixed(2));
+    ring.push(+best.toFixed(2));
     const cx = T.x + T.w / 2, cy = T.y + T.h / 2, a = F.px(q.x + cx * q.w, q.y + cy * q.h), s = S.px(cx * 1280, cy * 960);
     inside.push(Math.abs(a[0] - s[0]) + Math.abs(a[1] - s[1]) + Math.abs(a[2] - s[2]));
     // and the ring is on the sign: the region's box centre is near the sign's

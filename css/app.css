@@ -1369,3 +1369,51 @@ body.cr-track-on .tile { box-shadow: inset 0 0 0 2px rgba(63,220,90,.55); }
 .cr-ho-list { display: flex; flex-direction: column; gap: 4px; margin: 8px 0 2px; }
 .cr-ho-row { display: flex; align-items: center; gap: 8px; font-size: 13px; }
 .cr-ho-row .btn { margin-left: auto; }
+
+/* track-v2: the Custom regions form as labelled rows (Shape · Style · Colour · Options), compact segmented buttons with icons that never
+   overflow a narrow panel; region rows with the description on top and small action buttons below */
+.us-panel #crSec .cr-grid, .cr-sec > .cr-grid { display: flex; flex-direction: column; align-items: stretch; gap: 8px; }
+#crSec .cr-row { flex-direction: row; align-items: center; gap: 10px; min-width: 0; }
+#crSec .cr-row > span:first-child { flex: 0 0 58px; font-size: 12px; color: var(--dim); }
+#crSec .cr-seg { display: flex; flex: 1 1 auto; min-width: 0; }
+#crSec .cr-seg button { flex: 1 1 0; min-width: 0; min-height: 32px; padding: 0 6px; display: inline-flex; align-items: center; justify-content: center; gap: 5px; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#crSec .cr-seg .cr-ico { flex: 0 0 auto; width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 2; }
+#crSec .cr-seg [data-v="remove"] .cr-ico rect { stroke: none; }
+#crSec .cr-opts { flex-wrap: wrap; row-gap: 2px; }
+#crSec .cr-opts .cr-chk { min-height: 28px; font-size: 13px; margin-right: 8px; }
+#crSec .cr-markrow .cr-sw { width: 24px; height: 24px; }
+#crSec .cr-item { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: start; column-gap: 6px; row-gap: 4px; }
+#crSec .cr-item .cr-desc { min-width: 0; padding-top: 4px; }
+#crSec .cr-acts { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 4px; padding-left: 38px; }
+#crSec .cr-acts .btn { min-height: 28px; height: 28px; padding: 0 9px; font-size: 12px; }
+#crSec .cr-acts .btn.icon { width: 30px; padding: 0; }
+#crSec .cr-item .cr-when-ed { grid-column: 1 / -1; }
+@media (max-width: 380px) { #crSec .cr-seg button > span { display: none; } #crSec .cr-seg button { padding: 0 4px; } }   /* very narrow: icons only (each keeps its title) */
+#crSec .cr-optbox { display: flex; flex-wrap: wrap; align-items: center; gap: 0 14px; min-width: 0; }
+#crSec .cr-trkbtn.on { background: rgba(63,220,90,.12); }
+#crSec .cr-opts { flex-wrap: nowrap; }
+#crSec .cr-acts .cr-ico { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 2; }
+#crSec .cr-delbtn:hover { color: #ff8c84; border-color: rgba(229,83,75,.5); }
+#crSec .cr-acts { padding-left: 4px; gap: 3px; }
+/* Markup: "Markup" in words on desktop; on phones a round pen button (aria-label and title keep the name), Search keeps its labelled pill */
+@media (max-width: 760px) {
+  .tp-controls .us-btn.rd-btn { width: 44px; padding: 0; justify-content: center; }
+  .tp-controls .us-btn.rd-btn .us-lbl { display: none; }
+  .tp-controls #usBtn { right: calc(max(12px, env(safe-area-inset-right)) + 52px); }
+  .tp-controls .us-btn.rd-btn svg { width: 20px; height: 20px; }
+}
+body.mbar .transport > .us-btn.rd-btn { width: 44px; padding: 0; justify-content: center; }
+body.mbar .transport > .us-btn.rd-btn .us-lbl { display: none; }
+body.mbar .transport > #usBtn { right: calc(max(12px, env(safe-area-inset-right)) + 52px); }
+body.mbar .transport > .us-btn.rd-btn svg { width: 20px; height: 20px; }
+/* track-v2-14: the docked strip (wide screens) keeps the marks form on one line, Draw mark first: Shape · Style · Colour · Options side by side,
+   the row names kept for screen readers (the stacked rows above are for the sheet, the floating window and phones) */
+@media (min-width: 900px) {
+  .us-panel.docked:not(.sheet) #crSec > .cr-grid { display: inline-flex; flex-direction: row; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+  .us-panel.docked:not(.sheet) #crSec .cr-row > span:first-child { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  .us-panel.docked:not(.sheet) #crSec .cr-seg { flex: none; }
+  .us-panel.docked:not(.sheet) #crSec .cr-seg button { flex: none; min-height: 28px; padding: 0 9px; }
+  .us-panel.docked:not(.sheet) #crSec .cr-optbox { flex-wrap: nowrap; gap: 0 10px; }
+  .us-panel.docked:not(.sheet) #crSec > #crHistRow { display: inline-flex; vertical-align: middle; margin: 0 0 0 6px; gap: 6px; }
+  .us-panel.docked:not(.sheet) #crSec > #crHistRow .btn { min-height: 30px; height: 30px; }
+}

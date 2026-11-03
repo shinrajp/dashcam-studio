@@ -78,7 +78,8 @@ const list = (p) => p.evaluate(() => TDC.regions.list.map((r) => ({ id: r.id, ca
     const px = await p.evaluate(() => {
       const r = TDC.regions.list[1], tile = TDC.player.tiles.front.tile, cv = tile.querySelector(".redact-layer"), dpr = cv.width / tile.clientWidth, f = TDC.regions.screenFit("front"), tr = tile.getBoundingClientRect();
       const at = (u, v) => { const [x, y] = TDC.regions.toScreen(f, u, v); return [...cv.getContext("2d").getImageData(Math.round((x - tr.left) * dpr), Math.round((y - tr.top) * dpr), 1, 1).data]; };
-      return { mid: at(r.x + r.w / 2, r.y + r.h / 2), top: at(r.x + r.w / 2, r.y + 0.002), corner: at(r.x + 0.01, r.y + 0.01) };
+      let top = [0, 0, 0, 0]; for (let k = 0; k <= 8; k++) { const c = at(r.x + r.w / 2, r.y - 0.002 + k * 0.001); if (c[3] > top[3] || (c[3] === top[3] && c[0] > top[0])) top = c; }   // the strongest pixel across the stroke (its edges are anti-aliased)
+      return { mid: at(r.x + r.w / 2, r.y + r.h / 2), top, corner: at(r.x + 0.01, r.y + 0.01) };
     });
     ok("B. Highlight hides nothing and draws a red ring (not a box: its corner is clear)", px.mid[3] === 0 && px.top[3] > 200 && px.top[0] > 180 && px.top[1] < 120 && px.corner[3] === 0, px);
     // the custom colour picker
@@ -212,7 +213,7 @@ const list = (p) => p.evaluate(() => TDC.regions.list.map((r) => ({ id: r.id, ca
     await p.evaluate(() => document.getElementById("crHoYes").click()); await W(600);
     const L = await list(p);
     ok("H. Yes: a region on the right pillar, linked, same colour, starting then, tracked", L.length === 2 && L[1].cam === "right_pillar" && L[0].link && L[0].link === L[1].link && L[0].ci === L[1].ci && Math.abs(L[1].start - asked.t) < 0.6 && L[1].path > 0, L);
-    const lb = await p.evaluate(() => [...document.querySelectorAll("#crList li")].map((li) => ({ trk: !!li.querySelector(".cr-badge.trk"), lnk: (li.querySelector(".cr-badge.lnk") || {}).textContent || "" })));
+    const lb = await p.evaluate(() => [...document.querySelectorAll("#crList li")].map((li) => ({ trk: !!li.querySelector(".cr-trkbtn.on"), lnk: (li.querySelector(".cr-badge.lnk") || {}).textContent || "" })));
     ok("H. the list shows both tracking and linked (1/2, 2/2)", lb.length === 2 && lb.every((x) => x.trk) && lb[0].lnk === "1/2" && lb[1].lnk === "2/2", lb);
     await p.evaluate(() => TDC.regions.passDone(TDC.regions.list[1].id));
     const h2 = await p.evaluate(() => { const r = TDC.regions.list[1], P = r.path; let last = 0; for (let i = 0; i < P.length; i += 5) if (P[i + 3] > 0) last = P[i]; return { start: r.start, end: r.end, last }; });

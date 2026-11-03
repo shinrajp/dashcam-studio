@@ -3,7 +3,7 @@
 // the camera and re-picks.   Playwright, Chromium (system Chrome) and WebKit (BR=chromium|webkit), phone 390x844 (real touch) + desktop 1280x800.
 // Mock footage only (tools/make-mock-footage.py -> /tmp/ho-mock). Serves the repo on PORT (8803).
 //   A. the dropdown is gone (no #crCam, no <select> in Custom regions or the draw bar); hint text in the panel
-//   B. grid: Draw region -> pick mode: hint "Tap the camera you want to redact", one real <button> per camera, panel steps aside, Cancel only, panels let the tap through
+//   B. grid: Draw region -> pick mode: hint "Tap the camera you want to draw on", one real <button> per camera, panel steps aside, Cancel only, panels let the tap through
 //   C. tap a camera (mouse click / finger) -> that camera is enlarged, chip names it, drag draws on it; saved region has that cam, raw coordinates (mirror undone), list names it
 //   D. a drag that starts on a camera of the grid draws right there (no enlarge); the other tile can be tapped to switch
 //   E. one camera on screen (focused / only one shown): no pick, the shown camera is the camera
@@ -76,15 +76,15 @@ async function run(b, dev, tag) {
   await p.evaluate(() => TDC.searchUI.show(false, "redact")); await W(400);
   ok(tag + " A1 no camera dropdown: no #crCam anywhere, no <select> in Custom regions or the draw bar", await p.evaluate(() => !document.getElementById("crCam") && !document.querySelector("#crSec select") && !document.querySelector("#crBar select") && !document.querySelector("#crSec option")));
   ok(tag + " A2 the panel text tells the new way (tap the camera), the old 'Pick a camera' wording is gone", await p.evaluate(() => { const t = document.querySelector("#crSec .cr-hint").textContent; return /tap the camera/i.test(t) && !/pick a camera/i.test(t); }));
-  ok(tag + " A3 Draw region is the first action of the Redact tab and enabled", (await vis(p, "#crDraw")) && (await p.evaluate(() => !document.getElementById("crDraw").disabled && /Draw region/.test(document.getElementById("crDraw").textContent))));
+  ok(tag + " A3 Draw region is the first action of the Redact tab and enabled", (await vis(p, "#crDraw")) && (await p.evaluate(() => !document.getElementById("crDraw").disabled && /Draw mark/.test(document.getElementById("crDraw").textContent))));
   ok(tag + " A4 six cameras in the grid", (await p.evaluate(() => TDC.GRID.filter((c) => !TDC.player.tiles[c].tile.classList.contains("off") && TDC.player.ev.cams.includes(c)).length)) === 6);
 
   // ── B. pick mode ──
   await startDraw(); await W(300);
   let s = await st(p);
   ok(tag + " B1 Draw region in the grid: pick mode, not drawing yet, no camera chosen", s.pick === true && s.drawing === false && s.cam === null && s.focus === null, s);
-  ok(tag + " B2 hint 'Tap the camera you want to redact' is on screen", s.bar && /Tap the camera you want to redact/.test(s.msg) && (await vis(p, "#crBarMsg")), s);
-  ok(tag + " B3 one real <button> per camera, inside its tile, labelled with the camera name", s.picks === 6 && await p.evaluate(() => TDC.GRID.every((c) => { const b = document.querySelector(".tile[data-cam=" + c + "] > button.cr-pick"); return !!b && b.tagName === "BUTTON" && b.textContent.includes(TDC.CAM_LABEL[c]) && /Redact the/.test(b.getAttribute("aria-label")) && b.getBoundingClientRect().width > 40; })), s);
+  ok(tag + " B2 hint 'Tap the camera you want to draw on' is on screen", s.bar && /Tap the camera you want to draw on/.test(s.msg) && (await vis(p, "#crBarMsg")), s);
+  ok(tag + " B3 one real <button> per camera, inside its tile, labelled with the camera name", s.picks === 6 && await p.evaluate(() => TDC.GRID.every((c) => { const b = document.querySelector(".tile[data-cam=" + c + "] > button.cr-pick"); return !!b && b.tagName === "BUTTON" && b.textContent.includes(TDC.CAM_LABEL[c]) && /Draw on the/.test(b.getAttribute("aria-label")) && b.getBoundingClientRect().width > 40; })), s);
   ok(tag + " B4 the panel stepped aside; the bar shows Cancel (no Save / Draw again / chip)", !s.panel && await p.evaluate(() => { const v = (id) => { const e = document.getElementById(id); return !!e && !e.hidden && e.offsetParent !== null; }; return v("crBarCancel") && !v("crBarSave") && !v("crBarAgain") && !v("crBarCam"); }), s);
   ok(tag + " B5 the camera bar's Draw button label says 'Tap a camera'", await p.evaluate(() => /Tap a camera/.test(document.getElementById("crDraw").textContent)));
   ok(tag + " B6 every tile centre and corner (HUD / map / car panels included) hands the tap to that tile's own pick canvas", await p.evaluate(() => {

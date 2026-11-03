@@ -280,9 +280,9 @@
   G.toJSON = () => JSON.stringify({ type: "dashcam-studio-regions", version: 1, regions: G.list.map((r) => { const o = Object.assign({}, r); delete o.id; return o; }) }, null, 2);
   /** Add regions from a JSON file's text. Returns { added, skipped } or throws a plain-English Error. */
   G.fromJSON = (text) => {
-    let o; try { o = JSON.parse(text); } catch (_) { throw new Error("That file is not a Dashcam Studio regions file."); }
+    let o; try { o = JSON.parse(text); } catch (_) { throw new Error("That file is not a Dashcam Studio marks file."); }
     const arr = Array.isArray(o) ? o : o && o.type === "dashcam-studio-regions" && Array.isArray(o.regions) ? o.regions : null;
-    if (!arr) throw new Error("That file is not a Dashcam Studio regions file.");
+    if (!arr) throw new Error("That file is not a Dashcam Studio marks file.");
     let added = 0, skipped = 0; const before = snap();
     for (const x of arr) { const r = G.clean(x); if (r && G.list.length < G.MAX) { G.list.push(r); added++; } else skipped++; }
     if (added) { H.u.push(before); if (H.u.length > H.MAX) H.u.shift(); H.r.length = 0; changed(); }
@@ -336,7 +336,19 @@
   }
   G.paint = paint;
   /** Export: draw this camera's regions at time t into cell `cell` (ctx is already flipped for a mirrored camera). */
+  /** perf-1: the time of the decoded frame an export draws (its own timestamp; a frame is shown from its start until the next one), so a tracked
+   *  box is looked up for that frame, as in the viewer and the tracking pass. Unknown: t. */
+  const frameT = (t, img) => {
+    try {
+      if (typeof VideoFrame === "undefined" || !(img instanceof VideoFrame) || !isFinite(img.timestamp)) return t;
+      const P = T.player, ev = P && P.ev, c = ev && ev.clips[P.clipIndexAt(t)]; if (!c) return t;
+      const ft = c.start + img.timestamp / 1e6;
+      return ft <= t + 1e-3 && ft > t - 0.1 ? +ft.toFixed(4) : t;
+    } catch (_) { return t; }
+  };
+  G.frameT = frameT;
   G.burn = (ctx, cam, t, cell, iw, ih, img) => {
+    t = frameT(t, img);
     if (S.trackIds && S.trackIds.length) { try { exportTrack(cam, t, iw, ih, img); } catch (e) { console.warn("track (export)", e); } }
     const rs = G.at(cam, t);
     if (!rs.length || !iw || !ih) return;
@@ -363,9 +375,9 @@
   G.prepareFrames = (frames, t) => {
     let out = frames;
     for (const cam of Object.keys(frames || {})) {
-      const f = frames[cam];
-      if (f && f.img && S.trackIds && S.trackIds.length) { try { exportTrack(cam, t, f.w, f.h, f.img); } catch (e) { console.warn("track (export)", e); } }
-      const rs = f && f.img ? G.at(cam, t) : EMPTY;
+      const f = frames[cam], ft = f && f.img ? frameT(t, f.img) : t;
+      if (f && f.img && S.trackIds && S.trackIds.length) { try { exportTrack(cam, ft, f.w, f.h, f.img); } catch (e) { console.warn("track (export)", e); } }
+      const rs = f && f.img ? G.at(cam, ft) : EMPTY;
       if (!rs.length) continue;
       if (out === frames) out = Object.assign({}, frames);
       const c = pf[cam] || (pf[cam] = document.createElement("canvas"));
@@ -493,8 +505,8 @@
       if (picks[c]) continue;
       const tile = T.player.tiles[c]; if (!tile) continue;
       const b = document.createElement("button"); b.type = "button"; b.className = "cr-pick"; b.dataset.cam = c;
-      b.setAttribute("aria-label", "Redact the " + camName(c) + " camera");
-      b.innerHTML = '<span class="cr-pick-n">' + esc(camName(c)) + '</span><span class="cr-pick-h">Tap to redact</span>';
+      b.setAttribute("aria-label", "Draw on the " + camName(c) + " camera");
+      b.innerHTML = '<span class="cr-pick-n">' + esc(camName(c)) + '</span><span class="cr-pick-h">Tap to draw here</span>';
       b.addEventListener("click", (e) => { e.stopPropagation(); choose(c, "key"); });   // keyboard Enter / Space (a pointer tap lands on the canvas instead)
       tile.tile.appendChild(b); picks[c] = b;
     }
@@ -742,7 +754,7 @@
     let r = G.list.find((x) => x.id === S.sel && x.cam === cam), kind = "move", anchor = null;
     if (r && r.shape !== "poly") { const c = cornersOf(f, r).find((k) => Math.hypot(k.s[0] - e.clientX, k.s[1] - e.clientY) <= R0); if (c) { kind = "size"; anchor = c.a; } }
     if (kind === "move") r = regionAt(cam, f, e.clientX, e.clientY);
-    if (!r) { S.sel = null; msg("Press a region to select it, then drag it. Drag a box's corner to resize it.", false); UI.sync(); kick(); return; }
+    if (!r) { S.sel = null; msg("Press a mark to select it, then drag it. Drag a box's corner to resize it.", false); UI.sync(); kick(); return; }
     S.sel = r.id; const pid = e.pointerId, p0 = rawOf(f, e.clientX, e.clientY), sh0 = shapeOf(r), bb = bboxOf(sh0);
     S.mv = { id: r.id, sh: sh0 };
     const mv = (ev) => {
@@ -809,9 +821,9 @@
     if (on) {
       const sel = S.sel && G.list.find((r) => r.id === S.sel);
       const cam = (sel && sel.cam) || S.cam;
-      if (!cam) { msg("Select a region first.", true); return false; }
+      if (!cam) { msg("Select a mark first.", true); return false; }
       const mine = G.list.filter((r) => r.cam === cam);
-      if (!mine.length) { msg("No regions on the " + camName(cam).toLowerCase() + " camera.", true); return false; }
+      if (!mine.length) { msg("No marks on the " + camName(cam).toLowerCase() + " camera.", true); return false; }
       G.sync();
       S.cam = cam; S.move = true; S.drawing = false; S.live = null; S.pick = false; S.draft = null; S.editId = null;
       if (!mine.some((r) => r.id === S.sel)) S.sel = mine[mine.length - 1].id;
@@ -847,8 +859,8 @@
       return true;
     }
     if (S.draft && !S.editId && !S.move) { S.undone = S.draft; S.draft = null; S.drawing = !!S.cam; msg("Shape undone. Redo to restore."); UI.sync(); kick(); return true; }
-    if (S.sel && G.undoRegion && G.undoRegion(S.sel)) { msg("Region undone."); kick(); return true; }
-    if (S.editId && G.undoRegion && G.undoRegion(S.editId)) { msg("Region undone."); kick(); return true; }
+    if (S.sel && G.undoRegion && G.undoRegion(S.sel)) { msg("Mark undone."); kick(); return true; }
+    if (S.editId && G.undoRegion && G.undoRegion(S.editId)) { msg("Mark undone."); kick(); return true; }
     if (G.undo()) { msg("Undone."); kick(); if (R && R.paint) R.paint(); return true; }   // (also while drawing: the box / circle / highlight just saved goes)
     return false;
   };
@@ -904,8 +916,8 @@
     const r = G.list.find((x) => x.id === id); if (!r || !PT) return false;
     const now = isTracked(r);
     on = on === undefined ? !now : !!on;
-    if (on && !now) { const info = armRegion(r, nowT()); msg(info ? "Tracking this region from " + fmt(nowT()) + ". The bar under the timeline fills as it is followed." : "Couldn't read the picture here. Seek a little, then press Track again.", !info); }
-    else if (!on && now) { untrack(r); msg("Tracking off. The region stays where it is now."); }
+    if (on && !now) { const info = armRegion(r, nowT()); msg(info ? "Tracking this mark from " + fmt(nowT()) + ". The bar under the timeline fills as it is followed." : "Couldn't read the picture here. Seek a little, then press Track again.", !info); }
+    else if (!on && now) { untrack(r); msg("Tracking off. The mark stays where it is now."); }
     UI.sync(); kick(); if (R && R.paint) R.paint(); return true;
   };
   function untrack(r) {
@@ -1020,11 +1032,14 @@
       if (ci !== i) { ci = i; v.src = it.url || (it.url = URL.createObjectURL(it.blob)); if (v.readyState < 2) await once(v, "loadeddata", 4000); }
       const lt = Math.max(0, Math.min((isFinite(v.duration) ? v.duration : c.dur || 60) - 0.04, t - c.start));
       if (Math.abs(v.currentTime - lt) > 0.0005) {
-        const fr = v.requestVideoFrameCallback && rvfcOk ? new Promise((res) => { try { v.requestVideoFrameCallback(() => res(true)); } catch (_) { res(false); } }) : null;
-        v.currentTime = lt; await once(v, "seeked", 4000);
+        const fr = v.requestVideoFrameCallback && rvfcOk ? new Promise((res) => { try { v.requestVideoFrameCallback((now, m) => res(m && isFinite(m.mediaTime) ? m.mediaTime : true)); } catch (_) { res(false); } }) : null;
+        v.currentTime = lt; await once(v, "seeked", 4000); v._ft = null;
         if (fr) {   // (the decoded frame is really there, not the previous one). A browser that never calls back for a hidden video: seeked only, after twice
           const got = await Promise.race([fr, new Promise((res) => setTimeout(() => res(false), 120))]);
           if (got) rvfcMiss = 0; else if (++rvfcMiss >= 2) rvfcOk = false;
+          // perf-1: the time of the frame that was decoded. A seek to t shows the frame that STARTS at or before t (up to one frame earlier):
+          // a key stamped t but measured on that frame put the box one frame behind on every other key, a judder while playing
+          if (typeof got === "number" && got <= lt + 1e-3 && got > lt - 0.1) v._ft = +(c.start + got).toFixed(4);
         }
       }
       return v.videoWidth && v.readyState >= 2 ? v : null;
@@ -1090,7 +1105,7 @@
       info.col = colorSig(v, box0);
       const det = detOn();
       if (det) { try { if (T.detect.loadFast) await T.detect.loadFast(); } catch (_) {} await assistAt(tr, v, r.cam, t0, false); }   // the first look: which detection is it?
-      let hidden = false, lastSearch = -9, lastDet = t0, n = 0, tPrev = t0, liveFrom = null, redoTo = -1;
+      let hidden = false, lastSearch = -9, lastDet = t0, n = 0, tPrev = t0, lastK = t0, liveFrom = null, redoTo = -1;
       const P = T.player, sleep = (ms) => new Promise((res) => setTimeout(res, ms));
       for (;;) {
         r = cur(); if (!r) return;
@@ -1108,7 +1123,7 @@
           // stretch replaced one by one as it is redone (the path stays whole meanwhile)
           const vf = b0 ? await rd.at(liveFrom) : null; r = cur(); if (!r) return;
           const imf = vf && grabGrey(vf, o.fw, o.fh, PT.createPlan(b0, o));
-          if (imf) { redoTo = tPrev; tr = info.tr = PT.create(imf, b0, liveFrom, o); const vv = PT.pathVelocity ? PT.pathVelocity(r.path, liveFrom) : null; if (vv) tr.rewind(b0, liveFrom, vv); hidden = false; info.hidden = false; tPrev = liveFrom; lastDet = liveFrom - 1; lastSearch = -9; if (det) await assistAt(tr, vf, r.cam, liveFrom, false); }
+          if (imf) { redoTo = tPrev; tr = info.tr = PT.create(imf, b0, liveFrom, o); const vv = PT.pathVelocity ? PT.pathVelocity(r.path, liveFrom) : null; if (vv) tr.rewind(b0, liveFrom, vv); hidden = false; info.hidden = false; tPrev = liveFrom; lastK = liveFrom; lastDet = liveFrom - 1; lastSearch = -9; if (det) await assistAt(tr, vf, r.cam, liveFrom, false); }
           liveFrom = null; continue;
         }
         let t, lv = P && P.playing ? videoOf(r.cam) : null;
@@ -1126,21 +1141,23 @@
         r = cur(); if (!r) return; if (!v) break;
         if (t <= redoTo + 1e-6 || (redoTo > 0 && tPrev < redoTo)) dropKeys(r.path, tPrev + 1e-6, Math.min(t + 0.044, redoTo + 0.044));   // redoing: the live keys up to here go
         tPrev = t;
+        const tk = !lv && v._ft != null && v._ft > lastK + 1e-4 && v._ft <= t + 1e-3 ? v._ft : t;   // the decoded frame's own time (perf-1)
+        if (tk === lastK) continue; lastK = tk;
         if (hidden) {
-          if (t - lastSearch >= 0.3 - 1e-6) { lastSearch = t; const im = grabGrey(v, o.fw, o.fh, tr.searchPlan()); if (im && tr.reacquire(im, t)) { hidden = false; info.hidden = false; } }   // (keys again once two more looks confirm it)
+          if (t - lastSearch >= 0.3 - 1e-6) { lastSearch = t; const im = grabGrey(v, o.fw, o.fh, tr.searchPlan()); if (im && tr.reacquire(im, tk)) { hidden = false; info.hidden = false; } }   // (keys again once two more looks confirm it)
         } else {
-          const im = grabGrey(v, o.fw, o.fh, tr.plan(t));
+          const im = grabGrey(v, o.fw, o.fh, tr.plan(tk));
           if (im) {
-            const res = tr.update(im, t);
+            const res = tr.update(im, tk);
             let box = res.ok && res.probation ? null : res.ok || !res.hide ? res.box : null;
             const weak = !res.ok || res.score < 0.75;
-            if (det && !res.hide && t - lastDet >= (weak || tr.assistSoon ? 0.25 : 0.5) - 1e-6) { lastDet = t; const nb = await assistAt(tr, v, r.cam, t, weak); r = cur(); if (!r) return; if (nb && box) box = nb; }
+            if (det && !res.hide && t - lastDet >= (weak || tr.assistSoon ? 0.25 : 0.5) - 1e-6) { lastDet = t; const nb = await assistAt(tr, v, r.cam, tk, weak); r = cur(); if (!r) return; if (nb && box) box = nb; }
             if (res.ok && res.probation) { /* found again, not confirmed yet: nothing drawn */ }
-            else if (box) { PT.pathAdd(r.path, t, box); info.lost = 0; if (res.ok && res.score >= 0.7 && t - (info.colT || -9) > 0.8) { info.col = colorSig(v, tr.box); info.colT = t; } }
+            else if (box) { PT.pathAdd(r.path, tk, box); info.lost = 0; if (res.ok && res.score >= 0.7 && t - (info.colT || -9) > 0.8) { info.col = colorSig(v, tr.box); info.colT = t; } }
             else if (res.hide) {
               hidden = true; info.hidden = true; lastSearch = t;
-              if (!PT.pathLostAt(r.path, t)) PT.pathAdd(r.path, t, null);   // "lost from here": nothing is drawn
-              if (res.gone && !info.hoDone) { info.hoDone = true; handoffFind(id, info, tr, t); }   // (looked for in the next camera, alongside)
+              if (!PT.pathLostAt(r.path, tk)) PT.pathAdd(r.path, tk, null);   // "lost from here": nothing is drawn
+              if (res.gone && !info.hoDone) { info.hoDone = true; handoffFind(id, info, tr, tk); }   // (looked for in the next camera, alongside)
             }
           }
         }
@@ -1161,9 +1178,9 @@
     }
   }
   function passBadge(id, info) {
-    const el = document.querySelector('#crList li[data-id="' + id + '"] .cr-badge.trk'); if (!el || !info.pass) return;
+    const el = document.querySelector('#crList li[data-id="' + id + '"] .cr-trk-t'); if (!el || !info.pass) return;
     const pct = Math.round(100 * Math.max(0, Math.min(1, (info.pass.t - info.pass.t0) / Math.max(0.1, info.pass.end - info.pass.t0))));
-    el.lastChild.textContent = "Tracking " + pct + " %";
+    el.textContent = "Tracking " + pct + " %";
   }
   /** Tracking BACK in time from t0 (the moment it was drawn, or the earliest key) down to `until` (default the start of the clip): the same
    *  tracker on frames taken in reverse order (its own clock runs t0 − t, so its motion model just sees the object move the other way).
@@ -1182,16 +1199,17 @@
       const o = { fw: v.videoWidth, fh: v.videoHeight }, im0 = grabGrey(v, o.fw, o.fh, PT.createPlan(box0, o)); if (!im0) return;
       const tr = PT.create(im0, box0, 0, o), det = detOn();
       if (det) await assistAt(tr, v, r.cam, 0, false);
-      let lastDet = 0, n = 0;
+      let lastDet = 0, n = 0, lastK = t0;
       for (let t = +(t0 - PASS_DT).toFixed(3); t >= lo - 1e-6; t = +(t - PASS_DT).toFixed(3)) {
         v = await rd.at(t); r = cur(); if (!r) return; if (!v) break;
-        const tau = +(t0 - t).toFixed(3), im = grabGrey(v, o.fw, o.fh, tr.plan(tau)); if (!im) break;
+        const tk = v._ft != null && v._ft < lastK - 1e-4 && v._ft <= t + 1e-3 ? v._ft : t; if (tk >= lastK - 1e-4) continue; lastK = tk;   // the decoded frame's own time (perf-1)
+        const tau = +(t0 - tk).toFixed(4), im = grabGrey(v, o.fw, o.fh, tr.plan(tau)); if (!im) break;
         const res = tr.update(im, tau), weak = !res.ok || res.score < 0.75;
         let box = res.ok && res.probation ? null : res.ok || !res.hide ? res.box : null;
         if (det && !res.hide && tau - lastDet >= (weak || tr.assistSoon ? 0.25 : 0.5) - 1e-6) { lastDet = tau; const nb = await assistAt(tr, v, r.cam, tau, weak); r = cur(); if (!r) return; if (nb && box) box = nb; }
         if (res.hide || !box) break;   // lost going back: this is where it came into view (or was hidden)
         if (!res.ok) continue;         // coasting a look or two: no key, go on
-        PT.pathAdd(r.path, t, box); earliest = t; info.back.t = t;
+        PT.pathAdd(r.path, tk, box); earliest = tk; info.back.t = t;
         if (++n % 4 === 0) { drawLanes(); saveSoon(); await new Promise((res2) => setTimeout(res2, 0)); }
       }
     } catch (e) { console.warn("track back", e); }
@@ -1212,7 +1230,7 @@
   G.whenTracked = async (status, cancelled) => {
     const busy = () => S.trackIds.filter((id) => { const inf = S.patches[id]; return inf && inf.passTok && ((inf.pass && !inf.pass.done && !inf.pass.err) || (inf.back && !inf.back.done)); });
     if (!busy().length) return;
-    if (status) status("Finishing the tracking of " + busy().length + " region" + (busy().length === 1 ? "" : "s") + "…");
+    if (status) status("Finishing the tracking of " + busy().length + " mark" + (busy().length === 1 ? "" : "s") + "…");
     for (let i = 0; i < 3000 && busy().length && !(cancelled && cancelled()); i++) await new Promise((r) => setTimeout(r, 100));
   };
   /** Wait for a region's pass to finish (tests and tools). */
@@ -1374,7 +1392,7 @@
     }
     if (!h.chain.length) {
       h.state = "none"; HO.queue.splice(HO.queue.indexOf(h), 1); drawLanes();
-      msg("The object left the " + camName(h.cam).toLowerCase() + " camera; it wasn't found in the " + camName(h.to).toLowerCase() + " camera. Draw a region there if it shows up.");
+      msg("The object left the " + camName(h.cam).toLowerCase() + " camera; it wasn't found in the " + camName(h.to).toLowerCase() + " camera. Draw a mark there if it shows up.");
       return;
     }
     const s0 = h.chain[0]; h.to = s0.cam; h.at = s0.keys[0][0]; h.cand = Object.assign({ t: h.at }, s0.keys[0][1]); h.pick = h.chain.map(() => true); h.show = 0;
@@ -1406,7 +1424,7 @@
         if (best) { h.cand = { x: best.x, y: best.y, w: best.w, h: best.h, label: best.label, score: bs, t: tt }; h.at = tt; h.state = "ask"; drawLanes(); return; }
       }
       h.state = "none"; HO.queue.splice(HO.queue.indexOf(h), 1); drawLanes();
-      msg("The object left the " + camName(h.cam).toLowerCase() + " camera; it wasn't found in the " + camName(h.to).toLowerCase() + " camera. Draw a region there if it shows up.");
+      msg("The object left the " + camName(h.cam).toLowerCase() + " camera; it wasn't found in the " + camName(h.to).toLowerCase() + " camera. Draw a mark there if it shows up.");
     } finally { rd.close(); }
   }
   /** Ask when playback reaches the moment (or at once when paused: the player goes there). */
@@ -1525,7 +1543,7 @@
       return;
     }
     const r = handoffMake(h, h.cand, h.cand.t), was = h.wasPlaying;
-    handoffEnd(r ? "Tracking continues in the " + camName(h.to).toLowerCase() + " camera (linked to the first region, same colour)." : "Couldn't add the region there.");
+    handoffEnd(r ? "Tracking continues in the " + camName(h.to).toLowerCase() + " camera (linked to the first mark, same colour)." : "Couldn't add the mark there.");
     if (r && was && T.player) T.player.play();
   }
   /** No detector, or the wrong one shown: the user drags round it on the neighbour camera; that region is linked like a found one. */
@@ -1539,7 +1557,7 @@
     S.track = true; syncTrackPill();
     if (T.focus && T.focus.focus) T.focus.focus(h.to);
     choose(h.to, "auto");
-    msg(camName(h.to) + ": drag round it. It will be tracked and linked to the first region.");
+    msg(camName(h.to) + ": drag round it. It will be tracked and linked to the first mark.");
   }
   /** Export: carry the tracker forward on the frames the exporter decodes, for stretches nobody played (the keys it writes are the region's path from then on). */
   const XT = {};
@@ -1553,11 +1571,11 @@
       if (ahead - t <= 0.3 || (ahead < Infinity && PT.pathLostAt(r.path, t))) { delete XT[id]; continue; }   // already tracked (or out of sight until a later key)
       let x = XT[id];
       if (!x || t < x.t - 0.05 || t - x.t > 1.0) {
-        const b = PT.lastBox(r.path, t); if (!b) continue;
-        // a tracker of its own, started on THIS frame where the path last had it (the session's tracker has moved on to wherever its pass
-        // ended, and has learnt the look there), at the speed the path shows; the first look comes 0.1 s later
-        const im0 = grabGrey(src, iw, ih, PT.createPlan(b, { fw: iw, fh: ih }));
-        const tr0 = im0 ? PT.create(im0, b, t, Object.assign({}, info.tr.o, { fw: iw, fh: ih })) : info.tr.fork();
+        const b = (!PT.pathLostAt(r.path, t) && PT.pathAt(r.path, t)) || PT.lastBox(r.path, t); if (!b) continue;   // (where the path puts it on THIS frame: the last key can be a frame earlier)
+        // a tracker of its own: a copy of the session's (it keeps every look of the object it has learnt, which is what finds it again after
+        // a pole or a look-alike; a fresh one from this single frame lost it there, perf-1), put where the path has it on THIS frame, at the
+        // speed the path shows; the first look comes 0.1 s later
+        const tr0 = info.tr.fork();
         x = XT[id] = { tr: tr0, t, hidden: PT.pathLostAt(r.path, t), last: -9 }; x.tr.rewind(b, t, PT.pathVelocity(r.path, t)); continue;
       }
       if (x.hidden) {   // out of sight: look for it every 0.3 s on the exporter's frames
@@ -1583,14 +1601,14 @@
     /** Done: saves a drawn shape; in Move it simply closes the tray (the moves are already saved, and undoable). */
   UI.done = () => {
     const pendingShape = S.draft || (S.shape === "free" && S.live && S.live.pts && S.live.pts.length >= 6);
-    if (S.track && !pendingShape) { stopTrackDrawing(); UI.sync(); kick(); msg(S.trackIds.length ? S.trackIds.length + " region" + (S.trackIds.length === 1 ? "" : "s") + " tracking." : "Done."); return true; }   // Done ends Track drawing too
+    if (S.track && !pendingShape) { stopTrackDrawing(); UI.sync(); kick(); msg(S.trackIds.length ? S.trackIds.length + " mark" + (S.trackIds.length === 1 ? "" : "s") + " tracking." : "Done."); return true; }   // Done ends Track drawing too
     if (S.trackIds && S.trackIds.length && !pendingShape && !S.move) {
       const n = S.trackIds.length;
       S.drawing = false; S.pick = false;
       const b = $("crBar"); if (b) b.hidden = true;
       document.body.classList.remove("cr-bar-on");
       reopenPanel(true); UI.sync(); kick();
-      msg(n + " region" + (n === 1 ? "" : "s") + " tracking in the background.");
+      msg(n + " mark" + (n === 1 ? "" : "s") + " tracking in the background.");
       return true;
     }
     if (S.shape === "free" && S.live && S.live.pts && S.live.pts.length >= 6 && S.cam) {
@@ -1611,7 +1629,7 @@
     hidePanelForDrawing();
     msg(camName(cam) + ": " + (S.shape === "free" ? "tap to add points, or drag. Double-tap or tap near the start to finish." : "drag on the picture to draw a box."));
     UI.sync(); kick();
-    setTimeout(() => { if (S.drawing && S.cam === cam && !G.screenFit(cam)) msg("The camera picture isn't showing yet. Play or seek the video, then press Draw region again.", true); }, 600);
+    setTimeout(() => { if (S.drawing && S.cam === cam && !G.screenFit(cam)) msg("The camera picture isn't showing yet. Play or seek the video, then press Draw mark again.", true); }, 600);
   }
   /** The drag ended: turn the points into a rectangle or a simplified freehand polygon. */
   function finishShape(cam, live) {
@@ -1629,7 +1647,7 @@
     S.drawing = false;
     S.draft = sh; S.undone = null;
     if (S.track && !S.editId) { UI.save(); return; }   // Track is on: the region is saved and followed right away, and you can draw the next one
-    msg(S.editId ? "Shape changed. Press Save changes." : "Shape drawn. Press Save region (or Draw again).");
+    msg(S.editId ? "Shape changed. Press Save changes." : "Shape drawn. Press Save mark (or Draw again).");
     UI.sync(); kick();
     if (R && R.paint) R.paint();
   }
@@ -1655,7 +1673,7 @@
   }
   function reopenPanel(busy) {
     const U = T.searchUI;
-    if ((S.reopen || S.hid || (busy && U && U.narrow && U.narrow())) && U && U.show) {   // phones: Save / Cancel of a drawing always bring the panel back (also after Options, then the panel's X)
+    if ((S.reopen || S.hid || (busy && !S.track)) && U && U.show) {   // Save / Cancel of a drawing always bring the panel back (also after Options, then the panel's X), not while Track drawing is on (that is drawn without the panel)
       S.reopen = false; S.hid = false; U.show(false, "redact"); const s = $("crSec"); if (s) s.open = true; }
   }
   /* ---- ui-glass-7: the Redact tray (the draw bar, rebuilt like the iOS markup pen tray) ----
@@ -1685,14 +1703,14 @@
   function ensureBar() {
     let b = $("crBar");
     if (b) return b;
-    b = document.createElement("div"); b.id = "crBar"; b.className = "cr-bar cr-tray"; b.hidden = true; b.setAttribute("role", "toolbar"); b.setAttribute("aria-label", "Redact tray");
+    b = document.createElement("div"); b.id = "crBar"; b.className = "cr-bar cr-tray"; b.hidden = true; b.setAttribute("role", "toolbar"); b.setAttribute("aria-label", "Markup tray");
     const mac = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent || ""), mod = mac ? "⌘" : "Ctrl+";
     b.innerHTML = '<button type="button" class="cr-grip" id="crBarGrip" aria-label="Move this tray (drag, or press Up / Down)" title="Drag to move this tray"><svg viewBox="0 0 14 22" aria-hidden="true"><circle cx="4" cy="4" r="1.7"/><circle cx="10" cy="4" r="1.7"/><circle cx="4" cy="11" r="1.7"/><circle cx="10" cy="11" r="1.7"/><circle cx="4" cy="18" r="1.7"/><circle cx="10" cy="18" r="1.7"/></svg></button>' +
       '<button type="button" class="btn small cr-chip" id="crBarCam" hidden></button>' +
       '<span class="cr-bar-btns">' +
       '<span class="seg cr-tseg" id="crBarShape" role="group" aria-label="Shape">' + tb("crBarBox", "rect", "Box", " cr-sv").replace("<button", '<button data-v="rect" aria-pressed="true"') + tb("crBarCircle", "circle", "Circle", " cr-sv").replace("<button", '<button data-v="circle" aria-pressed="false"') +
-        tb("crBarOutline", "outline", "Outline", " cr-sv").replace("<button", '<button data-v="outline" aria-pressed="false" title="Outline: tap point by point round it; tap the first point (or double-tap) to close"') + tb("crBarFree", "free", "Freehand", " cr-sv").replace("<button", '<button data-v="free" aria-pressed="false" title="Freehand: drag round it in one stroke; let go to close"') + "</span>" +
-      '<span class="seg cr-tseg" id="crBarMode" role="group" aria-label="How to hide">' + tb("crBarBlur", "blur", "Blur", " cr-sv").replace("<button", '<button data-v="blur" aria-pressed="true"') + tb("crBarRemove", "remove", "Remove", " cr-sv").replace("<button", '<button data-v="remove" aria-pressed="false"') + tb("crBarMark", "mark", "Highlight", " cr-sv").replace("<button", '<button data-v="mark" aria-pressed="false"') + "</span>" +
+        tb("crBarFree", "free", "Freehand", " cr-sv").replace("<button", '<button data-v="free" aria-pressed="false" title="Freehand: drag round it in one stroke (it closes when you let go), or tap point by point and tap the first point to close"') + "</span>" +
+      '<span class="seg cr-tseg" id="crBarMode" role="group" aria-label="How to hide">' + tb("crBarBlur", "blur", "Blur", " cr-sv").replace("<button", '<button data-v="blur" aria-pressed="true"') + tb("crBarRemove", "remove", "Black", " cr-sv").replace("<button", '<button data-v="remove" aria-pressed="false"') + tb("crBarMark", "mark", "Highlight", " cr-sv").replace("<button", '<button data-v="mark" aria-pressed="false"') + "</span>" +
       tb("crBarUndo", "undo", "Undo (" + mod + "Z)", " ghost cr-io").replace('<span class="t">Undo (' + mod + "Z)", '<span class="t">Undo') +
       tb("crBarRedo", "redo", "Redo (" + (mac ? "⇧⌘Z" : "Ctrl+Shift+Z") + ")", " ghost cr-io").replace(/<span class="t">Redo[^<]*/, '<span class="t">Redo') +
       tb("crBarTrack", "track", "Track", " ghost").replace("<button", '<button aria-pressed="false"') +
@@ -1702,7 +1720,7 @@
       tb("crBarAgain", "again", "Draw again", "") +
       '<button type="button" class="btn small ghost cr-tb" id="crBarOpts" title="Back to the Redact panel" aria-expanded="false">' + ico("opts") + '<span class="t">Options</span></button>' +
       tb("crBarCancel", "cancel", "Cancel", " ghost") +
-      '<button type="button" class="btn small primary cr-tb cr-done" id="crBarSave" title="Save region" aria-label="Done: save region">' + ico("done") + '<span class="t">Done</span></button>' +
+      '<button type="button" class="btn small primary cr-tb cr-done" id="crBarSave" title="Save mark" aria-label="Done: save mark">' + ico("done") + '<span class="t">Done</span></button>' +
       "</span>" +
       '<span class="cr-bar-msg" id="crBarMsg" aria-live="polite"></span>' +
       '<span class="cr-markrow cr-bar-mark" id="crBarMarkRow" hidden>' + markRowHtml("crBarMk") + "</span>";
@@ -1713,7 +1731,7 @@
     $("crBarUndo").addEventListener("click", () => UI.undo());
     $("crBarRedo").addEventListener("click", () => UI.redo());
     $("crBarMove").addEventListener("click", () => UI.move());
-    $("crBarDel").addEventListener("click", () => { if (S.sel) { const id = S.sel; G.remove(id); S.sel = null; msg("Region deleted. Undo brings it back."); if (!G.list.length) UI.move(false); UI.sync(); kick(); } });
+    $("crBarDel").addEventListener("click", () => { if (S.sel) { const id = S.sel; G.remove(id); S.sel = null; msg("Mark deleted. Undo brings it back."); if (!G.list.length) UI.move(false); UI.sync(); kick(); } });
     $("crBarTrack").addEventListener("click", () => UI.track());
     $("crBarResetTrack").addEventListener("click", () => {
       for (const r of G.list.slice()) if (isTracked(r)) untrack(r);   // the regions stay where they are now; they stop following
@@ -1743,7 +1761,7 @@
   };
   UI.setShape = (v) => {
     if (S.move) return;
-    S.tool = ["rect", "circle", "outline", "free"].includes(v) ? v : "rect";
+    S.tool = v === "outline" ? "free" : ["rect", "circle", "free"].includes(v) ? v : "rect";   // (Outline and Freehand are one tool: a stroke or points)
     S.shape = S.tool === "outline" || S.tool === "free" ? "free" : "rect";   // (the drawing code knows two gestures: a drag box, and a point / stroke outline)
     if (!S.editId && S.draft) { S.draft = null; S.undone = null; if (S.cam) S.drawing = true; }   // a new tool: draw the shape again with it
     if (S.drawing) UI.draw();
@@ -1853,7 +1871,7 @@
     b.hidden = !show; document.body.classList.toggle("cr-bar-on", !!show);
     if (!show) return;
     applyPos(false);
-    const sv = $("crBarSave"), what = S.move ? "Done moving" : S.editId ? "Save changes" : "Save region";
+    const sv = $("crBarSave"), what = S.move ? "Done moving" : S.editId ? "Save changes" : "Save mark";
     const freeReady = S.shape === "free" && S.live && S.live.pts && S.live.pts.length >= 6;
     sv.disabled = !(S.move || (S.draft && !S.drawing) || freeReady || S.trackId); sv.title = what; sv.setAttribute("aria-label", "Done: " + what.toLowerCase());
     sv.hidden = !!S.pick && !S.trackId;
@@ -1861,7 +1879,7 @@
     $("crBarAgain").hidden = !!S.drawing || !!S.pick || !!S.move;
     const setSeg = (id, v, dis) => document.querySelectorAll("#" + id + " button").forEach((x) => { x.setAttribute("aria-pressed", String(x.dataset.v === v)); x.classList.toggle("on", x.dataset.v === v); x.disabled = dis; });
     const selR = S.move && G.list.find((r) => r.id === S.sel);
-    setSeg("crBarShape", selR ? (selR.shape === "poly" ? "outline" : selR.shape === "ellipse" ? "circle" : "rect") : S.tool, !!S.move || !!S.pick);
+    setSeg("crBarShape", selR ? (selR.shape === "poly" ? "free" : selR.shape === "ellipse" ? "circle" : "rect") : S.tool, !!S.move || !!S.pick);
     setSeg("crBarMode", selR ? selR.mode : S.mode, !!S.pick || (!!S.move && !selR));
     const u = $("crBarUndo"), r = $("crBarRedo");
     u.hidden = false; r.hidden = false;
@@ -1872,7 +1890,7 @@
       const on = selR ? isTracked(selR) : !!S.track, t = trb.querySelector(".t");
       trb.classList.toggle("on", on); trb.setAttribute("aria-pressed", String(on));
       const lab = selR ? (on ? "Tracking" : "Track it") : "Track"; if (t) t.textContent = lab;
-      trb.title = selR ? (on ? "Following this region's object. Press to stop following (it stays where it is now)." : "Follow this region's object from this frame on") : on ? "Track drawing is on: every region you draw follows its object. Press to turn it off." : "Track drawing: every region you draw follows its object";
+      trb.title = selR ? (on ? "Following this mark's object. Press to stop following (it stays where it is now)." : "Follow this mark's object from this frame on") : on ? "Track drawing is on: every mark you draw follows its object. Press to turn it off." : "Track drawing: every mark you draw follows its object";
     }
     const dlb = $("crBarDel"); if (dlb) dlb.hidden = !selR;
     const mvb = $("crBarMove"), canMove = G.list.length > 0;
@@ -1880,19 +1898,19 @@
     b.classList.toggle("moving", !!S.move);
     const chip = $("crBarCam"), has = !!S.cam && !S.pick;
     chip.hidden = !has;
-    if (has) { chip.textContent = camName(S.cam); chip.disabled = !!S.editId; chip.title = S.editId ? "The camera of the region you are editing" : "Redacting the " + camName(S.cam) + " camera. Tap to pick a different camera"; chip.setAttribute("aria-label", chip.title); }
+    if (has) { chip.textContent = camName(S.cam); chip.disabled = !!S.editId; chip.title = S.editId ? "The camera of the mark you are editing" : "Redacting the " + camName(S.cam) + " camera. Tap to pick a different camera"; chip.setAttribute("aria-label", chip.title); }
     b.classList.toggle("picking", !!S.pick);
     syncMarkRows();
     optsLabel();
   }
   UI.save = () => {
-    if (!S.draft) { msg("Draw a region first.", true); return null; }
+    if (!S.draft) { msg("Draw a mark first.", true); return null; }
     const t = readTimes();
     const o = Object.assign({ cam: S.cam, start: t.start, end: t.end }, styleOf(), S.draft);
     let r;
     if (S.editId) r = G.update(S.editId, o);
-    else { if (G.list.length >= G.MAX) { msg("That is the most regions for one event (" + G.MAX + "). Delete one first.", true); return null; } r = G.add(o); }
-    if (!r) { msg("Couldn't save that region. Draw it again.", true); return null; }
+    else { if (G.list.length >= G.MAX) { msg("That is the most marks for one event (" + G.MAX + "). Delete one first.", true); return null; } r = G.add(o); }
+    if (!r) { msg("Couldn't save that mark. Draw it again.", true); return null; }
     const was = S.editId;
     let tracking = false;
     if (!was && (S.track || S.armOnSave)) { tracking = !!armRegion(r); S.armOnSave = false; }   // Track was on when this was drawn: it follows the object
@@ -1903,7 +1921,7 @@
     }
     if (S.hoDraw) { S.hoDraw = false; S.track = false; syncTrackPill(); }
     resetForm(); changed(); reopenPanel(true);
-    msg(was ? "Region updated." : tracking ? "Region saved and tracking. The bar under the timeline fills as it is followed." : MODE_NAME[r.mode] === "Highlight" ? "Region saved. It is outlined in the viewer and in the export." : "Region saved. It is hidden in the viewer and in the export.");
+    msg(was ? "Mark updated." : tracking ? "Mark saved and tracking. The bar under the timeline fills as it is followed." : MODE_NAME[r.mode] === "Highlight" ? "Mark saved. It is outlined in the viewer and in the export." : "Mark saved. It is hidden in the viewer and in the export.");
     return r;
   };
   /** Draw region. With several cameras on screen: "tap the camera you want to redact" (a tap enlarges it and arms the drag, a drag starts drawing on it).
@@ -1925,12 +1943,12 @@
     if (repick && T.focus && T.focus.cam && T.focus.grid) T.focus.grid();   // back to all the cameras, so there is something to tap
     hidePanelForDrawing();   // first: a docked panel (landscape phone) squeezes the pictures to nothing, and we need to see which cameras are really on screen
     const one = T.focus && T.focus.cam, vis = visibleCams();
-    if (!vis.length && !one) { reopenPanel(); msg("The cameras aren't showing yet. Play or seek the video, then press Draw region again.", true); return; }
+    if (!vis.length && !one) { reopenPanel(); msg("The cameras aren't showing yet. Play or seek the video, then press Draw mark again.", true); return; }
     S.cam = null; S.draft = null; S.live = null; S.drawing = false;
     if (isMulti()) {
       S.pick = true;
       hidePanelForDrawing();
-      msg("Tap the camera you want to redact", false);
+      msg("Tap the camera you want to draw on", false);
       UI.sync(); kick();
       const fp = (n) => {   // the camera buttons appear on the next painted frame: wait for them (up to ~1 s on a busy page) instead of giving up
         if (!S.pick) return;
@@ -1945,14 +1963,14 @@
   UI.edit = (id) => {
     const r = G.list.find((x) => x.id === id); if (!r) return;
     S.pick = false; syncPicks([]);
-    S.editId = id; S.cam = r.cam; S.shape = r.shape === "poly" ? "free" : "rect"; S.mode = r.mode; if (r.mode === "mark") S.mc = r.mc; S.tool = r.shape === "poly" ? "outline" : r.shape === "ellipse" ? "circle" : "rect"; S.draft = shapeOf(r); S.drawing = false;
+    S.editId = id; S.cam = r.cam; S.shape = r.shape === "poly" ? "free" : "rect"; S.mode = r.mode; if (r.mode === "mark") S.mc = r.mc; S.tool = r.shape === "poly" ? "free" : r.shape === "ellipse" ? "circle" : "rect"; S.draft = shapeOf(r); S.drawing = false;
     S.whole = r.start == null && r.end == null;
     $("crWhole").checked = S.whole; $("crFrom").value = fmt(r.start || 0); $("crTo").value = fmt(r.end == null ? dur() : r.end);
     if (T.focus && T.focus.focus && T.focus.cam !== r.cam) T.focus.focus(r.cam);
-    msg("Editing the " + camName(r.cam).toLowerCase() + " region. Change the settings, or press Draw region to redraw the shape, then Save changes.");
+    msg("Editing the " + camName(r.cam).toLowerCase() + " mark. Change the settings, or press Draw mark to redraw the shape, then Save changes.");
     UI.sync(); kick();
   };
-  const MODE_NAME = { blur: "Blur", remove: "Remove", mark: "Highlight" }, SHAPE_NAME = { rect: "box", ellipse: "circle", poly: "outline" };
+  const MODE_NAME = { blur: "Blur", remove: "Black", mark: "Highlight" }, SHAPE_NAME = { rect: "box", ellipse: "circle", poly: "freehand" };
   /** Is this region following an object? (tracking now, or it has a tracked path from before) */
   const isTracked = (r) => !!(r.path || (S.trackIds && S.trackIds.includes(r.id)));
   function trackState(r) {
@@ -1971,16 +1989,17 @@
       const style = r.mode === "mark" ? 'Highlight <i class="cr-dot" style="--sw:' + esc(r.mc) + '"></i>' : MODE_NAME[r.mode] || "Blur";
       const open = S.timeOpen === r.id, whole = r.start == null && r.end == null;
       return '<li class="cr-item' + (r.on ? "" : " off") + (r.id === S.editId ? " editing" : "") + (tracked ? " tracked" : "") + (r.id === S.laneSel ? " sel" : "") + '" data-id="' + esc(r.id) + '" style="--lane:' + G.color(r) + '">' +
-        '<label class="cr-on" title="Switch this region on or off (off: not hidden in the viewer or the export)"><input type="checkbox" data-act="on"' + (r.on ? " checked" : "") + ' aria-label="Region ' + (i + 1) + ' on"></label>' +
+        '<label class="cr-on" title="Switch this mark on or off (off: not hidden in the viewer or the export)"><input type="checkbox" data-act="on"' + (r.on ? " checked" : "") + ' aria-label="Mark ' + (i + 1) + ' on"></label>' +
         '<span class="cr-desc"><b><i class="cr-lane-dot" aria-hidden="true"></i>' + esc(camName(r.cam)) + "</b> · " + style + " · " + SHAPE_NAME[r.shape] +
-        '<br><button type="button" class="cr-when" data-act="time" aria-expanded="' + open + '" title="Change when this region is on">' + esc(when) + " ▾</button>" + badge + linkB + "</span>" +
+        '<br><button type="button" class="cr-when" data-act="time" aria-expanded="' + open + '" title="Change when this mark is on">' + esc(when) + " ▾</button>" + linkB + "</span>" +
+        '<span class="cr-acts">' +
         '<button type="button" class="btn small ghost icon cr-cambtn" data-act="camopen" title="Move from ' + esc(camName(r.cam)) + '" aria-label="Choose camera" aria-haspopup="listbox">' + camIco(r.cam) + '</button>' +
-        '<button type="button" class="btn small ghost cr-trkbtn' + (tracked ? " on" : "") + '" data-act="track" aria-pressed="' + tracked + '" title="' + (tracked ? "Stop following the object (the region stays where it is now)" : "Follow the object in this region from the frame on screen") + '">' + ico("track") + '<span>' + (tracked ? "Tracking" : "Track") + "</span></button>" +
-        '<button type="button" class="btn small ghost" data-act="go" title="Show this region in the video">Show</button>' +
+        '<button type="button" class="btn small ghost cr-trkbtn' + (tracked ? " on" : "") + '" data-act="track" aria-pressed="' + tracked + '" title="' + (tracked ? "Stop following the object (the mark stays where it is now)" : "Follow the object in this mark from the frame on screen") + '">' + ico("track") + '<span class="cr-trk-t">' + (st === "pass" ? "Tracking " + pct + " %" : tracked ? "Tracking" : "Track") + "</span></button>" +
+        '<button type="button" class="btn small ghost" data-act="go" title="Show this mark in the video">Show</button>' +
         '<button type="button" class="btn small ghost icon" data-act="sticky" title="' + (r.global ? 'Global pin' : (r.sticky ? 'Event pin' : 'Pin')) + '" aria-label="Pin" style="opacity:' + (r.sticky ? '1' : '0.4') + '">' +
         '<svg viewBox="0 0 24 24" width="16" height="16" fill="' + (r.sticky ? '#e6b450' : 'none') + '" stroke="' + (r.sticky ? '#e6b450' : '#666') + '" stroke-width="2"><path d="M12 17v5M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/>' + (r.global ? '<circle cx="19" cy="5" r="3" fill="#e6b450" stroke="none"/>' : (r.sticky ? '<path d="M19 3l.5 1.5L21 5l-1.5.5L19 7l-.5-1.5L17 5l1.5-.5z" fill="#fff" stroke="none"/>' : '')) + '</svg></button>' +
         '<button type="button" class="btn small ghost" data-act="edit">Edit</button>' +
-        '<button type="button" class="btn small ghost" data-act="del" aria-label="Delete region ' + (i + 1) + '">Delete</button>' +
+        '<button type="button" class="btn small ghost icon cr-delbtn" data-act="del" title="Delete this mark (Undo brings it back)" aria-label="Delete mark ' + (i + 1) + '">' + ico("del") + "</button></span>" +
         (open ? '<div class="cr-when-ed" data-ed="1"><label class="cr-chk"><input type="checkbox" data-act="whole"' + (whole ? " checked" : "") + '> Whole clip</label>' +
           '<span class="cr-when-t"' + (whole ? " hidden" : "") + '><label>From <input type="text" data-k="start" inputmode="decimal" autocomplete="off" spellcheck="false" value="' + fmt(r.start || 0) + '" aria-label="Start time"></label><button type="button" class="btn small ghost" data-act="tnow" data-k="start">Now</button>' +
           '<label>to <input type="text" data-k="end" inputmode="decimal" autocomplete="off" spellcheck="false" value="' + fmt(r.end == null ? dur() : r.end) + '" aria-label="End time"></label><button type="button" class="btn small ghost" data-act="tnow" data-k="end">Now</button>' +
@@ -2001,10 +2020,10 @@
     $("crTimes").hidden = S.whole;
     if ($("crHandoff")) $("crHandoff").checked = G.handoffOn();
     $("crTrim").hidden = !(T.ui && T.ui.activeSegs && T.ui.activeSegs().length);
-    $("crDraw").textContent = S.pick ? "Tap a camera…" : S.drawing ? "Drawing… drag on the picture" : S.draft ? "Draw again" : "Draw region";
+    $("crDraw").textContent = S.pick ? "Tap a camera…" : S.drawing ? "Drawing… drag on the picture" : S.draft ? "Draw again" : "Draw mark";
     $("crDraw").disabled = !ev || !cams.length;
     $("crSave").disabled = !S.draft || S.drawing;
-    $("crSave").textContent = S.editId ? "Save changes" : "Save region";
+    $("crSave").textContent = S.editId ? "Save changes" : "Save mark";
     $("crCancel").hidden = !(S.drawing || S.pick || S.draft || S.editId);
     syncBar();
     const n = G.list.length, on = G.list.filter((r) => r.on).length;
@@ -2020,7 +2039,7 @@
     $("crStore").hidden = G.storeOk !== false;
     // Export dialog note
     const note = $("exportRegionsNote");
-    if (note) { note.hidden = !on; note.textContent = on ? on + " custom region" + (on === 1 ? "" : "s") + " will be hidden in the export (Redact ▸ Custom regions)." : ""; }
+    if (note) { note.hidden = !on; note.textContent = on ? on + " mark" + (on === 1 ? "" : "s") + " will be hidden in the export (Markup ▸ Marks)." : ""; }
     if (S.drawing || S.pick || S.draft || S.editId || S.peek) kick();
   };
   function bind() {
@@ -2049,14 +2068,14 @@
     $("crList").addEventListener("click", (e) => {
       const b = e.target.closest("[data-act]"), li = e.target.closest("li[data-id]"); if (!b || !li) return;
       const id = li.dataset.id, r = G.list.find((x) => x.id === id); if (!r) return;
-      if (b.dataset.act === "del") { if (S.editId === id) resetForm(); G.remove(id); msg("Region deleted. Undo brings it back."); }
+      if (b.dataset.act === "del") { if (S.editId === id) resetForm(); G.remove(id); msg("Mark deleted. Undo brings it back."); }
       else if (b.dataset.act === "track") { setTimeout(() => UI.trackRegion(id), 0); }
       else if (b.dataset.act === "time") { S.timeOpen = S.timeOpen === id ? null : id; S.laneSel = id; UI.sync(); }
       else if (b.dataset.act === "tnow") { const inp = li.querySelector('input[data-k="' + b.dataset.k + '"]'); if (inp) inp.value = fmt(nowT()); }
       else if (b.dataset.act === "tapply") {
         let a = parseT(li.querySelector('input[data-k="start"]').value), z = parseT(li.querySelector('input[data-k="end"]').value);
         if (!isFinite(a)) a = 0; if (!isFinite(z)) z = dur(); if (z < a) { const q = a; a = z; z = q; }
-        G.setTimes(id, a, z); msg("Region on from " + fmt(a) + " to " + fmt(z) + ".");
+        G.setTimes(id, a, z); msg("Mark on from " + fmt(a) + " to " + fmt(z) + ".");
       }
       else if (b.dataset.act === "camopen") openCamMenu(b, r);
       else if (b.dataset.act === "sticky") {
@@ -2078,8 +2097,8 @@
       if (e.target.dataset.act === "on") G.update(li.dataset.id, { on: e.target.checked });
       else if (e.target.dataset.act === "whole") {
         const r = G.list.find((x) => x.id === li.dataset.id); if (!r) return;
-        if (e.target.checked) { G.setTimes(r.id, null, null); msg("Region on for the whole clip."); }
-        else { const t = nowT(), a = Math.max(0, t - 2), z = Math.min(dur() || t + 5, t + 5); G.setTimes(r.id, a, z); msg("Region on from " + fmt(a) + " to " + fmt(z) + ". Drag its bar's ends under the timeline, or type the times."); }
+        if (e.target.checked) { G.setTimes(r.id, null, null); msg("Mark on for the whole clip."); }
+        else { const t = nowT(), a = Math.max(0, t - 2), z = Math.min(dur() || t + 5, t + 5); G.setTimes(r.id, a, z); msg("Mark on from " + fmt(a) + " to " + fmt(z) + ". Drag its bar's ends under the timeline, or type the times."); }
       }
     });
     $("crList").addEventListener("keydown", (e) => { if (e.key === "Enter" && e.target.matches("input[data-k]")) { const ap = e.target.closest("li").querySelector('[data-act="tapply"]'); if (ap) { e.preventDefault(); ap.click(); } } });
@@ -2091,9 +2110,9 @@
     });
     $("crClearPinned").addEventListener("click", () => {
       const pinned = G.list.filter((r) => r.sticky);
-      if (!pinned.length) { msg("No pinned regions."); return; }
+      if (!pinned.length) { msg("No pinned marks."); return; }
       for (const r of pinned) G.remove(r.id);
-      msg(pinned.length + " pinned region" + (pinned.length === 1 ? "" : "s") + " cleared.");
+      msg(pinned.length + " pinned mark" + (pinned.length === 1 ? "" : "s") + " cleared.");
       UI.sync();
     });
     $("crExportFile").addEventListener("click", () => {
@@ -2107,7 +2126,7 @@
     $("crFile").addEventListener("change", async () => {
       const f = $("crFile").files && $("crFile").files[0]; $("crFile").value = "";
       if (!f) return;
-      try { const r = G.fromJSON(await f.text()); msg(r.added ? "Added " + r.added + " region" + (r.added === 1 ? "" : "s") + (r.skipped ? " (" + r.skipped + " skipped)" : "") + "." : "Nothing usable in that file.", !r.added); }
+      try { const r = G.fromJSON(await f.text()); msg(r.added ? "Added " + r.added + " mark" + (r.added === 1 ? "" : "s") + (r.skipped ? " (" + r.skipped + " skipped)" : "") + "." : "Nothing usable in that file.", !r.added); }
       catch (e) { msg(e.message || String(e), true); }
     });
   }
@@ -2135,27 +2154,33 @@
     const sec = document.createElement("details");
     sec.className = "cr-sec us-t-redact"; sec.id = "crSec"; sec.open = true;   // always open: no accordion click needed (redact-button)
     sec.innerHTML =
-      '<summary>Custom regions <span id="crCount"></span></summary>' +
-      '<p class="cr-hint" id="crHint">For what automatic redaction misses, like a curved plate. Press <b>Draw region</b>, tap the camera you want, then drag over the area. Regions stay put on the picture and are burned into the export.</p>' +
+      '<summary>Marks <span id="crCount"></span></summary>' +
+      '<p class="cr-hint" id="crHint">Hide what auto-redact misses (a curved plate, a house number), or highlight something to point it out. Press <b>Draw mark</b>, tap the camera, drag round it; <b>Track</b> follows it. Marks are burned into the export.</p>' +
       '<div class="cr-grid">' +
-      '<div class="cr-f"><span>Shape</span><div class="seg" id="crShape" role="group" aria-label="Shape"><button type="button" data-v="rect" aria-pressed="true">Box</button><button type="button" data-v="circle" aria-pressed="false">Circle</button><button type="button" data-v="outline" aria-pressed="false" title="Tap point by point round it; tap the first point to close">Outline</button><button type="button" data-v="free" aria-pressed="false" title="Drag round it in one stroke">Freehand</button></div></div>' +
-      '<div class="cr-f"><span>Hide with</span><div class="seg" id="crMode" role="group" aria-label="How to hide"><button type="button" data-v="blur" aria-pressed="true" title="A strong blur: the text can\'t be read">Blur</button><button type="button" data-v="remove" aria-pressed="false" title="A solid black shape">Remove (black)</button><button type="button" data-v="mark" aria-pressed="false" title="Nothing hidden: a box, circle or outline round it, to point it out">Highlight</button></div></div>' +
-      '<div class="cr-f cr-markrow" id="crMarkRow" hidden><span>Colour</span>' + markRowHtml("crMk") + "</div>" +
-      '<div class="cr-f"><span>When</span><label class="cr-chk"><input type="checkbox" id="crWhole" checked> Whole clip</label></div>' +
-      '<div class="cr-f"><span>Tracking</span><label class="cr-chk" title="When a tracked object drives out of one camera, look for it in the next camera and ask you before following it there"><input type="checkbox" id="crHandoff" checked> Follow into the next camera (asks first)</label></div>' +
+      '<div class="cr-f cr-row"><span>Shape</span><div class="seg cr-seg" id="crShape" role="group" aria-label="Shape">' +
+        '<button type="button" data-v="rect" aria-pressed="true" title="Box: drag a box">' + ico("rect") + "<span>Box</span></button>" +
+        '<button type="button" data-v="circle" aria-pressed="false" title="Circle: drag round it">' + ico("circle") + "<span>Circle</span></button>" +
+        '<button type="button" data-v="free" aria-pressed="false" title="Freehand: drag round it in one stroke, or tap point by point and tap the first point to close">' + ico("free") + "<span>Freehand</span></button></div></div>" +
+      '<div class="cr-f cr-row"><span>Style</span><div class="seg cr-seg" id="crMode" role="group" aria-label="Style">' +
+        '<button type="button" data-v="blur" aria-pressed="true" title="Blur: a strong blur, the text can\'t be read">' + ico("blur") + "<span>Blur</span></button>" +
+        '<button type="button" data-v="remove" aria-pressed="false" title="Black: a solid black shape">' + ico("remove") + "<span>Black</span></button>" +
+        '<button type="button" data-v="mark" aria-pressed="false" title="Highlight: nothing hidden, the shape is drawn round it in a colour to point it out">' + ico("mark") + "<span>Highlight</span></button></div></div>" +
+      '<div class="cr-f cr-row cr-markrow" id="crMarkRow" hidden><span>Colour</span>' + markRowHtml("crMk") + "</div>" +
+      '<div class="cr-f cr-row cr-opts"><span>Options</span><div class="cr-optbox"><label class="cr-chk"><input type="checkbox" id="crWhole" checked> Whole clip</label>' +
+        '<label class="cr-chk" title="When a tracked object drives out of one camera, look for it in the next ones and ask you before following it there"><input type="checkbox" id="crHandoff" checked> Follow into other cameras</label></div></div>' +
       "</div>" +
       // ui-glass-6: the thin docked strip folds the help behind (i) and the saved regions behind "Regions (n)" (popovers; hidden by CSS elsewhere)
-      '<button type="button" class="cr-info" id="crInfo" aria-expanded="false" aria-controls="crHint" aria-label="How custom regions work" title="How custom regions work">i</button>' +
-      '<button type="button" class="btn small cr-regbtn" id="crRegBtn" aria-expanded="false" aria-controls="crList" hidden>Regions <span id="crRegN"></span></button>' +
+      '<button type="button" class="cr-info" id="crInfo" aria-expanded="false" aria-controls="crHint" aria-label="How marks work" title="How marks work">i</button>' +
+      '<button type="button" class="btn small cr-regbtn" id="crRegBtn" aria-expanded="false" aria-controls="crList" hidden>Marks <span id="crRegN"></span></button>' +
       '<div class="cr-times" id="crTimes" hidden><label>From <input id="crFrom" type="text" inputmode="decimal" autocomplete="off" spellcheck="false" placeholder="0:00.0" aria-label="Start time"></label><button type="button" class="btn small ghost" id="crFromNow" title="Use the current position">Now</button>' +
       '<label>to <input id="crTo" type="text" inputmode="decimal" autocomplete="off" spellcheck="false" placeholder="0:05.0" aria-label="End time"></label><button type="button" class="btn small ghost" id="crToNow" title="Use the current position">Now</button>' +
       '<button type="button" class="btn small ghost" id="crTrim" hidden title="Use the time span of your sections">Use my sections</button></div>' +
-      '<div class="cr-actions" id="crActions"><button type="button" class="btn primary small" id="crDraw">Draw region</button><button type="button" class="btn small" id="crSave" disabled>Save region</button><button type="button" class="btn ghost small" id="crCancel" hidden>Cancel</button></div>' +
+      '<div class="cr-actions" id="crActions"><button type="button" class="btn primary small" id="crDraw">Draw mark</button><button type="button" class="btn small" id="crSave" disabled>Save mark</button><button type="button" class="btn ghost small" id="crCancel" hidden>Cancel</button></div>' +
       '<div class="cr-msg" id="crMsg" aria-live="polite"></div>' +
       '<ul class="cr-list" id="crList" hidden></ul>' +
       '<div class="cr-actions" id="crHistRow"><button type="button" class="btn ghost small" id="crUndo" disabled>Undo</button><button type="button" class="btn ghost small" id="crRedo" disabled>Redo</button></div>' +
-      '<div class="cr-actions" id="crFileRow"><button type="button" class="btn ghost small" id="crExportFile" title="Save the regions as a small file">Save as file</button><button type="button" class="btn ghost small" id="crImportFile" title="Add regions from a file">Load from file</button><button type="button" class="btn ghost small" id="crClearPinned" title="Remove all pinned regions">Clear pinned</button><input type="file" id="crFile" accept=".json,application/json" hidden></div>' +
-      '<p class="cr-hint" id="crStore" hidden>This browser is not keeping the regions between visits (storage is blocked). Use Save as file.</p>';
+      '<div class="cr-actions" id="crFileRow"><button type="button" class="btn ghost small" id="crExportFile" title="Save the marks as a small file">Save as file</button><button type="button" class="btn ghost small" id="crImportFile" title="Add marks from a file">Load from file</button><button type="button" class="btn ghost small" id="crClearPinned" title="Remove all pinned marks">Clear pinned</button><input type="file" id="crFile" accept=".json,application/json" hidden></div>' +
+      '<p class="cr-hint" id="crStore" hidden>This browser is not keeping the marks between visits (storage is blocked). Use Save as file.</p>';
     return sec;
   }
   // ── region lanes under the timeline (one colour-coded bar per region: when it is on; for a tracked region, solid where the object is
@@ -2168,7 +2193,7 @@
   function ensureLanes() {
     if (!lanesEl) {
       lanesEl = document.createElement("div"); lanesEl.className = "cr-lanes"; lanesEl.id = "crLanes"; lanesEl.hidden = true;
-      lanesEl.setAttribute("role", "group"); lanesEl.setAttribute("aria-label", "Custom regions on the timeline: drag the ends of a bar to change when that region is on");
+      lanesEl.setAttribute("role", "group"); lanesEl.setAttribute("aria-label", "Marks on the timeline: drag the ends of a bar to change when that mark is on");
       lanesCv = document.createElement("canvas"); lanesCv.id = "crLanesCanvas";
       lanesEl.appendChild(lanesCv);
       wireLanes();
@@ -2296,7 +2321,7 @@
       const L = laneDrag; laneDrag = null;
       G.setTimes(L.id, L.a, L.z);
       const r = G.list.find((x) => x.id === L.id);
-      msg(r && r.start == null && r.end == null ? "Region on for the whole clip." : "Region on from " + fmt(L.a) + " to " + fmt(L.z) + ".");
+      msg(r && r.start == null && r.end == null ? "Mark on for the whole clip." : "Mark on from " + fmt(L.a) + " to " + fmt(L.z) + ".");
       drawLanes();
     };
     lanesCv.addEventListener("pointermove", move); lanesCv.addEventListener("pointerup", up); lanesCv.addEventListener("pointercancel", up);
@@ -2351,7 +2376,7 @@
         if (!S.move || !S.sel || mod || e.altKey) return;
         const st = e.shiftKey ? 0.02 : 0.004, d = { arrowleft: [-st, 0], arrowright: [st, 0], arrowup: [0, -st], arrowdown: [0, st] }[k];
         if (d) { e.preventDefault(); e.stopImmediatePropagation(); const f = G.screenFit(S.cam); UI.nudge(f && f.mirrored ? -d[0] : d[0], d[1]); }
-        else if (k === "delete" || k === "backspace") { e.preventDefault(); e.stopImmediatePropagation(); G.remove(S.sel); msg("Region deleted. " + (navigator.platform && /Mac/.test(navigator.platform) ? "⌘Z" : "Ctrl+Z") + " brings it back."); }
+        else if (k === "delete" || k === "backspace") { e.preventDefault(); e.stopImmediatePropagation(); G.remove(S.sel); msg("Mark deleted. " + (navigator.platform && /Mac/.test(navigator.platform) ? "⌘Z" : "Ctrl+Z") + " brings it back."); }
       }, true);
       G.load(); UI.sync();
       // the lanes follow the timeline (zoom, pan, resize) and the playhead

@@ -60,7 +60,7 @@ async function open(p) {
 const state = {
   idle: async (p) => { await p.evaluate(() => TDC.toast("Saved. A long message to see that it never sits on the buttons in the corner.", "ok", 60000)); await W(500); },
   panel: async (p) => { await p.evaluate(() => { TDC.toast("Hello from the corner, a longer message than usual", "ok", 60000); TDC.searchUI.show(false, "redact"); }); await W(900); },
-  pick: async (p) => { await p.evaluate(() => { TDC.regions.UI.cancel(); TDC.searchUI.hide(); TDC.focus.grid && TDC.focus.grid(); TDC.regions.UI.draw(true); TDC.toast("Tap the camera you want to redact, and a longer text", "ok", 60000); }); await W(900); },
+  pick: async (p) => { await p.evaluate(() => { TDC.regions.UI.cancel(); TDC.searchUI.hide(); TDC.focus.grid && TDC.focus.grid(); TDC.regions.UI.draw(true); TDC.toast("Tap the camera you want to draw on, and a longer text", "ok", 60000); }); await W(900); },
   // map-float: the map floated and pushed into the bottom-right corner (as far as it goes) must stay clear of every bottom control
   mapfloat: async (p) => { await p.evaluate(() => { TDC.prefs.mapFloat = { fx: 1, fy: 1 }; TDC.overlays.setMapHome("float", true); }); await W(900); },
   drawing: async (p) => { await p.evaluate(() => { TDC.regions.UI.cancel(); TDC.searchUI.hide(); TDC.focus.focus("front"); TDC.regions.UI.draw(); }); await W(700);

@@ -348,19 +348,37 @@
   // mediaTime, Safari 15.4+ / Chromium), not the clock: the blur is drawn for that camera's own frame, so it doesn't trail
   // a moving plate. Without the callback: the video's own currentTime.
   function watchFrames(v) {
-    if (!v || v._rvfcOn || typeof v.requestVideoFrameCallback !== "function") return;
+    if (!v || typeof v.requestVideoFrameCallback !== "function") return;
+    if (!v._rvfcSeek) {   // a frame from before a seek is never "the one on screen"; once seeked (paused), the frame it settles on, and a repaint for it
+      v._rvfcSeek = true;
+      v.addEventListener("seeking", () => { v._pres = null; });
+      v.addEventListener("seeked", () => { try { v.requestVideoFrameCallback((now, meta) => { if (v.seeking) return; v._pres = { mt: meta && isFinite(meta.mediaTime) ? meta.mediaTime : v.currentTime, at: performance.now(), still: true }; repaintFor(v); }); } catch (_) {} });
+    }
+    if (v._rvfcOn || !(T.player && T.player.playing)) return;
     v._rvfcOn = true;
     const cb = (now, meta) => {
       v._pres = { mt: meta && isFinite(meta.mediaTime) ? meta.mediaTime : v.currentTime, at: performance.now() };
+      // perf-1: repaint this camera's layer for the frame that is about to show (the player's time tick can run a frame earlier or
+      // later than the picture, which made tracked boxes judder against a moving car)
+      if (T.player && T.player.playing) repaintFor(v);
       if (T.player && T.player.playing && !v.paused) v.requestVideoFrameCallback(cb); else v._rvfcOn = false;
     };
     v.requestVideoFrameCallback(cb);
   }
+  function repaintFor(v) {
+    try { const P = T.player; if (P && P.tiles) for (const cam of T.GRID) { const tl = P.tiles[cam]; if (tl && tl.vids[P.active] === v) { paintCam(cam, true); break; } } } catch (_) {}
+  }
   R.camTime = (cam, video) => {
     const P = T.player, t = P.time;
     try {
-      if (!P.playing || !P.ev || !video || !video._url) return t;
+      if (!P.ev || !video || !video._url) return t;
       watchFrames(video);
+      if (!P.playing) {   // paused: the frame the seek settled on (it starts at or a little before the clock), as the tracking pass and the export see it
+        const pr = video._pres; if (!pr || !pr.still || video.seeking) return t;
+        const c = P.ev.clips[P.slotClip ? P.slotClip[P.active] : P.clipIndexAt(t)]; if (!c) return t;
+        const ct = c.start + pr.mt;
+        return ct <= t + 1e-3 && ct > t - 0.1 ? ct : t;
+      }
       const clip = P.ev.clips[P.slotClip ? P.slotClip[P.active] : P.clipIndexAt(t)]; if (!clip) return t;
       const pr = video._pres, lagS = pr ? video.currentTime - pr.mt : 1, mt = pr && performance.now() - pr.at < 250 && lagS > -0.01 && lagS < 0.07 ? pr.mt : video.currentTime;   // (a stale callback after a seek: the clock)
       const ct = clip.start + mt;
@@ -370,13 +388,19 @@
   function paintLive() {
     if (!T.player.tiles) return;
     ensureLayers();
-    for (const cam of T.GRID) {
-      const tile = T.player.tiles[cam];
-      if (!tile) continue;
-      const cv = tile.tile.querySelector(".redact-layer");
-      if (!cv) continue;
+    for (const cam of T.GRID) paintCam(cam);
+  }
+  function paintCam(cam, onFrame) {
+    {
+      const tile = T.player.tiles && T.player.tiles[cam];
+      if (!tile) return;
+      const cv = tile._rl && tile._rl.parentNode === tile.tile ? tile._rl : (tile._rl = tile.tile.querySelector(".redact-layer"));
+      if (!cv) return;
       const video = tile.vids[T.player.active];
-      const t = R.camTime(cam, video);
+      const t = R.camTime(cam, video), now = performance.now();
+      // (painted for this very frame a moment ago by its frame callback: the clock tick in the same screen refresh adds nothing)
+      if (!onFrame && T.player.playing && tile._pt === t && now - tile._pat < 12) return;
+      tile._pt = t; tile._pat = now;
       cv.style.transform = video ? video.style.transform : "";
       // live white balance colours the <video> with a CSS filter (wb.js); the blurred patches are drawn from the raw
       // frame, so give them the same filter, or they show as uncorrected (orange) rectangles on a corrected picture
@@ -388,7 +412,7 @@
       const ctx = cv.getContext("2d");
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, tw, th);
-      if (!video || !video.videoWidth) continue;
+      if (!video || !video.videoWidth) return;
       liveAuto(cam, t, ctx, video, tw, th);
       // custom regions (custom-redact.js): drawn last, on top of everything above, from the same raw frame and the same rules as the export
       if (T.regions && T.regions.live) { try { T.regions.live(ctx, cam, t, video, tw, th); } catch (e) { console.warn("custom regions", e); } }
