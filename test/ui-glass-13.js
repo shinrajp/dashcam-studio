@@ -65,7 +65,7 @@ async function run(b, BR) {
     // 2 live + saved
     await slide(p, "gtBlur", 7, false); await slide(p, "gtStr", 1.6, false); await slide(p, "gtTint", 0.5, false); await W(400);
     s = await p.evaluate(ST);
-    ok(T + " 2 a live move (input) changes the uniforms and --g-blur at once; nothing saved yet", s.tune.blur === 7 && s.tune.str === 1.6 && s.tune.tint === 0.5 && s.gblur === "28px" && s.pieces.filter((x) => x.kind === "ctl").every((x) => x.a === 0.5) && (!s.saved || s.saved.blur === 4 && s.saved.tint === 0.22), s);
+    ok(T + " 2 a live move (input) changes the uniforms and --g-blur at once; nothing saved yet", s.tune.blur === 7 && s.tune.str === 1.6 && s.tune.tint === 0.5 && s.gblur === "21px" && s.pieces.filter((x) => x.kind === "ctl").every((x) => x.a === 0.5) && (!s.saved || s.saved.blur === 4 && s.saved.tint === 0.22), s);
     await slide(p, "gtBlur", 7, true); await slide(p, "gtStr", 1.6, true); await slide(p, "gtTint", 0.5, true); await slide(p, "gtSheet", 0.85, true); await W(300);
     s = await p.evaluate(ST);
     ok(T + " 2 release (change) saves prefs.glassTune", s.saved && s.saved.blur === 7 && s.saved.str === 1.6 && s.saved.tint === 0.5 && s.saved.sheet === 0.85 && s.pieces.some((x) => x.kind === "sheet" && x.a === 0.85), s.saved);
@@ -75,7 +75,7 @@ async function run(b, BR) {
     // 4 reset
     await p.click("#gtReset"); await W(400);
     s = await p.evaluate(ST);
-    ok(T + " 4 Reset glass to default restores 4 / 1 / 0.22 / 0.72 (sliders, saved prefs, uniforms, --g-blur 22px)", sl("gtBlur").v === 4 && sl("gtStr").v === 1 && sl("gtTint").v === 0.22 && sl("gtSheet").v === 0.72 && s.tune.blur === 4 && s.tune.str === 1 && s.tune.tint === 0.22 && s.gblur === "22px" && s.saved && s.saved.blur === 4 && s.saved.tint === 0.22, s);
+    ok(T + " 4 Reset glass to default restores 4 / 1 / 0.22 / 0.72 (sliders, saved prefs, uniforms, --g-blur 12px, ui-glass-14 frosted default)", sl("gtBlur").v === 4 && sl("gtStr").v === 1 && sl("gtTint").v === 0.22 && sl("gtSheet").v === 0.72 && s.tune.blur === 4 && s.tune.str === 1 && s.tune.tint === 0.22 && s.gblur === "12px" && s.saved && s.saved.blur === 4 && s.saved.tint === 0.22, s);
     // 6 contrast over white
     await p.evaluate(WHITE); await W(300);
     let cn = await p.evaluate(CONTRAST);
@@ -91,7 +91,7 @@ async function run(b, BR) {
     await open(p, "&gblur=9&gstrength=2&gtint=0.6&gpanel=0.9", { glassTune: { blur: 3, str: 0.5, tint: 0.1, sheet: 0.5 } });
     await showApp(p); await W(700);
     s = await p.evaluate(ST);
-    ok(T + " 3 ?gblur=9 ?gstrength=2 ?gtint=0.6 ?gpanel=0.9 win over saved prefs for the visit", s.tune.blur === 9 && s.tune.str === 2 && s.tune.tint === 0.6 && s.tune.sheet === 0.9 && s.gblur === "28px" && s.pieces.some((x) => x.kind === "sheet" && x.a === 0.9), s);
+    ok(T + " 3 ?gblur=9 ?gstrength=2 ?gtint=0.6 ?gpanel=0.9 win over saved prefs for the visit", s.tune.blur === 9 && s.tune.str === 2 && s.tune.tint === 0.6 && s.tune.sheet === 0.9 && s.gblur === "27px" && s.pieces.some((x) => x.kind === "sheet" && x.a === 0.9), s);
     ok(T + " 3 the sliders show the URL values, disabled, with a note; saved prefs untouched", s.sl.every((x) => x.dis) && sl("gtBlur").v === 9 && sl("gtTint").v === 0.6 && /\?g/.test(s.note) && s.saved && s.saved.blur === 3 && s.saved.tint === 0.1, s);
     ok(T + " 7 no page errors (URL)", p._errs.length === 0, p._errs);
     await ctx.close();
@@ -100,14 +100,14 @@ async function run(b, BR) {
     await open(p, "&refract=0", { glassTune: { blur: 2, str: 1, tint: 0.22, sheet: 0.72 } });
     await showApp(p); await W(700);
     s = await p.evaluate(ST);
-    ok(T + " 5 Frosted: Strength is disabled with a note, Blur stays live and drives --g-blur (2 → 11px)", s.frosted && sl("gtStr").dis && !sl("gtBlur").dis && !sl("gtTint").dis && /frost/i.test(s.note) && s.gblur === "11px", s);
+    ok(T + " 5 Frosted: Strength is disabled with a note, Blur stays live and drives --g-blur (2 → 6px)", s.frosted && sl("gtStr").dis && !sl("gtBlur").dis && !sl("gtTint").dis && /frost/i.test(s.note) && s.gblur === "6px", s);
     await slide(p, "gtTint", 0.8, true); await W(500);
     s = await p.evaluate(ST);
     const fa = await p.evaluate(() => { const e = document.getElementById("stageBar") || document.querySelector(".g-blur"); return { root: getComputedStyle(document.documentElement).getPropertyValue("--g-a").trim(), el: e ? getComputedStyle(e).getPropertyValue("--g-a").trim() : null, floor: TDC.glass && TDC.glass.tintFloor }; });
     ok(T + " 5 Frosted: Tint 0.8 is a floor under the frosted tint (--g-a >= 0.8)", parseFloat(s.floor) === 0.8 && fa.floor === 0.8 && parseFloat(fa.root) >= 0.8 - 1e-6, fa);
     await p.click("#gtReset"); await W(300);
     s = await p.evaluate(ST);
-    ok(T + " 5 Frosted Reset: --g-blur back to 22px", s.gblur === "22px" && s.tune.tint === 0.22, s);
+    ok(T + " 5 Frosted Reset: --g-blur back to 12px", s.gblur === "12px" && s.tune.tint === 0.22, s);
     ok(T + " 7 no page errors (frosted)", p._errs.length === 0, p._errs);
     await ctx.close();
   }

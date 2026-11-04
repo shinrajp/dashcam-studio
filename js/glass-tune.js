@@ -40,7 +40,8 @@
   };
   // ui-glass-14: moving a slider switches Glass to Custom (Automatic / Clear / Solid keep working; Reset goes back to Automatic)
   GT.set = (k, v, save) => { if (!T.prefs.glassTune) T.prefs.glassTune = { ...DEF }; T.prefs.glassTune = { ...DEF, ...T.prefs.glassTune, [k]: clamp(k, v) };
-    if (T.prefs.glass !== "custom") T.setPref("glass", "custom"); else if (save) T.savePrefs(); GT.apply(); };
+    if (T.prefs.glass !== "custom") { T.prefs.glass = "custom"; if (T.glass && T.glass.apply) T.glass.apply(); if (save) T.emit("prefs", "glass"); }
+    if (save) T.savePrefs(); GT.apply(); };
   GT.reset = () => { T.prefs.glassTune = { ...DEF }; T.savePrefs(); T.emit("prefs", "glassTune"); if (T.prefs.glass === "custom") T.setPref("glass", "auto"); GT.apply(); };
 
   // ---- Settings ▸ Appearance ----
