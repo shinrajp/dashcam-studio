@@ -54,7 +54,7 @@ html.glass .us-panel.sheet:not(.docked), html.glass .us-panel.docked.sheet { bor
 html.glass .us-panel.docked { box-shadow: inset 0 1px 0 rgba(255,255,255,.06); }
 
 /* Settings drawer: a sheet (sections stay plain) */
-html.glass .drawer { background: var(--g-sheen), rgba(var(--g-rgb), max(var(--g-a), var(--g-panel-f, .9)));   /* ui-glass-14: frosted sheets = Panel opacity + 0.18 (default 0.9) */
+html.glass .drawer { background: var(--g-sheen), rgba(var(--g-rgb), max(var(--g-a), var(--g-panel-f, .9))); }   /* ui-glass-14: frosted sheets = Panel opacity + 0.18 (default 0.9) */
 html.glass .drawer { border-left-color: rgba(255,255,255,.12); border-radius: 22px 0 0 22px; box-shadow: var(--g-rim), -14px 0 40px rgba(0,0,0,.45); }
 html.glass .drawer .drawer-head { border-bottom-color: rgba(255,255,255,.07); }
 
@@ -199,3 +199,9 @@ html.glass .btn.tesla, html.glass .btn.tesla:hover {
   box-shadow: 0 1px 3px rgba(0,0,0,.25) !important;
 }
 html.glass[data-glass-light="1"] .btn.tesla { color: #111 !important; }
+/* ui-glass-15 Tracking priority (js/refract.js sets html.glass-prio while live detection / a scan runs, or when set to Always):
+   large sheets drop their backdrop blur (a full-height re-blur on every video frame is the biggest compositor cost) and use the frosted panel
+   opacity instead; small controls keep a light frost. Refraction is off meanwhile (frosted look), and comes back afterwards. */
+html.glass.glass-prio .drawer, html.glass.glass-prio #settings, html.glass.glass-prio #library, html.glass.glass-prio .us-panel, html.glass.glass-prio .modal { -webkit-backdrop-filter: none !important; backdrop-filter: none !important; }
+html.glass.glass-prio .drawer { background: var(--g-sheen), rgba(var(--g-rgb), max(var(--g-a), var(--g-panel-f, .9), .9)); }
+html.glass.glass-prio .us-panel:not(.docked) { background: var(--g-sheen), rgba(var(--g-rgb), max(var(--g-a), var(--g-panel-f, .88), .9)); }
