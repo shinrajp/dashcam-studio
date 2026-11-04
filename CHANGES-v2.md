@@ -921,3 +921,13 @@ Item 2 of the rig plan: any HW4 car's six cameras measured from one of its own d
 - Test: `node test/view3d-page.js <url> <2026-10-19 drive folder>` (15 checks, real footage): two labelled hand-offs as tracked
   objects; the front → left pillar car is placed 5.2 m apart by the two cameras at the hand-off (15.6 m vs 11.2 m from the car),
   the left pillar → left repeater car 0.4 m apart.
+
+## Camera angles fine-tuned from the road (branch track-v2, assets track-v2-27)
+- **js/rig.js:** the back, both pillar and both repeater cameras' yaw / pitch / roll are turned by 0.2–1.1° each (front unchanged,
+  it is the reference). Found by matching the road texture where neighbouring cameras overlap, fitted on the 2026-10-19 and
+  2026-10-07 drives separately and averaged; each drive's own fit lined up the overlaps 10–26 % better on moments it didn't use.
+  The averaged angles are for this one car and were checked on the same two drives: a third drive would be the independent test.
+- Box distances, 2026-10-19 drive vs multi-view reference: median error 3–10 m 1.28 → 1.05 m, 10–20 m 3.37 → 2.46 m; the rear camera
+  read 3.6 m short, now 1.6 m; the left repeater 2.0 m short, now 1.0 m. Right repeater and right pillar slightly worse (5.6 → 6.0 m,
+  1.7 → 1.8 m median error).
+- Hand-offs, look-first, 92 labels: 67 → 66 right (10-19 identical, 10-07 one case), within the run-to-run spread.

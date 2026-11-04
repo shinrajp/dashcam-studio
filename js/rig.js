@@ -31,16 +31,20 @@
   const CAMS = ["front", "back", "left_pillar", "right_pillar", "left_repeater", "right_repeater"];
   const D2R = Math.PI / 180;
   // ── measured (tools/rig/to-js.py writes this block) ──
+  // The five non-front cameras' yaw / pitch / roll then got a road-texture fine-tune (2026-11): each camera turned by
+  // 0.2–1.1° so neighbouring cameras show the same road where they overlap, fitted on both drives and averaged (front held
+  // fixed as the reference). Box distances on 10-19: 3–10 m median error 1.28 → 1.05 m, 10–20 m 3.37 → 2.46 m; hand-offs
+  // 67 → 66 of 92 right (run noise). If to-js.py rewrites this block, those angle corrections must be applied again.
   // mean of the two drives; heights weighted by how precisely each drive measured them, left and right taken together.
   // f, cx, cy in picture widths; thmax: the widest angle off the lens axis the drive showed (beyond it the lens is a guess);
   // aspect = height / width of the measured picture (HW4 1448×938, front 2896×1876)
   const MEASURED = {
     front:          { yaw: 0.655, pitch: -1.045, roll: 1.215, f: 1.26725, cx: 0.00506, cy: -0.00468, k: [-0.07051, -0.02308, 0.0], thmax: 24.1, pos: [0, 1.295, 2.05], px: 0.188 },
-    back:           { yaw: -179.52, pitch: -32.905, roll: 0.7, f: 0.33239, cx: 0.00458, cy: -0.01665, k: [-0.03084, 0.00036, 0.0], thmax: 96.9, pos: [0, 0.996, -1.04], px: 0.139 },
-    left_pillar:    { yaw: -70.83, pitch: -5.375, roll: 0.505, f: 0.70112, cx: -0.00516, cy: -0.00148, k: [-0.05559, -0.02423, 0.0], thmax: 46.4, pos: [-0.92, 1.334, 1.55], px: 0.173 },
-    right_pillar:   { yaw: 71.75, pitch: -5.755, roll: -0.415, f: 0.69698, cx: 0.00079, cy: -0.00147, k: [-0.05511, -0.02142, 0.0], thmax: 48.8, pos: [0.92, 1.334, 1.55], px: 0.213 },
-    left_repeater:  { yaw: -139.945, pitch: -4.755, roll: 0.195, f: 0.67978, cx: -0.00264, cy: -0.00018, k: [-0.01926, -0.01238, 0.0], thmax: 42.1, pos: [-1.02, 0.956, 2.45], px: 0.208 },
-    right_repeater: { yaw: 139.5, pitch: -4.48, roll: 1.41, f: 0.69922, cx: -0.00253, cy: 0.00582, k: [-0.04616, -0.01877, 0.0], thmax: 42.4, pos: [1.02, 0.956, 2.45], px: 0.192 },
+    back:           { yaw: -179.333, pitch: -31.952, roll: 1.236, f: 0.33239, cx: 0.00458, cy: -0.01665, k: [-0.03084, 0.00036, 0.0], thmax: 96.9, pos: [0, 0.996, -1.04], px: 0.139 },
+    left_pillar:    { yaw: -71.218, pitch: -5.112, roll: -0.149, f: 0.70112, cx: -0.00516, cy: -0.00148, k: [-0.05559, -0.02423, 0.0], thmax: 46.4, pos: [-0.92, 1.334, 1.55], px: 0.173 },
+    right_pillar:   { yaw: 71.777, pitch: -4.666, roll: -0.357, f: 0.69698, cx: 0.00079, cy: -0.00147, k: [-0.05511, -0.02142, 0.0], thmax: 48.8, pos: [0.92, 1.334, 1.55], px: 0.213 },
+    left_repeater:  { yaw: -140.126, pitch: -4.242, roll: 0.747, f: 0.67978, cx: -0.00264, cy: -0.00018, k: [-0.01926, -0.01238, 0.0], thmax: 42.1, pos: [-1.02, 0.956, 2.45], px: 0.208 },
+    right_repeater: { yaw: 139.82, pitch: -4.074, roll: 1.063, f: 0.69922, cx: -0.00253, cy: 0.00582, k: [-0.04616, -0.01877, 0.0], thmax: 42.4, pos: [1.02, 0.956, 2.45], px: 0.192 },
   };
   const ASPECT = 938 / 1448;
   const CLOCK0 = { front: 0, back: 0.346, left_pillar: 0.067, right_pillar: 0.175, left_repeater: -0.025, right_repeater: -0.029 };
