@@ -49,12 +49,13 @@ html.glass .tp-controls .us-btn:not([aria-expanded="true"]), html.glass body.mba
 @media (min-width: 761px) { html.glass body:not(.mbar) .tp-controls .us-btn:not([aria-expanded="true"]) { background: rgba(255,255,255,.04); box-shadow: inset 0 1px 0 rgba(255,255,255,.10); } }
 
 /* Search / Redact window: a sheet (dense tint; nothing inside is blurred) */
-html.glass .us-panel:not(.docked) { background: var(--g-sheen), rgba(var(--g-rgb), max(var(--g-a), .88)); border-color: rgba(255,255,255,.14); border-radius: 22px; box-shadow: var(--g-rim), 0 22px 56px rgba(0,0,0,.55); --us-bg: rgb(26, 28, 34); }
+html.glass .us-panel:not(.docked) { background: var(--g-sheen), rgba(var(--g-rgb), max(var(--g-a), var(--g-panel-f, .88))); border-color: rgba(255,255,255,.14); border-radius: 22px; box-shadow: var(--g-rim), 0 22px 56px rgba(0,0,0,.55); --us-bg: rgb(26, 28, 34); }
 html.glass .us-panel.sheet:not(.docked), html.glass .us-panel.docked.sheet { border-radius: 22px 22px 0 0; }
 html.glass .us-panel.docked { box-shadow: inset 0 1px 0 rgba(255,255,255,.06); }
 
 /* Settings drawer: a sheet (sections stay plain) */
-html.glass .drawer { background: var(--g-sheen), rgba(var(--g-rgb), max(var(--g-a), .9)); border-left-color: rgba(255,255,255,.12); border-radius: 22px 0 0 22px; box-shadow: var(--g-rim), -14px 0 40px rgba(0,0,0,.45); }
+html.glass .drawer { background: var(--g-sheen), rgba(var(--g-rgb), max(var(--g-a), var(--g-panel-f, .9)));   /* ui-glass-14: frosted sheets = Panel opacity + 0.18 (default 0.9) */
+html.glass .drawer { border-left-color: rgba(255,255,255,.12); border-radius: 22px 0 0 22px; box-shadow: var(--g-rim), -14px 0 40px rgba(0,0,0,.45); }
 html.glass .drawer .drawer-head { border-bottom-color: rgba(255,255,255,.07); }
 
 /* toast */

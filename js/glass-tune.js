@@ -30,6 +30,7 @@
     const c = (GT.cur = GT.get());
     root.style.setProperty("--g-blur", GT.frostBlur(c.blur) + "px");
     root.style.setProperty("--g-tint-floor", c.tint.toFixed(3));
+    root.style.setProperty("--g-panel-f", Math.min(0.97, c.sheet + 0.18).toFixed(3));   // ui-glass-14: frosted reading sheets (Settings, Search) follow Panel opacity
     // ui-glass-14: Custom mode uses the Tint as the frosted opacity (at least 0.3 so labels stay legible), the colour as --g-rgb
     root.style.setProperty("--g-custom-a", Math.max(0.3, c.tint).toFixed(3));
     if (c.color && root.dataset.glass !== "solid") { const v = rgbOf(c.color); root.style.setProperty("--g-rgb", v.join(", ")); GT.rgb = v; } else { root.style.removeProperty("--g-rgb"); GT.rgb = null; }
@@ -90,7 +91,7 @@
     const n = $("glassTuneNote"); if (!n) return;
     const u = Object.keys(url).map((k) => "?" + (URLK[k] || "gcolor") + "=");
     n.textContent = (refr ? "Blur, Strength and Tint shape the floating controls; Panel opacity backs Settings and Events so their text stays readable over bright video."
-      : "Frosted glass: Blur sets the backdrop blur and Tint the least tint; Strength needs Refraction (Glass style). Sheets stay at least 90 % opaque.")
+      : "Frosted glass: Blur sets the backdrop blur and Tint the least tint; Strength needs Refraction (Glass style). Panel opacity sets how solid Settings and Search are (frosted sheets add 18 %).")
       + (u.length ? " Set by " + u.join(", ") + " in the address for this visit." : "");
   }
   GT.sync = sync;
