@@ -22,7 +22,10 @@
     const v = window.visualViewport, ih = window.innerHeight;
     const vh = v ? v.height : ih, top = v ? v.offsetTop || 0 : 0;
     const kb = Math.max(0, Math.round(ih - (vh + top)));
-    const a = document.activeElement, typing = isText(a) && inSheet(a) && (coarse() || kb > 40);
+    // ui-glass-14: a field left focused in a sheet that was closed (iOS keeps focus on hidden fields, with no focusout) no longer counts,
+    // so the player capsule (Play / Pause) can't stay hidden and untappable after Settings or Search closes
+    const a = document.activeElement, shown = !!a && a.getClientRects().length > 0 && !a.closest("[hidden]");
+    const typing = isText(a) && shown && inSheet(a) && (coarse() || kb > 40);
     root.style.setProperty("--kb", (typing ? kb : 0) + "px");
     root.style.setProperty("--vvh", Math.round(vh) + "px");
     root.style.setProperty("--vv-bottom", Math.round(vh + top) + "px");
@@ -37,5 +40,8 @@
   document.addEventListener("focusout", () => setTimeout(later, 0), true);
   window.addEventListener("resize", later);
   if (window.visualViewport) { visualViewport.addEventListener("resize", later); visualViewport.addEventListener("scroll", later); }
+  // re-check when a sheet opens / closes (hidden attribute), not only on focus changes
+  const watch = () => { try { const mo = new MutationObserver(later); for (const id of ["settings", "usPanel", "library"]) { const e = document.getElementById(id); if (e) mo.observe(e, { attributes: true, attributeFilter: ["hidden", "class"] }); } } catch (_) {} };
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", watch); else watch();
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", later); else later();
 })();

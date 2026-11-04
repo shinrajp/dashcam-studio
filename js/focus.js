@@ -834,9 +834,24 @@
       const onVideo = e.target && e.target.closest && e.target.closest("#stage");
       // ui-glass-2: the timeline and other controls hide too, so any tap that lands where they were (they let taps through) only wakes
       const offChrome = e.target && e.target.closest && !e.target.closest(".topbar, .library, .drawer, .modal, .us-panel, .cr-bar, .toast");
-      if (e.pointerType !== "mouse" && document.body.classList.contains("idle") && (F.isFullscreen() || onVideo || offChrome)) F.tapWoke = performance.now();
-      else F.tapWoke = 0; // controls already visible: the next tap acts normally
+      if (e.pointerType !== "mouse" && document.body.classList.contains("idle") && (F.isFullscreen() || onVideo || offChrome)) {
+        F.tapWoke = performance.now();
+        // ui-glass-14 (play / pause "stopped working after the first playback"): while a video plays the controls fade, and the waking tap
+        // was swallowed, so a tap on Play / Pause only woke them and the video went on. A tap where Play / Pause sits now also plays / pauses
+        // (on its pointerup: iOS fires no click on the faded, pass-through spot); every other waking tap still only wakes.
+        const bp = $("btnPlay"), r = bp && bp.getClientRects().length ? bp.getBoundingClientRect() : null, pad = 6;
+        F.playTap = r && r.width > 1 && e.clientX >= r.left - pad && e.clientX <= r.right + pad && e.clientY >= r.top - pad && e.clientY <= r.bottom + pad
+          ? { id: e.pointerId, x: e.clientX, y: e.clientY, t: F.tapWoke } : null;
+      } else { F.tapWoke = 0; F.playTap = null; } // controls already visible: the next tap acts normally
     }, { capture: true, passive: true });
+    const playUp = (e) => {
+      const pt = F.playTap; if (!pt || e.pointerId !== pt.id) return;
+      F.playTap = null;
+      if (e.type !== "pointerup" || performance.now() - pt.t > 700 || Math.hypot(e.clientX - pt.x, e.clientY - pt.y) > 12) return;
+      if (T.ui && T.ui.toggle) T.ui.toggle();
+    };
+    window.addEventListener("pointerup", playUp, { capture: true, passive: true });
+    window.addEventListener("pointercancel", playUp, { capture: true, passive: true });
     // the waking tap only wakes: the bar fades back in under the finger, so its click must not press a bar button
     // (or enlarge a tile). Swallowed once, in the capture phase, before any handler sees it.
     window.addEventListener("click", (e) => {
