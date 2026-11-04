@@ -184,7 +184,7 @@
     return { l, t, r: l + hw, b: t + hh };
   }
   const spotOf = (id) => (id === "hud" ? hudDockSpot() : dockSpot());
-  const nearDock = (cx, cy, id) => { const d = spotOf(id || "map"); if (id === "hud") return !!d && cx >= d.l && cx <= d.r && cy >= d.t && cy <= d.b; return !!d && cx >= d.l && cx <= d.r + 40 && cy >= d.t && cy <= d.b; };
+  const nearDock = (cx, cy, id) => { const d = spotOf(id || "map"); if (id === "hud") { const st = O.stage && O.stage.getBoundingClientRect(); return !!st && st.width > 50 && cx >= st.left && cx <= st.right && cy >= st.top && cy <= st.bottom; } return !!d && cx >= d.l && cx <= d.r + 40 && cy >= d.t && cy <= d.b; };
   let dockHint = null;
   function showDockHint(on, id) {
     if (on && !dockHint) { dockHint = T.el("div", "map-dock-hint"); document.body.appendChild(dockHint); }
@@ -343,11 +343,11 @@
         const W = vw(), phone = Math.min(W, vh()) < 600;
         hs = Math.min(Math.max(s, 0.5), (phone ? W * 0.62 : Math.min(360, W * 0.3)) / lay.w, 1);
         size(hud, lay.w * hs, lay.h * hs);
-        if (hud.el.parentElement !== document.body) document.body.appendChild(hud.el);
+        if (hud.el.parentElement !== document.body) { const f = hud.el.contains(document.activeElement) && document.activeElement; document.body.appendChild(hud.el); if (f) f.focus({ preventScroll: true }); }
         const fl = O.floatFloor(), xy = floatXY(hud.w, hud.h, fl, "hud");
         if (!hud.el.classList.contains("dragging")) setFloatPos(hud, xy.x, xy.y, false);
       } else {
-        if (hud.el.parentElement !== O.layer) O.layer.appendChild(hud.el);
+        if (hud.el.parentElement !== O.layer) { const f = hud.el.contains(document.activeElement) && document.activeElement; O.layer.appendChild(hud.el); if (f) f.focus({ preventScroll: true }); }
         size(hud, lay.w * s, lay.h * s);
         place(hud, T.prefs.panels.hud);
       }
