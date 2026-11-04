@@ -15,3 +15,20 @@ Steps, modules and what changed against the prototype: `experiments/depth3d/READ
 
 **The page and the work folder show the drive** — never commit or publish them (the repository is public; the tool refuses
 to write inside it).
+
+## Optional: fill blind spots (ground layer)
+
+After a build without `--clean` (it needs the work folder):
+
+```bash
+python3 tools/depth3d/ground.py "<page folder>.work"
+python3 tools/depth3d/fill_sd.py "<page folder>.work" --model <stable-diffusion-inpainting folder>
+python3 tools/depth3d/ground.py "<page folder>.work" --export "<page folder>"
+```
+
+`ground.py` makes one top-down picture of the road for the whole stretch from every moment's views (real footage: under the
+car and behind the bumper were usually filmed a moment earlier or later; detected vehicles are left out). `fill_sd.py` paints
+only what no camera ever saw, with Stable Diffusion 1.5 inpainting (torch + diffusers; a separate environment is fine), from a
+plain-road start at strength 0.45 (a free hand drew a car-like shape next to parked cars). The page then shows **Fill blind
+spots** and **Mark estimated** (the painted part tinted blue and hatched). Estimated pixels are for the replay's look only:
+never for detection, tracking or exports. On 2026-10-19 (8.5–12.5 s): 732 m² from other moments, 115 m² estimated.

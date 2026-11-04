@@ -39,6 +39,7 @@ html,body{height:100%;background:var(--bg);color:var(--fg);font-family:var(--san
   <p>Drag to turn, scroll or pinch to zoom. <b>Driver</b> sits at the front camera; <b>Chase</b> and <b>Top</b> look at the car from outside.</p>
   <p>Where cameras overlap, each spot comes from the camera that sees it sharpest; the road is snapped to the true road plane; neighbouring cameras meet on one surface and fade into each other; brightness is matched between cameras. <b>Camera colours</b> shows which camera drew what.</p>
   <p>Gaps are what no camera saw. The white box is your car.</p>
+  <p id="fillNote" hidden><b>Fill blind spots</b> lays the road under the car and behind the bumper from what the cameras filmed at other moments (<span id="realM2"></span> m², real footage). The <span id="estM2"></span> m² no camera ever saw is painted by a diffusion model: <b>estimated, not seen</b>. <b>Mark estimated</b> tints it blue.</p>
 </div>
 <div class="bar">
   <button id="play" aria-pressed="false">Play</button>
@@ -46,6 +47,8 @@ html,body{height:100%;background:var(--bg);color:var(--fg);font-family:var(--san
     <button data-v="driver">Driver</button><button data-v="chase" aria-pressed="true">Chase</button><button data-v="rear">Rear</button><button data-v="top">Top</button>
   </div>
   <button id="tint" aria-pressed="false" title="Tint each camera's part of the scene in its own colour">Camera colours</button>
+  <button id="fill" aria-pressed="true" hidden title="Road filmed at other moments under the car and in blind spots; what no camera saw is estimated">Fill blind spots</button>
+  <button id="mark" aria-pressed="true" hidden title="Tint the part a diffusion model painted (never seen by a camera)">Mark estimated</button>
   <div class="track"><input id="pos" type="range" min="0" max="0" value="0" aria-label="Time"><span class="read" id="read"></span></div>
 </div>
 
@@ -108,6 +111,26 @@ const carM = new THREE.Mesh(new THREE.BoxGeometry(2.0, 1.68, 5.06), new THREE.Me
 carM.add(new THREE.LineSegments(new THREE.EdgesGeometry(carM.geometry), new THREE.LineBasicMaterial({ color: 0xffffff })));
 scene.add(carM);
 const ground = new THREE.GridHelper(400, 80, 0x22303a, 0x18222a); ground.position.y = -0.02; scene.add(ground);
+// optional ground layer (tools/depth3d ground.py + fill_sd.py): one top-down picture of the road for the whole stretch, laid 4 cm
+// under the road so each moment's own 3D wins where it has the road, and the layer shows only where that moment has none
+const GL = await fetch('ground.json').then(r => (r.ok ? r.json() : null)).catch(() => null);
+let fillM = null;
+if (GL) {
+  const tReal = loader.load('ground.jpg'), tMark = loader.load('ground-mark.jpg'), tA = loader.load('ground-alpha.png');
+  tReal.colorSpace = tMark.colorSpace = THREE.SRGBColorSpace;
+  const geo = new THREE.PlaneGeometry(GL.x1 - GL.x0, GL.z1 - GL.z0); geo.rotateX(-Math.PI / 2);   // picture top = farthest forward
+  fillM = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ map: GL.estimated_m2 > 0 ? tMark : tReal, alphaMap: tA, alphaTest: 0.5 }));
+  fillM.position.set((GL.x0 + GL.x1) / 2, -0.04, -(GL.z0 + GL.z1) / 2); scene.add(fillM);
+  ground.position.y = -0.08;
+  $('fill').hidden = false; $('fillNote').hidden = false;
+  $('realM2').textContent = Math.round(GL.real_m2); $('estM2').textContent = Math.round(GL.estimated_m2);
+  if (GL.estimated_m2 > 0) $('mark').hidden = false;
+  $('fill').onclick = () => { fillM.visible = !fillM.visible; $('fill').setAttribute('aria-pressed', String(fillM.visible)); };
+  $('mark').onclick = () => {
+    const on = fillM.material.map !== tMark; fillM.material.map = on ? tMark : tReal; fillM.material.needsUpdate = true;
+    $('mark').setAttribute('aria-pressed', String(on));
+  };
+}
 
 function poseOf(k) {
   const f = STEPS[k].find(x => x.cam === 'front') || STEPS[k][0], R = f.R;
