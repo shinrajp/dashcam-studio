@@ -163,6 +163,9 @@
   function tick() {
     if (G.effective !== "auto") return;
     if (G.rm) { G.setLuma(STATIC_LUMA); clearTints(); return; }
+    // ui-glass-15 Tracking priority: no video read-back (getImageData) and no per-piece CSS writes while detection / tracking runs; the darkest
+    // static tint (as with Reduce motion) keeps every text readable over any frame
+    if (T.refract && T.refract.prio) { if (G.luma !== STATIC_LUMA || tinted.size) { G.setLuma(STATIC_LUMA); clearTints(); } G.stats.prioSkips = (G.stats.prioSkips || 0) + 1; return; }
     const t0 = performance.now(), list = sources(); if (!list.length) return;
     const W = Math.max(8, Math.ceil(innerWidth / CELL)), H = Math.max(8, Math.ceil(innerHeight / CELL));
     let d, full = false;

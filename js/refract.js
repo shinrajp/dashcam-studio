@@ -21,6 +21,12 @@
     stats: { ms: 0, avg: 0, n: 0 }, autoFps: G.autoLiteFps, SLOW: 40, OK: 45, FOR: 2000 });
   R.override = () => { try { const m = /(?:[?&#])refract=(0|1)\b/.exec(location.search + location.hash); return m ? (m[1] === "1" ? "refract" : "frost") : null; } catch (_) { return null; } };
   R.pref = () => (T.prefs.glassStyle === "frost" ? "frost" : "refract");
+  // ui-glass-15 Tracking priority: refraction costs main-thread + GPU time per frame (scene copy, upload, per-piece copy). While live detection or a
+  // scan runs, "auto" hands that time to detection / tracking: frosted, still glass (html.glass-prio), back to refraction afterwards.
+  R.prioPref = () => { try { const m = /(?:[?&#])glassprio=(auto|on|off)\b/.exec(location.search + location.hash); if (m) return m[1]; } catch (_) {} const v = T.prefs.glassPrio; return v === "on" || v === "off" ? v : "auto"; };
+  R.workBusy = () => { const D = T.detect; if (!D) return false; try { if (D.busy || (T.search && T.search.running)) return true; const P = D.prefs ? D.prefs() : {}; return !!(P.enabled && P.live && T.player && T.player.playing); } catch (_) { return false; } };
+  R.prioActive = () => { const v = R.prioPref(); return v === "on" ? true : v === "off" ? false : R.workBusy(); };
+  R.HZ_PLAY = 15;   // ui-glass-15: refraction refresh while playing (was ~30)
   // ui-glass-12: the demo's look (labs/glass-sdf v5: uStr 1, uBlur 4, uTint 0.22 towards rgb(.07,.07,.09)); Debug mode may tune it
   R.DEMO = { str: 1, tint: 0.22, blur: 4, rgb: [18, 18, 23] };
   const num = (v, lo, hi, d) => (typeof v === "number" && isFinite(v) ? Math.min(hi, Math.max(lo, v)) : d);
@@ -280,7 +286,11 @@
     const pl = playing();
     if (pl) feed(now);
     if (!R.on) return;
-    if (dirty || now < busyUntil || (pl && now - lastR >= Math.max(30, R.stats.avg * 4))) {   // while playing ~30 Hz, slower if a render is costly (main thread <= ~25 % busy)
+    // ui-glass-15: controls auto-hidden while playing (no sheet up): nothing of the glass is visible -> no render, loop stops; showing them
+    // again (body class change) kicks it back
+    if (pl && T.autohide && T.autohide.hidden && $("settings") && $("settings").hidden && !document.body.classList.contains("lib-open")) { R.paused = "hidden"; R.skipped = (R.skipped || 0) + 1; return; }
+    R.paused = "";
+    if (dirty || now < busyUntil || (pl && now - lastR >= Math.max(1000 / R.HZ_PLAY - 4, R.stats.avg * 4))) {   // while playing R.HZ_PLAY (15 Hz, ui-glass-15), slower if a render is costly (main thread <= ~25 % busy)
       dirty = false; lastR = now;
       try { render(now, now - tintAt >= 250 || !pl); } catch (e) { R.err = String(e && e.message || e); }
     }
@@ -315,6 +325,8 @@
     R.style = R.override() || R.pref();
     let why = R.style === "frost" ? (R.override() ? "override" : "pref") : mRT && mRT.matches ? "reduced-transparency" : G.lite ? "lite"
       : G.effective === "solid" ? "solid" : R.slow ? "slow" : "";
+    R.prio = R.prioActive(); root.classList.toggle("glass-prio", R.prio);
+    if (!why && R.prio) why = "prio";
     if (!why && !glOK) { if (!glTried) initGL(); if (!glOK) why = "no-webgl"; }
     const was = R.on; R.on = !why; R.why = why;
     root.classList.toggle("refract", R.on);
@@ -322,10 +334,12 @@
     else { if (!was) FM.hold(); kick(400); }
     const seg = $("segRefract");
     if (seg) seg.querySelectorAll("button").forEach((b) => { b.classList.toggle("on", b.dataset.v === R.style); b.setAttribute("aria-pressed", String(b.dataset.v === R.style)); });
+    const sp = $("segGlassPrio"), pv = R.prioPref();
+    if (sp) sp.querySelectorAll("button").forEach((b) => { b.classList.toggle("on", b.dataset.v === pv); b.setAttribute("aria-pressed", String(b.dataset.v === pv)); });
     const note = $("refractNote");
     if (note) { note.textContent = R.override() ? "Set by ?refract= in the address for this visit." : R.style === "frost" ? ""
       : { "reduced-transparency": "Reduce transparency is on in your system, so the controls are solid.", lite: "Lite mode is on, so the glass is frosted.", solid: "Glass is set to Solid (or this browser can't blur), so the controls are solid.",
-          slow: "Frosted for now: playback was dropping frames.", "no-webgl": "This browser has no WebGL, so the glass is frosted." }[why] || ""; note.hidden = !note.textContent; }
+          slow: "Frosted for now: playback was dropping frames.", prio: "Frosted while detection or tracking runs (Tracking priority).", "no-webgl": "This browser has no WebGL, so the glass is frosted." }[why] || ""; note.hidden = !note.textContent; }
     if (G.budgetSoon) G.budgetSoon();
   };
   /** Tests: a drawable (or list) used as the picture under the whole window until R.sample(null); renders once. */
@@ -334,10 +348,11 @@
 
   function wire() {
     const seg = $("segRefract"); if (seg && !seg._wired) { seg._wired = true; seg.querySelectorAll("button").forEach((b) => b.addEventListener("click", () => T.setPref("glassStyle", b.dataset.v))); }
+    const sp = $("segGlassPrio"); if (sp && !sp._wired) { sp._wired = true; sp.querySelectorAll("button").forEach((b) => b.addEventListener("click", () => T.setPref("glassPrio", b.dataset.v))); }
   }
   const start = () => {
     wire(); R.apply();
-    try { new MutationObserver((ms) => { if (!R.on) return; for (const m of ms) { const t = m.target; if (t && t.classList && t.classList.contains("rf-c")) continue; kick(700); return; } })
+    try { new MutationObserver((ms) => { if (!R.on || (raf && playing())) return; for (const m of ms) { const t = m.target; if (t && t.classList && t.classList.contains("rf-c")) continue; kick(700); return; } })
       .observe(document.body, { subtree: true, attributes: true, attributeFilter: ["hidden", "class", "style", "aria-expanded"] }); } catch (_) {}
     const onResize = () => { FM.hold(); kick(400); };
     addEventListener("resize", onResize); addEventListener("orientationchange", onResize);
@@ -352,9 +367,13 @@
     if (mRT) { try { mRT.addEventListener("change", R.apply); } catch (_) { try { mRT.addListener(R.apply); } catch (__) {} } }
   };
   if (T.on) {
-    T.on("prefs", (k) => { if (k === "glassStyle" || k === "glass" || k === "lite" || k === "*") { if (k === "glassStyle" || k === "*") R.slow = ""; setTimeout(R.apply, 0); } });
-    T.on("state", () => { FM.hold(); kick(200); }); T.on("time", () => { if (!playing()) kick(); }); T.on("player-open", () => { FM.hold(); kick(600); });
+    T.on("prefs", (k) => { if (k === "glassStyle" || k === "glass" || k === "lite" || k === "glassPrio" || k === "*") { if (k === "glassStyle" || k === "*") R.slow = ""; setTimeout(R.apply, 0); } });
+    T.on("state", () => { FM.hold(); kick(200); prioCheck(); }); T.on("time", () => { if (!playing()) kick(); }); T.on("player-open", () => { FM.hold(); kick(600); });
   }
+  // ui-glass-15: detection / scan state has no single event: a 1 s check (one boolean) re-applies only when the priority flips
+  function prioCheck() { if (R.prioActive() !== !!R.prio) R.apply(); }
+  R.prioCheck = prioCheck;
+  setInterval(() => { if (!document.hidden) prioCheck(); }, 1000);
   // glass.js re-applies on lite / solid changes: follow it (auto-lite turns refraction off with the rest)
   const gApply = G.apply; G.apply = function () { const r = gApply.apply(this, arguments); if (R.apply && T.refract === R) { try { R.apply(); } catch (_) {} } return r; };
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", start); else start();
