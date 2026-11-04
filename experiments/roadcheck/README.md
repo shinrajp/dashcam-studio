@@ -27,7 +27,7 @@ The first version (0.8 m between frames, no pitch and roll, road only to 25 m) f
 
 ## What it shows
 
-**Where it works:** objects close beside the car (pillar cameras) and things moving relative to the car (a car right behind us, a car passing). See `roadcheck-examples.jpg`.
+**Where it works:** objects close beside the car (pillar cameras) and things moving relative to the car (a car right behind us, a car passing). Example pictures were removed from the public repository because they show the drives; `roadcheck.py` writes them again from the footage.
 
 **Where it doesn't:**
 - **Cameras looking along the direction of travel (front, rear, and the repeaters' far view).** Distant things barely shift between frames there, so standing up from the road makes almost no difference.
