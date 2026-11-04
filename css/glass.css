@@ -205,3 +205,8 @@ html.glass[data-glass-light="1"] .btn.tesla { color: #111 !important; }
 html.glass.glass-prio .drawer, html.glass.glass-prio #settings, html.glass.glass-prio #library, html.glass.glass-prio .us-panel, html.glass.glass-prio .modal { -webkit-backdrop-filter: none !important; backdrop-filter: none !important; }
 html.glass.glass-prio .drawer { background: var(--g-sheen), rgba(var(--g-rgb), max(var(--g-a), var(--g-panel-f, .9), .9)); }
 html.glass.glass-prio .us-panel:not(.docked) { background: var(--g-sheen), rgba(var(--g-rgb), max(var(--g-a), var(--g-panel-f, .88), .9)); }
+/* ui-glass-15: the floating map / HUD carry a live canvas under filter: drop-shadow(), re-filtered on every video frame (measured: ~-15 % fps
+   with six cameras); during Tracking priority a plain box shadow on the map card stands in, the HUD keeps its own text halo */
+html.glass.glass-prio .float-panel, html.glass.glass-prio .float-panel.dragging { filter: none; }
+html.glass.glass-prio .float-panel.map-panel, html.glass.glass-prio #panel-map { box-shadow: 0 10px 24px rgba(0,0,0,.42), 0 2px 4px rgba(0,0,0,.3); }
+html.glass.glass-prio .seg { -webkit-backdrop-filter: none; backdrop-filter: none; background: rgba(var(--g-rgb), max(.6, calc(var(--g-a) * 0.55))); }

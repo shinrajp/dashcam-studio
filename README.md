@@ -568,7 +568,7 @@ Rollback: `git checkout pre-map-float` (tip before this change, glass-sdf v5, 60
 - With **Show 360 view (beta)** off (the default), Settings ▸ **Calibration** is hidden too (along with the 360 button and any open 360 calibration view). Turning 360 on brings it back; your calibration values are kept. `?show360=1|0` and Reset all work as before.
 - Tests: `node test/map-float.js`; `test/ui-quick.js` and `test/bottom-overlap.js` updated (see test/README.md).
 
-## Liquid Glass: overview, settings and address overrides (tags `ui-glass-1` … `ui-glass-14`)
+## Liquid Glass: overview, settings and address overrides (tags `ui-glass-1` … `ui-glass-15`)
 The controls are frosted glass that floats over the video: a camera **pill** that docks or floats, a **tools bubble** (Redact, Search, Events, Settings), a **Redact tray** with undo, a timeline **capsule**, grouped **Settings**, and glass that takes its tint from the video under it. Nothing in the export changed: an export from before the overhaul (`cee26b8`) and after it is byte-identical for the same clip and settings (checked in ui-glass-10).
 
 ![Liquid Glass on a laptop: camera pill, map, HUD and the timeline capsule (mock footage)](screenshots/liquid-glass-desktop.png)
@@ -698,6 +698,19 @@ Rollback: `git checkout pre-ui-glass-10` (tip before this change, `ui-glass-9`, 
 - The overview above lists every setting and address override; new mock-footage screenshots.
 - Tests: `node test/ui-glass-10.js` (accessibility), `node test/glass-shots.js` (screenshots); `test/ui-glass-1.js` and `test/ui-glass-5.js` timing fixes (see test/README.md).
 
+
+## Liquid Glass, step 15: glass performance for detection and tracking (tag `ui-glass-15`)
+Rollback: `git checkout pre-ui-glass-15` (19af402).
+- **Tracking priority** (Settings ▸ Appearance; `?glassprio=auto|on|off`; pref `glassPrio`, default Auto). While live detection is playing or a scan runs, the glass goes frosted and still, and comes back afterwards:
+  - refraction is off, so there is no scene copy, WebGL upload or per-piece copy;
+  - the Automatic tint stops reading the video back and uses the darkest static tint (readable over any frame);
+  - Settings, Events and Search sheets drop their backdrop blur and use the frosted panel opacity.
+  *Always* keeps the glass frosted; *Off* keeps refraction on.
+- **Refraction pauses while the controls are auto-hidden** (nothing of it is visible). It resumes when they show.
+- While playing, refraction refreshes at 15 Hz instead of about 30. The look at rest is unchanged.
+- Fixed: a missing `}` in `css/glass.css` (from ui-glass-14) made every later glass rule nest inside the drawer rule.
+- Bench: `/workspace/tdc-test/pw/g15-bench.js` (Chromium, 4× CPU throttle, mock clips, mock detector). Results are in CHANGES-v2.md.
+- Tests: `node test/ui-glass-15.js`.
 
 ## Liquid Glass, step 14: glass sliders, floating HUD, Play/Pause fix (tag `ui-glass-14`)
 Rollback: `git checkout pre-ui-glass-14` (143468e).
