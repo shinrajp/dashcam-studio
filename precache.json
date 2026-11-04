@@ -40,6 +40,7 @@
   "js/reid.js",
   "js/people.js",
   "js/car-view.js",
+  "js/view3d.js",
   "js/draw.js",
   "js/hud.js",
   "js/map.js",

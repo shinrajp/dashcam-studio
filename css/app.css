@@ -1433,3 +1433,18 @@ body.mbar .transport > .us-btn.rd-btn svg { width: 20px; height: 20px; }
 .cr-objchip { box-shadow: inset 3px 0 0 var(--lane, transparent); }
 .cr-objpop .cr-objopt { flex-direction: row; align-items: center; font-size: 12.5px; padding: 7px 8px; text-align: left; }
 .cr-objpop .cr-objopt:hover, .cr-objpop .cr-objopt.on { background: rgba(255,255,255,.08); }
+
+/* ── 3D view (debug mode, js/view3d.js): floating panel with the road round the car in 3D ── */
+.view3d { position: fixed; z-index: 46; right: 12px; bottom: 96px; width: min(460px, calc(100vw - 24px)); box-sizing: border-box; border-radius: 12px; background: rgba(10,12,18,0.88); border: 1px solid rgba(255,255,255,0.14); color: #e8ecf3; overflow: hidden; font: 12px system-ui, sans-serif; }
+html:not(.debug-on) .view3d { display: none !important; }
+.v3d-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 6px 8px; cursor: grab; touch-action: none; user-select: none; -webkit-user-select: none; }
+.v3d-bar b { font-weight: 700; }
+.v3d-tag { font-size: 10px; letter-spacing: .06em; text-transform: uppercase; opacity: .55; margin-right: auto; }
+.v3d-bar button { font: 600 11px system-ui, sans-serif; color: inherit; background: transparent; border: 1px solid rgba(255,255,255,0.18); border-radius: 6px; padding: 3px 7px; cursor: pointer; }
+.v3d-bar button[aria-pressed=true] { border-color: #4fb3ff; color: #4fb3ff; }
+.v3d-views { display: inline-flex; gap: 4px; }
+.v3d-bar .v3d-x { border: 0; font-size: 16px; line-height: 1; padding: 0 4px; }
+.v3d-bar button:focus-visible { outline: 2px solid #fff; outline-offset: 1px; }
+#v3dCanvas { display: block; width: 100%; aspect-ratio: 16 / 10; touch-action: none; cursor: grab; }
+.v3d-info, .v3d-key { padding: 4px 8px; opacity: .7; font-size: 11px; }
+.v3d-key { padding-top: 0; padding-bottom: 7px; opacity: .5; }

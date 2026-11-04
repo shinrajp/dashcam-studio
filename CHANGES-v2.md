@@ -908,3 +908,16 @@ Item 2 of the rig plan: any HW4 car's six cameras measured from one of its own d
   - A refusal rule ("not found" when the best look is poor) was tried and is off: no better on the labels, and a drawn mock object in test/track-ui.js was then never offered. `TDC.regions.hoRefuse = true` turns it on; `hoLookFirst = false` goes back to the old ranking.
 - **Measured and not shipped:** a road map that joins cameras by where objects stand on the road (with object centres from their 3D size, camera tilts corrected from parked cars, size / joint matching / 3D-box checks, appearance): 37–51 % right on the same labels. Placements are still 1–2 m off for nearby cars, and parked cars stand ~5 m apart. It stays a debugging view (the 3D mock-up), not the linker.
 - **Road distances of box feet (js/rig.js `footScale`, `boxGround`; assets track-v2-25):** the Gaussian Splatting experiment (branch `claude/splat-experiment-b23abd`, `experiments/splat/`) found that a detector box's foot reads ~20 % short against multi-view triangulation (×1.19 at 3–10 m). Tested ×1.19 on the 92 labelled hand-offs: in the app look-first 66 right (67 at ×1), offline place-and-time 49 (51), road map with object centres 32 (44). Parked cars stand stiller (drift 10.4 → 7.8 % of the car's speed). **Default stays ×1**: the hand-off doesn't gain, and the road map's centre step already moves objects back. `TDC.rig.footScale(1.19)` turns it on (`FOOT=1.19` in test/handoff-look.js).
+
+## 3D view, debug mode (branch track-v2, assets track-v2-26)
+- **js/view3d.js (new):** with Debug on (Settings ▸ Advanced & Labs ▸ Debug), a **3D view** chip opens a floating panel: the car on
+  its telemetry path (driven solid, still to come dashed), the six cameras' fields of view on the road from the rig in use, and every
+  tracked object as a box of its measured height and width where its cameras place it, with its trail. When two cameras see one
+  object at the same moment, each camera's estimate is a dot in that camera's colour joined to the object, and the label says how far
+  apart they are ("cams 5.2 m apart"): a hand-off or a distance that is off shows at a glance. Optional grey boxes for the detector's
+  live boxes (Detect while playing). Chase, Top and Orbit views (drag to turn, wheel to zoom); the info line names the camera
+  geometry in use (e.g. "Model X (measured)"). Drawn on a plain 2D canvas with a small perspective projection, no 3D library, so the
+  app stays offline and small. Viewer only; export is unchanged.
+- Test: `node test/view3d-page.js <url> <2026-10-19 drive folder>` (15 checks, real footage): two labelled hand-offs as tracked
+  objects; the front → left pillar car is placed 5.2 m apart by the two cameras at the hand-off (15.6 m vs 11.2 m from the car),
+  the left pillar → left repeater car 0.4 m apart.
