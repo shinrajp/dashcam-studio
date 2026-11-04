@@ -1,0 +1,10 @@
+# outputs show the drives: never commit them (the repository is public)
+data*/
+out*/
+page*/
+model/
+*.onnx
+*.npy
+*.jpg
+*.png
+vboxes.json

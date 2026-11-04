@@ -1,0 +1,144 @@
+<title>Depth Street Replay</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+/* Layout: the 3D scene fills the screen; a slim control bar along the bottom; a note top-left. */
+:root{
+  --bg:#0b0f12; --panel:rgba(14,19,23,.88); --fg:#e7edf0; --muted:#94a4ac; --accent:#56c2d6; --line:rgba(148,164,172,.24);
+  --sans:"IBM Plex Sans",system-ui,sans-serif; --mono:"JetBrains Mono",ui-monospace,Menlo,monospace;
+  color-scheme:dark;
+}
+html,body{height:100%;background:var(--bg);color:var(--fg);font-family:var(--sans);overflow:hidden}
+#view{position:fixed;inset:0}
+#view canvas{display:block;touch-action:none}
+.note{position:fixed;top:calc(12px + env(safe-area-inset-top,0px));left:max(16px,env(safe-area-inset-left,0px));max-width:min(380px,calc(100% - 32px));
+  background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:12px 14px;font-size:13px;line-height:1.45}
+.note h1{font-size:15px;margin:0 0 6px;font-weight:600}
+.note p{margin:0 0 6px;color:var(--muted)} .note p:last-child{margin:0} .note b{color:var(--fg);font-weight:500}
+#hide{float:right;background:none;border:0;color:var(--muted);font:inherit;cursor:pointer;padding:0 0 0 8px}
+.bar{position:fixed;left:0;right:0;bottom:0;display:flex;flex-wrap:wrap;gap:8px 10px;align-items:center;
+  padding:10px max(16px,env(safe-area-inset-right,0px)) calc(10px + env(safe-area-inset-bottom,0px)) max(16px,env(safe-area-inset-left,0px));
+  background:var(--panel);border-top:1px solid var(--line)}
+.bar button{font:500 13px var(--sans);color:var(--fg);background:transparent;border:1px solid var(--line);border-radius:6px;padding:6px 10px;cursor:pointer}
+.bar button[aria-pressed="true"]{border-color:var(--accent);color:var(--accent)}
+.bar button:focus-visible,#pos:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.views{display:flex;gap:6px;flex-wrap:wrap}
+.track{flex:1 1 200px;display:flex;align-items:center;gap:10px;min-width:0}
+#pos{flex:1;min-width:0;accent-color:var(--accent)}
+.read{font:12px var(--mono);color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap}
+[hidden]{display:none!important}
+#status{position:fixed;inset:0;display:grid;place-items:center;font:13px var(--mono);color:var(--muted);pointer-events:none}
+</style>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono&display=swap">
+
+<div id="view"></div>
+<div id="status">Loading 144 frames…</div>
+<div class="note" id="note">
+  <button id="hide" aria-label="Hide note">Hide</button>
+  <h1>Depth Street Replay</h1>
+  <p>Your <b>2026-10-19</b> drive, 8.5–12.5 s. Each camera frame is lifted into 3D by an AI depth model (Depth Anything V2 Small), scaled to metres by the road the camera rig knows, and painted with <b>its own video pixels</b>.</p>
+  <p>Drag to turn, scroll or pinch to zoom. <b>Driver</b> sits at the front camera; <b>Chase</b> and <b>Top</b> look at the car from outside.</p>
+  <p>Where cameras overlap, each spot comes from the camera that sees it sharpest; the road is snapped to the true road plane; neighbouring cameras meet on one surface and fade into each other; brightness is matched between cameras. <b>Camera colours</b> shows which camera drew what.</p>
+  <p>Gaps are what no camera saw. The white box is your car.</p>
+</div>
+<div class="bar">
+  <button id="play" aria-pressed="false">Play</button>
+  <div class="views" role="group" aria-label="View">
+    <button data-v="driver">Driver</button><button data-v="chase" aria-pressed="true">Chase</button><button data-v="rear">Rear</button><button data-v="top">Top</button>
+  </div>
+  <button id="tint" aria-pressed="false" title="Tint each camera's part of the scene in its own colour">Camera colours</button>
+  <div class="track"><input id="pos" type="range" min="0" max="23" value="0" aria-label="Time"><span class="read" id="read">8.5 s</span></div>
+</div>
+
+<script type="importmap">
+{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"}}
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+const $ = (id) => document.getElementById(id), status = $('status');
+$('hide').onclick = () => { $('note').hidden = true; };
+
+const [scene0, depth, weights] = await Promise.all(['scene.json', 'depth.json', 'weights.json'].map(u => fetch(u).then(r => r.json())));
+const STEPS = scene0.steps;
+// data world: x right, y DOWN, z forward → three: (x, -y, -z) (a 180° turn about x, keeps handedness)
+const W3 = (p) => new THREE.Vector3(p[0], -p[1], -p[2]);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(2, devicePixelRatio)); $('view').appendChild(renderer.domElement);
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+const scene = new THREE.Scene(); scene.background = new THREE.Color('#0b0f12');
+const cam3 = new THREE.PerspectiveCamera(60, 1, 0.1, 500);
+const controls = new OrbitControls(cam3, renderer.domElement); controls.enableDamping = true;
+const loader = new THREE.TextureLoader();
+
+function meshFor(f) {
+  const raw = Uint8Array.from(atob(depth[f.name]), c => c.charCodeAt(0)), Z = new Uint16Array(raw.buffer);
+  const gw = f.gw, gh = f.gh, pos = new Float32Array(gw * gh * 3), uv = new Float32Array(gw * gh * 2), R = f.R, C = f.C;
+  // seam weight per vertex (1 = this camera sees it best, fading to 0 across the band where a neighbour takes over)
+  const wb = weights[f.name] ? Uint8Array.from(atob(weights[f.name]), c => c.charCodeAt(0)) : null, col = new Float32Array(gw * gh * 4).fill(1);
+  if (wb) for (let k = 0; k < gw * gh; k++) col[k * 4 + 3] = wb[k] / 255;
+  for (let j = 0; j < gh; j++) for (let i = 0; i < gw; i++) {
+    const k = j * gw + i, z = Z[k] / 100, u = (i + 0.5) * f.w / gw, v = f.rows ? f.rows[j] : (j + 0.5) * f.h / gh;
+    const x = (u - f.cx) / f.f * z, y = (v - f.cy) / f.f * z;
+    const wx = C[0] + R[0][0] * x + R[0][1] * y + R[0][2] * z, wy = C[1] + R[1][0] * x + R[1][1] * y + R[1][2] * z, wz = C[2] + R[2][0] * x + R[2][1] * y + R[2][2] * z;
+    pos[k * 3] = wx; pos[k * 3 + 1] = -wy; pos[k * 3 + 2] = -wz; uv[k * 2] = u / f.w; uv[k * 2 + 1] = 1 - v / f.h;
+  }
+  // keep a triangle unless it spans a jump in depth (an object's edge); road seen at a low angle (all three corners on the road) always stays
+  const road = (k) => Math.abs(pos[k * 3 + 1]) < 0.35;
+  const idx = [], ok = (a, b, c) => { const za = Z[a], zb = Z[b], zc = Z[c]; if (!za || !zb || !zc) return false; if (wb && !wb[a] && !wb[b] && !wb[c]) return false; if (road(a) && road(b) && road(c)) return true; const mx = Math.max(za, zb, zc), mn = Math.min(za, zb, zc); return mx / mn < (mn > 2000 ? 1.3 : 1.15); };   // far content (past 20 m) seen edge-on tears less
+  for (let j = 0; j < gh - 1; j++) for (let i = 0; i < gw - 1; i++) {
+    const a = j * gw + i, b = a + 1, c = a + gw, d = c + 1;
+    if (ok(a, c, b)) idx.push(a, c, b); if (ok(b, c, d)) idx.push(b, c, d);
+  }
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setAttribute('uv', new THREE.BufferAttribute(uv, 2)); g.setAttribute('color', new THREE.BufferAttribute(col, 4)); g.setIndex(idx);
+  const tex = loader.load('tex/' + f.name); tex.colorSpace = THREE.SRGBColorSpace;
+  // alphaHash: order-free soft fade (a fine dither), so two cameras blend over the seam band without sorting
+  const m = new THREE.Mesh(g, new THREE.MeshBasicMaterial({ map: tex, side: THREE.DoubleSide, vertexColors: true, alphaHash: true }));
+  m.visible = false; scene.add(m); return m;
+}
+const meshes = STEPS.map(row => row.map(meshFor));
+// the car: from the front camera's pose (camera 2.05 m ahead of the rear axle, the car's middle 1.4 m ahead of it)
+const carM = new THREE.Mesh(new THREE.BoxGeometry(2.0, 1.68, 5.06), new THREE.MeshBasicMaterial({ color: 0xe9eef1, transparent: true, opacity: .55 }));
+carM.add(new THREE.LineSegments(new THREE.EdgesGeometry(carM.geometry), new THREE.LineBasicMaterial({ color: 0xffffff })));
+scene.add(carM);
+const ground = new THREE.GridHelper(400, 80, 0x22303a, 0x18222a); ground.position.y = -0.02; scene.add(ground);
+
+function poseOf(k) {
+  const f = STEPS[k].find(x => x.cam === 'front'), R = f.R;
+  const fwd = new THREE.Vector3(R[0][2], -R[1][2], -R[2][2]).setY(0).normalize(), c = W3(f.C);
+  return { cam: c, fwd, mid: c.clone().addScaledVector(fwd, -(2.05 - 1.4)).setY(0.84) };
+}
+let step = 0, view = 'chase', playing = false, acc = 0, last = performance.now();
+function show(k) {
+  meshes.forEach((row, i) => row.forEach(m => { m.visible = i === k; }));
+  const p = poseOf(k), prev = poseOf(step);
+  carM.position.copy(p.mid); carM.lookAt(p.mid.clone().add(p.fwd));
+  const d = p.mid.clone().sub(prev.mid); cam3.position.add(d); controls.target.add(d);   // the view follows the car
+  step = k; $('pos').value = k; $('read').textContent = STEPS[k][0].t.toFixed(1) + ' s';
+}
+function setView(v) {
+  view = v; carM.visible = v !== 'driver'; document.querySelectorAll('[data-v]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.v === v)));
+  const p = poseOf(step);
+  if (v === 'driver') { cam3.position.copy(p.cam); controls.target.copy(p.cam.clone().addScaledVector(p.fwd, 10)); }
+  else if (v === 'chase') { cam3.position.copy(p.mid.clone().addScaledVector(p.fwd, -11).setY(5.5)); controls.target.copy(p.mid.clone().addScaledVector(p.fwd, 6).setY(0.5)); }
+  else if (v === 'rear') { cam3.position.copy(p.mid.clone().addScaledVector(p.fwd, 9).setY(5)); controls.target.copy(p.mid.clone().addScaledVector(p.fwd, -7).setY(0.3)); }
+  else { cam3.position.copy(p.mid.clone().addScaledVector(p.fwd, -0.01).setY(38)); controls.target.copy(p.mid.clone().setY(0)); }
+  controls.update();
+}
+document.querySelectorAll('[data-v]').forEach(b => b.onclick = () => setView(b.dataset.v));
+const TINT = { front: 0x6fc3ff, back: 0xff7aa8, left_pillar: 0x8ef09a, right_pillar: 0xf0c060, left_repeater: 0x5fe0d6, right_repeater: 0xc9a4ff };
+let tinted = false;
+$('tint').onclick = () => {
+  tinted = !tinted; $('tint').setAttribute('aria-pressed', String(tinted));
+  meshes.forEach(row => row.forEach((m, i) => { m.material.color.set(tinted ? TINT[STEPS[0][i].cam] : 0xffffff); }));
+};
+$('pos').oninput = () => show(+$('pos').value);
+$('play').onclick = () => { playing = !playing; $('play').textContent = playing ? 'Pause' : 'Play'; $('play').setAttribute('aria-pressed', String(playing)); if (playing && step >= STEPS.length - 1) show(0); };
+function resize() { const w = innerWidth, h = innerHeight; renderer.setSize(w, h); cam3.aspect = w / h; cam3.updateProjectionMatrix(); }
+addEventListener('resize', resize); resize();
+show(0); setView('chase'); status.hidden = true;
+renderer.setAnimationLoop((now) => {
+  if (playing) { acc += now - last; if (acc > 167) { acc = 0; if (step < STEPS.length - 1) show(step + 1); else { playing = false; $('play').textContent = 'Play'; $('play').setAttribute('aria-pressed', 'false'); } } }
+  last = now; controls.update(); renderer.render(scene, cam3);
+});
+</script>
