@@ -690,7 +690,7 @@ Rollback point: tag `pre-tap-redact` (= redact-button, d2ad533).
 - `js/pano-toggle.js`: `apply360()` hides every `.need360` element (Settings ▸ Calibration, `#calibSec`) and any open `#panoCalibPanel` while 360 is off.
 - Tests: new `test/map-float.js`; `ui-quick` A2/A3/A7/A8 check Calibration with 360; `bottom-overlap` gets a `mapfloat` state (map pushed into the bottom-right corner).
 
-## Liquid Glass: summary (tags `ui-glass-1` … `ui-glass-14`, rollback `pre-ui-glass-1` = 14da42e)
+## Liquid Glass: summary (tags `ui-glass-1` … `ui-glass-15`, rollback `pre-ui-glass-1` = 14da42e)
 What changed, in one place (details per step below):
 | Step | What | New files |
 |---|---|---|
@@ -707,6 +707,7 @@ What changed, in one place (details per step below):
 | 11 | Refraction glass (WebGL, SDF edges bend the video) as the default; frosted is the fallback; Glass style setting (`?refract=`) | `js/refract.js`, `css/refract.css`, `test/ui-glass-11.js` |
 | 12 | Clear demo glass + halo; pill to the bottom edge; full-screen corner pill; Debug mode; keyboard-aware sheets; system spelling | `js/debug.js`, `js/keyboard.js`, `js/i18n.js`, `test/ui-glass-12*.js` |
 | 14 | Glass sliders + Custom mode + tint colour; reading-sheet opacity floor; floating HUD (per-layout spot); touch Play/Pause fix | `js/glass-tune.js`, `js/glass.js`, `js/overlays.js`, `js/focus.js`, `js/keyboard.js`, `test/ui-glass-14.js` |
+| 15 | Glass performance for detection/tracking: Tracking priority (Auto/Always/Off, `?glassprio=`), refraction paused while controls are hidden, 15 Hz refraction while playing, glass.css missing-brace fix | `js/refract.js`, `js/glass.js`, `css/glass.css`, `index.html`, `test/ui-glass-15.js` |
 
 - **Settings and overrides:** Glass `?glass=auto|clear|solid`; Glass style `?refract=1|0`; Auto-hide `?autohide=2|3|5|never`; Lite `?lite=auto|on|off|1|0`; Show 360 `?show360=1|0`. Overrides last one visit and are not saved.
 - **Unchanged:** every saved setting and its key, region storage (`tdc.regions.v1`) and the regions file, the export (byte-identical mdat for compatFill, compatOverlay and origPanel between `cee26b8` and `ui-glass-9`, same clip and settings), keyboard shortcuts.
@@ -717,6 +718,31 @@ What changed, in one place (details per step below):
 - The faintest text (`--faint`, #636b78: counts and small notes) can't reach 4.5:1 on any glass; the main labels and dim text do.
 - Refraction bends only the camera pictures; other things under a control (the map, HUD, page background) show as the page colour inside the glass (the frosted look is unchanged there).
 - Refraction is checked in headless Chromium (SwiftShader WebGL) and WebKit; real iPhone / Mac Safari performance needs a check on the device (it falls back to frosted by itself if playback drops frames).
+
+### ui-glass-15 (tag `ui-glass-15`; rollback `pre-ui-glass-15` = 19af402)
+- Tracking priority (Settings ▸ Appearance, default Auto; `?glassprio=auto|on|off`): while live detection or a scan runs, the sheets go frosted (no backdrop-filter), the refraction renderer and the luma tint sampling stop, and the float-panel drop-shadow filter is dropped. The look at rest is unchanged.
+- Refraction pauses while playing with the controls auto-hidden, and runs at 15 Hz otherwise while playing. The MutationObserver ignores mutations during playback.
+- Fix: a missing `}` in css/glass.css (from ui-glass-14) had nested every later glass rule inside the drawer rule.
+- Tests: `test/ui-glass-15.js` (new).
+
+Measured (same harness before/after):
+
+Chromium headless (SwiftShader GPU), CPU throttle 4x, mock clips (6 cams) + mock detector (60 ms), live detection on, 8 s playing. Mean of 2 runs. Base = 19af402; after = ui-glass-15 (Tracking priority Auto). fix-only = 19af402 + the glass.css brace fix (1 run pair); prio off = ui-glass-15 with ?glassprio=off (1 run).
+
+| size | glass | auto-hide | main-thread busy % | script ms per s | frames/s (rAF) | refraction renders in 8 s | detections/s | detection ms | dropped video frames % |
+|---|---|---|---|---|---|---|---|---|---|
+| 1440x900 | auto | never | 47 → 22 (fix-only 50) (prio off 43) | 350 → 104 (fix-only 406) (prio off 342) | 10.7 → 11.9 (fix-only 6.5) (prio off 6.9) | 86 → 0 (fix-only 52) (prio off 55) | 5.1 → 8.1 (fix-only 3.3) (prio off 3.6) | 81 → 64 (fix-only 114) (prio off 81) | 67 → 66 (fix-only 77) (prio off 80) |
+| 1440x900 | auto | 3 | 46 → 25 (prio off 43) | 335 → 110 (prio off 322) | 12.7 → 14.9 (prio off 7.6) | 102 → 0 (prio off 18) | 6.3 → 6.6 (prio off 4.4) | 82 → 66 (prio off 87) | 64 → 60 (prio off 79) |
+| 1440x900 | custom | never | 28 → 23 | 166 → 106 | 10.9 → 13.9 | 88 → 0 | 6.7 → 7.7 | 66 → 66 | 70 → 62 |
+| 1440x900 | custom | 3 | 27 → 25 | 146 → 113 | 13.3 → 15.9 | 106 → 0 | 6.4 → 7.2 | 66 → 66 | 65 → 57 |
+| 1440x900 | frost | never | 39 → 23 (fix-only 39) | 284 → 108 (fix-only 289) | 11.2 → 14.1 (fix-only 7.4) | 0 → 0 (fix-only 0) | 6.4 → 8.0 (fix-only 3.8) | 78 → 65 (fix-only 92) | 70 → 63 (fix-only 78) |
+| 1440x900 | frost | 3 | 43 → 25 | 297 → 113 | 14.2 → 16.1 | 0 → 0 | 6.7 → 7.1 | 82 → 66 | 61 → 57 |
+| 430x932 | auto | never | 56 → 30 (fix-only 52) (prio off 52) | 423 → 130 (fix-only 393) (prio off 391) | 12.4 → 17.1 (fix-only 9.6) (prio off 9.7) | 100 → 0 (fix-only 76) (prio off 73) | 6.1 → 6.9 (fix-only 4.6) (prio off 4.9) | 90 → 68 (fix-only 86) (prio off 79) | 62 → 54 (fix-only 68) (prio off 71) |
+| 430x932 | auto | 3 | 54 → 30 (prio off 51) | 385 → 129 (prio off 370) | 14.5 → 17.7 (prio off 10.7) | 116 → 0 (prio off 24) | 5.0 → 7.9 (prio off 4.6) | 99 → 66 (prio off 89) | 59 → 53 (prio off 68) |
+| 430x932 | custom | never | 29 → 29 | 158 → 122 | 12.7 → 17.8 | 102 → 0 | 7.1 → 6.8 | 65 → 66 | 63 → 53 |
+| 430x932 | custom | 3 | 32 → 29 | 159 → 127 | 15.2 → 17.5 | 122 → 0 | 8.1 → 7.1 | 67 → 66 | 58 → 53 |
+| 430x932 | frost | never | 47 → 29 (fix-only 46) | 311 → 128 (fix-only 328) | 16.2 → 17.8 (fix-only 11.7) | 0 → 0 (fix-only 0) | 5.4 → 7.1 (fix-only 5.1) | 84 → 68 (fix-only 88) | 57 → 51 (fix-only 70) |
+| 430x932 | frost | 3 | 48 → 31 | 312 → 133 | 17.4 → 17.9 | 0 → 0 | 5.7 → 8.0 | 82 → 67 | 56 → 50 |
 
 ### ui-glass-14 (tag `ui-glass-14`; rollback `pre-ui-glass-14` = 143468e)
 - Glass sliders (Blur, Strength, Tint, Panel opacity, Tint colour, Reset) are ported from ui-glass-13 onto the new glass code. They replace origin's simpler manual-glass rows. A new **Custom** mode was added; moving a slider switches to it.
