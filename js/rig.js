@@ -211,12 +211,24 @@
 
   /** Where a detection box stands and how big it is: { x, z, dist, bearing, hM, wM } (metres) from its bottom middle
    *  on the road, or null (its foot is above the horizon, cut off by the picture's bottom edge, or too far). */
+  /* A detector box's bottom lies lower in the picture than where the object meets the road under it (its nearest corner, its shadow
+     and wheels, and on a fisheye the straight box edge below the curved contact line): its distance reads short. FOOT scales the
+     distance of a box's foot from the camera (1 = as the road says). Measured against multi-view triangulation with the known car
+     motion on the 2026-10-19 drive (experiments/splat on branch claude/splat-experiment-b23abd): ×1.19 at 3–10 m. */
+  let FOOT = 1;
+  function footScale(s) { if (isFinite(+s) && +s > 0.5 && +s < 2) FOOT = +s; return FOOT; }
+  /** A road point under a box's bottom edge, its distance from camera `cam` scaled by FOOT. */
+  function boxGround(cam, u, v, maxDist) {
+    const g = ground(cam, u, v, maxDist ? maxDist / FOOT : maxDist); if (!g || FOOT === 1) return g;
+    const P = cams[cam].pos, x = P[0] + (g.x - P[0]) * FOOT, z = P[2] + (g.z - P[2]) * FOOT;
+    return { x, z, dist: g.dist * FOOT, bearing: Math.atan2(x, z) / D2R };
+  }
   function footprint(cam, box, maxDist) {
     const c = cams[cam]; if (!c || !box) return null;
     if (box.y + box.h > 0.985) return null;                       // the foot is out of the picture: where it stands is unknown
-    const g = ground(cam, box.x + box.w / 2, box.y + box.h, maxDist); if (!g) return null;
+    const g = boxGround(cam, box.x + box.w / 2, box.y + box.h, maxDist); if (!g) return null;
     // height: the top's ray meets the upright line above the foot (closest approach)
-    const top = ray(cam, box.x + box.w / 2, box.y), lft = ground(cam, box.x, box.y + box.h, 200), rgt = ground(cam, box.x + box.w, box.y + box.h, 200);
+    const top = ray(cam, box.x + box.w / 2, box.y), lft = boxGround(cam, box.x, box.y + box.h, 200), rgt = boxGround(cam, box.x + box.w, box.y + box.h, 200);
     let hM = null;
     if (top) {
       const hz = Math.hypot(top[0], top[2]); if (hz > 1e-6) hM = c.pos[1] + top[1] * (Math.hypot(g.x - c.pos[0], g.z - c.pos[2]) / hz);
@@ -381,5 +393,5 @@
   }
 
   return { CAMS, MEASURED, CLOCK0, BODY, PRESETS, HEIGHT, ASPECT, rot, ok, ray, pixel, ground, bearing, isBody, bodyShare, footprint,
-    sizeRatio, boxAt, predictEntry, clockOffsets, coverage, clock, set, reset, get, current, bodyBoxes, preset, closestPreset, browser };
+    sizeRatio, boxAt, predictEntry, clockOffsets, coverage, clock, set, reset, get, current, bodyBoxes, preset, closestPreset, browser, footScale, boxGround };
 });

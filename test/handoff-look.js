@@ -5,7 +5,8 @@
 // labelled track(s): right (overlaps the labelled one), wrong (another object), missed (nothing found where there is one), or right for
 // "nothing found" when the object wasn't detected in the next camera.
 // Usage: node test/handoff-look.js <url> <folder with the drive's six .mp4> <drive: 10-19 | 10-07> [--only old|new] [--n N]
-//   env: PW = playwright(-core) package; CHANNEL = chrome by default; MODEL = small (default); OUT = write the per-case results (JSON)
+//   env: PW = playwright(-core) package; CHANNEL = chrome by default; MODEL = small (default); OUT = write the per-case results (JSON);
+//        FOOT = scale the road distances of box feet (js/rig.js footScale), e.g. 1.19; REFUSE = 1 turns on the refusal of poor looks
 const fs = require("fs"), path = require("path");
 const [URL_, DIR, DRIVE] = process.argv.slice(2);
 const arg = (k) => { const i = process.argv.indexOf(k); return i > 0 ? process.argv[i + 1] : null; };
@@ -39,6 +40,7 @@ function judge(found, truth) {
   await p.evaluate(() => [...document.querySelectorAll("button")].filter((x) => /Got it/.test(x.textContent)).forEach((x) => x.click()));
   await p.evaluate(() => { TDC.ui.activate(TDC.library.events[0]); }); await W(2000);
   await p.evaluate(async () => { TDC.player.pause(); await TDC.detect.load(); await TDC.detect.loadVehReid(); });
+  if (process.env.FOOT) console.log("road distances ×" + (await p.evaluate((f) => TDC.rig.footScale(+f), process.env.FOOT)));
   console.log(`${DRIVE}: ${cases.length} labelled hand-offs; detector ${await p.evaluate(() => TDC.detect.backend)}, appearance model ${await p.evaluate(() => !!TDC.detect.vreidInfo())}`);
 
   const only = arg("--only"), modes = only ? [only] : ["old", "new"], res = { old: [], new: [] };

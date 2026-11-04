@@ -1556,7 +1556,7 @@
   function groundOf(cam, b) {
     if (!b) return null;
     if (rigOk(cam, 0)) {   // (the measured rig: lens, height and mounting; its own origin, used the same way for every camera)
-      const g = T.rig.ground(cam, Math.max(0, Math.min(1, b.x + b.w / 2)), Math.min(1, b.y + b.h), 70);
+      const g = (T.rig.boxGround || T.rig.ground)(cam, Math.max(0, Math.min(1, b.x + b.w / 2)), Math.min(1, b.y + b.h), 70);
       return g ? { x: g.x, z: g.z, r: g.dist, cut: b.x < 0.004 || b.x + b.w > 0.996 } : null;
     }
     const d = rayOf(cam, Math.max(0, Math.min(1, b.x + b.w / 2)), Math.min(1, b.y + b.h), cam); if (!d || d[1] > -0.012) return null;
