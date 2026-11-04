@@ -19,12 +19,12 @@
 (function () {
   "use strict";
   const T = window.TDC; if (!T) return;
-  const MODES = ["auto", "clear", "solid"], BLUR_MAX = 2, root = document.documentElement;   // ui-perf: 2 concurrent blurs for 60fps
+  const MODES = ["auto", "clear", "solid", "custom"], BLUR_MAX = 2, root = document.documentElement;   // ui-perf: 2 concurrent blurs for 60fps
   const G = (T.glass = { mode: "auto", effective: "auto", luma: -1, alpha: 0, blurred: [] });
   const mq = (q) => { try { return window.matchMedia(q); } catch (_) { return null; } };
   const mRT = mq("(prefers-reduced-transparency: reduce)"), mRM = mq("(prefers-reduced-motion: reduce)");
   G.supported = () => { try { return CSS.supports("backdrop-filter", "blur(1px)") || CSS.supports("-webkit-backdrop-filter", "blur(1px)"); } catch (_) { return false; } };
-  G.override = () => { try { const m = /(?:[?&#])glass=(auto|clear|solid)\b/.exec(location.search + location.hash); return m ? m[1] : null; } catch (_) { return null; } };
+  G.override = () => { try { const m = /(?:[?&#])glass=(auto|clear|solid|custom)\b/.exec(location.search + location.hash); return m ? m[1] : null; } catch (_) { return null; } };
   G.pref = () => (MODES.includes(T.prefs.glass) ? T.prefs.glass : "auto");
   // ---- lite mode -----------------------------------------------------------------------------------------------------------------------------
   G.liteOverride = () => { try { const m = /(?:[?&#])lite=(auto|on|off|1|0)\b/.exec(location.search + location.hash); return m ? ({ 1: "on", 0: "off" }[m[1]] || m[1]) : null; } catch (_) { return null; } };

@@ -28,7 +28,7 @@
   // ui-glass-11 adaptive tint. Sheets (Settings, Events) get their own, stronger backing: the panel opacity and blur + 6 px.
   R.tune = () => { const t = (T.debugOn && T.debugOn() && T.prefs.tune) || {}, D = R.DEMO, g = (T.glassTune && (T.glassTune.cur || T.glassTune.get())) || {};
     const blur = num(g.blur, 0, 12, D.blur);
-    return { str: num(g.str, 0, 2.5, D.str), tint: num(g.tint, 0, 0.8, D.tint), blur, sheet: num(g.sheet, 0.3, 0.95, 0.72), sheetBlur: blur + 6, adaptive: !!t.rfAdaptive }; };
+    return { str: num(g.str, 0, 2.5, D.str), tint: num(g.tint, 0, 0.8, D.tint), blur, sheet: num(g.sheet, 0.3, 0.95, 0.72), sheetBlur: blur + 6, rgb: (T.glassTune && T.glassTune.rgb) || D.rgb, adaptive: !!t.rfAdaptive }; };
   const lin = (c) => { c /= 255; return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); };
   const lum = (r, g, b) => 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
   const TEXT = { ctl: lum(0xae, 0xb6, 0xc2), sheet: lum(0x9a, 0xa3, 0xb2) }, FLOOR = { ctl: 0.12, sheet: 0.5 }, SHEEN = 0.12, A_MAX = 0.96, RIM_A = 0.35;
@@ -222,7 +222,7 @@
     R.stats.videos = drawScene(list, SS);
     const tu = R.tune(); R.tuned = tu;
     if (tu.adaptive) { if (doTint || list.some((p) => !p.host._rft || p.host._rft.demo)) { tints(list, !playing()); tintAt = now; } }
-    else for (const p of list) { const a = p.kind === "sheet" ? tu.sheet : tu.tint; p.host._rft = { rgb: R.DEMO.rgb, a, need: a, max: null, demo: true }; }
+    else for (const p of list) { const a = p.kind === "sheet" ? tu.sheet : tu.tint; p.host._rft = { rgb: tu.rgb, a, need: a, max: null, demo: true }; }
     gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, sceneTex);
     try { gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, sc); } catch (_) {}
     // ui-glass-13: sheets read a 1/4-size copy (two halvings, ~1/8 of the screen) for their strong blur; only while a sheet is up

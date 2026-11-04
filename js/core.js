@@ -29,12 +29,14 @@
     mapTiles: true,
     mapStyle: "osm",
     mapFollow: false,
+    hudDock: "over",   // ui-glass-14: over (on the video) | float (window-level, js/overlays.js); export never uses it
+    hudFloat: { portrait: { fx: 0, fy: 1 }, landscape: { fx: 0, fy: 1 } },   // ui-glass-14: floating HUD spot per layout (fractions of the free window area)
     mapDock: "over",   // over (on the video) | aside (docked beside it) | float (anywhere in the window, js/overlays.js)
     autohide: "3",   // ui-glass-2: Settings ▸ Appearance ▸ Auto-hide — "2" | "3" | "5" seconds | "never"; ?autohide= overrides for one visit
     lite: "auto",    // ui-glass-9: Settings ▸ Appearance ▸ Lite mode — "auto" (on when frames drop or memory is low) | "on" | "off"; ?lite= overrides for one visit
     glassStyle: "refract",   // ui-glass-11: Settings ▸ Appearance ▸ Glass style — "refract" (SDF refraction, js/refract.js) | "frost"; ?refract=0|1 overrides for one visit
     debug: false,   // ui-glass-12: Settings ▸ Advanced & Labs ▸ Debug — shows the technical controls (tuning, calibration, models, thresholds); ?debug=1|0 overrides for one visit
-    glassTune: { blur: 4, str: 1, tint: 0.22, sheet: 0.72 },   // ui-glass-13: Settings ▸ Appearance glass sliders (js/glass-tune.js)
+    glassTune: { blur: 4, str: 1, tint: 0.22, sheet: 0.72, color: "" },   // ui-glass-13 (ui-glass-14: color "" = neutral or #rrggbb; moving one switches glass to "custom"): Settings ▸ Appearance glass sliders (js/glass-tune.js)
     tune: { rfAdaptive: false, liteFps: 40, perfHud: false, wbK: 0, wbTint: 0, lang: "" },   // ui-glass-12: Debug-only tuning (used only while Debug is on; defaults = the labs/glass-sdf v5 demo)
     glass: "auto",   // ui-glass-1: Settings ▸ Appearance ▸ Glass — "auto" (tint follows the video) | "clear" | "solid"; ?glass= overrides for one visit
     mapFloat: { fx: -1, fy: -1, pin: 0, below: 0 },

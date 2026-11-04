@@ -12,6 +12,8 @@
   --g-shadow: 0 10px 30px rgba(0,0,0,.34), 0 2px 8px rgba(0,0,0,.24);
   --g-text-shadow: 0 1px 2px rgba(0,0,0,.45);
 }
+/* ui-glass-14: Custom = the Settings ▸ Appearance ▸ Glass sliders as they are (js/glass-tune.js sets --g-custom-a) */
+html.glass[data-glass="custom"] { --g-a: var(--g-custom-a, .7); }
 html.glass[data-glass="clear"] { --g-a: max(.42, var(--g-tint-floor, 0)); }   /* ui-glass-13: Tint raises Clear too */
 html.glass[data-glass="solid"] { --g-a: .97; --g-rgb: 27, 30, 37; --g-sheen: linear-gradient(rgba(255,255,255,0), rgba(255,255,255,0)); }
 
