@@ -116,6 +116,11 @@ body.simple .adv-only { display: none !important; }
   .map-grip::after { inset: -5px; } .map-move::after { inset: -8px 0; } }   /* from the padding box: 4 / 7 px outside the 1 px border */
 .float-panel.map-panel.map-floating { position: fixed; left: 0; top: 0; z-index: 29; border-radius: 14px; }   /* under the Settings drawer (30), bottom bars (35+), dialogs, toasts */
 .map-floating.dock-near { opacity: 0.75; }
+/* ui-glass-14: the HUD floats the same way (js/overlays.js): window-level, compact, under the Settings drawer and the bottom bars */
+.float-panel.hud-panel.hud-floating { position: fixed; left: 0; top: 0; z-index: 29; border-radius: 14px; touch-action: none; }
+.hud-floating.dock-near { opacity: 0.75; }
+.hud-panel .hud-grip { width: 24px; height: 24px; left: 4px; top: 4px; }
+.hud-panel.dragging .hud-grip { cursor: grabbing; }
 .map-dock-hint { position: fixed; z-index: 28; border: 2px dashed rgba(120,170,255,0.9); border-radius: 14px; background: rgba(70,120,255,0.14); color: #fff; font: 600 12px/1.3 inherit; display: grid; place-items: center; text-align: center; padding: 6px; pointer-events: none; }
 .map-dock-hint[hidden] { display: none; }
 .resize-grip { position: absolute; right: 2px; bottom: 2px; width: 18px; height: 18px; cursor: nwse-resize; border-right: 3px solid rgba(255,255,255,0.7); border-bottom: 3px solid rgba(255,255,255,0.7); border-radius: 0 0 14px 0; opacity: 0.7; transition: opacity .15s; }
@@ -1298,8 +1303,8 @@ body.mbar.cr-bar-on .transport > .us-btn { display: none; }
 
 /* ui-glass-12 (js/keyboard.js): typing in a sheet on a touch screen — the player capsule, the bubble and the floating pill / map hide,
    so nothing covers the sheet, its field or its results; the sheet stays above the on-screen keyboard (visualViewport). */
-body.kb-typing :is(#transport, #mbBar, #toolBubble, .stage-bar.bar-floating, .map-panel.map-floating, #btnBarRestore),
-body.kb-typing :is(#transport, #mbBar, #toolBubble, .stage-bar.bar-floating, .map-panel.map-floating) * { visibility: hidden !important; pointer-events: none !important; }
+body.kb-typing :is(#transport, #mbBar, #toolBubble, .stage-bar.bar-floating, .map-panel.map-floating, .hud-panel.hud-floating, #btnBarRestore),
+body.kb-typing :is(#transport, #mbBar, #toolBubble, .stage-bar.bar-floating, .map-panel.map-floating, .hud-panel.hud-floating) * { visibility: hidden !important; pointer-events: none !important; }
 body.kb-typing .drawer.set-panel { bottom: auto; max-height: calc(var(--vv-bottom, 100vh) - var(--top-h, 58px) - 16px); }
 body.fs.kb-typing .drawer.set-panel, body.kb-up .drawer.set-panel { top: calc(env(safe-area-inset-top, 0px) + 8px); max-height: calc(var(--vv-bottom, 100vh) - env(safe-area-inset-top, 0px) - 16px); }   /* a short space above the keyboard: use all of it */
 @media (max-width: 600px) {

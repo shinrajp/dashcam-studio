@@ -2,7 +2,10 @@
  * click the route to seek. Positions are saved as fractions of the grid's free space (shared with export).
  * The map has three homes (prefs.mapDock): "over" the video, "aside" (docked beside it) or "float": a window-level panel you drag by its
  * ⋮⋮ grip anywhere in the window (above the bottom controls), dropped near its dock spot (the right edge of the video area) it snaps back
- * to the dock. Its float position (prefs.mapFloat) is separate from the on-video position, so export is unchanged. */
+ * to the dock. Its float position (prefs.mapFloat) is separate from the on-video position, so export is unchanged.
+ * ui-glass-14: the telemetry HUD floats the same way (same grip, drag, snap and keyboard code): prefs.hudDock "over" | "float"; dropped
+ * back on the video (near its on-video spot) it docks there. While floating it is compact and window-level, so it can sit beside or off the
+ * video; its spot is kept per layout (prefs.hudFloat.portrait / .landscape). Export only reads prefs.panels.hud (unchanged). */
 (function () {
   "use strict";
   const T = window.TDC;
@@ -25,7 +28,7 @@
     const hud = makePanel("hud", "hud-panel");
     // HUD float grip (same idea as map)
     const hg = T.el("button", "map-grip hud-grip");
-    hg.type = "button"; hg.id = "hudGrip"; hg.title = "Drag to float the HUD";
+    hg.type = "button"; hg.id = "hudGrip"; hg.title = "Drag to float the HUD"; hg.setAttribute("aria-label", "Float the HUD: drag it anywhere in the window (or press Enter, then arrow keys)");
     hg.innerHTML = '<svg viewBox="0 0 14 22" aria-hidden="true"><circle cx="4" cy="4" r="1.7"/><circle cx="10" cy="4" r="1.7"/><circle cx="4" cy="11" r="1.7"/><circle cx="10" cy="11" r="1.7"/><circle cx="4" cy="18" r="1.7"/><circle cx="10" cy="18" r="1.7"/></svg>';
     hud.el.appendChild(hg);
     wireFloat(hud, hg, "hud");
@@ -88,6 +91,12 @@
   }
   function asideWanted() { return T.prefs.mapDock === "aside"; }
   const floatWanted = () => T.prefs.mapDock === "float";
+  const hudFloatWanted = () => T.prefs.hudDock === "float";
+  const isFloat = (id) => (id === "hud" ? hudFloatWanted() : id === "map" && floatWanted());
+  const orient = () => (vh() > vw() ? "portrait" : "landscape");
+  /** the saved float spot of a panel: map = prefs.mapFloat; hud = prefs.hudFloat[portrait | landscape] (default: bottom left, above the controls) */
+  const fpref = (id) => { if (id !== "hud") return T.prefs.mapFloat || {}; const h = T.prefs.hudFloat || {}; return h[orient()] || { fx: 0, fy: 1 }; };
+  const fset = (id, v) => { if (id !== "hud") { T.prefs.mapFloat = v; return; } T.prefs.hudFloat = { ...(T.prefs.hudFloat || {}), [orient()]: v }; };
 
   // ── floating map (window level) ──
   const FM = 8;   // margin to the window edges and the bottom controls
@@ -124,8 +133,8 @@
     return f;
   };
   const deepMaxY = (s) => Math.max(s.y0 + s.sy, O.deepFloor() - GRIP_KEEP);
-  function floatXY(w, h, floor) {
-    const f = T.prefs.mapFloat || {}, s = floatSpan(w, h, floor);
+  function floatXY(w, h, floor, id) {
+    const f = fpref(id || "map"), s = floatSpan(w, h, floor);
     const fx = f.fx >= 0 ? f.fx : 1, fy = f.fy >= 0 ? f.fy : 0.08;   // default: top right
     const below = f.pin && f.below > 0 ? Math.min(f.below, deepMaxY(s) - s.y0 - s.sy) : 0;   // px you placed it below the floor
     return { x: s.x0 + T.clamp(fx, 0, 1) * s.sx, y: s.y0 + T.clamp(fy, 0, 1) * s.sy + Math.max(0, below) };
@@ -145,15 +154,16 @@
   }
   function setFloatPos(p, x, y, save, live) {
     const s = floatSpan(p.w, p.h, O.floatFloor());
-    const deep = live || save || (p.id === "map" && T.prefs.mapFloat && T.prefs.mapFloat.pin);   // placed by you: down to the window bottom, grip kept reachable
+    const deep = live || save || !!fpref(p.id).pin;   // placed by you: down to the window bottom, grip kept reachable
     x = T.clamp(x, s.x0, s.x0 + s.sx); y = T.clamp(y, s.y0, deep ? deepMaxY(s) : s.y0 + s.sy);
     // the map steps clear of the docked camera bar by itself, but a spot you chose (drag / keys: pin) is kept; the bar stays on top there
     if (!live && !save && p.id === "map" && !(T.prefs.mapFloat && T.prefs.mapFloat.pin)) { const c = clearOfBar(x, y, p.w, p.h, s); x = c.x; y = c.y; }
     p.el.style.transform = `translate(${Math.round(x)}px, ${Math.round(y)}px)`;
     if (save) {
       const below = Math.round(y - s.y0 - s.sy);
-      T.prefs.mapFloat = { fx: s.sx ? +((x - s.x0) / s.sx).toFixed(4) : 0, fy: below > 0 ? 1 : s.sy ? +((y - s.y0) / s.sy).toFixed(4) : 0, pin: 1 };
-      if (below > 0) T.prefs.mapFloat.below = below;
+      const v = { fx: s.sx ? +((x - s.x0) / s.sx).toFixed(4) : 0, fy: below > 0 ? 1 : s.sy ? +((y - s.y0) / s.sy).toFixed(4) : 0, pin: 1 };
+      if (below > 0) v.below = below;
+      fset(p.id, v);
       T.savePrefs();
     }
     return { x, y };
@@ -165,12 +175,22 @@
     const w = Math.min(260, r.width * 0.3);
     return { l: r.right - w, t: r.top + r.height * 0.15, r: r.right, b: r.bottom - r.height * 0.15 };
   }
-  const nearDock = (cx, cy) => { const d = dockSpot(); return !!d && cx >= d.l && cx <= d.r + 40 && cy >= d.t && cy <= d.b; };
+  /** ui-glass-14: the HUD's dock spot = the video area around where the docked HUD sits (its on-video position) */
+  function hudDockSpot() {
+    const st = O.stage && O.stage.getBoundingClientRect(); if (!st || st.width < 50) return null;
+    const g = grid(), pos = T.prefs.panels.hud, hw = Math.min(st.width * 0.6, 360), hh = Math.min(st.height * 0.3, 140);
+    const cx = st.left + g.w * T.clamp(pos.fx, 0, 1), cy = st.top + g.h * T.clamp(pos.fy, 0, 1);
+    const l = T.clamp(cx - hw / 2, st.left, st.right - hw), t = T.clamp(cy - hh / 2, st.top, st.top + g.h - hh);
+    return { l, t, r: l + hw, b: t + hh };
+  }
+  const spotOf = (id) => (id === "hud" ? hudDockSpot() : dockSpot());
+  const nearDock = (cx, cy, id) => { const d = spotOf(id || "map"); if (id === "hud") return !!d && cx >= d.l && cx <= d.r && cy >= d.t && cy <= d.b; return !!d && cx >= d.l && cx <= d.r + 40 && cy >= d.t && cy <= d.b; };
   let dockHint = null;
-  function showDockHint(on) {
-    if (on && !dockHint) { dockHint = T.el("div", "map-dock-hint"); dockHint.textContent = "Release to dock the map"; document.body.appendChild(dockHint); }
+  function showDockHint(on, id) {
+    if (on && !dockHint) { dockHint = T.el("div", "map-dock-hint"); document.body.appendChild(dockHint); }
     if (!dockHint) return;
-    const d = dockSpot(); dockHint.hidden = !on || !d;
+    if (on) dockHint.textContent = id === "hud" ? "Release to put the HUD back on the video" : "Release to dock the map";
+    const d = spotOf(id || "map"); dockHint.hidden = !on || !d;
     if (on && d) Object.assign(dockHint.style, { left: d.l + "px", top: d.t + "px", width: (d.r - d.l - 6) + "px", height: (d.b - d.t) + "px" });
   }
   O.setMapHome = (home, quiet) => {
@@ -179,8 +199,15 @@
     O.invalidate();
     if (!quiet) T.toast(home === "float" ? "Map floats: drag ⋮⋮ anywhere, drop it at the right edge of the video to dock it" : home === "aside" ? "Map docked beside the video" : "Map is on the video", "ok", 2600);
   };
+  O.setHudHome = (home, quiet) => {
+    T.setPref("hudDock", home === "float" ? "float" : "over");
+    O.invalidate();
+    if (!quiet) T.toast(home === "float" ? "HUD floats: drag ⋮⋮ anywhere, drop it back on the video to dock it" : "HUD is on the video", "ok", 2600);
+  };
   /** grip drag (same feel as the camera bar's ⋮⋮: 5 px before it moves, edges snap, double-click / double-tap docks or floats) */
   function wireFloat(p, g, kind) { kind = kind || "map";
+    const hud = kind === "hud", want = () => (hud ? hudFloatWanted() : floatWanted());
+    const home = (h, q) => (hud ? O.setHudHome(h === "aside" ? "over" : h, q) : O.setMapHome(h, q));
     let d = null, lastTap = 0, swallow = false;
     g.addEventListener("pointerdown", (e) => {
       if (e.pointerType === "mouse" && e.button !== 0) return;
@@ -197,20 +224,20 @@
       if (!d.moved) {
         if (Math.hypot(dx, dy) < 5) return;
         d.moved = true; p.el.classList.add("dragging");
-        if (!floatWanted()) {   // lift it out of the video / dock, keeping it under the finger
-          T.prefs.mapDock = "float"; T.savePrefs(); T.emit("prefs", "mapDock"); if (T.ui && T.ui.fit) T.ui.fit(); O.render();
+        if (!want()) {   // lift it out of the video / dock, keeping it under the finger
+          const k = hud ? "hudDock" : "mapDock"; T.prefs[k] = "float"; T.savePrefs(); T.emit("prefs", k); if (!hud && T.ui && T.ui.fit) T.ui.fit(); O.render();
           d.l = e.clientX - 20; d.t = e.clientY - 18; d.x = e.clientX; d.y = e.clientY;   // grip (top-left) stays under the pointer
         }
       }
       setFloatPos(p, d.l + (e.clientX - d.x), d.t + (e.clientY - d.y), false, true);
-      d.near = nearDock(e.clientX, e.clientY); showDockHint(d.near); p.el.classList.toggle("dock-near", d.near);
+      d.near = nearDock(e.clientX, e.clientY, kind); showDockHint(d.near, kind); p.el.classList.toggle("dock-near", d.near);
     });
     const end = (e) => {
       if (!d || e.pointerId !== d.id) return;
       const was = d; d = null; p.el.classList.remove("dragging", "dock-near"); showDockHint(false);
       if (was.moved) {
         swallow = true; setTimeout(() => { swallow = false; }, 0);
-        if (was.near) { O.setMapHome("aside"); return; }
+        if (was.near) { home("aside"); return; }
         const r = p.el.getBoundingClientRect(), s = floatSpan(p.w, p.h, O.floatFloor());
         let x = r.left, y = r.top; const SNAP = 18;
         if (x - s.x0 < SNAP) x = s.x0; else if (s.x0 + s.sx - x < SNAP) x = s.x0 + s.sx;
@@ -218,21 +245,21 @@
         setFloatPos(p, x, y, true); T.savePrefs();
       } else if (e.type === "pointerup") {
         const now = performance.now();
-        if (now - lastTap < 400) { lastTap = 0; O.setMapHome(floatWanted() ? "aside" : "float"); } else lastTap = now;
+        if (now - lastTap < 400) { lastTap = 0; home(want() ? "aside" : "float"); } else lastTap = now;
       }
     };
     addEventListener("pointerup", end); addEventListener("pointercancel", end);
     g.addEventListener("click", (e) => {
       e.stopPropagation();
       if (swallow) return;
-      if (e.detail === 0) O.setMapHome(floatWanted() ? "aside" : "float");   // keyboard Enter / Space (pointer taps use double-tap above)
+      if (e.detail === 0) home(want() ? "aside" : "float");   // keyboard Enter / Space (pointer taps use double-tap above)
     });
     g.addEventListener("dblclick", (e) => e.stopPropagation());
     g.addEventListener("keydown", (e) => {
       const k = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[e.key];
       if (!k) return;
       e.preventDefault(); e.stopPropagation();
-      if (!floatWanted()) { O.setMapHome("float", true); O.render(); }
+      if (!want()) { home("float", true); O.render(); }
       const r = p.el.getBoundingClientRect(), st = e.shiftKey ? 64 : 16;
       setFloatPos(p, r.left + k[0] * st, r.top + k[1] * st, true);
     });
@@ -306,10 +333,26 @@
     const lay = T.hud.layout(tel.status);
     const hudOn = !!ev && show.hud && lay.mode !== "empty";
     hud.el.hidden = !hudOn;
+    document.body.classList.toggle("hud-float", hudOn && hudFloatWanted());
+    { const hg = T.$("hudGrip"); if (hg) { const f = hudFloatWanted(); hg.title = f ? "Drag to move · double-click to put it back on the video" : "Drag to float the HUD anywhere · double-click to float";
+      hg.setAttribute("aria-label", f ? "Move the HUD (drag, or arrow keys). Enter puts it back on the video; drop it on the video to dock" : "Float the HUD: drag it anywhere in the window (or press Enter, then arrow keys)"); } }
     if (hudOn) {
-      size(hud, lay.w * s, lay.h * s);
-      place(hud, T.prefs.panels.hud);
-      hud.ctx.scale(s * r, s * r);
+      const hf = hudFloatWanted();
+      let hs = s;
+      if (hf) {   // ui-glass-14: compact while floating (window-level, never larger than on the video)
+        const W = vw(), phone = Math.min(W, vh()) < 600;
+        hs = Math.min(Math.max(s, 0.5), (phone ? W * 0.62 : Math.min(360, W * 0.3)) / lay.w, 1);
+        size(hud, lay.w * hs, lay.h * hs);
+        if (hud.el.parentElement !== document.body) document.body.appendChild(hud.el);
+        const fl = O.floatFloor(), xy = floatXY(hud.w, hud.h, fl, "hud");
+        if (!hud.el.classList.contains("dragging")) setFloatPos(hud, xy.x, xy.y, false);
+      } else {
+        if (hud.el.parentElement !== O.layer) O.layer.appendChild(hud.el);
+        size(hud, lay.w * s, lay.h * s);
+        place(hud, T.prefs.panels.hud);
+      }
+      hud.el.classList.toggle("hud-floating", hf);
+      hud.ctx.scale(hs * r, hs * r);
       const info = tel.total > 1 ? `Clip ${Math.min(tel.parsed + 1, tel.total)} of ${tel.total}` : "";
       T.hud.draw(hud.ctx, lay, tel.at(t), tel.status, info);
       if (tel.status === "parsing" || tel.status === "queued") O.invalidate();
@@ -382,7 +425,7 @@
       const dx = e.clientX - start.x, dy = e.clientY - start.y;
       if (!start.moved && Math.hypot(dx, dy) < 4) return;
       start.moved = true;
-      if (p.id === "map" && floatWanted()) { const fr = start.fr || (start.fr = p.el.getBoundingClientRect()); setFloatPos(p, fr.left + dx, fr.top + dy, false, true); return; }
+      if (isFloat(p.id)) { const fr = start.fr || (start.fr = p.el.getBoundingClientRect()); setFloatPos(p, fr.left + dx, fr.top + dy, false, true); return; }
       const g = grid();
       const pos = T.prefs.panels[p.id];
       pos.fx = T.clamp(start.fx + dx / Math.max(1, g.w - p.w), 0, 1);
@@ -392,7 +435,7 @@
     const end = (e) => {
       if (!start) return;
       p.el.classList.remove("dragging");
-      if (start.moved && p.id === "map" && floatWanted()) { const r = p.el.getBoundingClientRect(); setFloatPos(p, r.left, r.top, true); }
+      if (start.moved && isFloat(p.id)) { const r = p.el.getBoundingClientRect(); setFloatPos(p, r.left, r.top, true); }
       else if (start.moved) T.savePrefs();
       else if (p.id === "map") {
         const rect = p.cv.getBoundingClientRect();
