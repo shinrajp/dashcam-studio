@@ -2,11 +2,12 @@
 """make-footage.py — a synthetic six-camera HW4 clip of a KNOWN rig, for testing the in-app calibration end to end
 (test/rig-calib-page.js). The car drives the real path of test/fixtures/rig-telemetry-2026-10-19.json (speed + heading);
 each camera sees a textured road (and grey sky) through its lens (Kannala-Brandt) and mounting from truth.json, its pictures
-lagging its telemetry by that camera's delay. Tesla-style SEI telemetry (tools/make-samples.py) is put on every frame.
+lagging its telemetry by that camera's delay, its file's clock shifted by that camera's clock offset. Tesla-style SEI telemetry (tools/make-samples.py) is put on every frame.
 
     python3 tools/rig/make-footage.py truth.json <out folder> [--sec 30] [--fps 24] [--cams front,back,...]
 
-truth.json: { "cams": { cam: { yaw, pitch, roll (deg), f, cx, cy, k: [k1, k2, k3], pos: [x, y, z], thmax } }, "delay": { cam: s } }
+truth.json: { "cams": { cam: { yaw, pitch, roll (deg), f, cx, cy, k: [k1, k2, k3], pos: [x, y, z], thmax } }, "delay": { cam: s },
+             "clock": { cam: s } }   (clock, optional: as js/rig.js clock() — that file's clip time t is the front's t + clock)
 Writes <out>/2026-10-19_10-53-18-<cam>.mp4 (1448×938, the HW4 shape, rendered at half size and scaled up). Needs ffmpeg, numpy."""
 import argparse, importlib.util, json, math, os, subprocess, sys, tempfile
 from multiprocessing import Pool
@@ -68,7 +69,8 @@ def posts(path, t0, t1, seed=5):
 
 
 def job(a):
-    cam, c, delay, ftimes, rows, out, fps = a
+    cam, c, delay, ftimes, rows, out, fps, clk = a
+    ftimes = [t + clk for t in ftimes]   # this file's frames on the drive (front) clock
     np.seterr(all="ignore")   # (rays that miss: inf × 0)
     path = Path(rows); tex = texture(); TS = 0.04; N = tex.shape[0]; PO = posts(path, ftimes[0], ftimes[-1])
     ys, xs = np.mgrid[0:H, 0:W]; b, th = unproject((xs + 0.5) / W, (ys + 0.5) / H, c)
@@ -134,7 +136,8 @@ def main():
     rows = [[r[0] - t0, r[1], r[2]] for r in rows]
     ftimes = [k / a.fps for k in range(int(a.sec * a.fps))]
     os.makedirs(a.out, exist_ok=True)
-    jobs = [(c, truth["cams"][c], truth.get("delay", {}).get(c, 0.0), ftimes, rows, a.out, a.fps) for c in a.cams.split(",")]
+    jobs = [(c, truth["cams"][c], truth.get("delay", {}).get(c, 0.0), ftimes, rows, a.out, a.fps, truth.get("clock", {}).get(c, 0.0))
+            for c in a.cams.split(",")]
     with Pool(min(len(jobs), os.cpu_count() or 2)) as pool:
         for p in pool.imap_unordered(job, jobs): print("  wrote", p, flush=True)
     print(f"turn in the window: {math.degrees(best):.0f}°, {a.sec:.0f} s from {t0:.1f} s of the drive")
