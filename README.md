@@ -568,7 +568,7 @@ Rollback: `git checkout pre-map-float` (tip before this change, glass-sdf v5, 60
 - With **Show 360 view (beta)** off (the default), Settings ▸ **Calibration** is hidden too (along with the 360 button and any open 360 calibration view). Turning 360 on brings it back; your calibration values are kept. `?show360=1|0` and Reset all work as before.
 - Tests: `node test/map-float.js`; `test/ui-quick.js` and `test/bottom-overlap.js` updated (see test/README.md).
 
-## Liquid Glass: overview, settings and address overrides (tags `ui-glass-1` … `ui-glass-12`)
+## Liquid Glass: overview, settings and address overrides (tags `ui-glass-1` … `ui-glass-14`)
 The controls are frosted glass that floats over the video: a camera **pill** that docks or floats, a **tools bubble** (Redact, Search, Events, Settings), a **Redact tray** with undo, a timeline **capsule**, grouped **Settings**, and glass that takes its tint from the video under it. Nothing in the export changed: an export from before the overhaul (`cee26b8`) and after it is byte-identical for the same clip and settings (checked in ui-glass-10).
 
 ![Liquid Glass on a laptop: camera pill, map, HUD and the timeline capsule (mock footage)](screenshots/liquid-glass-desktop.png)
@@ -698,6 +698,13 @@ Rollback: `git checkout pre-ui-glass-10` (tip before this change, `ui-glass-9`, 
 - The overview above lists every setting and address override; new mock-footage screenshots.
 - Tests: `node test/ui-glass-10.js` (accessibility), `node test/glass-shots.js` (screenshots); `test/ui-glass-1.js` and `test/ui-glass-5.js` timing fixes (see test/README.md).
 
+
+## Liquid Glass, step 14: glass sliders, floating HUD, Play/Pause fix (tag `ui-glass-14`)
+Rollback: `git checkout pre-ui-glass-14` (143468e).
+- **Glass sliders** in Settings ▸ Appearance (no Debug needed): Blur 0–12 px (default 4; reading sheets are frosted at 3×), Strength 0–2.5 (1.00), Tint 0–80 % (22 %), Panel opacity 30–95 % (72 %, readable sheets, WCAG AA), Tint color Neutral / Color, and *Reset glass to default*. Moving a slider switches Glass to **Custom**; Automatic, Clear and Solid still work. Saved in prefs (`glassTune`) when you let go. Address overrides: `?glass=auto|clear|solid|custom`, `?gcolor=rrggbb|neutral`, plus the ui-glass-13 slider overrides.
+- **Floating HUD:** drag the HUD's ⋮⋮ grip out of the picture to float it (window-level and compact, like the map and camera bar). Drop it back on the picture to dock it. Double-tap the grip, or press Enter on it, to toggle. The spot is saved for each layout (`prefs.hudFloat.portrait` / `.landscape`). Exports are unchanged: they still use `panels.hud`.
+- **Play/Pause fix:** while a video plays, auto-hide fades the controls. On touch, the first tap used to only wake them, so tapping Pause did nothing. Now a tap that lands on Play/Pause while the controls are hidden also toggles playback. A text field left focused in a closed sheet no longer keeps the keyboard layout (and a hidden player) on.
+- Tests: `node test/ui-glass-14.js`.
 
 ## Liquid Glass, step 12: clear demo glass, Debug mode, keyboard and spelling (tag `ui-glass-12`)
 Rollback: `git checkout pre-ui-glass-12` (tip before this change, `ui-glass-11`, 792d343).

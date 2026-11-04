@@ -690,7 +690,7 @@ Rollback point: tag `pre-tap-redact` (= redact-button, d2ad533).
 - `js/pano-toggle.js`: `apply360()` hides every `.need360` element (Settings ▸ Calibration, `#calibSec`) and any open `#panoCalibPanel` while 360 is off.
 - Tests: new `test/map-float.js`; `ui-quick` A2/A3/A7/A8 check Calibration with 360; `bottom-overlap` gets a `mapfloat` state (map pushed into the bottom-right corner).
 
-## Liquid Glass: summary (tags `ui-glass-1` … `ui-glass-12`, rollback `pre-ui-glass-1` = 14da42e)
+## Liquid Glass: summary (tags `ui-glass-1` … `ui-glass-14`, rollback `pre-ui-glass-1` = 14da42e)
 What changed, in one place (details per step below):
 | Step | What | New files |
 |---|---|---|
@@ -706,6 +706,7 @@ What changed, in one place (details per step below):
 | 10 | Accessibility pass, export parity check, full test sweep, docs and screenshots | `test/ui-glass-10.js`, `test/glass-shots.js` |
 | 11 | Refraction glass (WebGL, SDF edges bend the video) as the default; frosted is the fallback; Glass style setting (`?refract=`) | `js/refract.js`, `css/refract.css`, `test/ui-glass-11.js` |
 | 12 | Clear demo glass + halo; pill to the bottom edge; full-screen corner pill; Debug mode; keyboard-aware sheets; system spelling | `js/debug.js`, `js/keyboard.js`, `js/i18n.js`, `test/ui-glass-12*.js` |
+| 14 | Glass sliders + Custom mode + tint colour; reading-sheet opacity floor; floating HUD (per-layout spot); touch Play/Pause fix | `js/glass-tune.js`, `js/glass.js`, `js/overlays.js`, `js/focus.js`, `js/keyboard.js`, `test/ui-glass-14.js` |
 
 - **Settings and overrides:** Glass `?glass=auto|clear|solid`; Glass style `?refract=1|0`; Auto-hide `?autohide=2|3|5|never`; Lite `?lite=auto|on|off|1|0`; Show 360 `?show360=1|0`. Overrides last one visit and are not saved.
 - **Unchanged:** every saved setting and its key, region storage (`tdc.regions.v1`) and the regions file, the export (byte-identical mdat for compatFill, compatOverlay and origPanel between `cee26b8` and `ui-glass-9`, same clip and settings), keyboard shortcuts.
@@ -716,6 +717,13 @@ What changed, in one place (details per step below):
 - The faintest text (`--faint`, #636b78: counts and small notes) can't reach 4.5:1 on any glass; the main labels and dim text do.
 - Refraction bends only the camera pictures; other things under a control (the map, HUD, page background) show as the page colour inside the glass (the frosted look is unchanged there).
 - Refraction is checked in headless Chromium (SwiftShader WebGL) and WebKit; real iPhone / Mac Safari performance needs a check on the device (it falls back to frosted by itself if playback drops frames).
+
+### ui-glass-14 (tag `ui-glass-14`; rollback `pre-ui-glass-14` = 143468e)
+- Glass sliders (Blur, Strength, Tint, Panel opacity, Tint colour, Reset) are ported from ui-glass-13 onto the new glass code. They replace origin's simpler manual-glass rows. A new **Custom** mode was added; moving a slider switches to it.
+- The HUD floats like the map and camera bar. The dock zone is the picture, and the spot is saved per layout. Grip focus is kept when the HUD is re-parented (keyboard toggle).
+- Play/Pause root cause: on touch, focus.js swallowed the tap that woke the auto-hidden transport. A tap on #btnPlay now toggles. keyboard.js ignores focused fields inside hidden sheets.
+- Export parity against 1b058df and 143468e is byte-identical: compatFill 5e9f2b67, compatOverlay aff23b69, origPanel cbac3967.
+- Tests: `test/ui-glass-14.js` (new). ui-glass-11, 12 and 13 expectations were updated for the reading sheet, the Appearance sliders and the 12 px frosted blur.
 
 ### ui-glass-12 (tag `ui-glass-12`; rollback `pre-ui-glass-12` = 792d343)
 - Glass: `js/refract.js` `R.DEMO` (clear, 22 % neutral tint, the demo's refraction; the video-following tint is a Debug option), `R.tune()`; `css/refract.css` text halo (also on buttons / outputs / kbd, which do not inherit text-shadow in Chromium). Frosted fallback unchanged.
