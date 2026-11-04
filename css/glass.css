@@ -131,6 +131,8 @@ html.glass input[type="color"]#glassTint {
   height: 24px;
   padding: 0;
 }
+/* ui-glass-14: 44 px touch target on touch screens */
+@media (pointer: coarse) { #glassTint, html.glass input[type="color"]#glassTint { min-width: 50px; min-height: 44px; height: 44px; } }
 /* floating camera bar always picks up the global tint */
 html.glass .stage-bar.bar-floating,
 html.glass body > .stage-bar {

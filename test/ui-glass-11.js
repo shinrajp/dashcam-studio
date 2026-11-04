@@ -92,7 +92,8 @@ async function run(b, BR) {
     const br = await p.evaluate(GLASS, [0xf8, 0xf9, 0xfa]);
     // ui-glass-12: the demo's look — one light tint (0.22) everywhere, readability from the text / icon halo (no dark tint layer)
     const halo = await p.evaluate(() => TDC.refract.pieces.map((x) => ({ id: x.host.id || x.host.className.split(" ")[0], ts: getComputedStyle(x.host).textShadow })));
-    const bad = br.filter((g) => !g.innerRGB || Math.abs(g.a - 0.22) > 0.001).concat(halo.filter((h) => !h.ts || h.ts === "none"));
+    const bad = br.filter((g) => !g.innerRGB || (g.kind === "sheet" ? g.a < 0.7 : Math.abs(g.a - 0.22) > 0.001))   // ui-glass-14: reading sheets get the readable backing (>= 0.7)
+      .concat(halo.filter((h) => !h.ts || h.ts === "none"));
     function LUMs(rgb) { return LUM(rgb); } function LUM_SHEET(g) { return (LUM([0x9a, 0xa3, 0xb2]) + 0.05) / (LUM(g.innerRGB) + 0.05); }
     ok(T + " 3 over a bright scene: the demo tint (0.22) on every piece and a text halo (ui-glass-12)", br.length >= 3 && bad.length === 0, { bad, all: br.map((g) => g.id + ":" + g.a + ":" + (g.innerRGB && ((g.kind === "sheet" ? LUM([0x9a, 0xa3, 0xb2]) : TEXT) + 0.05) / (LUM(g.innerRGB) + 0.05)).toFixed(2)) });
     await p.evaluate(PIN, "dark"); await p.evaluate(() => TDC.refract.render()); await W(100);

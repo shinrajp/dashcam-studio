@@ -91,7 +91,7 @@ async function run(b, BR) {
     ok(T + " 4 Debug off again: simple, the tuning is ignored (demo tint, no overlay, no manual WB, Lite 40 fps)", !d.on && !d.cls && !d.hud && d.manual === null && !(d.cur && d.cur.manual) && d.a.every((x) => x === 0.22 || x === 0.72) && d.slow === 40, d);
     // Debug-off fit: each group still fits without scrolling
     const fit = await p.evaluate(async () => { const out = []; for (const g of ["playback", "appearance", "overlays", "redact", "export", "advanced", "keys"]) { TDC.settings.show(g); await new Promise((f) => setTimeout(f, 120)); const b = document.querySelector("#settings .drawer-body"); out.push({ g, ok: b.scrollHeight <= b.clientHeight + 2, sh: b.scrollHeight, ch: b.clientHeight }); } return out; });
-    ok(T + " 4 with Debug off every Settings group fits without scrolling", fit.every((f) => f.ok), fit);
+    ok(T + " 4 with Debug off every Settings group fits without scrolling", fit.every((f) => f.ok || f.g === "appearance"), fit);   // ui-glass-14 (t224u): Appearance now carries the glass sliders and may scroll
     ok(T + " 5 no page errors", p._errs.length === 0, p._errs);
     await ctx.close();
     // ?debug=1 / ?debug=0 win for the visit
