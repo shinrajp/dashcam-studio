@@ -23,6 +23,7 @@
   "js/i18n.js",
   "js/glass.js",
   "js/refract.js",
+  "js/glass-tune.js",
   "js/mp4.js",
   "js/sei.js",
   "js/crypto.js",
