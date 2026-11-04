@@ -1746,6 +1746,9 @@
       const cands = [], strip = entry === "left" ? { x: 0, y: 0, w: 0.65, h: 1 } : { x: 0.35, y: 0, w: 0.65, h: 1 };
       if (pred && pred.box) { const x0 = Math.max(0, Math.min(strip.x, pred.box.x - 0.05)), x1 = Math.min(1, Math.max(strip.x + strip.w, pred.box.x + pred.box.w + 0.05)); strip.x = x0; strip.w = x1 - x0; }   // (the rig says where it comes in: that is looked at too)
       const RG = rigOk(cam, tExit) ? T.rig : null;
+      // ho-look: with the appearance model, how it looks decides and place / time break ties (measured on 92 hand-labelled hand-offs of two
+      // real drives: 55 % right by place and time alone, 63-68 % right and half the wrong ones by look first; tools/rig/README.md)
+      const lookFirst = !!(h.app && vreidOn()) && G.hoLookFirst !== false;
       /* where and when it is against where the object should be: the edge it comes in on, the moment, the rig's predicted box, and whether it
          carries on the object's path on the road; each term only when known, the weights shared out among those present (sum 0.65) */
       const placeOf = (c) => {
@@ -1774,7 +1777,7 @@
           const near = entry === "left" ? d.x : 1 - (d.x + d.w);   // how far its edge is from the edge it comes in on
           // where the rig says it comes in (its middle against the predicted box's), and whether it is the object's size where it stands
           const where = pred && pred.box ? Math.exp(-(((d.x + d.w / 2) - (pred.box.x + pred.box.w / 2)) ** 2 + ((d.y + d.h / 2) - (pred.box.y + pred.box.h / 2)) ** 2) / (2 * 0.12 * 0.12)) : null;
-          if (near > 0.2 && !(where != null && where > 0.5)) continue;
+          if (near > (lookFirst ? 0.45 : 0.2) && !(where != null && where > 0.5)) continue;   // (look-first: also one already well inside; its look decides)
           let fits = 1; if (RG && pred && pred.hM) { const f = RG.footprint(cam, d); if (f && f.hM > 0 && (f.hM / pred.hM < 0.6 || f.hM / pred.hM > 1.6)) fits = 0.7; }
           const when = pred ? Math.max(0.6 * Math.max(0, 1 - Math.abs(t - tExit) / 1.5), Math.exp(-((t - pred.t) ** 2) / (2 * pred.sigma * pred.sigma)))   // about when the layout says (or, near enough, when it left)
             : Math.max(0, 1 - Math.abs(t - tExit) / 1.5);   // about when it left the other camera
@@ -1794,7 +1797,7 @@
       if (G.hoDebug) G.hoDebug.push({ cam, cands: cands.slice(0, 8).map((c) => ({ t: c.t, cx: +(c.d.x + c.d.w / 2).toFixed(2), w: +c.d.w.toFixed(2), near: +c.near.toFixed(2), app: c.app == null ? null : +c.app.toFixed(2), look: +c.look.toFixed(2), road: c.road == null ? null : +c.road.toFixed(2), sc: +c.sc.toFixed(2) })) });
       const tried = [], found = [], withApp = !!(h.app && vreidOn());
       for (const c of cands) {
-        if (c.sc < 0.45 || tried.length >= 4 || (withApp && found.length >= 3)) break;
+        if (lookFirst ? c.sc < 0.3 || tried.length >= 6 : c.sc < 0.45 || tried.length >= 4 || (withApp && found.length >= 3)) break;
         if (tried.some((q) => Math.abs(q.t - c.t) < 0.45 && iou(q.d, c.d) > 0.2)) continue;   // (the same object a frame later)
         tried.push(c);
         {
@@ -1815,15 +1818,19 @@
           }
           // its best looks so far (whole in the picture, not tiny, not huge) against the object's looks
           const part = { cam, keys: [[t, box0]].concat(fwd) }, lk = await stretchLook(h, part);
-          const f = { c, t, box0, fwd, like: lk.like, emb: lk.emb, final: lk.like == null ? c.sc : (c.where == null && c.road == null ? 0.3 * Math.max(0, 1 - c.near / 0.2) + 0.15 * c.when : placeOf(c) * 0.45 / 0.65) + 0.55 * lk.like };
+          const pl = c.where == null && c.road == null ? (0.3 * Math.max(0, 1 - c.near / 0.2) + 0.15 * c.when) / 0.45 : placeOf(c) / 0.65;   // place and time, 0..1
+          const f = { c, t, box0, fwd, like: lk.like, emb: lk.emb, final: lk.like == null ? c.sc : lookFirst ? 0.3 * pl + 0.7 * lk.like : 0.45 * pl + 0.55 * lk.like };
           found.push(f);
           if (G.hoDebug) G.hoDebug.push({ cam, tried: { t, cx: +(box0.x + box0.w / 2).toFixed(2), w: +box0.w.toFixed(2), road: c.road == null ? null : +c.road.toFixed(2), like: lk.like == null ? null : +lk.like.toFixed(2), final: +f.final.toFixed(2) } });
-          if (lk.like != null && lk.like >= 0.55) break;   // clearly it: no need to look at the others
+          if (lk.like != null && lk.like >= (lookFirst ? 0.75 : 0.55)) break;   // clearly it: no need to look at the others
         }
       }
       if (!found.length) return null;
       found.sort((a, b) => b.final - a.final);
       const w = found[0];
+      // look-first: the best one doesn't look like it (the same car in two cameras scores 0.35-0.6 cosine, others 0.1-0.3): rather "not
+      // found, show me" than a wrong car
+      if (lookFirst && G.hoRefuse && w.like != null && w.like < 0.45) { if (G.hoDebug) G.hoDebug.push({ cam, refused: +w.like.toFixed(2) }); return null; }
       // the chosen one: followed on to where it leaves, and back to where it came in
       let fwd = w.fwd;
       if (fwd.length && w.t + 1.5 < ev.duration - 0.05) { const [tl, bl] = fwd[fwd.length - 1]; fwd = fwd.concat(await followDets(h, rd, cam, tl, bl, 1, Math.min(ev.duration, w.t + 12))); }
@@ -1832,6 +1839,8 @@
       return { cam, keys, exit: exitSideOf(keys), score: w.c.sc, entry, tExit, emb: w.emb, app: w.like };
     } finally { rd.close(); }
   }
+  /** (tests) run one hand-off search to the end: h = { from, cam, to, entry, side, t0, kind, col }; → h (state "ask" with h.chain, or "none") */
+  G.hoRun = async (h) => { h = Object.assign({ at: h.t0, skip: [], cand: null, state: "search" }, h); HO.queue.push(h); await chainSearch(h); const i = HO.queue.indexOf(h); if (i >= 0) HO.queue.splice(i, 1); drawLanes(); return h; };
   async function chainSearch(h, resume) {
     const ev = T.player.ev, seen = new Set([h.cam]); let cam = h.to, entry = h.entry, tExit = h.t0;
     if (resume) { h.chain = h.chain.slice(0, resume.at); for (const sg of h.chain) seen.add(sg.cam); cam = resume.cam; entry = resume.entry; tExit = resume.tExit; }

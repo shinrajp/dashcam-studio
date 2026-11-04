@@ -900,3 +900,10 @@ Item 2 of the rig plan: any HW4 car's six cameras measured from one of its own d
   median timing error 0.21 / 0.22 s, place error 5.4 / 5.8 % of the picture width.
 - `tools/rig/unwarp.py`: the back camera re-rendered without its fisheye (cylindrical panorama, three virtual pinhole cameras) with
   YOLO boxes on each; details and numbers in `tools/rig/README.md`.
+
+## Hand-off: rear camera unwarped, look-first linking (branch track-v2, assets track-v2-23 / -24)
+- **Rear camera (js/rear-unwarp.js):** the HW4 rear fisheye is redrawn as a 190° panorama from the measured lens before the detector looks at it; its boxes are mapped back to the recorded picture. On by default (Settings ▸ Object detection). Real drives, rear camera every 2 s: 10-19 drive 83 found both ways, 35 only unwarped, 18 only as recorded; 10-07 64 / 16 / 7. About 13 ms a frame.
+- **Look-first hand-off (ho-look, js/custom-redact.js chainSeg):** with the vehicle appearance model loaded, the search now gathers more candidates (up to 6, also ones already well inside the next picture) and ranks them 70 % by look, 30 % by place and time (was: at most 4 by place and time, then 55 % look).
+  - Measured in the app (test/handoff-look.js) on 92 hand-offs of nearby vehicles on the two real drives, labelled by eye (test/fixtures/handoff-labels.json): **67 right (73 %), 16 wrong** against 62 right (67 %), 18 wrong before.
+  - A refusal rule ("not found" when the best look is poor) was tried and is off: no better on the labels, and a drawn mock object in test/track-ui.js was then never offered. `TDC.regions.hoRefuse = true` turns it on; `hoLookFirst = false` goes back to the old ranking.
+- **Measured and not shipped:** a road map that joins cameras by where objects stand on the road (with object centres from their 3D size, camera tilts corrected from parked cars, size / joint matching / 3D-box checks, appearance): 37–51 % right on the same labels. Placements are still 1–2 m off for nearby cars, and parked cars stand ~5 m apart. It stays a debugging view (the 3D mock-up), not the linker.
