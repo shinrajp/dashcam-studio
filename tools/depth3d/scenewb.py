@@ -367,5 +367,5 @@ def run(fused, clips, ftimes, t0, t1, decode, adapt="gains", source="paint", fc4
     wl = srgb_to_lin(info["white"]); out = dict(applied=True, adapt=adapt, cct=cct_lin(wl), white_lin=(wl / wl.max()).tolist(), per=per, **info)
     log(f"  scene white balance (viewer, {adapt}, {info['source']}): white {np.round(info['white'], 1).tolist()} ≈ {out['cct']} K, day {info['day']:.2f}, "
         f"match {{{', '.join(f'{c}: {np.round(v, 3).tolist()}' for c, v in info['match'].items())}}}")
-    json.dump(out, open(os.path.join(fused, "scenewb.json"), "w"), default=float)
+    json.dump(out, open(os.path.join(fused, "scenewb.json"), "w"), default=lambda v: v.tolist() if hasattr(v, "tolist") else float(v))
     return out
