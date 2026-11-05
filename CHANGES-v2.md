@@ -1056,3 +1056,52 @@ halves.
 gap on 10-19 goes from 0.053 to 0.18 m. The global solve alone is worse than B on the strict metric for both drives.
 
 **Rollback:** `git checkout pre-tv2-wb2`. Nothing changes by default.
+
+## Scene white balance = the viewer's White Balance, on the final 3D colours (tag tv2-wb3)
+`--scene-wb off|viewer` (default `off`), `--scene-wb-adapt gains|cat16|bradford` (default `cat16` when on),
+`--scene-wb-source paint|fusion` (default `paint`). New `tools/depth3d/scenewb.py`.
+- Depth, kerb, local scale, fuse and the seam colour step run on the original frames. Afterwards scenewb rewrites only the
+  fused textures, so the geometry is byte-identical: the `.npy` files and frames.json are untouched.
+- It is a port of the app's own code, with the same constants (each one cites its JS file and line):
+  - js/wb.js: the white car body at the mirror cameras' outer edge (strip, body mask, `analyse`, log-chroma EMA with jump
+    and red-lamp rejection).
+  - js/wb.js `viewGains`: STRENGTH 0.7, the TINT_K temperature / tint split, the DAY / NIGHT limits and BLUE_MAX.
+  - js/wb.js camera matching: ±MATCH_MAX 0.07 toward the mirror cameras' mean.
+  - js/colour-constancy.js: CAT16 / Bradford (`viewerMatrix`, linear sRGB, D = strength), plus lanes, grey world, FC4 and
+    the robust fusion.
+- `gains` is what the viewer's WB ON button does by default: per-camera gamma-sRGB gains times the match offset.
+- `cat16` / `bradford` is the viewer's colour-constancy prototype: one 3×3 matrix in linear RGB, with no match offsets.
+- One white point per camera per drive: the median of the smoothed estimate over [t0, t1], so there is no flicker.
+- Tests:
+  - `node test/scenewb-parity.js` (Node, JS vs Python on the same pixels). Every output agrees to ≤ 1e-8; analyse rgb is
+    exact. `FRAMES=dir` adds private real frames.
+  - `node test/scenewb-apply.js` (Chromium). The app's own wb.js turns WB on for a stubbed tile, and the screenshot of its
+    SVG filter is compared with `apply_gains` / `apply_matrix`: worst 1/255, 100 % of values within 1/255.
+  - depth3d.test.py 6e.
+
+| drive / variant | seam % | colour old / strict % (final images) | kerb gap depth / plane / curb15 m | road / lane chroma (all) | front |
+|---|---|---|---|---|---|
+| 10-19 B (default) | 13.50 | 16.88 / 12.81 | 0.053 / 0.118 / 0.230 | 0.250 / 0.238 | 0.440 / 0.405 |
+| 10-19 gains | 13.50 | 17.68 / 14.40 | identical | 0.207 / 0.184 | 0.260 / 0.227 |
+| 10-19 cat16 | 13.50 | 17.08 / 12.98 | identical | 0.124 / 0.108 | 0.188 / 0.159 |
+| 10-19 bradford | 13.50 | 16.82 / 12.86 | identical | 0.124 / 0.109 | 0.188 / 0.159 |
+| 10-19 cat16 fusion | 13.50 | 17.37 / 13.17 | identical | 0.130 / 0.122 | 0.234 / 0.202 |
+| 10-07 B (default) | 13.84 | 16.58 / 14.03 | — | 0.581 / 0.578 | 0.704 / 0.694 |
+| 10-07 gains | 13.84 | 19.14 / 16.43 | — | 0.463 / 0.460 | 0.519 / 0.507 |
+| 10-07 cat16 | 13.84 | 17.40 / 13.74 | — | 0.107 / 0.105 | 0.159 / 0.152 |
+| 10-07 bradford | 13.84 | 17.40 / 13.76 | — | 0.101 / 0.100 | 0.159 / 0.152 |
+| 10-07 cat16 fusion | 13.84 | 17.32 / 13.66 | — | 0.116 / 0.117 | 0.170 / 0.170 |
+
+- **Geometry:** the depth `.npy` hashes are identical to B on both drives. The kerb probe with B's red mask gives
+  byte-identical results. The earlier differences came only from the colour-dependent mask.
+- **White points:**
+  - 10-19: sRGB 200 / 230 / 197, about 6280 K.
+  - 10-07: 125 / 210 / 230, about 12400 K.
+  - On 10-07 every source agrees that the picture is cyan: the paint, the scene side of the strip, lanes (11–12 k), grey
+    world (10–11 k) and FC4 (9.5–10.5 k). No source is misfiring. The figure in K is a McCamy extrapolation for a white
+    far off the Planckian locus.
+- **Decision:** stays off. Seam and kerb are unchanged, but strict colour gets worse on 10-19 with every variant. Bradford
+  (+0.05) and cat16 (+0.17) are close but not neutral. cat16 / bradford improve 10-07 a little; gains is worse on both
+  drives.
+
+**Rollback:** `git checkout pre-tv2-wb3`. Nothing changes by default.
