@@ -1024,3 +1024,35 @@ White balance gains (B, G, R; front = 1):
 
 Blending colour only where depth agrees is not done: colour is matched per camera, and the geometry blend in fuse.py is
 unchanged.
+
+## Two-stage white balance (off by default)
+
+`--wb-mode off|ref|neutral|neutral+global` (default `off`; `--wb` still means `ref`).
+- **Stage 1** (`neutral`, wb.py): one fixed set of gains per camera for the whole drive, the front camera included. It uses
+  grey-world over road pixels plus white-patch on bright, unclipped lane paint. It leaves out sky, vehicle boxes, clipped or
+  dark pixels, and pixels far from the camera's median chroma (vegetation, red kerb paint). Chroma is clamped to 0.75–1.33
+  and exposure to 0.6–1.6. Exposure is measured and logged but only applied with `--wb-exposure`, because applying it fought
+  the seam solve (10-19 seam went from 13.5 to 14.7 %).
+- **Stage 2** (`neutral+global`, colour.py): one least-squares solve over all overlap pairs with no reference camera. Every
+  camera has an identity prior and the gains' geometric mean is held at 1. `--no-road-colour` (strict B is on by default) and
+  `--no-colour-match` still apply.
+- The kerb gap uses a frozen probe: the red mask is taken after undoing all wb and seam gains, back|right_repeater.
+
+| drive / variant | seam % | colour old / strict % | road fit | gap depth / plane / curb15 m | road / lane chroma (all cams) | front |
+|---|---|---|---|---|---|---|
+| 10-19 B (default) | 13.50 | 12.7 / 12.7 | 2.4 % | 0.053 / 0.118 / 0.230 | 0.250 / 0.238 | 0.440 / 0.405 |
+| 10-19 S1 | 13.48 | 23.3 / 23.3 | 2.5 % | 0.186 / 0.145 / 0.226 | 0.036 / 0.028 | 0.033 / 0.026 |
+| 10-19 S1+S2 | 13.48 | 17.7 / 13.8 | 2.5 % | 0.188 / 0.176 / 0.224 | 0.056 / 0.037 | 0.033 / 0.026 |
+| 10-19 S1+S2+B | 13.48 | 12.8 / 12.8 | 2.5 % | 0.183 / 0.168 / 0.234 | 0.062 / 0.041 | 0.033 / 0.026 |
+| 10-07 B (default) | 13.84 | 14.2 / 14.2 | 1.7 % | — | 0.581 / 0.578 | 0.704 / 0.694 |
+| 10-07 S1 | 13.48 | 20.4 / 20.4 | 1.6 % | — | 0.297 / 0.286 | 0.419 / 0.408 |
+| 10-07 S1+S2 | 13.48 | 18.7 / 16.3 | 1.6 % | — | 0.297 / 0.285 | 0.419 / 0.408 |
+| 10-07 S1+S2+B | 13.48 | 14.8 / 14.8 | 1.6 % | — | 0.297 / 0.286 | 0.419 / 0.408 |
+
+The chroma columns are the mean |log B/G|, |log R/G| over the final images. On 10-07 every camera clamps, so neutrality only
+halves.
+
+**Decision:** stays off. Neutrality improves a lot, but colour gets worse on 10-07 (14.2 → 14.8 %), and the frozen-probe kerb
+gap on 10-19 goes from 0.053 to 0.18 m. The global solve alone is worse than B on the strict metric for both drives.
+
+**Rollback:** `git checkout pre-tv2-wb2`. Nothing changes by default.
