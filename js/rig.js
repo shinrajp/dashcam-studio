@@ -31,28 +31,47 @@
   const CAMS = ["front", "back", "left_pillar", "right_pillar", "left_repeater", "right_repeater"];
   const D2R = Math.PI / 180;
   // ── measured (tools/rig/to-js.py writes this block) ──
-  // The five non-front cameras' yaw / pitch / roll then got a road-texture fine-tune (2026-11): each camera turned by
-  // 0.2–1.1° so neighbouring cameras show the same road where they overlap, fitted on both drives and averaged (front held
-  // fixed as the reference). Box distances on 10-19: 3–10 m median error 1.28 → 1.05 m, 10–20 m 3.37 → 2.46 m; hand-offs
-  // 67 → 66 of 92 right (run noise). If to-js.py rewrites this block, those angle corrections must be applied again.
   // mean of the two drives; heights weighted by how precisely each drive measured them, left and right taken together.
   // f, cx, cy in picture widths; thmax: the widest angle off the lens axis the drive showed (beyond it the lens is a guess);
   // aspect = height / width of the measured picture (HW4 1448×938, front 2896×1876)
   const MEASURED = {
     front:          { yaw: 0.655, pitch: -1.045, roll: 1.215, f: 1.26725, cx: 0.00506, cy: -0.00468, k: [-0.07051, -0.02308, 0.0], thmax: 24.1, pos: [0, 1.295, 2.05], px: 0.188 },
-    back:           { yaw: -179.333, pitch: -31.952, roll: 1.236, f: 0.33239, cx: 0.00458, cy: -0.01665, k: [-0.03084, 0.00036, 0.0], thmax: 96.9, pos: [0, 0.996, -1.04], px: 0.139 },
-    left_pillar:    { yaw: -71.218, pitch: -5.112, roll: -0.149, f: 0.70112, cx: -0.00516, cy: -0.00148, k: [-0.05559, -0.02423, 0.0], thmax: 46.4, pos: [-0.92, 1.334, 1.55], px: 0.173 },
-    right_pillar:   { yaw: 71.777, pitch: -4.666, roll: -0.357, f: 0.69698, cx: 0.00079, cy: -0.00147, k: [-0.05511, -0.02142, 0.0], thmax: 48.8, pos: [0.92, 1.334, 1.55], px: 0.213 },
-    left_repeater:  { yaw: -140.126, pitch: -4.242, roll: 0.747, f: 0.67978, cx: -0.00264, cy: -0.00018, k: [-0.01926, -0.01238, 0.0], thmax: 42.1, pos: [-1.02, 0.956, 2.45], px: 0.208 },
-    right_repeater: { yaw: 139.82, pitch: -4.074, roll: 1.063, f: 0.69922, cx: -0.00253, cy: 0.00582, k: [-0.04616, -0.01877, 0.0], thmax: 42.4, pos: [1.02, 0.956, 2.45], px: 0.192 },
+    back:           { yaw: -179.52, pitch: -32.905, roll: 0.7, f: 0.33239, cx: 0.00458, cy: -0.01665, k: [-0.03084, 0.00036, 0.0], thmax: 96.9, pos: [0, 0.996, -1.04], px: 0.139 },
+    left_pillar:    { yaw: -70.83, pitch: -5.375, roll: 0.505, f: 0.70112, cx: -0.00516, cy: -0.00148, k: [-0.05559, -0.02423, 0.0], thmax: 46.4, pos: [-0.92, 1.334, 1.55], px: 0.173 },
+    right_pillar:   { yaw: 71.75, pitch: -5.755, roll: -0.415, f: 0.69698, cx: 0.00079, cy: -0.00147, k: [-0.05511, -0.02142, 0.0], thmax: 48.8, pos: [0.92, 1.334, 1.55], px: 0.213 },
+    left_repeater:  { yaw: -139.945, pitch: -4.755, roll: 0.195, f: 0.67978, cx: -0.00264, cy: -0.00018, k: [-0.01926, -0.01238, 0.0], thmax: 42.1, pos: [-1.02, 0.956, 2.45], px: 0.208 },
+    right_repeater: { yaw: 139.5, pitch: -4.48, roll: 1.41, f: 0.69922, cx: -0.00253, cy: 0.00582, k: [-0.04616, -0.01877, 0.0], thmax: 42.4, pos: [1.02, 0.956, 2.45], px: 0.192 },
   };
   const ASPECT = 938 / 1448;
   const CLOCK0 = { front: 0, back: 0.346, left_pillar: 0.067, right_pillar: 0.175, left_repeater: -0.025, right_repeater: -0.029 };
   // ── end measured ──
+  // ── road tune (NOT written by to-js.py; applied on top of MEASURED) ──
+  // The five non-front cameras' yaw / pitch / roll got a road-texture fine-tune (2026-11, fa6a23d): each camera turned by
+  // 0.2–1.1° so neighbouring cameras show the same road where they overlap, fitted on the 10-19 and 10-07 drives and averaged
+  // (front held fixed as the reference). Box distances on 10-19: 3–10 m median error 1.28 → 1.05 m, 10–20 m 3.37 → 2.46 m;
+  // hand-offs 67 → 66 of 92. Fitted and scored on the same two drives: still needs a held-out third drive check.
+  // Degrees added to MEASURED's angles; roadTune(false) turns it off (MEASURED as measured), roadTune(true) back on (default).
+  const ROAD_TUNE = {
+    back:           { yaw: 0.187, pitch: 0.953, roll: 0.536 },
+    left_pillar:    { yaw: -0.388, pitch: 0.263, roll: -0.654 },
+    right_pillar:   { yaw: 0.027, pitch: 1.089, roll: 0.058 },
+    left_repeater:  { yaw: -0.181, pitch: 0.513, roll: 0.552 },
+    right_repeater: { yaw: 0.32, pitch: 0.406, roll: -0.347 },
+  };
   /* The car's body as boxes (2024 Model X: 5.06 m long, 2.0 m wide, 1.68 m high, wheelbase 2.97 m; x half-width, y from–to,
      z from–to). `not`: cameras that don't see that part — the windscreen camera looks out through the cabin's glass, and the
      bonnet slopes away below its view (the measured drive shows none of it). The bumper lip sticks out under the back
      camera: the bottom of its fisheye. */
+  const MEASURED_RAW = JSON.parse(JSON.stringify(MEASURED));
+  const r6 = (v) => Math.round(v * 1e6) / 1e6;
+  let roadTuneOn = true;
+  function applyTune(on) {
+    for (const cam of Object.keys(MEASURED_RAW)) {
+      const t = on && ROAD_TUNE[cam];
+      for (const k of ["yaw", "pitch", "roll"]) MEASURED[cam][k] = t ? r6(MEASURED_RAW[cam][k] + t[k]) : MEASURED_RAW[cam][k];
+    }
+  }
+  applyTune(true);
   const BODY = [
     { x: 1.0, y0: 0.15, y1: 1.05, z0: -1.03, z1: 2.6 },                   // body below the belt line
     { x: 1.0, y0: 0.15, y1: 0.95, z0: 2.6, z1: 4.03, not: ["front"] },     // bonnet
@@ -366,6 +385,16 @@
     if (took.length && j && typeof j === "object") info = { preset: PRESETS[j.preset] ? j.preset : null, source: j.source || "custom", name: j.name || null };
     return took;
   }
+  /** roadTune() → on?; roadTune(on): switch the 2026-11 road fine-tune of the angles (ROAD_TUNE) on or off. A rig taken from
+   *  MEASURED (source "measured", or a preset) is rebuilt; a rig loaded with set() is left as it is. */
+  function roadTune(on) {
+    if (on === undefined) return roadTuneOn;
+    roadTuneOn = !!on; applyTune(roadTuneOn);
+    if (info.source === "measured") reset();
+    else if (info.source === "preset" && info.preset) { try { const p = preset(info.preset); if (p) set(p); } catch (_) {} }
+    for (const k of Object.keys(R)) delete R[k];
+    return roadTuneOn;
+  }
   function reset() { cams = clone(MEASURED); body = BODY; info = { preset: "model_x", source: "measured" }; for (const k of Object.keys(R)) delete R[k]; for (const k of Object.keys(bodyGrids)) delete bodyGrids[k]; }
   /** What the rig in use is: { preset, source: "measured" | "preset" | "calibrated" | "custom", name }. */
   const current = () => Object.assign({}, info);
@@ -396,6 +425,6 @@
     return (isFinite(o[cam]) ? o[cam] : 0) + (isFinite(o[cam]) && ref ? d(cam) - d(ref) : 0);
   }
 
-  return { CAMS, MEASURED, CLOCK0, BODY, PRESETS, HEIGHT, ASPECT, rot, ok, ray, pixel, ground, bearing, isBody, bodyShare, footprint,
+  return { CAMS, MEASURED, MEASURED_RAW, ROAD_TUNE, roadTune, CLOCK0, BODY, PRESETS, HEIGHT, ASPECT, rot, ok, ray, pixel, ground, bearing, isBody, bodyShare, footprint,
     sizeRatio, boxAt, predictEntry, clockOffsets, coverage, clock, set, reset, get, current, bodyBoxes, preset, closestPreset, browser, footScale, boxGround };
 });
