@@ -25,7 +25,7 @@ import argparse, glob, json, os, re, shutil, subprocess, sys, time
 HERE = os.path.dirname(os.path.abspath(__file__)); ROOT = os.path.abspath(os.path.join(HERE, "..", ".."))
 sys.path.insert(0, HERE)
 from rig import CAMS, Rig, Drive  # noqa: E402
-import dataset, depth, boxes, fuse, colour, pack, delay as delayfit  # noqa: E402
+import dataset, depth, boxes, fuse, colour, pack, wb, delay as delayfit  # noqa: E402
 
 
 def log(*a):
@@ -76,6 +76,8 @@ def main(argv=None):
     ap.add_argument("--detector", default=os.path.join(ROOT, "models", "yolo11s.onnx"), help="YOLO ONNX for the vehicle boxes")
     ap.add_argument("--no-detector", action="store_true", help="skip vehicle boxes (road growing then has no exclusion)")
     ap.add_argument("--no-grow", action="store_true", help="no road growing (fuse.py GROW=0)")
+    ap.add_argument("--no-wb", action="store_true", help="no per-camera white balance before depth (wb.py)")
+    ap.add_argument("--no-road-colour", action="store_true", help="seam colour match on the old road test only, no depth-agreement check (colour.py)")
     ap.add_argument("--no-kerb", action="store_true", help="no raised kerb band: kerbs snap onto the road (kerb.py)")
     ap.add_argument("--no-local-scale", action="store_true", help="no local depth-scale refit in camera overlaps (localscale.py)")
     ap.add_argument("--work", help="work folder (default <out>.work)"); ap.add_argument("--clean", action="store_true", help="delete the work folder at the end")
@@ -152,6 +154,11 @@ def main(argv=None):
         json.dump(vb, open(os.path.join(work, "vboxes.json"), "w"))
         log(f"  {sum(len(v) for v in vb.values())} vehicle boxes in {len(vb)} views")
 
+    if a.no_wb: log("  white balance: off (--no-wb)")
+    else:
+        log("  white balance: per-camera gains on shared road (wb.py)")
+        report["wb"] = wb.run(data, vb, log=log)
+
     log("[5/8] depth")
     fn = depth.PlaneStub() if a.depth_stub else depth.OnnxDepth(a.model)
     if a.depth_stub: warn("depth from the PLANE STUB, not the AI model: the page shows a flat world (test only)")
@@ -165,7 +172,7 @@ def main(argv=None):
                               kerb_band=not a.no_kerb, local_scale=not a.no_local_scale, log=log)
 
     log("[7/8] colour")
-    report["colour"] = colour.run(os.path.join(work, "fused"), data, log=log)
+    report["colour"] = colour.run(os.path.join(work, "fused"), data, log=log, road_only=not a.no_road_colour, vboxes=vb)
 
     log("[8/8] page")
     info = dict(drive=stamp.split("_")[0] if "_" in stamp else stamp, clip=stamp, t0=a.t0, t1=a.t1,

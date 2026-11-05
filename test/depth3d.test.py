@@ -259,6 +259,49 @@ cams = [ls_cam("back", Zb), ls_cam("right_repeater", Zq_3)]
 res = localscale.refit(cams, fuse.SNAP)["right_repeater"]
 ok(not res["ok"] and np.array_equal(cams[1]["Z"], Zq_3), f"localscale.py guard: a 3× scale (alpha out of [0.5, 2]) → global fit kept ({res['why']})")
 
+
+# ── 6c. wb.py (white balance before depth): synthetic grey road texture seen by the rig's cameras ──
+import wb  # noqa: E402
+
+
+def tex(P):
+    """a grey road with mid-frequency texture (no colour of its own), linear RGB."""
+    t = 0.25 + 0.1 * np.sin(P[..., 0] * 3.1) * np.cos(P[..., 2] * 2.3) + 0.05 * np.sin(P[..., 2] * 7.7)
+    return np.repeat(t[..., None], 3, -1).astype(np.float32)
+
+
+def wb_view(cam, cast=(1, 1, 1), car=None):
+    fr = KC[cam]; R, C = np.array(fr["R"]), np.array(fr["C"]); dw = kerb._dirs(fr, R)
+    with np.errstate(divide="ignore", invalid="ignore"): s = np.where(dw[..., 1] > 1e-4, -C[1] / dw[..., 1], 0)
+    P = C + dw * s[..., None]; im = tex(P) * np.array(cast, np.float32); im[dw[..., 1] <= 1e-4] = 0.6
+    if car is not None: im[car(P) & (s > 0)] = (0.05, 0.05, 0.5)          # a red car (BGR), in no vehicle box
+    return dict(f=fr, R=R, C=C, im=np.clip(im, 0, 1), m=np.ones(im.shape[:2], bool), boxes=[]), P
+
+
+WBC = ["back", "right_repeater", "right_pillar"]
+cast = (0.85, 1.0, 1.2)
+row = {"back": wb_view("back")[0], "right_repeater": wb_view("right_repeater", cast)[0], "right_pillar": wb_view("right_pillar")[0]}
+G, cl, n = wb.fit([row], WBC, ref="back")
+want = 1 / np.array(cast)
+ok(n >= 2 and np.abs(G[1] / want - 1).max() < 0.02 and np.abs(G[2] - 1).max() < 0.02,
+   f"wb.py: a known colour cast {cast} on the repeater is recovered: gains {np.round(G[1], 3)} (want {np.round(want, 3)}), pillar {np.round(G[2], 3)}")
+row2 = dict(row); row2["right_repeater"] = wb_view("right_repeater", (0.5, 1.0, 1.0))[0]
+G2, cl2, _ = wb.fit([row2], WBC, ref="back")
+ok(cl2[1, 0] and abs(G2[1, 0] - wb.GAIN_HI) < 1e-9 and np.all((G2 >= wb.GAIN_LO) & (G2 <= wb.GAIN_HI)),
+   f"wb.py: a 2x cast is clamped to {wb.GAIN_HI} and flagged (gain {G2[1, 0]:.3f})")
+_, Pq = wb_view("right_repeater")
+Qb = (Pq - row["back"]["C"]) @ row["back"]["R"]; fb = row["back"]["f"]
+with np.errstate(divide="ignore", invalid="ignore"):
+    ub = fb["cx"] + fb["f"] * Qb[..., 0] / Qb[..., 2]; vb_ = fb["cy"] + fb["f"] * Qb[..., 1] / Qb[..., 2]
+seen = (Qb[..., 2] > 0.3) & (ub > 0) & (ub < fb["w"]) & (vb_ > 0) & (vb_ < fb["h"]) & (np.hypot(Pq[..., 0], Pq[..., 2]) < 15)
+z30, z60 = np.percentile(Pq[seen][:, 2], [30, 60])
+car = lambda P: (P[..., 2] > z30) & (P[..., 2] < z60) & (np.hypot(P[..., 0], P[..., 2]) < 15)
+row3 = dict(row); row3["right_repeater"] = wb_view("right_repeater", cast, car)[0]
+G3, _, _ = wb.fit([row3], WBC, ref="back")
+ok(np.abs(G3[1] / want - 1).max() < 0.04, f"wb.py: a red car over 30 % of the overlap (in no box) does not skew the fit: {np.round(G3[1], 3)} (want {np.round(want, 3)})")
+ok(abs(wb.solve([(0, 1, np.log([0.9, 1.0, 1.1]), 1000)], ["back", "right_repeater"], "back")[0][1][0] - 1 / 0.9) < 0.02,
+   "wb.py: the solve holds the reference at 1 and gives the other camera the inverse ratio")
+
 # ── 7. boxes.py ──
 for cam, P in [("left_pillar", [-6.0, 0.8, 4.0]), ("back", [0.5, 0.6, -8.0]), ("right_repeater", [5, 0.7, -3])]:
     uv, _ = rig.fisheye_project(cam, np.array([P]) - rig.pos(cam), 1, 1); u, v = uv[0]
