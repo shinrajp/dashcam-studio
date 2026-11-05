@@ -85,6 +85,7 @@ def main(argv=None):
     ap.add_argument("--no-wb", action="store_true", help="no white balance (the default; kept for scripts)")
     ap.add_argument("--no-road-colour", action="store_true", help="seam colour match on the old road test only, no depth-agreement check (colour.py)")
     ap.add_argument("--no-kerb", action="store_true", help="no raised kerb band: kerbs snap onto the road (kerb.py)")
+    ap.add_argument("--kerb-pad", action="store_true", help="no kerb band in vehicle boxes widened by fuse.KERB_PAD (wheels / shadow steps)")
     ap.add_argument("--no-local-scale", action="store_true", help="no local depth-scale refit in camera overlaps (localscale.py)")
     ap.add_argument("--scene-wb", default="off", choices=["off", "viewer"],
                     help="viewer: after the colour step, white-balance the final textures the way the viewer's White Balance button does (scenewb.py); geometry unchanged; off by default: it worsened 10-19 seam colour")
@@ -185,7 +186,7 @@ def main(argv=None):
 
     log("[6/8] fuse: road snap, road growing, seams")
     report["fuse"] = fuse.run(data, os.path.join(work, "depth"), os.path.join(work, "fused"), vb, grow_road=not a.no_grow,
-                              kerb_band=not a.no_kerb, local_scale=not a.no_local_scale, log=log)
+                              kerb_band=not a.no_kerb, local_scale=not a.no_local_scale, kerb_pad=a.kerb_pad, log=log)
 
     log("[7/8] colour")
     report["colour"] = colour.run(os.path.join(work, "fused"), data, log=log, road_only=not a.no_road_colour, vboxes=vb,

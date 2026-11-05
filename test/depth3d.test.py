@@ -219,6 +219,13 @@ for cam in ("right_repeater", "back", "right_pillar"):
 for cam in ("right_repeater", "right_pillar"):
     fr = KC[cam]; R, C = np.array(fr["R"]), np.array(fr["C"])
     band, Zk, kept = kerb.detect(fr, ai_like(scene_depth(fr, True)), R, C)
+    # a vehicle box standing on that kerb: no band inside the box widened by fuse.KERB_PAD (the car's wheels / shadow step)
+    if band.sum():
+        ys, xs = np.nonzero(band); bx = (int(np.percentile(xs, 30)), int(ys.min()) - 40, int(np.percentile(xs, 70)), int(np.median(ys)))
+        ex = fuse.kerb_exclusion([bx], band.shape); bandv, _, _ = kerb.detect(fr, ai_like(scene_depth(fr, True)), R, C, valid=~ex)
+        ok(not (bandv & ex).any() and (bandv & ~ex).sum() >= 0.5 * (band & ~ex).sum() and ex[bx[3] + 1:, bx[0]:bx[2]].any(),
+           f"fuse.kerb_exclusion {cam}: no band in a padded vehicle box ({int((band & ex).sum())} → {int((bandv & ex).sum())} px), "
+           f"the kerb outside it kept ({int((bandv & ~ex).sum())} of {int((band & ~ex).sum())} px)")
     P = C + (kerb._dirs(fr, R)[band] * Zk[band][:, None]); hs = -P[:, 1]
     top = hs > 0.02
     ok(len(kept) > 20 and band.sum() > 200, f"kerb.py {cam}: an unpainted 15 cm kerb 3 m out is found as a raised band ({len(kept)} columns, {int(band.sum())} px)")

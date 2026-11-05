@@ -19,6 +19,20 @@ import json, os, shutil
 import numpy as np, cv2
 from roadgrow import grow
 import kerb, localscale
+# no kerb band within a vehicle box widened by KERB_PAD = (sides, below) × the box's width / height: wheels, bumper lip and
+# the car's shadow form a low step against the road right outside the box (a car is ~1.5 m high, its shadow / overhang
+# reach ~0.2–0.4 m out at the ground, i.e. ~0.1 of its width at the sides and ~0.25 of its height below the box)
+KERB_PAD = (0.1, 0.25)
+
+
+def kerb_exclusion(boxes, shape, pad=KERB_PAD):
+    """pixels where no kerb band may be found: each vehicle box (x0, y0, x1, y1) widened by pad[0] × its width at the sides
+    and pad[1] × its height below (not above: a kerb behind a car's roofline is still a kerb)."""
+    out = np.zeros(shape, bool)
+    for x0, y0, x1, y1 in boxes:
+        w, h = x1 - x0, y1 - y0; px, pb = int(round(pad[0] * w)), int(round(pad[1] * h))
+        out[max(0, y0):max(0, y1 + pb), max(0, x0 - px):max(0, x1 + px)] = True
+    return out
 
 SNAP, BAND = 0.30, 1.12
 
@@ -29,7 +43,8 @@ def _rays(f):
 
 
 class Fuser:
-    def __init__(self, data, src, vboxes=None, grow_road=True, road_own=True, kerb_band=True, local_scale=True):
+    def __init__(self, data, src, vboxes=None, grow_road=True, road_own=True, kerb_band=True, local_scale=True, kerb_pad=False):
+        self.KPAD = kerb_pad
         self.data, self.src, self.VB, self.GROW, self.ROADOWN = data, src, vboxes or {}, grow_road, road_own
         self.KERB, self.LOCAL, self.kerb_px, self.kerb_frames, self.ls = kerb_band, local_scale, 0, 0, {}
         d = json.load(open(os.path.join(src, "frames.json"))); self.d = d
@@ -56,7 +71,8 @@ class Fuser:
             veh = np.zeros(Z.shape, bool)
             for x0, y0, x1, y1 in self.VB.get(f["name"], []): veh[max(0, y0):max(0, y1), max(0, x0):max(0, x1)] = True
             if self.KERB:                                # kerb.py: low steps at the road edge stay raised, not snapped
-                kb, Zk, kept = kerb.detect(f, Z, R, C, valid=m & ~veh); self.kerb_px += int(kb.sum()); self.kerb_frames += bool(kept)
+                vk = kerb_exclusion(self.VB.get(f["name"], []), Z.shape) if self.KPAD else veh   # KERB_PAD round each vehicle box
+                kb, Zk, kept = kerb.detect(f, Z, R, C, valid=m & ~vk); self.kerb_px += int(kb.sum()); self.kerb_frames += bool(kept)
             else: kb = np.zeros(Z.shape, bool); Zk = Z
             y = C[1] + Z * wy
             with np.errstate(divide="ignore", invalid="ignore"):
@@ -154,5 +170,5 @@ class Fuser:
         return stats
 
 
-def run(data, src, dst, vboxes=None, grow_road=True, road_own=True, kerb_band=True, local_scale=True, log=print):
-    return Fuser(data, src, vboxes, grow_road, road_own, kerb_band, local_scale).run(dst, log=log)
+def run(data, src, dst, vboxes=None, grow_road=True, road_own=True, kerb_band=True, local_scale=True, kerb_pad=False, log=print):
+    return Fuser(data, src, vboxes, grow_road, road_own, kerb_band, local_scale, kerb_pad).run(dst, log=log)
