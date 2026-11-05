@@ -1017,9 +1017,9 @@ back→right_repeater (10-07 has no kerb in the overlaps).
 | +A+B | 14.43 % | 14.4 / 14.4 % | 1.7 % |
 
 White balance gains (B, G, R; front = 1):
-- 10-19: back 0.93/0.95/0.93, left_pillar 1.07/1.10/0.98, right_pillar 1.01/0.99/1.08, left_repeater 1.04/1.00/1.30,
+- 10-07: back 0.93/0.95/0.93, left_pillar 1.07/1.10/0.98, right_pillar 1.01/0.99/1.08, left_repeater 1.04/1.00/1.30,
   right_repeater 1.00/1.00/0.94.
-- 10-07: back 1.02/1.01/1.01, left_pillar 1.40/1.40/1.39 (clamped), right_pillar 0.97/0.99/0.99,
+- 10-19: back 1.02/1.01/1.01, left_pillar 1.40/1.40/1.39 (clamped), right_pillar 0.97/0.99/0.99,
   left_repeater 1.40/1.35/1.40 (clamped), right_repeater 0.92/0.95/0.84.
 
 Blending colour only where depth agrees is not done: colour is matched per camera, and the geometry blend in fuse.py is
