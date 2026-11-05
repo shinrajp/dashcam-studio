@@ -931,3 +931,28 @@ Item 2 of the rig plan: any HW4 car's six cameras measured from one of its own d
   read 3.6 m short, now 1.6 m; the left repeater 2.0 m short, now 1.0 m. Right repeater and right pillar slightly worse (5.6 → 6.0 m,
   1.7 → 1.8 m median error).
 - Hand-offs, look-first, 92 labels: 67 → 66 right (10-19 identical, 10-07 one case), within the run-to-run spread.
+
+## Review fixes: delay bound, ROAD_TUNE switch, no personal path, charset (branch track-v2, assets track-v2-28)
+Rollback: `git checkout pre-tv2-fix1`.
+- **tools/depth3d/delay.py, build.py:** a camera's fitted delay is used only if it lies within ±0.1 s and the error curve has a
+  clear minimum. Otherwise the rig's delay is used, or 0 when the rig has none (js/rig.js MEASURED has none; file clocks still
+  apply). The build logs each camera's delay and its source (fit / rig / none), and report.json has `delay_source`. Tests: a
+  150 ms synthetic delay is rejected, plus 4 fallback cases (`test/depth3d.test.py`).
+  - 2026-10-07 drive: left pillar's −185 ms fit is now rejected (0 s). The other fits are unchanged. Seam disagreement 14.1 → 13.9 %,
+    colour difference after matching 18.0 → 17.7 %, road fit median 1.6 → 1.7 %.
+  - 2026-10-19 drive: all six fits were already flat (0 s), so nothing changes.
+- **js/rig.js:** the road fine-tune (fa6a23d) now sits in its own `ROAD_TUNE` block of yaw/pitch/roll deltas after the measured
+  block. `MEASURED_RAW` holds the untuned angles. `TDC.rig.roadTune(false)` switches the tune off and `roadTune(true)` switches it
+  back on (on by default). With the tune on, the effective angles are numerically identical to track-v2-27; `test/rig-roadtune.test.js`
+  (112 checks) compares them with tag pre-tv2-fix1.
+  - **Still to do:** the deltas were fitted and checked on the same two drives (2026-10-19, 2026-10-07). They need a check on a
+    held-out third drive before they are trusted, and should be switched off if that drive does not improve.
+- **tools/rig/roadcheck.py:** finds tools/rig relative to the script (no personal path).
+- **Depth replay page (tools/ and experiments/ viewer.html):** `<meta charset="utf-8">`, so dashes and arrows no longer show as mojibake.
+- **Right-rear red kerb seam, still open (2026-10-19, 8.5–12.5 s):** at the same distance along the kerb, the right repeater puts
+  the kerb 1.09 m further out than the back camera does (median of 22 half-metre bins over 4 moments).
+  - With both cameras' rays hit on a 15 cm kerb plane (geometry only, no AI depth), the gap is 0.35 m. The other ~0.7 m comes from
+    the right repeater's depth on the kerb, which is 1.46× the kerb-plane distance (back camera 1.18×). The road snap
+    (0.30 m tolerance) also flattens the kerb onto the road.
+  - Time offset is not the cause: the kerb runs along the direction of travel, and all delays are 0 on this drive.
+  - The fix (not implemented) is in the review notes.
