@@ -76,6 +76,8 @@ def main(argv=None):
     ap.add_argument("--detector", default=os.path.join(ROOT, "models", "yolo11s.onnx"), help="YOLO ONNX for the vehicle boxes")
     ap.add_argument("--no-detector", action="store_true", help="skip vehicle boxes (road growing then has no exclusion)")
     ap.add_argument("--no-grow", action="store_true", help="no road growing (fuse.py GROW=0)")
+    ap.add_argument("--no-kerb", action="store_true", help="no raised kerb band: kerbs snap onto the road (kerb.py)")
+    ap.add_argument("--no-local-scale", action="store_true", help="no local depth-scale refit in camera overlaps (localscale.py)")
     ap.add_argument("--work", help="work folder (default <out>.work)"); ap.add_argument("--clean", action="store_true", help="delete the work folder at the end")
     ap.add_argument("--force-in-repo", action="store_true", help="allow writing inside the repository (it is public: never commit drive data)")
     a = ap.parse_args(argv)
@@ -159,7 +161,8 @@ def main(argv=None):
     report["road_fit_median"] = float(sorted(fits)[len(fits) // 2]) if fits else None
 
     log("[6/8] fuse: road snap, road growing, seams")
-    report["fuse"] = fuse.run(data, os.path.join(work, "depth"), os.path.join(work, "fused"), vb, grow_road=not a.no_grow, log=log)
+    report["fuse"] = fuse.run(data, os.path.join(work, "depth"), os.path.join(work, "fused"), vb, grow_road=not a.no_grow,
+                              kerb_band=not a.no_kerb, local_scale=not a.no_local_scale, log=log)
 
     log("[7/8] colour")
     report["colour"] = colour.run(os.path.join(work, "fused"), data, log=log)

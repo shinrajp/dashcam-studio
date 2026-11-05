@@ -184,6 +184,81 @@ for squash_box in (False, True):
     else: ok(left < 0.2 and right > 0.8, f"fuse.py: no road grown inside a vehicle box (left half boxed: {left * 100:.0f} % grown, right {right * 100:.0f} %)")
     shutil.rmtree(os.path.join(TMP, "depth")); shutil.rmtree(os.path.join(TMP, "fused"))
 
+# ── 6b. kerb.py and localscale.py, synthetic: plain grey kerb (no paint), flat road, rig camera models ──
+import kerb, localscale  # noqa: E402
+KX, KH = 3.0, 0.15   # a kerb 3 m right of the car's centre line, 15 cm high, unpainted
+
+
+def scene_depth(fr, kerb_on, kh=KH):
+    """true camera-z depth of the flat road, or of the road with a vertical kerb face at x = KX and a raised top beyond it."""
+    R, C = np.array(fr["R"]), np.array(fr["C"]); dw = kerb._dirs(fr, R); wy = dw[..., 1]
+    with np.errstate(divide="ignore", invalid="ignore"):
+        Zr = np.where(wy > 1e-4, -C[1] / wy, np.inf)
+        if not kerb_on: return np.where(Zr < 200, Zr, np.inf)
+        x_road = C[0] + Zr * dw[..., 0]
+        Zt = np.where(wy > 1e-4, (-kh - C[1]) / wy, np.inf)                     # raised top plane
+        Zf = np.where(dw[..., 0] > 1e-4, (KX - C[0]) / dw[..., 0], np.inf)       # vertical face plane
+        yf = C[1] + Zf * wy
+        Z = np.where(x_road < KX, Zr, np.where((yf <= 0) & (yf >= -kh), Zf, Zt))
+    return np.where(Z < 200, Z, np.inf)
+
+
+def ai_like(Z, a=4.0, b=0.03, blur=2.0, noise=0.005, seed=1):
+    """what a monocular model returns: disparity a/Z + b, blurred over a few pixels, a little noise; → its depth with the scale known."""
+    rng = np.random.default_rng(seed); d = np.where(np.isfinite(Z), a / Z + b, 0.0).astype(np.float32)
+    d = cv2.GaussianBlur(d, (0, 0), blur) * (1 + noise * rng.standard_normal(d.shape)).astype(np.float32)
+    with np.errstate(divide="ignore"): return np.where(d > b + 1e-4, a / (d - b), 0).astype(np.float32)
+
+
+KC = {}
+for cam in ("right_repeater", "back", "right_pillar"):
+    Wk, Hk, fk, _ = rig.view(cam); Rk, Ck = dr.cam_to_world(cam, 2.0)
+    KC[cam] = dict(name=f"{cam}_k.jpg", cam=cam, R=Rk.tolist(), C=Ck.tolist(), f=fk, cx=Wk / 2, cy=Hk / 2, w=Wk, h=Hk)
+for cam in ("right_repeater", "right_pillar"):
+    fr = KC[cam]; R, C = np.array(fr["R"]), np.array(fr["C"])
+    band, Zk, kept = kerb.detect(fr, ai_like(scene_depth(fr, True)), R, C)
+    P = C + (kerb._dirs(fr, R)[band] * Zk[band][:, None]); hs = -P[:, 1]
+    top = hs > 0.02
+    ok(len(kept) > 20 and band.sum() > 200, f"kerb.py {cam}: an unpainted 15 cm kerb 3 m out is found as a raised band ({len(kept)} columns, {int(band.sum())} px)")
+    if len(kept):
+        A = np.array(kept); ok(abs(np.median(A[:, 4]) - KH) < 0.06 and abs(np.median(A[:, 3]) / np.median(np.hypot(*(np.array([KX, 0]) - [C[0], 0]))) - 1) < 0.5,
+                               f"kerb.py {cam}: its height {np.median(A[:, 4]):.3f} m (true {KH}) from the rig's rays, not the depth scale")
+        ok(top.any() and abs(np.median(P[top, 0]) - KX) < 0.6 and abs(np.median(hs[top]) - KH) < 0.06,
+           f"kerb.py {cam}: band placed raised beyond the kerb line (x median {np.median(P[top, 0]):.2f} m, height {np.median(hs[top]):.3f} m)")
+    for seed in range(3):
+        band0, _, kept0 = kerb.detect(fr, ai_like(scene_depth(fr, False), noise=0.01, seed=seed), R, C)
+        ok(band0.sum() == 0, f"kerb.py {cam}: flat road, no kerb, depth noise 1 % (seed {seed}) → no raised band ({int(band0.sum())} px)")
+    for sc in (0.6, 1.8):   # the depth scale is wrong everywhere: the kerb is still found at its true height
+        _, _, kept2 = kerb.detect(fr, ai_like(scene_depth(fr, True)) * sc, R, C)
+        ok(len(kept2) > 20 and abs(np.median(np.array(kept2)[:, 4]) - KH) < 0.06, f"kerb.py {cam}: depth scale off ×{sc} → kerb still found ({len(kept2)} columns), {np.median(np.array(kept2)[:, 4]) if kept2 else 0:.3f} m high")
+    for kh, want in ((0.10, True), (0.22, True), (0.04, False), (0.60, False)):   # kerb heights, a too-low lip, a wall-like step
+        _, _, k3 = kerb.detect(fr, ai_like(scene_depth(fr, True, kh)), R, C)
+        hm = float(np.median(np.array(k3)[:, 4])) if k3 else 0.0
+        ok((len(k3) > 20 and abs(hm - kh) < 0.05) if want else len(k3) == 0,
+           f"kerb.py {cam}: a {kh * 100:.0f} cm step → {'band' if want else 'no band'} ({len(k3)} columns, {hm:.3f} m)")
+
+
+def ls_cam(cam, Z):
+    fr = KC[cam]; R, C = np.array(fr["R"]), np.array(fr["C"]); dw = kerb._dirs(fr, R); wy = dw[..., 1]
+    with np.errstate(divide="ignore", invalid="ignore"): Zr = np.where(wy > 1e-4, -C[1] / wy, np.inf)
+    return dict(cam=cam, f=fr, R=R, C=C, Z=Z.copy(), Zr=Zr, wy=wy, m=np.ones(Z.shape, bool))
+
+
+Zb = ai_like(scene_depth(KC["back"], False)); Zq = ai_like(scene_depth(KC["right_repeater"], False))
+Zq_bad = np.where(Zq > 0, 1 / (0.8 / np.maximum(Zq, 1e-3) + 0.004), 0).astype(np.float32)    # repeater's local scale ~1.2× off
+cams = [ls_cam("back", Zb), ls_cam("right_repeater", Zq_bad)]
+res = localscale.refit(cams, fuse.SNAP)["right_repeater"]
+q = cams[1]; ov = (q.get("ls_w", np.zeros(q["Z"].shape)) > 0.99) & np.isfinite(q["Zr"]) & (q["Zr"] < 20) & (q["Z"] > 0)
+e0 = np.median(np.abs(Zq_bad[ov] / q["Zr"][ov] - 1)); e1 = np.median(np.abs(q["Z"][ov] / q["Zr"][ov] - 1))
+ok(res["ok"] and e1 < 0.5 * e0, f"localscale.py: the repeater's off scale refitted on the back camera's road: error {e0 * 100:.1f} → {e1 * 100:.1f} % ({res})")
+cams = [ls_cam("back", Zb), ls_cam("right_repeater", Zq_bad)]; cams[0]["m"][:] = False      # the reference sees nothing
+res = localscale.refit(cams, fuse.SNAP)["right_repeater"]
+ok(not res["ok"] and np.array_equal(cams[1]["Z"], Zq_bad), f"localscale.py guard: too few overlap points → global fit kept ({res['why']})")
+Zq_3 = np.where(Zq > 0, Zq * 3.0, 0).astype(np.float32)
+cams = [ls_cam("back", Zb), ls_cam("right_repeater", Zq_3)]
+res = localscale.refit(cams, fuse.SNAP)["right_repeater"]
+ok(not res["ok"] and np.array_equal(cams[1]["Z"], Zq_3), f"localscale.py guard: a 3× scale (alpha out of [0.5, 2]) → global fit kept ({res['why']})")
+
 # ── 7. boxes.py ──
 for cam, P in [("left_pillar", [-6.0, 0.8, 4.0]), ("back", [0.5, 0.6, -8.0]), ("right_repeater", [5, 0.7, -3])]:
     uv, _ = rig.fisheye_project(cam, np.array([P]) - rig.pos(cam), 1, 1); u, v = uv[0]

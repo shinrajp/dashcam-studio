@@ -1,5 +1,10 @@
 """fuse.py — seams between cameras (the prototype's fuse2.py, as functions).
 
+0. Local depth scale (localscale.py): in each overlap band a secondary camera's disparity is refitted (1/Zr = α/Z + β) on
+   the pixels the reference camera sees as road, blended into the global fit over BLEND_FRAC, with guards (enough points,
+   α in range, the fit must cut the error) and a fallback to the global fit. --no-local-scale turns it off.
+   Kerb band (kerb.py): low steps (0.08–0.25 m) found from geometry are kept raised and left out of road snap and road
+   growing. --no-kerb turns it off.
 1. Road snap: depth points within 0.30 m of the road plane (and 0.6–1.6× its depth) take the plane's exact depth.
    Road growing (roadgrow.py): far road the AI depth squashes is grown by colour from the near road, never inside vehicle boxes.
 2. Seam disagreement of off-road overlap points is measured and printed (the prototype's per-camera scale solve measured no
@@ -13,6 +18,7 @@ Out (per frame, in dst): <name>.npy, <name>.png (uint16 cm), <name>_w.png, <name
 import json, os, shutil
 import numpy as np, cv2
 from roadgrow import grow
+import kerb, localscale
 
 SNAP, BAND = 0.30, 1.12
 
@@ -23,8 +29,9 @@ def _rays(f):
 
 
 class Fuser:
-    def __init__(self, data, src, vboxes=None, grow_road=True, road_own=True):
+    def __init__(self, data, src, vboxes=None, grow_road=True, road_own=True, kerb_band=True, local_scale=True):
         self.data, self.src, self.VB, self.GROW, self.ROADOWN = data, src, vboxes or {}, grow_road, road_own
+        self.KERB, self.LOCAL, self.kerb_px, self.kerb_frames, self.ls = kerb_band, local_scale, 0, 0, {}
         d = json.load(open(os.path.join(src, "frames.json"))); self.d = d
         self.cams = d["cams"]; self.by = {c: [f for f in d["frames"] if f["cam"] == c] for c in self.cams}; self.NC = len(self.cams)
         self.RAYS = {c: _rays(self.by[c][0]) for c in self.cams}; self.grown = 0
@@ -34,21 +41,30 @@ class Fuser:
         return cv2.imread(p, cv2.IMREAD_GRAYSCALE) > 127 if os.path.exists(p) else np.ones((f["h"], f["w"]), bool)
 
     def load(self, k):
-        out = []
+        pre = []
         for c in self.cams:
             f = self.by[c][k]; Z = np.load(os.path.join(self.src, f["name"].replace(".jpg", ".npy"))); R, C = np.array(f["R"]), np.array(f["C"])
             wy = self.RAYS[c] @ R[1]
             with np.errstate(divide="ignore", invalid="ignore"): Zr = np.where(wy > 1e-4, -C[1] / wy, np.inf)
+            pre.append(dict(cam=c, f=f, R=R, C=C, Z=Z, Zr=Zr, wy=wy, m=self.mask(f)))
+        if self.LOCAL:                                   # localscale.py: neighbours' depth scale agreed on the overlap road
+            for c, r in localscale.refit(pre, SNAP).items():
+                s = self.ls.setdefault(c, [0, 0]); s[0] += 1; s[1] += int(r["ok"])
+        out = []
+        for p in pre:
+            f, Z, Zr, wy, R, C, m = p["f"], p["Z"], p["Zr"], p["wy"], p["R"], p["C"], p["m"]
+            veh = np.zeros(Z.shape, bool)
+            for x0, y0, x1, y1 in self.VB.get(f["name"], []): veh[max(0, y0):max(0, y1), max(0, x0):max(0, x1)] = True
+            if self.KERB:                                # kerb.py: low steps at the road edge stay raised, not snapped
+                kb, Zk, kept = kerb.detect(f, Z, R, C, valid=m & ~veh); self.kerb_px += int(kb.sum()); self.kerb_frames += bool(kept)
+            else: kb = np.zeros(Z.shape, bool); Zk = Z
             y = C[1] + Z * wy
             with np.errstate(divide="ignore", invalid="ignore"):
-                snap = (Z > 0) & (np.abs(y) < SNAP) & (Zr < 80) & (Z / Zr > 0.6) & (Z / Zr < 1.6)
-            m = self.mask(f)
+                snap = (Z > 0) & (np.abs(y) < SNAP) & (Zr < 80) & (Z / Zr > 0.6) & (Z / Zr < 1.6) & ~kb
             if self.GROW:
-                veh = np.zeros_like(snap)
-                for x0, y0, x1, y1 in self.VB.get(f["name"], []): veh[max(0, y0):max(0, y1), max(0, x0):max(0, x1)] = True
-                g = grow(cv2.imread(os.path.join(self.data, "images", f["name"])), Z, Zr, snap, m & ~veh)
-                self.grown += int((g & ~snap).sum()); snap = g
-            out.append(dict(f=f, R=R, C=C, Z=np.where(snap, Zr, Z), snap=snap, m=m))
+                g = grow(cv2.imread(os.path.join(self.data, "images", f["name"])), Z, Zr, snap, m & ~veh & ~kb)
+                self.grown += int((g & ~snap).sum()); snap = g & ~kb
+            out.append(dict(f=f, R=R, C=C, Z=np.where(kb, Zk, np.where(snap, Zr, Z)).astype(np.float32), snap=snap, kerb=kb, m=m))
         return out
 
     @staticmethod
@@ -128,12 +144,15 @@ class Fuser:
                 shutil.copy(os.path.join(self.src, f["name"]), os.path.join(dst, f["name"]))
         shutil.copy(os.path.join(self.src, "frames.json"), os.path.join(dst, "frames.json"))
         seam = np.median(np.concatenate(SEAM)) * 100 if SEAM and sum(map(len, SEAM)) else float("nan")
-        stats = dict(seam_band_pct=seam, seam_pct=np.nanmedian(after) * 100 if np.isfinite(after).any() else float("nan"), grown_px=self.grown)
+        stats = dict(seam_band_pct=seam, seam_pct=np.nanmedian(after) * 100 if np.isfinite(after).any() else float("nan"), grown_px=self.grown, kerb_px=self.kerb_px, kerb_frames=self.kerb_frames,
+                     local_scale={c: f"{v[1]}/{v[0]}" for c, v in self.ls.items()})
         log(f"  in the blend bands, the two cameras' surfaces were {stats['seam_band_pct']:.1f} % apart (median); now they meet")
         log(f"  seam disagreement, off-road overlap points: {stats['seam_pct']:.1f} %")
         log(f"  road grown beyond the AI snap: {self.grown} pixels")
+        if self.KERB: log(f"  kerb / low-step band kept raised: {self.kerb_px} pixels in {self.kerb_frames} of {sum(map(len, self.by.values()))} frames")
+        if self.LOCAL: log(f"  local depth scale in overlaps used (frames): {stats['local_scale']}")
         return stats
 
 
-def run(data, src, dst, vboxes=None, grow_road=True, road_own=True, log=print):
-    return Fuser(data, src, vboxes, grow_road, road_own).run(dst, log=log)
+def run(data, src, dst, vboxes=None, grow_road=True, road_own=True, kerb_band=True, local_scale=True, log=print):
+    return Fuser(data, src, vboxes, grow_road, road_own, kerb_band, local_scale).run(dst, log=log)
