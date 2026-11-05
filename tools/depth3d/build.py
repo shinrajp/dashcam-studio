@@ -86,6 +86,12 @@ def main(argv=None):
     ap.add_argument("--no-road-colour", action="store_true", help="seam colour match on the old road test only, no depth-agreement check (colour.py)")
     ap.add_argument("--no-kerb", action="store_true", help="no raised kerb band: kerbs snap onto the road (kerb.py)")
     ap.add_argument("--no-local-scale", action="store_true", help="no local depth-scale refit in camera overlaps (localscale.py)")
+    ap.add_argument("--scene-wb", default="off", choices=["off", "viewer"],
+                    help="viewer: after the colour step, white-balance the final textures the way the viewer's White Balance button does (scenewb.py); geometry unchanged; off by default: it worsened 10-19 seam colour")
+    ap.add_argument("--scene-wb-adapt", default="cat16", choices=["gains", "cat16", "bradford"],
+                    help="gains: the viewer's WB-ON gamma gains with camera matching; cat16/bradford: chromatic adaptation (js/colour-constancy.js viewerMatrix, D=0.7)")
+    ap.add_argument("--scene-wb-source", default="paint", choices=["paint", "fusion"], help="white estimate: the viewer's paint/mirror tracker, or the paint+lanes+grey world(+FC4) fusion")
+    ap.add_argument("--scene-wb-fc4", default=os.path.join(ROOT, "models", "cc", "fc4-squeezenet11-int8.onnx"), help="FC4 ONNX for --scene-wb-source fusion (skipped when missing)")
     ap.add_argument("--work", help="work folder (default <out>.work)"); ap.add_argument("--clean", action="store_true", help="delete the work folder at the end")
     ap.add_argument("--force-in-repo", action="store_true", help="allow writing inside the repository (it is public: never commit drive data)")
     a = ap.parse_args(argv)
@@ -184,6 +190,13 @@ def main(argv=None):
     log("[7/8] colour")
     report["colour"] = colour.run(os.path.join(work, "fused"), data, log=log, road_only=not a.no_road_colour, vboxes=vb,
                                   global_match=(wbm == "neutral+global"), match=not a.no_colour_match)
+
+    if a.scene_wb == "viewer":
+        import scenewb, video
+        log(f"[7b/8] scene white balance ({a.scene_wb_adapt}, {a.scene_wb_source})")
+        fc4 = a.scene_wb_fc4 if a.scene_wb_fc4 and os.path.exists(a.scene_wb_fc4) else None
+        report["scene_wb"] = {k: v for k, v in scenewb.run(os.path.join(work, "fused"), clips, ftimes, a.t0, a.t1, video.frames,
+                                                               adapt=a.scene_wb_adapt, source=a.scene_wb_source, fc4=fc4, log=log).items() if k != "samples"}
 
     log("[8/8] page")
     info = dict(drive=stamp.split("_")[0] if "_" in stamp else stamp, clip=stamp, t0=a.t0, t1=a.t1,
