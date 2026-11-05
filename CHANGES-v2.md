@@ -956,3 +956,34 @@ Rollback: `git checkout pre-tv2-fix1`.
     (0.30 m tolerance) also flattens the kerb onto the road.
   - Time offset is not the cause: the kerb runs along the direction of travel, and all delays are 0 on this drive.
   - The fix (not implemented) is in the review notes.
+
+## Kerb seam (2026-11-04)
+
+Rollback: `git checkout pre-tv2-curb` (or build with `--no-kerb --no-local-scale`; LINE_TUNE is off unless `lineTune(true)`).
+
+- **Kerb as a raised edge** (`tools/depth3d/kerb.py`). Steps 0.08–0.25 m high are found from geometry alone: the slope of the
+  depth along each column, compared with the road plane's rays. The height comes from the rig, not the depth scale. Colour is
+  not used. These steps are kept off road snap and road growing. The parameters come from physical ranges (see the docstring).
+- **Local depth scale** (`tools/depth3d/localscale.py`). Each overlap band is refitted against the reference camera's
+  ray-plane road, blended into the global fit, and guarded (min points, α in 0.5–2, the fit must cut the error), with fallback.
+- **LINE_TUNE** (`js/rig.js`, `tools/rig/linetune.py`). This is a PER-CAR CALIBRATION of the repeaters, fitted on road-plane
+  edges, bounded to ±3° and ±0.2 m. It is **off by default**. In a full rebuild it made both drives worse, and fitting on one
+  drive and checking on the other gave different answers.
+- Synthetic tests (rig camera models): an unpainted grey 15 cm kerb is found at 0.148 m. Steps of 10 and 22 cm are found;
+  4 cm and 60 cm are not. A flat road gives 0 px. The result does not change with the depth scale off by ×0.6 or ×1.8.
+
+| Metric (window 8.5–12.5 s) | 10-19 before | 10-19 after | 10-07 before | 10-07 after |
+|---|---|---|---|---|
+| kerb gap back→right_repeater, depth | 1.09 m | 0.11 m | no kerb | — |
+| … plane | 0.49 m | 0.12 m | — | — |
+| … curb15 | 0.35 m | 0.27 m | — | — |
+| seam disagreement | 14.1 % | 13.5 % | 13.9 % | 13.8 % |
+| colour difference | 15.6 % | 17.0 % | 17.7 % | 17.7 % |
+| road-fit median | 2.4 % | 2.4 % | 1.7 % | 1.7 % |
+| kerb band (frames of 150) | — | 14 | — | 24 |
+| LINE_TUNE on: seam / colour / road fit | | 15.0 / 20.8 / 3.1 % | | 21.3 / 30.1 / 1.9 % |
+
+The 10-19 colour difference is worse because of local scale (15.6 → 17.0 % in the ablation; kerb alone gives 15.6 %).
+The pillar→repeater pair has too few kerb bins (1–2) to measure. On 10-07 about a quarter of the band pixels are false
+(under cars, in the front camera); the rest sit on real grey kerbs. No third plain drive exists, so held-out checks are
+cross-drive only.
