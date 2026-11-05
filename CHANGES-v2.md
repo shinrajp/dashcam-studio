@@ -987,3 +987,40 @@ The 10-19 colour difference is worse because of local scale (15.6 → 17.0 % in 
 The pillar→repeater pair has too few kerb bins (1–2) to measure. On 10-07 about a quarter of the band pixels are false
 (under cars, in the front camera); the rest sit on real grey kerbs. No third plain drive exists, so held-out checks are
 cross-drive only.
+
+## White balance and road-only seam colour (2026-11-05)
+
+Rollback: `git checkout pre-tv2-wb`, or build with `--no-road-colour` (white balance is already off unless you pass `--wb`).
+
+- **(B) Road-only seam colour** (`colour.py`, ON by default). A pixel counts only if it is road for both cameras, their depths
+  agree within 5 %, and it is in no vehicle box. "Strict" is the colour difference measured on that pixel set for every variant.
+- **(A) Per-camera white balance before depth** (`wb.py`, OFF by default; turn it on with `--wb`). This is one von Kries gain
+  per camera and channel for the whole drive, with the front camera as reference. It is fitted on road-plane overlap pixels
+  (no vehicle boxes, sky or clipped pixels), using per-pair medians and a Huber IRLS solve, clamped to 0.7–1.4. On the test
+  drives it worsened the 10-19 kerb gap and the 10-07 seam, and gave no colour gain on 10-07.
+
+Local depth scale on, kerb band on, window 8.5–12.5 s. Colour is shown as old metric / strict. The kerb gap is
+back→right_repeater (10-07 has no kerb in the overlaps).
+
+| 10-19 | seam | colour | road fit | gap depth / plane / curb15 |
+|---|---|---|---|---|
+| baseline 795268c | 13.50 % | 17.0 / 13.8 % | 2.4 % | 0.105 / 0.120 / 0.274 m |
+| +A | 12.86 % | 17.2 / 12.3 % | 2.4 % | 0.328 / 0.292 / 0.236 m |
+| **+B (default)** | 13.50 % | 12.7 / 12.7 % | 2.4 % | 0.094 / 0.109 / 0.271 m |
+| +A+B | 12.86 % | 12.1 / 12.1 % | 2.4 % | 0.294 / 0.301 / 0.235 m |
+
+| 10-07 | seam | colour | road fit |
+|---|---|---|---|
+| baseline | 13.84 % | 17.7 / 16.0 % | 1.7 % |
+| +A | 14.43 % | 18.0 / 16.1 % | 1.7 % |
+| **+B (default)** | 13.84 % | 14.2 / 14.2 % | 1.7 % |
+| +A+B | 14.43 % | 14.4 / 14.4 % | 1.7 % |
+
+White balance gains (B, G, R; front = 1):
+- 10-19: back 0.93/0.95/0.93, left_pillar 1.07/1.10/0.98, right_pillar 1.01/0.99/1.08, left_repeater 1.04/1.00/1.30,
+  right_repeater 1.00/1.00/0.94.
+- 10-07: back 1.02/1.01/1.01, left_pillar 1.40/1.40/1.39 (clamped), right_pillar 0.97/0.99/0.99,
+  left_repeater 1.40/1.35/1.40 (clamped), right_repeater 0.92/0.95/0.84.
+
+Blending colour only where depth agrees is not done: colour is matched per camera, and the geometry blend in fuse.py is
+unchanged.
