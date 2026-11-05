@@ -10,6 +10,8 @@ footage, no AI model (~1 min). `python3 test/depth3d.test.py`. Needs numpy, open
  5. depth.py: a flat road with an upright box ("car") and sky, model disparity = a/Z + b with unknown a, b → road back at the
     road plane's depth, the box at its depth, sky dropped; a frame with a broken fit borrows the camera's scale.
  6. fuse.py + roadgrow.py: far road the depth squashes is grown back onto the road plane, but not inside a vehicle box.
+ 6e. scenewb.py: constants = js/wb.js / js/colour-constancy.js; a painted cast recovered; day / night limits; camera
+    match clamp; CAT16 / Bradford white → neutral; run() leaves the depth / frames byte-identical.
  7. boxes.py: a detector box round a point in the raw fisheye maps to a view rectangle round that point (also the back
     camera, whose view is pitched 14° off the camera).
 """
@@ -328,6 +330,63 @@ eqs = [(i, j, np.log(true[j] / true[i]), 200000) for i in range(6) for j in rang
 Gs = COL.solve_gains(eqs, C6, global_match=True)
 ok(np.abs(Gs * true - 1).max() < 0.02, f"colour.py global solve: six cameras with known casts recovered with no reference camera (worst {np.abs(Gs * true - 1).max():.3f})")
 G0 = COL.solve_gains([], C6, global_match=True); ok(np.allclose(G0, 1), "colour.py global solve: no shared road → identity")
+
+# ── 6e. scenewb.py (the viewer's white balance on the final textures): constants = the JS, synthetic casts ──
+import re, scenewb as SW  # noqa: E402
+js = open(os.path.join(ROOT, "js", "wb.js")).read(); blk = js[js.index("  WB.C = {"):js.index("  };", js.index("  WB.C = {"))]
+jsC = {k: float(v) for k, v in re.findall(r"\b([A-Z_0-9]+): (-?[0-9.]+)\b(?![\]0-9.])", blk)}
+for k in ["DAY_Y", "PCT"]: jsC[k] = tuple(float(x) for x in re.search(k + r": \[([^\]]+)\]", blk).group(1).split(","))
+miss = [k for k, v in jsC.items() if k in SW.C and (tuple(SW.C[k]) if isinstance(v, tuple) else SW.C[k]) != v]
+need = ["STRENGTH", "TINT_K", "NIGHT_K", "NIGHT_TEMP", "BLUE_MAX", "DAY_K", "DAY_TEMP", "DAY_TINT", "MATCH_MAX", "MATCH_EMA", "GAIN_MIN", "GAIN_MAX", "EMA", "JUMP"]
+ok(not miss and all(k in jsC and k in SW.C for k in need), f"scenewb.C = js/wb.js WB.C (differ: {miss})")
+cc = open(os.path.join(ROOT, "js", "colour-constancy.js")).read()
+pri = dict(re.findall(r"(\w+): ([0-9.]+)", re.search(r"PRIOR: \{([^}]+)\}", cc).group(1)))
+ok({k: float(v) for k, v in pri.items()} == SW.PRIOR and float(re.search(r"ROBUST_DEG: ([0-9.]+)", cc).group(1)) == SW.ROBUST_DEG,
+   f"scenewb PRIOR / ROBUST_DEG = js/colour-constancy.js ({pri})")
+nums = lambda name: [float(x) for x in re.findall(r"-?[0-9]+\.[0-9]+", re.search(name + r"[^\[]*(\[\[[^;]+?\]\])", cc).group(1))]
+ok(np.allclose(nums("RGB2XYZ"), SW.RGB2XYZ.ravel()) and np.allclose(nums("cat16"), SW.CATS["cat16"].ravel()) and np.allclose(nums("bradford"), SW.CATS["bradford"].ravel()),
+   "scenewb RGB2XYZ / CAT16 / Bradford matrices = js/colour-constancy.js")
+# a painted body with a known cast in the mirror strip: analyse + the tracker recover it
+rng = np.random.default_rng(3); cast = np.array([0.82, 1.0, 1.12])
+strip = (rng.uniform(30, 200, (SW.C["GH"], SW.C["GW"], 1)) * rng.uniform(0.5, 1.5, (SW.C["GH"], SW.C["GW"], 3))).clip(0, 255)
+runs = SW.wedge(SW.C["ZONE_W"])
+for y in range(SW.C["GH"]): strip[y, :runs[y]] = 170 * cast * rng.uniform(0.95, 1.05, (runs[y], 1))
+a = SW.analyse(strip.astype(np.uint8), runs); T = SW.Tracker()
+for _ in range(10): T.update(a.get("rgb"))
+w = T.white(); got = w / w[1]
+ok(a.get("found") and np.allclose(got, cast, atol=0.03), f"scenewb.analyse: painted body cast {cast.tolist()} recovered as {np.round(got, 3).tolist()}")
+# the viewer's limits: by day ±DAY_TEMP temperature / ±DAY_TINT tint, at night ±NIGHT_TEMP and blue ≤ BLUE_MAX
+for wt in ([125, 210, 230], [230, 180, 110], [200, 140, 210]):
+    for day, mt, mn in [(1, SW.C["DAY_TEMP"], SW.C["DAY_TINT"]), (0, SW.C["NIGHT_TEMP"], 1)]:
+        l = np.log(SW.view_gains(wt, day)); temp = (l[2] - l[0]) / 2; tint = l[1] - (l[0] + l[2]) / 2
+        ok(abs(temp) <= mt + 1e-9 and abs(tint) <= mn + 1e-9 and np.exp(l[2]) <= SW.C["BLUE_MAX"] + 1e-9,
+           f"scenewb.view_gains {wt} day={day}: temperature {temp:.3f} (≤ {mt}), tint {tint:.3f} (≤ {mn}), blue {np.exp(l[2]):.2f}")
+# camera matching: a camera far off the mirror cameras is pulled at most MATCH_MAX (log) toward them
+def flat(c): return np.clip(rng.normal(1, 0.08, (60, 96, 1)) * 120 * np.array(c), 0, 255).astype(np.uint8)
+T = SW.Tracker()
+for _ in range(60): T.match_cams({"left_repeater": flat([1, 1, 1]), "right_repeater": flat([1, 1, 1]), "front": flat([1.12, 1, 0.9]), "back": flat([0.98, 1, 1.03])})
+mf, mb = np.array(T.match["front"]), np.array(T.match["back"])
+ok(np.all(np.abs(mf) <= SW.C["MATCH_MAX"] + 1e-9) and abs(abs(mf[0]) - SW.C["MATCH_MAX"]) < 1e-3 and mf[0] < 0 < mf[1] and np.all(np.abs(mb - [0.02, -0.03]) < 0.02),
+   f"scenewb.match_cams: front (+12 % red) clamped at ±{SW.C['MATCH_MAX']}: {np.round(mf, 3).tolist()}; back small: {np.round(mb, 3).tolist()}")
+g = SW.gains_for([1.1, 1.0, 0.9], [0.05, -0.05]); ok(abs(SW.luma(*g) - SW.luma(1.1, 1.0, 0.9)) < 1e-12, "scenewb.gains_for keeps the brightness (js/wb.js gainsFor)")
+# CAT16 / Bradford at D = 1 map the white to neutral; at D = 0.7 part way
+for m in ["cat16", "bradford"]:
+    wl = SW.srgb_to_lin([125, 210, 230]); o = SW.viewer_matrix([125, 210, 230], m, 1.0) @ wl; o7 = SW.viewer_matrix([125, 210, 230], m, 0.7) @ wl
+    ch = lambda v: np.hypot(np.log(v[0] / v[1]), np.log(v[2] / v[1]))
+    ok(ch(o) < 1e-3 and ch(wl) * 0.2 < ch(o7) < ch(wl) * 0.5, f"scenewb.viewer_matrix {m}: white → neutral at D=1 ({ch(o):.4f}), D=0.7 part way ({ch(o7):.3f} of {ch(wl):.3f})")
+# run(): rewrites only the textures; depth (.npy) and frames.json untouched (geometry identical)
+fd = os.path.join(TMP, "swfused"); os.makedirs(fd, exist_ok=True)
+fj = dict(cams=["front", "left_repeater"], frames=[dict(name=f"{c}_0.jpg", cam=c) for c in ["front", "left_repeater"]])
+json.dump(fj, open(os.path.join(fd, "frames.json"), "w"))
+for f in fj["frames"]: cv2.imwrite(os.path.join(fd, f["name"]), np.full((40, 60, 3), (200, 150, 110), np.uint8)); np.save(os.path.join(fd, f["name"][:-4] + ".npy"), np.arange(2400.).reshape(40, 60))
+before = {n: open(os.path.join(fd, n), "rb").read() for n in os.listdir(fd) if not n.endswith(".jpg")}
+real = SW.estimate; SW.estimate = lambda *a, **k: dict(white=np.array([125, 210, 230.]), sceneY=110, day=1.0, match={"front": [0.07, -0.07]}, source="paint")
+for adapt in ["gains", "cat16"]:
+    for f in fj["frames"]: cv2.imwrite(os.path.join(fd, f["name"]), np.full((40, 60, 3), (200, 150, 110), np.uint8))
+    out = SW.run(fd, {}, {}, 0, 1, None, adapt=adapt, log=lambda *a: None); px = cv2.imread(os.path.join(fd, "front_0.jpg"))[20, 30]
+    ok(out["applied"] and all(open(os.path.join(fd, n), "rb").read() == b for n, b in before.items()) and px[0] < 200 and px[2] > 110,
+       f"scenewb.run {adapt}: blue-cast texture warmed ({px[::-1].tolist()}), .npy / frames.json byte-identical")
+SW.estimate = real
 
 # ── 7. boxes.py ──
 for cam, P in [("left_pillar", [-6.0, 0.8, 4.0]), ("back", [0.5, 0.6, -8.0]), ("right_repeater", [5, 0.7, -3])]:
