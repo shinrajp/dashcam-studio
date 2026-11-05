@@ -143,7 +143,7 @@ def neutral_fit(steps, cams):
     return CH, E, CH * E[:, None], info
 
 
-def run_neutral(data, vboxes, log=print):
+def run_neutral(data, vboxes, log=print, exposure=False):
     """Stage 1 on data/ (dataset.py level views): rewrite data/images, write data/wb.json."""
     d = json.load(open(os.path.join(data, "frames.json"))); cams = d["cams"]
     by = {c: [f for f in d["frames"] if f["cam"] == c] for c in cams}
@@ -154,13 +154,14 @@ def run_neutral(data, vboxes, log=print):
         return dict(f=f, R=np.array(f["R"]), C=np.array(f["C"]), im=lin(im), m=m, boxes=vboxes.get(f["name"], []))
     steps = [{c: view(by[c][k]) for c in cams if k < len(by[c])} for k in range(0, d["steps"], STEP)]
     CH, E, G, info = neutral_fit(steps, cams)
+    if not exposure: G = CH.copy()          # exposure measured and logged but not applied (the seam colour solve sets brightness)
     r = lambda a: [round(float(x), 4) for x in a]
     out = {c: dict(chroma_bgr=r(CH[i]), exposure=round(float(E[i]), 4), gains=r(G[i]), **info[c]) for i, c in enumerate(cams)}
     for i, c in enumerate(cams):
         flag = (" chroma CLAMPED" if np.any((CH[i] <= CHROMA_LO + 1e-9) | (CH[i] >= CHROMA_HI - 1e-9)) else "") + \
                (" exposure CLAMPED" if E[i] <= EXPO_LO + 1e-9 or E[i] >= EXPO_HI - 1e-9 else "")
-        log(f"  neutral WB {c}: chroma (B, G, R) {r(CH[i])}, exposure {E[i]:.3f}{flag}")
+        log(f"  neutral WB {c}: chroma (B, G, R) {r(CH[i])}, exposure {E[i]:.3f}{'' if exposure else ' (not applied)'}{flag}")
         for f in by[c]:
             p = os.path.join(data, "images", f["name"]); cv2.imwrite(p, unlin(lin(cv2.imread(p)) * G[i]), [cv2.IMWRITE_JPEG_QUALITY, 92])
-    json.dump(dict(mode="neutral", cams=out, gains={c: out[c]["gains"] for c in cams}), open(os.path.join(data, "wb.json"), "w"))
+    json.dump(dict(mode="neutral", exposure_applied=exposure, cams=out, gains={c: out[c]["gains"] for c in cams}), open(os.path.join(data, "wb.json"), "w"))
     return dict(mode="neutral", cams=out)

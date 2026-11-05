@@ -79,6 +79,7 @@ def main(argv=None):
     ap.add_argument("--wb-mode", default=None, choices=["off", "ref", "neutral", "neutral+global"],
                     help="white balance: off; ref (wb.py fit to the front camera); neutral (wb.py stage 1: every camera to neutral road, "
                          "exposure apart from chroma); neutral+global (stage 1, then the seam colour solve with no reference camera)")
+    ap.add_argument("--wb-exposure", action="store_true", help="neutral modes: also apply the per-camera exposure gain (off: on the test drives it fought the seam colour solve)")
     ap.add_argument("--no-colour-match", action="store_true", help="skip the seam colour gains (colour.py measures only)")
     ap.add_argument("--wb", action="store_true", help="per-camera white balance before depth (wb.py); off by default: on the two test drives it worsened the 10-19 kerb gap and the 10-07 seam")
     ap.add_argument("--no-wb", action="store_true", help="no white balance (the default; kept for scripts)")
@@ -166,7 +167,7 @@ def main(argv=None):
         report["wb"] = wb.run(data, vb, log=log)
     else:
         log("  white balance: stage 1, every camera to neutral road (wb.py)")
-        report["wb"] = wb.run_neutral(data, vb, log=log)
+        report["wb"] = wb.run_neutral(data, vb, log=log, exposure=a.wb_exposure)
 
     log("[5/8] depth")
     fn = depth.PlaneStub() if a.depth_stub else depth.OnnxDepth(a.model)
