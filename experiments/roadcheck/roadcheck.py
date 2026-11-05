@@ -11,7 +11,7 @@ Writes <out>/res.json (per sampled frame: blobs, detector boxes and which were f
 """
 import argparse, glob, json, math, os, subprocess, sys
 import numpy as np, cv2
-sys.path.insert(0, "/Users/clementlaw/Documents/GitHub/dashcam-studio/tools/rig")
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "tools", "rig"))
 from calibrate import Path, project, rot, unproject
 
 SW, SH = 724, 469            # working size (half of 1448 × 938)
