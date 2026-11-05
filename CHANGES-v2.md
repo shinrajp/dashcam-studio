@@ -1105,3 +1105,52 @@ gap on 10-19 goes from 0.053 to 0.18 m. The global solve alone is worse than B o
   drives.
 
 **Rollback:** `git checkout pre-tv2-wb3`. Nothing changes by default.
+
+## Third drive ("drive C", three plain clips) (tag tv2-1020)
+Rollback: `git checkout pre-tv2-1020`. Nothing changes by default; the one new option is `--kerb-pad`.
+
+**Rig stability.** tools/rig was run on drive C's 60 s clip with curves: six cameras, 500 pairs each, median fit 0.11–0.25 px.
+- Front, back and pillars agree with MEASURED to within 1.4° (front 0.3°, back 1.4° yaw / 0.7° pitch, pillars 0.9° / 1.4° /
+  0.9°). Lens width agrees to within 4 %, and heights to within 0.1 m except the left pillar (1.47 m against 1.33 m).
+- The repeaters come out +2.8° / −4.0° yaw with lens width −3 % / +7 %. That is outside the 1.1° the two earlier drives
+  agreed to. The drive is mostly gentle highway curves, where yaw trades against lens width.
+- Hand-off check on drive C (YOLO tracks, the clip's own file clocks):
+
+  | rig | predicted | matched | place error |
+  |---|---|---|---|
+  | MEASURED | 66 | 62 | 4.7 % |
+  | drive C's own rig | 80 | 74 | 5.3 % |
+
+  MEASURED predicts at least as well. So the cameras did not move: the averaged rig still holds, and drive C's own repeater
+  numbers come from a weak fit.
+- File clocks were measured per clip again. Back was −0.18, +0.30 and −0.18 s on the three clips, and right pillar −0.31,
+  +0.19 and −0.29 s. As before, never use a fixed table.
+
+**LINE_TUNE, three drives** (fit on two, hold out the third, both repeaters). The fitted tunes differ by fold: left yaw −0.5,
+−2.25 and −1.75°. The held-out road-edge cost changed by −4.4 / −1.0 (drive C), +0.7 / −5.4 (10-07) and −1.6 / −7.5 % (10-19).
+It got worse on one held-out drive, so it **stays off**. It is off in the viewer, so the hand-off is unaffected.
+
+**False kerb bands.** Many bands sit on a vehicle's wheels, bumper or shadow just outside its detection box.
+- `--kerb-pad` (`fuse.KERB_PAD`, off by default) allows no band in a vehicle box widened by 0.1 × its width at the sides and
+  0.25 × its height below.
+- Band pixels within such padded boxes:
+  - 10-19: 47 %, mostly behind parked cars;
+  - 10-07: 25 %, the front camera's bands under cars, matching the earlier hand count;
+  - drive C: 19 %, 7 % and 100 % on its three windows.
+  - With the pad these all go to 0.
+- Seam and colour stay the same, within 0.03.
+- The 10-19 kerb gap (depth) goes from 0.053 to 0.059 m, and plane / curb15 are unchanged. It also drops real kerb that
+  is hidden behind parked cars.
+- So it stays opt-in. Synthetic test: depth3d.test.py 6b.
+
+**Scene white balance on drive C:**
+- Strict colour, B → bradford: 20.09 → 20.00, 16.21 → 16.26 and 12.30 → 12.36.
+- With gains it is worse on two windows: +1.4 and +0.9.
+- White points 8000–9800 K, daytime.
+- Still not neutral on every drive, so `--scene-wb` stays off.
+
+| drive C window | seam % | colour strict % | road fit | kerb gap | kerb band frames (pad) | road / lane chroma |
+|---|---|---|---|---|---|---|
+| clip 1, 0.5–4.5 s (urban turn) | 21.7 | 20.1 | 1.9 % | no red kerb | 19 (17) | 0.252 / 0.261 |
+| clip 2, 8–12 s (slow highway) | 12.4 | 16.2 | 1.8 % | no red kerb | 24 (25) | 0.182 / 0.197 |
+| clip 3, 10–14 s (highway) | 11.9 | 12.3 | 1.1 % | no red kerb | 1 (0) | 0.185 / 0.217 |
