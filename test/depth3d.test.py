@@ -92,10 +92,10 @@ for t in np.arange(-2, 14, 0.05):
         lat = side * rng.uniform(3, 15); ah = rng.uniform(-3, 3)
         pts_w.append((e + math.cos(h) * lat + math.sin(h) * ah, n - math.sin(h) * lat + math.cos(h) * ah, rng.uniform(0, 3)))
 pts_w = np.array(pts_w)
-for cam in ["left_pillar", "back"]:
+def synth_pairs(cam, true):
     ftimes = [k / 30 for k in range(300)]; P = rig.pos(cam); trk = {}
     for i, t in enumerate(ftimes):
-        e, n, h = path.at(t + TRUE)   # the picture at clip t shows the car at telemetry time t + delay
+        e, n, h = path.at(t + true)   # the picture at clip t shows the car at telemetry time t + delay
         de, dn = pts_w[:, 0] - e, pts_w[:, 1] - n
         X = np.stack([de * math.cos(h) - dn * math.sin(h), pts_w[:, 2], de * math.sin(h) + dn * math.cos(h)], 1)
         uv, th = rig.fisheye_project(cam, X - P, 1, 1)
@@ -103,11 +103,24 @@ for cam in ["left_pillar", "back"]:
         uv = uv + rng.normal(0, 0.3 / 1448, uv.shape)   # 0.3 px tracking noise
         trk[i] = (np.flatnonzero(vis), uv[vis].astype(np.float32))
     prs = delay.pairs(trk, ftimes, 0.0, path)
-    prs2 = [(i, j, x0, x1, rig.fisheye_ray(cam, x0.astype(float), 1, 1), rig.fisheye_ray(cam, x1.astype(float), 1, 1)) for i, j, x0, x1 in prs]
+    return ftimes, [(i, j, x0, x1, rig.fisheye_ray(cam, x0.astype(float), 1, 1), rig.fisheye_ray(cam, x1.astype(float), 1, 1)) for i, j, x0, x1 in prs]
+
+
+for cam in ["left_pillar", "back"]:
+    ftimes, prs2 = synth_pairs(cam, TRUE)
     d, info = delay.search(rig, cam, prs2, ftimes, 0.0, path)
     ok(info["ok"] and abs(d - TRUE) < 0.006, f"delay.py {cam}: delay {d * 1000:.1f} ms for a true {TRUE * 1000:.0f} ms ({info['pairs']} pairs)")
 d, info = delay.search(rig, "front", [], [0], 0.0, path)
 ok(not info["ok"] and d == 0, "delay.py: nothing to fit → 0 and not ok")
+# out of range: the same synthetic street with the pictures 0.15 s behind is fitted near 0.15 s but rejected (beyond ±0.1 s)
+ft_far, prs_far = synth_pairs("left_pillar", 0.15)
+d_far, info_far = delay.search(rig, "left_pillar", prs_far, ft_far, 0.0, path)
+ok(not info_far["ok"] and info_far.get("rejected") is not None and abs(info_far["rejected"] - 0.15) < 0.01 and d_far == 0,
+   f"delay.py: a fitted 150 ms delay is rejected (beyond ±{delay.MAX_DELAY * 1000:.0f} ms): {info_far}")
+ok(delay.choose("back", 0.03, {"ok": True}, {"back": -0.02}) == (0.03, "fit"), "delay.choose: a good fit wins")
+ok(delay.choose("back", 0.0, {"ok": False}, {"back": -0.02}) == (-0.02, "rig"), "delay.choose: rejected fit → the rig's delay")
+ok(delay.choose("back", 0.0, {"ok": False}, {}) == (0.0, "none"), "delay.choose: rejected fit and no rig delay → 0 (source none)")
+ok(delay.choose("front", 0.0, None, {"front": 0.01}) == (0.01, "rig"), "delay.choose: --delays rig takes the rig's delay")
 
 # ── 4. Drive / poses ──
 dr = RG.Drive(rig, rows, 2.0, {"back": 0.3}, {"back": -0.05})

@@ -6,11 +6,16 @@ delay is a 1-D search: points are tracked across frames (pyramidal Lucas-Kanade 
 tools/rig/tracks.py), and for each trial delay the car's move between two frames comes from the front file's telemetry
 path at those frames' moments; static points must then lie on the epipolar plane of the camera's move. The delay with the
 smallest robust (Cauchy) epipolar error wins, refined by a parabola. Only frames where the car accelerates or turns can
-tell delays apart; when the error curve is too flat (parked, steady straight driving) the camera gets 0 and a warning.
+tell delays apart. A fit is only taken when it is clear and within ±MAX_DELAY (0.1 s; the measured cameras are within ±0.07 s):
+a flat error curve (parked, steady straight driving), a minimum on the search edge or a delay beyond the bound is rejected, and
+choose() then falls back to the rig's own delay for that camera (js/rig.js via telemetry.js / rig.py: a calibrated rig's
+`delay`), or 0 when the rig has none (js/rig.js MEASURED has no per-camera delays; the file clocks are applied separately).
 """
 import math, sys
 import numpy as np, cv2
 from video import frames
+
+MAX_DELAY = 0.1   # s: a fitted delay beyond this is rejected (measured cameras: within ±0.07 s)
 
 LK = dict(winSize=(21, 21), maxLevel=4, criteria=(cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 30, 0.01))
 
@@ -98,5 +103,15 @@ def search(rig, cam, prs, ftimes, clock, path, span=0.2, step=0.005):
     info = dict(pairs=len(prs2), contrast=round(contrast, 3), edge=k in (0, len(ds) - 1))
     if info["edge"] or contrast < 0.03:
         info.update(ok=False, why="error curve too flat or minimum on the search edge"); return 0.0, info
+    if abs(d) > MAX_DELAY:
+        info.update(ok=False, why=f"fitted {d * 1000:.0f} ms is beyond ±{MAX_DELAY * 1000:.0f} ms", rejected=round(d, 4)); return 0.0, info
     info["ok"] = True
     return round(d, 4), info
+
+
+def choose(cam, fitted, info, rig_delays):
+    """the delay a camera gets and where it came from: the fit when it is ok, else the rig's delay, else 0.
+    → (delay s, source: "fit" | "rig" | "none")"""
+    if info is not None and info.get("ok"): return float(fitted), "fit"
+    if cam in rig_delays: return float(rig_delays[cam]), "rig"
+    return 0.0, "none"

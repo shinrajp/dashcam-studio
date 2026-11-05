@@ -108,19 +108,22 @@ def main(argv=None):
     log("[2/8] telemetry delays")
     rig_delays = {c: rig.cams[c]["delay"] for c in clips if "delay" in rig.cams.get(c, {})}
     mode = a.delays if a.delays != "auto" else ("rig" if rig_delays else "fit")
-    delays, dinfo = {}, {}
+    delays, dinfo, dsrc = {}, {}, {}
     from rig import Path
     path = Path(tel["cams"]["front"]["rows"])
+    SRC = {"fit": "fitted from this clip", "rig": "the rig's delay (rig JSON / js/rig.js)",
+           "none": "0: no usable fit and the rig has no delay for it (js/rig.js MEASURED has none; file clocks still applied)", "zero": "0 (--delays zero)"}
     for c in clips:
-        if mode == "zero": delays[c] = 0.0
-        elif mode == "rig": delays[c] = float(rig_delays.get(c, 0.0))
+        if mode == "zero": delays[c], dsrc[c] = 0.0, "zero"
+        elif mode == "rig": delays[c], dsrc[c] = delayfit.choose(c, 0.0, None, rig_delays)
         else:
             d, info = delayfit.fit(rig, c, clips[c], ftimes[c], clocks[c], path, a.t0 - 4, a.t1 + 4)
-            delays[c], dinfo[c] = d, info
-            if not info["ok"]: warn(f"{c}: delay not measurable here ({info['why']}): taken as 0 (real ones are within ±0.07 s)")
-    if mode == "rig" and len(rig_delays) < len(clips): warn("the rig has no delay for " + ", ".join(c for c in clips if c not in rig_delays) + ": 0")
+            dinfo[c] = info
+            delays[c], dsrc[c] = delayfit.choose(c, d, info, rig_delays)
+            if not info["ok"]: warn(f"{c}: delay fit rejected ({info['why']}): using {delays[c]:+.3f} s from {SRC[dsrc[c]]}")
+        log(f"  {c}: delay {delays[c]:+.4f} s, source: {SRC[dsrc[c]]}")
     log(f"  delays ({mode}): " + json.dumps({c: round(v, 4) for c, v in delays.items()}))
-    report.update(delays=delays, delay_mode=mode, delay_fit=dinfo)
+    report.update(delays=delays, delay_mode=mode, delay_fit=dinfo, delay_source=dsrc)
 
     log("[3/8] level views and poses")
     drive = Drive(rig, tel["cams"]["front"]["rows"], a.t0, clocks, delays)
