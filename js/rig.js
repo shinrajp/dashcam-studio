@@ -62,13 +62,27 @@
      z from–to). `not`: cameras that don't see that part — the windscreen camera looks out through the cabin's glass, and the
      bonnet slopes away below its view (the measured drive shows none of it). The bumper lip sticks out under the back
      camera: the bottom of its fisheye. */
+  /* LINE_TUNE — PER-CAR CALIBRATION, not a measurement (2026-11, tools/rig/linetune.py): extra yaw / pitch / roll (degrees)
+     and outward shift dx (metres) of the repeaters, fitted so that road-plane edges (lane lines, kerb feet; any colour) seen
+     by a repeater meet those seen by the back camera and the same-side pillar. Bounds ±3° and ±0.2 m. Fitted jointly on the
+     two plain drives of one car; held-out (fit on one drive, test on the other) the two drives gave different answers, so
+     it is OFF by default: switch it on with lineTune(true) only for the car it was fitted on. */
+  const LINE_TUNE = {
+    left_repeater:  { yaw: -0.5, pitch: -0.5, roll: -0.25, dx: -0.08 },
+    right_repeater: { yaw: -1.25, pitch: -2.75, roll: 0.0, dx: 0.1 },
+  };
+  let lineTuneOn = false;
   const MEASURED_RAW = JSON.parse(JSON.stringify(MEASURED));
   const r6 = (v) => Math.round(v * 1e6) / 1e6;
   let roadTuneOn = true;
   function applyTune(on) {
     for (const cam of Object.keys(MEASURED_RAW)) {
       const t = on && ROAD_TUNE[cam];
-      for (const k of ["yaw", "pitch", "roll"]) MEASURED[cam][k] = t ? r6(MEASURED_RAW[cam][k] + t[k]) : MEASURED_RAW[cam][k];
+      const l = lineTuneOn && LINE_TUNE[cam];
+      for (const k of ["yaw", "pitch", "roll"]) MEASURED[cam][k] = r6(MEASURED_RAW[cam][k] + (t ? t[k] : 0) + (l ? l[k] : 0));
+      const p = MEASURED_RAW[cam].pos.slice();
+      if (l) p[0] = r6(p[0] + Math.sign(p[0]) * l.dx);
+      MEASURED[cam].pos = p;
     }
   }
   applyTune(true);
@@ -395,6 +409,15 @@
     for (const k of Object.keys(R)) delete R[k];
     return roadTuneOn;
   }
+  /** lineTune() → on?; lineTune(on): switch the per-car LINE_TUNE calibration of the repeaters (off by default). */
+  function lineTune(on) {
+    if (on === undefined) return lineTuneOn;
+    lineTuneOn = !!on; applyTune(roadTuneOn);
+    if (info.source === "measured") reset();
+    else if (info.source === "preset" && info.preset) { try { const p = preset(info.preset); if (p) set(p); } catch (_) {} }
+    for (const k of Object.keys(R)) delete R[k];
+    return lineTuneOn;
+  }
   function reset() { cams = clone(MEASURED); body = BODY; info = { preset: "model_x", source: "measured" }; for (const k of Object.keys(R)) delete R[k]; for (const k of Object.keys(bodyGrids)) delete bodyGrids[k]; }
   /** What the rig in use is: { preset, source: "measured" | "preset" | "calibrated" | "custom", name }. */
   const current = () => Object.assign({}, info);
@@ -425,6 +448,6 @@
     return (isFinite(o[cam]) ? o[cam] : 0) + (isFinite(o[cam]) && ref ? d(cam) - d(ref) : 0);
   }
 
-  return { CAMS, MEASURED, MEASURED_RAW, ROAD_TUNE, roadTune, CLOCK0, BODY, PRESETS, HEIGHT, ASPECT, rot, ok, ray, pixel, ground, bearing, isBody, bodyShare, footprint,
+  return { CAMS, MEASURED, MEASURED_RAW, ROAD_TUNE, roadTune, LINE_TUNE, lineTune, CLOCK0, BODY, PRESETS, HEIGHT, ASPECT, rot, ok, ray, pixel, ground, bearing, isBody, bodyShare, footprint,
     sizeRatio, boxAt, predictEntry, clockOffsets, coverage, clock, set, reset, get, current, bodyBoxes, preset, closestPreset, browser, footScale, boxGround };
 });
