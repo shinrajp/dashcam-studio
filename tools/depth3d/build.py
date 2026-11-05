@@ -76,7 +76,8 @@ def main(argv=None):
     ap.add_argument("--detector", default=os.path.join(ROOT, "models", "yolo11s.onnx"), help="YOLO ONNX for the vehicle boxes")
     ap.add_argument("--no-detector", action="store_true", help="skip vehicle boxes (road growing then has no exclusion)")
     ap.add_argument("--no-grow", action="store_true", help="no road growing (fuse.py GROW=0)")
-    ap.add_argument("--no-wb", action="store_true", help="no per-camera white balance before depth (wb.py)")
+    ap.add_argument("--wb", action="store_true", help="per-camera white balance before depth (wb.py); off by default: on the two test drives it worsened the 10-19 kerb gap and the 10-07 seam")
+    ap.add_argument("--no-wb", action="store_true", help="no white balance (the default; kept for scripts)")
     ap.add_argument("--no-road-colour", action="store_true", help="seam colour match on the old road test only, no depth-agreement check (colour.py)")
     ap.add_argument("--no-kerb", action="store_true", help="no raised kerb band: kerbs snap onto the road (kerb.py)")
     ap.add_argument("--no-local-scale", action="store_true", help="no local depth-scale refit in camera overlaps (localscale.py)")
@@ -154,7 +155,7 @@ def main(argv=None):
         json.dump(vb, open(os.path.join(work, "vboxes.json"), "w"))
         log(f"  {sum(len(v) for v in vb.values())} vehicle boxes in {len(vb)} views")
 
-    if a.no_wb: log("  white balance: off (--no-wb)")
+    if a.no_wb or not a.wb: log("  white balance: off (pass --wb to turn it on)")
     else:
         log("  white balance: per-camera gains on shared road (wb.py)")
         report["wb"] = wb.run(data, vb, log=log)
