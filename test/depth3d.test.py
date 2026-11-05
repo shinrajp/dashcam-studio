@@ -302,6 +302,33 @@ ok(np.abs(G3[1] / want - 1).max() < 0.04, f"wb.py: a red car over 30 % of the ov
 ok(abs(wb.solve([(0, 1, np.log([0.9, 1.0, 1.1]), 1000)], ["back", "right_repeater"], "back")[0][1][0] - 1 / 0.9) < 0.02,
    "wb.py: the solve holds the reference at 1 and gives the other camera the inverse ratio")
 
+
+# ── 6d. wb.py stage 1 (neutral, every camera) and colour.py global solve (no reference camera) ──
+import colour as COL  # noqa: E402
+fcast = (0.8, 1.0, 1.2)
+nrow = {"back": wb_view("back")[0], "right_repeater": wb_view("right_repeater")[0], "right_pillar": wb_view("right_pillar")[0]}
+nrow["back"]["im"] = np.clip(nrow["back"]["im"] * np.array(fcast, np.float32), 0, 1)       # the camera that used to be the reference
+CH, E, Gn, _ = wb.neutral_fit([nrow], WBC)
+px = wb.road_pixels(dict(nrow["back"], im=np.clip(nrow["back"]["im"] * Gn[0], 0, 1)))
+res = np.abs(np.log(np.median(px, 0)[[0, 2]] / np.median(px, 0)[1])).max()
+ok(res < 0.02, f"wb.py stage 1: a cast {fcast} on the reference-like camera is brought to neutral (chroma {np.round(CH[0], 3)}, residual {res:.3f})")
+erow = dict(nrow); erow["right_repeater"] = dict(nrow["right_repeater"], im=np.clip(nrow["right_repeater"]["im"] * 0.7, 0, 1))
+CH2, E2, _, _ = wb.neutral_fit([erow], WBC)
+ok(np.abs(CH2[1] - 1).max() < 0.02 and abs(E2[1] / E2[2] - 1 / 0.7) < 0.05,
+   f"wb.py stage 1: a dark camera (×0.7) gets exposure {E2[1] / E2[2]:.2f}× (want {1 / 0.7:.2f}) and no chroma change {np.round(CH2[1], 3)}")
+crow = dict(nrow); crow["right_pillar"] = dict(nrow["right_pillar"], im=np.clip(nrow["right_pillar"]["im"] * np.array((0.45, 1, 1.0), np.float32), 0, 1))
+CH3, _, _, _ = wb.neutral_fit([crow], WBC)
+ok(abs(CH3[2, 0] - wb.CHROMA_HI) < 1e-9 and np.all((CH3 >= wb.CHROMA_LO) & (CH3 <= wb.CHROMA_HI)), f"wb.py stage 1: chroma clamped to {wb.CHROMA_LO}–{wb.CHROMA_HI} ({np.round(CH3[2], 3)})")
+drow = dict(nrow); drow["right_pillar"] = dict(nrow["right_pillar"], im=np.clip(nrow["right_pillar"]["im"] * 0.2, 0, 1))
+_, E4, _, _ = wb.neutral_fit([drow], WBC)
+ok(E4.max() <= wb.EXPO_HI + 1e-9, f"wb.py stage 1: exposure clamped to {wb.EXPO_HI} (got {E4.max():.3f})")
+rng = np.random.default_rng(3); C6 = ["front", "back", "left_pillar", "right_pillar", "left_repeater", "right_repeater"]
+true = np.exp(rng.normal(0, 0.08, (6, 3))); true /= np.exp(np.log(true).mean(0))     # geometric mean 1: a global solve can see only ratios
+eqs = [(i, j, np.log(true[j] / true[i]), 200000) for i in range(6) for j in range(6) if i != j and (abs(i - j) <= 2)]
+Gs = COL.solve_gains(eqs, C6, global_match=True)
+ok(np.abs(Gs * true - 1).max() < 0.02, f"colour.py global solve: six cameras with known casts recovered with no reference camera (worst {np.abs(Gs * true - 1).max():.3f})")
+G0 = COL.solve_gains([], C6, global_match=True); ok(np.allclose(G0, 1), "colour.py global solve: no shared road → identity")
+
 # ── 7. boxes.py ──
 for cam, P in [("left_pillar", [-6.0, 0.8, 4.0]), ("back", [0.5, 0.6, -8.0]), ("right_repeater", [5, 0.7, -3])]:
     uv, _ = rig.fisheye_project(cam, np.array([P]) - rig.pos(cam), 1, 1); u, v = uv[0]

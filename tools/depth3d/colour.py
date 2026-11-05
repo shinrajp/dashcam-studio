@@ -10,6 +10,10 @@ own fused point within ROAD_Y of the road plane), the two cameras' depths agree 
 the reference point's depth in camera b) and neither pixel is in a vehicle box. A kerb, a car or a wall that one camera puts
 on the road and the other does not is left out of the fit. The reported "eval" colour difference always uses this strict
 pixel set, so builds with and without it are compared on the same pixels.
+
+Global match (global_match=True, after wb.py's neutral white balance): the same pair equations, but no camera is held at 1:
+every gain is pulled toward 1 equally and their geometric mean is fixed at 1, so the solve only fixes residuals between
+cameras and does not undo the neutral balance.
 """
 import json, os
 import numpy as np, cv2
@@ -57,7 +61,20 @@ def _pairs(row, gains, strict=True):
     return eqs, (np.median(np.concatenate(diff)) if diff else np.nan)
 
 
-def run(d_dir, data, log=print, road_only=True, vboxes=None):
+def solve_gains(allq, cams, global_match=False):
+    """pair equations (i, j, m, n): log g_j - log g_i = -m → one gain per camera and channel (least squares)."""
+    NC = len(cams); A, B, w = [], [], []
+    for i, j, m, n in allq:
+        r = np.zeros(NC); r[j] = 1; r[i] = -1; A.append(r); B.append(-np.asarray(m)); w.append(np.sqrt(n))
+    for c in range(NC):
+        r = np.zeros(NC); r[c] = 1; A.append(r); B.append(np.zeros(3)); w.append(30.0 if global_match else (500.0 if cams[c] == "front" else 30.0))
+    if global_match:                                   # no reference camera: the gains' geometric mean is held at 1
+        A.append(np.ones(NC)); B.append(np.zeros(3)); w.append(300.0)
+    A, B, w = np.array(A), np.array(B), np.array(w)
+    x, *_ = np.linalg.lstsq(A * w[:, None], B * w[:, None], rcond=None); return np.exp(x)
+
+
+def run(d_dir, data, log=print, road_only=True, vboxes=None, global_match=False, match=True):
     d = json.load(open(os.path.join(d_dir, "frames.json"))); cams = d["cams"]; NC = len(cams)
     by = {c: [f for f in d["frames"] if f["cam"] == c] for c in cams}
     ks = range(0, d["steps"], 4)
@@ -65,13 +82,7 @@ def run(d_dir, data, log=print, road_only=True, vboxes=None):
     for k in ks:
         row = [_load(d_dir, data, by[c][k], vboxes) for c in cams]; eqs, df = _pairs(row, G, road_only); before.append(df); allq += eqs
         ev0.append(_pairs(row, G, True)[1])
-    A, B, w = [], [], []
-    for i, j, m, n in allq:
-        r = np.zeros(NC); r[j] = 1; r[i] = -1; A.append(r); B.append(-m); w.append(np.sqrt(n))
-    for c in range(NC):
-        r = np.zeros(NC); r[c] = 1; A.append(r); B.append(np.zeros(3)); w.append(500.0 if cams[c] == "front" else 30.0)
-    A, B, w = np.array(A), np.array(B), np.array(w)
-    x, *_ = np.linalg.lstsq(A * w[:, None], B * w[:, None], rcond=None); G = np.exp(x)
+    G = solve_gains(allq, cams, global_match) if match else np.ones((NC, 3))
     after, ev1 = [], []
     for k in ks:
         row = [_load(d_dir, data, by[c][k], vboxes) for c in cams]; _, df = _pairs(row, G, road_only); after.append(df)

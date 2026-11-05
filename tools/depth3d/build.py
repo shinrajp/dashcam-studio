@@ -76,6 +76,10 @@ def main(argv=None):
     ap.add_argument("--detector", default=os.path.join(ROOT, "models", "yolo11s.onnx"), help="YOLO ONNX for the vehicle boxes")
     ap.add_argument("--no-detector", action="store_true", help="skip vehicle boxes (road growing then has no exclusion)")
     ap.add_argument("--no-grow", action="store_true", help="no road growing (fuse.py GROW=0)")
+    ap.add_argument("--wb-mode", default=None, choices=["off", "ref", "neutral", "neutral+global"],
+                    help="white balance: off; ref (wb.py fit to the front camera); neutral (wb.py stage 1: every camera to neutral road, "
+                         "exposure apart from chroma); neutral+global (stage 1, then the seam colour solve with no reference camera)")
+    ap.add_argument("--no-colour-match", action="store_true", help="skip the seam colour gains (colour.py measures only)")
     ap.add_argument("--wb", action="store_true", help="per-camera white balance before depth (wb.py); off by default: on the two test drives it worsened the 10-19 kerb gap and the 10-07 seam")
     ap.add_argument("--no-wb", action="store_true", help="no white balance (the default; kept for scripts)")
     ap.add_argument("--no-road-colour", action="store_true", help="seam colour match on the old road test only, no depth-agreement check (colour.py)")
@@ -155,10 +159,14 @@ def main(argv=None):
         json.dump(vb, open(os.path.join(work, "vboxes.json"), "w"))
         log(f"  {sum(len(v) for v in vb.values())} vehicle boxes in {len(vb)} views")
 
-    if a.no_wb or not a.wb: log("  white balance: off (pass --wb to turn it on)")
-    else:
-        log("  white balance: per-camera gains on shared road (wb.py)")
+    wbm = a.wb_mode or ("ref" if a.wb and not a.no_wb else "off")
+    if wbm == "off": log("  white balance: off (--wb-mode)")
+    elif wbm == "ref":
+        log("  white balance: per-camera gains on shared road, front camera as reference (wb.py)")
         report["wb"] = wb.run(data, vb, log=log)
+    else:
+        log("  white balance: stage 1, every camera to neutral road (wb.py)")
+        report["wb"] = wb.run_neutral(data, vb, log=log)
 
     log("[5/8] depth")
     fn = depth.PlaneStub() if a.depth_stub else depth.OnnxDepth(a.model)
@@ -173,7 +181,8 @@ def main(argv=None):
                               kerb_band=not a.no_kerb, local_scale=not a.no_local_scale, log=log)
 
     log("[7/8] colour")
-    report["colour"] = colour.run(os.path.join(work, "fused"), data, log=log, road_only=not a.no_road_colour, vboxes=vb)
+    report["colour"] = colour.run(os.path.join(work, "fused"), data, log=log, road_only=not a.no_road_colour, vboxes=vb,
+                                  global_match=(wbm == "neutral+global"), match=not a.no_colour_match)
 
     log("[8/8] page")
     info = dict(drive=stamp.split("_")[0] if "_" in stamp else stamp, clip=stamp, t0=a.t0, t1=a.t1,
