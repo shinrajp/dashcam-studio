@@ -1196,3 +1196,20 @@ Phase 2 of solid cars: recognisable low-poly models instead of boxes, cleaner tr
 
 **Limits:** Cybercab is a size heuristic (low sleek car), not a detector class; no face accumulation yet;
 Kenney bus is a delivery van stand-in; some moving-car yaw can still flip on short tracks.
+
+## Realistic roadster-like cars (tag tv2-veh3)
+Rollback: `git checkout pre-tv2-veh3`. Nothing changes by default (`--vehicles` still off).
+
+Phase 3: replace the toy-like Kenney meshes with a realistic sports coupe plus a clearer fleet.
+
+- **roadster.glb** — Ferrari 458 Italia by vicent091036 via three.js examples, **CC BY 4.0** (Draco,
+  ~1.6 MB, ~359k tris). Used as a generic roadster / sports coupe; paint recolored at runtime. Attribution in
+  `tools/depth3d/models/LICENSES.md`. No affiliation with Ferrari S.p.A.
+- **sedan / hatchback / SUV / pickup / van / bus / truck / cybercab** — Free Low Poly Vehicles Pack by rgsdev
+  (OpenGameArt), **CC0**; FBX→glTF, quantized (~105–136 KB each, ~1.4–1.7k tris). Cybercab uses the pack’s
+  Roadster mesh as a compact 2-seat stand-in (Khronos CarConcept exceeded the payload budget after simplify).
+- **Payload** ≈ 2.6 MB total for all nine glTFs. Viewer loads Draco from the three.js CDN decoder.
+- **viewer.html:** RoomEnvironment PMREM + sun/fill lights; MeshPhysicalMaterial clearcoat body tinted with
+  sampled paint; glass / rubber / rim / light materials; soft contact-shadow disc under each car. Default
+  passenger cars map to the roadster mesh.
+- **vehicles.py:** longest-displacement yaw (fixes short-track flips); shape heuristic prefers roadster.

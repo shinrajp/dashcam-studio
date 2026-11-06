@@ -33,7 +33,7 @@ EGO_HALF = (1.15, 2.7)  # reject lifts inside the ego car footprint (width/2, le
 MIN_TRACK_STEPS = 2    # drop one-frame ghosts at the end
 PARKED_TRAVEL_M = 2.5  # tracks that move less than this over their life are locked to a median pose
 DEDUP_IOU = 0.45       # oriented-box overlap fraction to merge ghosts in one step
-MODELS = ("sedan", "hatchback", "suv", "pickup", "van", "bus", "truck", "cybercab")  # glTF stems in models/vehicles/
+MODELS = ("roadster", "sedan", "hatchback", "suv", "pickup", "van", "bus", "truck", "cybercab")  # glTF stems in models/vehicles/
 
 
 def _shape(cls, L, W, H):
@@ -44,16 +44,16 @@ def _shape(cls, L, W, H):
         return "bus"
     if cls == "truck":
         return "truck" if (L >= 6.0 or H >= 2.2) else "pickup"
-    # car: size heuristics (YOLO has no SUV / Cybercab label)
-    if H >= 1.75:
+    # car: default to the realistic roadster/sports coupe (user request); other shapes by size
+    if H >= 1.78:
         return "suv"
-    if H <= 1.42 and 4.2 <= L <= 5.2:
-        return "cybercab"  # low sleek profile → futuristic stand-in
-    if L <= 4.15 and H <= 1.55:
+    if H <= 1.38 and L <= 4.0:
+        return "cybercab"  # compact 2-seat stand-in
+    if L <= 4.05 and H <= 1.55:
         return "hatchback"
-    if L >= 5.2 and H >= 1.6:
+    if L >= 5.4 and H >= 1.68:
         return "van"
-    return "sedan"
+    return "roadster"  # modern passenger car → realistic CC BY sports coupe
 
 
 def _boxes_overlap(a, b, frac=DEDUP_IOU):
@@ -103,10 +103,17 @@ def _finalize(steps):
                                rgb=[int(round(x)) for x in np.median([p[1]["rgb"] for p in pts], 0)],
                                parked=True)
         else:
-            # motion yaw from overall displacement (front = direction of travel)
-            dx, dz = xs[-1] - xs[0], zs[-1] - zs[0]
-            if math.hypot(dx, dz) > 1.0:
-                locked[vid] = dict(motion_yaw=_wrap(math.atan2(dx, dz)), parked=False)
+            # motion yaw from the longest single-step (or multi-step) displacement — avoids
+            # short-track yaw flips when the first/last samples are noisy
+            best_d, best_dx, best_dz = 0.0, 0.0, 0.0
+            for i in range(len(xs)):
+                for j in range(i + 1, len(xs)):
+                    dx, dz = xs[j] - xs[i], zs[j] - zs[i]
+                    d = math.hypot(dx, dz)
+                    if d > best_d:
+                        best_d, best_dx, best_dz = d, dx, dz
+            if best_d > 1.2:
+                locked[vid] = dict(motion_yaw=_wrap(math.atan2(best_dx, best_dz)), parked=False)
             else:
                 locked[vid] = dict(parked=False)
     out = []

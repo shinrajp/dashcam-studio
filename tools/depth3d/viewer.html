@@ -41,7 +41,7 @@ html,body{height:100%;background:var(--bg);color:var(--fg);font-family:var(--san
   <p>Where cameras overlap, each spot comes from the camera that sees it sharpest; the road is snapped to the true road plane; neighbouring cameras meet on one surface and fade into each other; brightness is matched between cameras. <b>Camera colours</b> shows which camera drew what.</p>
   <p>Gaps are what no camera saw. The white box is your car.</p>
   <p id="fillNote" hidden><b>Fill blind spots</b> lays the road under the car and behind the bumper from what the cameras filmed at other moments (<span id="realM2"></span> m², real footage). The <span id="estM2"></span> m² no camera ever saw is painted by a diffusion model: <b>estimated, not seen</b>. <b>Mark estimated</b> tints it blue.</p>
-  <p id="vehNote" hidden><b>Solid cars</b> swaps the depth cardboard for a low-poly car model per tracked vehicle (Kenney Car Kit, CC0; pose from multi-camera boxes + road / depth; body tinted with sampled paint). Proxies are <b>estimated</b> — <b>Mark estimated</b> tints them. Off restores the original depth faces.</p>
+  <p id="vehNote" hidden><b>Solid cars</b> swaps the depth cardboard for a realistic roadster / car model per tracked vehicle (CC BY sports coupe + CC0 fleet; clearcoat paint, glass, contact shadow; pose from multi-camera boxes). Proxies are <b>estimated</b> — <b>Mark estimated</b> tints them. Off restores the original depth faces.</p>
 </div>
 <div class="bar">
   <button id="play" aria-pressed="false">Play</button>
@@ -62,6 +62,8 @@ html,body{height:100%;background:var(--bg);color:var(--fg);font-family:var(--san
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 const $ = (id) => document.getElementById(id), status = $('status');
 $('hide').onclick = () => { $('note').hidden = true; };
 
@@ -79,10 +81,18 @@ const W3 = (p) => new THREE.Vector3(p[0], -p[1], -p[2]);
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setPixelRatio(Math.min(2, devicePixelRatio)); $('view').appendChild(renderer.domElement);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.05;
 const scene = new THREE.Scene(); scene.background = new THREE.Color('#0b0f12');
 const cam3 = new THREE.PerspectiveCamera(60, 1, 0.1, 500);
 const controls = new OrbitControls(cam3, renderer.domElement); controls.enableDamping = true;
 const loader = new THREE.TextureLoader();
+// soft image-based light for car clearcoat (procedural; no HDR download)
+const pmrem = new THREE.PMREMGenerator(renderer);
+scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+scene.add(new THREE.AmbientLight(0xffffff, 0.35));
+const sun = new THREE.DirectionalLight(0xffe6c8, 1.1); sun.position.set(4, 10, 2); scene.add(sun);
+const fill = new THREE.DirectionalLight(0xb8d0ff, 0.35); fill.position.set(-6, 4, -3); scene.add(fill);
 
 function meshFor(f) {
   const raw = Uint8Array.from(atob(depth[f.name]), c => c.charCodeAt(0)), Z = new Uint16Array(raw.buffer);
@@ -116,17 +126,20 @@ carM.add(new THREE.LineSegments(new THREE.EdgesGeometry(carM.geometry), new THRE
 scene.add(carM);
 const ground = new THREE.GridHelper(400, 80, 0x22303a, 0x18222a); ground.position.y = -0.02; scene.add(ground);
 
-// optional solid vehicle proxies (tools/depth3d/vehicles.py, --vehicles proxy): CC0 low-poly glTF (Kenney Car Kit)
+// optional solid vehicle proxies — realistic roadster (CC BY) + CC0 fleet; PBR clearcoat + contact shadow
 const VEH = await fetch('vehicles.json').then(r => (r.ok ? r.json() : null)).catch(() => null);
 const vehGroup = new THREE.Group(); scene.add(vehGroup);
 let solidOn = false, markVeh = true;
-// Kenney cars face +Z; our yaw=0 is world +Z (= three -Z), so flip π when posing
-const MODEL_FACE = Math.PI;
-const gltfLoader = new GLTFLoader();
-const MODEL_URL = { sedan: 'models/sedan.glb', hatchback: 'models/hatchback.glb', suv: 'models/suv.glb',
-  pickup: 'models/pickup.glb', van: 'models/van.glb', bus: 'models/bus.glb', truck: 'models/truck.glb',
-  cybercab: 'models/cybercab.glb' };
-const modelTpl = {};   // shape → {root: Object3D, size: Vector3}  (unscaled, y-bottom at 0)
+const MODEL_FACE = Math.PI;   // Kenney/rgsdev face +Z; Ferrari faces +Z too in three.js example
+const draco = new DRACOLoader();
+draco.setDecoderPath('https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/libs/draco/gltf/');
+const gltfLoader = new GLTFLoader(); gltfLoader.setDRACOLoader(draco);
+const MODEL_URL = {
+  roadster: 'models/roadster.glb', sedan: 'models/sedan.glb', hatchback: 'models/hatchback.glb',
+  suv: 'models/suv.glb', pickup: 'models/pickup.glb', van: 'models/van.glb', bus: 'models/bus.glb',
+  truck: 'models/truck.glb', cybercab: 'models/cybercab.glb'
+};
+const modelTpl = {};
 async function loadModels() {
   if (!VEH) return;
   const need = new Set();
@@ -137,7 +150,6 @@ async function loadModels() {
       const root = g.scene; root.updateMatrixWorld(true);
       const box = new THREE.Box3().setFromObject(root);
       const size = box.getSize(new THREE.Vector3());
-      // shift so wheels sit on y=0 and centre xz at origin
       root.position.sub(new THREE.Vector3((box.min.x + box.max.x) / 2, box.min.y, (box.min.z + box.max.z) / 2));
       root.updateMatrixWorld(true);
       modelTpl[sh] = { root, size: box.getSize(new THREE.Vector3()) };
@@ -146,62 +158,91 @@ async function loadModels() {
 }
 await loadModels();
 
-function paintMat(base, paint, isGlass) {
-  // MeshBasicMaterial: the replay scene has no lights (depth meshes are unlit too)
-  const map = base.map || null;
-  if (isGlass) {
-    return new THREE.MeshBasicMaterial({ color: 0x1a2228, transparent: true, opacity: markVeh ? 0.55 : 0.75, map: null });
-  }
+function bodyPaint(paint) {
   const col = paint.clone();
-  if (markVeh) col.lerp(new THREE.Color(0x4aa3ff), 0.28);
-  return new THREE.MeshBasicMaterial({ color: col, map, transparent: markVeh, opacity: markVeh ? 0.92 : 1 });
+  if (markVeh) col.lerp(new THREE.Color(0x4aa3ff), 0.22);
+  return new THREE.MeshPhysicalMaterial({
+    color: col, metalness: 0.55, roughness: 0.28, clearcoat: 1.0, clearcoatRoughness: 0.12,
+    envMapIntensity: 1.0, transparent: markVeh, opacity: markVeh ? 0.95 : 1
+  });
 }
+function glassMat() {
+  // no transmission (slow on mobile); dark tinted glass with env reflections
+  return new THREE.MeshPhysicalMaterial({
+    color: 0x88a0b0, metalness: 0.1, roughness: 0.08, transparent: true, opacity: 0.45, envMapIntensity: 1.4
+  });
+}
+function rubberMat() { return new THREE.MeshStandardMaterial({ color: 0x1a1a1c, metalness: 0.1, roughness: 0.85 }); }
+function rimMat() { return new THREE.MeshStandardMaterial({ color: 0xc0c4c8, metalness: 0.9, roughness: 0.25 }); }
+function lightMat(emissive) {
+  return new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: new THREE.Color(emissive), emissiveIntensity: 0.8, metalness: 0.2, roughness: 0.3 });
+}
+
+function classifyPart(name) {
+  const n = name.toLowerCase();
+  if (/glass|window|windshield|screen|projector/.test(n)) return 'glass';
+  if (/tire|tyre|rubber/.test(n)) return 'rubber';
+  if (/rim|wheel(?!.*tire)|alloy|chrome|nut/.test(n)) return 'rim';
+  if (/light|led|brake|tail|head|signal/.test(n)) return 'light';
+  if (/body|paint|coat|boot|bumper|door|hood|bonnet|fender|wing/.test(n)) return 'body';
+  if (/leather|interior|carpet|seat|steering/.test(n)) return 'interior';
+  return 'body';  // default: tint as body (Ferrari Body_Color etc.)
+}
+
+function styleProxy(root, paint, shape) {
+  root.traverse(o => {
+    if (!o.isMesh || !o.material) return;
+    const name = ((o.name || '') + ' ' + (o.parent && o.parent.name || '') + ' ' + (o.material.name || ''));
+    const kind = classifyPart(name);
+    // Ferrari materials named Body_Color / Glass_Gray / Tires etc.
+    const matName = (o.material.name || '').toLowerCase();
+    let k = kind;
+    if (/body_color|paint|coat/.test(matName)) k = 'body';
+    else if (/glass/.test(matName)) k = 'glass';
+    else if (/tire|rubber/.test(matName)) k = 'rubber';
+    else if (/chrome|metal|carbon|rim/.test(matName)) k = 'rim';
+    else if (/light|led|tail|signal|projector/.test(matName)) k = 'light';
+    else if (/leather|interior|carpet/.test(matName)) k = 'interior';
+    if (k === 'body') o.material = bodyPaint(paint);
+    else if (k === 'glass') o.material = glassMat();
+    else if (k === 'rubber') o.material = rubberMat();
+    else if (k === 'rim') o.material = rimMat();
+    else if (k === 'light') o.material = lightMat(shape === 'cybercab' ? 0x88ccff : 0xffeedd);
+    else o.material = new THREE.MeshStandardMaterial({ color: 0x222226, metalness: 0.3, roughness: 0.7 });
+    o.castShadow = false; o.receiveShadow = false;
+  });
+}
+
 function makeProxy(v) {
   const paint = new THREE.Color(v.rgb[0] / 255, v.rgb[1] / 255, v.rgb[2] / 255);
   const sh = v.shape || 'sedan';
   const tpl = modelTpl[sh];
+  const root = new THREE.Group();
   if (tpl) {
-    const root = tpl.root.clone(true);
+    const car = tpl.root.clone(true);
     const sx = v.W / Math.max(tpl.size.x, 1e-3);
     const sy = v.H / Math.max(tpl.size.y, 1e-3);
     const sz = v.L / Math.max(tpl.size.z, 1e-3);
-    root.scale.set(sx, sy, sz);
-    root.traverse(o => {
-      if (!o.isMesh || !o.material) return;
-      const name = ((o.name || '') + ' ' + (o.parent && o.parent.name || '')).toLowerCase();
-      const glass = /glass|window|windshield|screen/.test(name);
-      // body / door get paint; wheels keep map with a dark multiply
-      if (/wheel|tire|tyre/.test(name)) {
-        o.material = new THREE.MeshBasicMaterial({ color: 0x222226, map: o.material.map || null });
-      } else {
-        o.material = paintMat(o.material, paint, glass);
-      }
-    });
-    root.userData = { id: v.id, L: v.L, W: v.W, H: v.H, shape: sh };
-    return root;
-  }
-  // fallback: procedural (motorcycle / missing model)
-  const root = new THREE.Group();
-  const tint = markVeh ? paint.clone().lerp(new THREE.Color(0x4aa3ff), 0.28) : paint;
-  const mat = new THREE.MeshBasicMaterial({ color: tint, transparent: true, opacity: markVeh ? 0.9 : 0.95 });
-  const L = v.L, W = v.W, H = v.H;
-  if (sh === 'motorcycle' || v.cls === 'motorcycle' || v.cls === 'bicycle') {
+    car.scale.set(sx, sy, sz);
+    styleProxy(car, paint, sh);
+    root.add(car);
+  } else {
+    // procedural motorcycle fallback
+    const mat = bodyPaint(paint);
+    const L = v.L, W = v.W, H = v.H;
     const body = new THREE.Mesh(new THREE.BoxGeometry(W * 0.55, H * 0.35, L * 0.7), mat);
     body.position.y = H * 0.4; root.add(body);
-    const wheelG = new THREE.CylinderGeometry(H * 0.22, H * 0.22, W * 0.8, 10);
-    wheelG.rotateZ(Math.PI / 2);
-    const wmat = new THREE.MeshBasicMaterial({ color: 0x222226 });
-    for (const z of [L * 0.28, -L * 0.28]) {
-      const w = new THREE.Mesh(wheelG, wmat); w.position.set(0, H * 0.22, z); root.add(w);
-    }
-  } else {
-    const body = new THREE.Mesh(new THREE.BoxGeometry(W, H * 0.42, L), mat);
-    body.position.y = H * 0.28; root.add(body);
-    const cabin = new THREE.Mesh(new THREE.BoxGeometry(W * 0.9, H * 0.4, L * 0.5),
-      new THREE.MeshBasicMaterial({ color: markVeh ? 0x2a4050 : 0x1a2228, transparent: true, opacity: 0.85 }));
-    cabin.position.set(0, H * 0.65, -L * 0.05); root.add(cabin);
   }
-  root.userData = { id: v.id, L, W, H, shape: sh };
+  // soft contact shadow (ellipse on the road)
+  const shadow = new THREE.Mesh(
+    new THREE.CircleGeometry(0.5, 24),
+    new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: markVeh ? 0.28 : 0.4, depth: THREE.DoubleSide })
+  );
+  shadow.rotation.x = -Math.PI / 2;
+  shadow.position.y = 0.02;
+  shadow.scale.set(v.W * 1.05, v.L * 1.05, 1);
+  root.add(shadow);
+  root.userData = { id: v.id, L: v.L, W: v.W, H: v.H, shape: sh };
   return root;
 }
 const vehSteps = VEH ? VEH.steps.map(() => null) : [];
@@ -222,9 +263,13 @@ function refreshVehMats() {
   for (let k = 0; k < vehSteps.length; k++) {
     if (!vehSteps[k]) continue;
     vehGroup.remove(vehSteps[k]);
-    vehSteps[k].traverse(o => { if (o.geometry) o.geometry.dispose(); if (o.material) {
-      if (Array.isArray(o.material)) o.material.forEach(m => m.dispose()); else o.material.dispose();
-    }});
+    vehSteps[k].traverse(o => {
+      if (o.geometry && o.geometry !== undefined && o.userData && false) {}
+      if (o.isMesh) {
+        if (o.geometry && o.parent === vehSteps[k]) {/* keep shared tpl geos */}
+        if (o.material) { if (Array.isArray(o.material)) o.material.forEach(m => m.dispose()); else o.material.dispose(); }
+      }
+    });
     vehSteps[k] = null;
   }
 }
