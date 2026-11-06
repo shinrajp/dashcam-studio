@@ -8,8 +8,8 @@ With --vehicles off (the default) this module is not run: scene / depth / weight
 draws the proxies on top of the depth mesh and, when Solid cars is on, drops depth triangles whose footprint sits
 inside a proxy so the cardboard faces go away.
 
-No real footage is written; vehicles.json is poses and colours only. Procedural meshes live in viewer.html (no
-binary assets; CC0 / public-domain geometry).
+No real footage is written; vehicles.json is poses, colours and a shape key only. The viewer loads low-poly CC0
+glTF models from models/ (Kenney Car Kit — see models/LICENSES.md); motorcycle/bicycle stay procedural.
 """
 from __future__ import annotations
 
@@ -31,6 +31,128 @@ MIN_CONF = 0.30
 MAX_RANGE = 40.0     # ignore lifts farther than this (noisy)
 EGO_HALF = (1.15, 2.7)  # reject lifts inside the ego car footprint (width/2, length/2) at the origin
 MIN_TRACK_STEPS = 2    # drop one-frame ghosts at the end
+PARKED_TRAVEL_M = 2.5  # tracks that move less than this over their life are locked to a median pose
+DEDUP_IOU = 0.45       # oriented-box overlap fraction to merge ghosts in one step
+MODELS = ("sedan", "hatchback", "suv", "pickup", "van", "bus", "truck", "cybercab")  # glTF stems in models/vehicles/
+
+
+def _shape(cls, L, W, H):
+    """YOLO class + fitted size → a viewer model stem."""
+    if cls in ("motorcycle", "bicycle"):
+        return "motorcycle"  # procedural in the viewer
+    if cls == "bus":
+        return "bus"
+    if cls == "truck":
+        return "truck" if (L >= 6.0 or H >= 2.2) else "pickup"
+    # car: size heuristics (YOLO has no SUV / Cybercab label)
+    if H >= 1.75:
+        return "suv"
+    if H <= 1.42 and 4.2 <= L <= 5.2:
+        return "cybercab"  # low sleek profile → futuristic stand-in
+    if L <= 4.15 and H <= 1.55:
+        return "hatchback"
+    if L >= 5.2 and H >= 1.6:
+        return "van"
+    return "sedan"
+
+
+def _boxes_overlap(a, b, frac=DEDUP_IOU):
+    """true when oriented footprints overlap enough (axis-aligned in a's frame)."""
+    dx, dz = b["x"] - a["x"], b["z"] - a["z"]
+    c, s = math.cos(a["yaw"]), math.sin(a["yaw"])
+    lr = dx * c + dz * s
+    fb = -dx * s + dz * c
+    return abs(lr) < (a["W"] + b["W"]) * frac and abs(fb) < (a["L"] + b["L"]) * frac
+
+
+def _dedupe_step(vehs):
+    """merge ghosts that sit on top of each other in one time step; keep the stronger one."""
+    if len(vehs) < 2:
+        return vehs
+    order = sorted(range(len(vehs)), key=lambda i: (-vehs[i].get("conf", 0.5), -vehs[i].get("n", 1), -vehs[i]["L"]))
+    keep = []
+    for i in order:
+        v = vehs[i]
+        if any(_boxes_overlap(v, k) for k in keep):
+            continue
+        keep.append(v)
+    return keep
+
+
+def _finalize(steps):
+    """parked-lock (median pose), motion yaw for movers, shape key, per-step de-dupe."""
+    from collections import defaultdict
+    poses = defaultdict(list)
+    for si, row in enumerate(steps):
+        for v in row:
+            poses[v["id"]].append((si, v))
+    locked = {}
+    for vid, pts in poses.items():
+        xs = [p[1]["x"] for p in pts]; zs = [p[1]["z"] for p in pts]
+        travel = sum(math.hypot(xs[i] - xs[i - 1], zs[i] - zs[i - 1]) for i in range(1, len(xs)))
+        if travel < PARKED_TRAVEL_M and len(pts) >= 2:
+            # median pose — stays put for the whole life
+            mid = sorted(pts, key=lambda p: p[1]["x"] + p[1]["z"])[len(pts) // 2][1]
+            yaws = [p[1]["yaw"] for p in pts]
+            # circular mean of yaw
+            yaw = math.atan2(sum(math.sin(y) for y in yaws) / len(yaws), sum(math.cos(y) for y in yaws) / len(yaws))
+            locked[vid] = dict(x=float(np.median(xs)), z=float(np.median(zs)), yaw=_wrap(yaw),
+                               L=float(np.median([p[1]["L"] for p in pts])),
+                               W=float(np.median([p[1]["W"] for p in pts])),
+                               H=float(np.median([p[1]["H"] for p in pts])),
+                               rgb=[int(round(x)) for x in np.median([p[1]["rgb"] for p in pts], 0)],
+                               parked=True)
+        else:
+            # motion yaw from overall displacement (front = direction of travel)
+            dx, dz = xs[-1] - xs[0], zs[-1] - zs[0]
+            if math.hypot(dx, dz) > 1.0:
+                locked[vid] = dict(motion_yaw=_wrap(math.atan2(dx, dz)), parked=False)
+            else:
+                locked[vid] = dict(parked=False)
+    out = []
+    for row in steps:
+        nrow = []
+        for v in row:
+            info = locked.get(v["id"], {})
+            nv = dict(v)
+            if info.get("parked"):
+                for k in ("x", "z", "yaw", "L", "W", "H", "rgb"):
+                    nv[k] = info[k] if k != "rgb" else list(info[k])
+                nv["yaw"] = round(info["yaw"], 4)
+                nv["x"] = round(info["x"], 3); nv["z"] = round(info["z"], 3)
+            elif "motion_yaw" in info:
+                # snap yaw to travel direction (pick ±π closest to current)
+                my = info["motion_yaw"]
+                if abs(_wrap(my - nv["yaw"])) > math.pi / 2:
+                    my = _wrap(my + math.pi)
+                nv["yaw"] = round(my, 4)
+            nv["shape"] = _shape(nv["cls"], nv["L"], nv["W"], nv["H"])
+            nv["parked"] = bool(info.get("parked"))
+            nrow.append(nv)
+        out.append(_dedupe_step(nrow))
+    # recount ids after dedupe
+    ids = {v["id"] for row in out for v in row}
+    return out, len(ids)
+
+
+def _copy_models(page):
+    """copy the CC0 glTF set + licence note into page/models/ for the viewer."""
+    import shutil
+    here = os.path.dirname(os.path.abspath(__file__))
+    src = os.path.join(here, "models", "vehicles")
+    if not os.path.isdir(src):
+        return 0
+    dst = os.path.join(page, "models")
+    os.makedirs(dst, exist_ok=True)
+    n = 0
+    for name in MODELS:
+        f = os.path.join(src, name + ".glb")
+        if os.path.exists(f):
+            shutil.copy2(f, os.path.join(dst, name + ".glb")); n += 1
+    lic = os.path.join(here, "models", "LICENSES.md")
+    if os.path.exists(lic):
+        shutil.copy2(lic, os.path.join(dst, "LICENSES.md"))
+    return n
 
 
 def _load_depth(fused, name):
@@ -378,23 +500,30 @@ def run(work, page=None, log=print, rig=None):
         raw_steps.append(fused_g)
 
     steps, n_ids = _smooth(raw_steps)
-    # drop ghosts that only lived for one step and were far / low-conf raw — already handled by miss; also drop tiny
     for i, row in enumerate(steps):
         steps[i] = [v for v in row if v["L"] >= 1.2]
+    # also de-dupe raw per-step before finalize already partly done; finalize locks parked + shapes
+    n_before = sum(len(s) for s in steps)
+    steps, n_ids = _finalize(steps)
+    n_after = sum(len(s) for s in steps)
+    parked_n = len({v["id"] for s in steps for v in s if v.get("parked")})
 
-    doc = dict(mode="proxy", n=n_ids, sizes={k: list(v) for k, v in SIZE.items()}, steps=steps)
+    doc = dict(mode="proxy", n=n_ids, models=list(MODELS), sizes={k: list(v) for k, v in SIZE.items()},
+               steps=steps, stats=dict(poses_before=n_before, poses_after=n_after, parked=parked_n))
     out_work = os.path.join(work, "vehicles.json")
     json.dump(doc, open(out_work, "w"))
     if page:
+        import shutil
         os.makedirs(page, exist_ok=True)
         json.dump(doc, open(os.path.join(page, "vehicles.json"), "w"))
-        # refresh the viewer copy so Solid cars is available
-        import shutil
         shutil.copy(os.path.join(os.path.dirname(__file__), "viewer.html"), os.path.join(page, "index.html"))
+        n_models = _copy_models(page)
+        log(f"  models: {n_models} glTF files → {page}/models/")
     n_veh = sum(len(s) for s in steps)
-    log(f"vehicles: {n_ids} tracks, {n_veh} poses over {len(steps)} steps → {out_work}"
+    log(f"vehicles: {n_ids} tracks, {n_veh} poses over {len(steps)} steps "
+        f"(dedupe {n_before}→{n_after}, parked={parked_n}) → {out_work}"
         + (f", {page}/vehicles.json" if page else ""))
-    return dict(n=n_ids, poses=n_veh, steps=len(steps))
+    return dict(n=n_ids, poses=n_veh, steps=len(steps), poses_before=n_before, parked=parked_n)
 
 
 def main(argv=None):

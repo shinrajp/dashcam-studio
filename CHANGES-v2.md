@@ -1177,3 +1177,22 @@ cannot give them volume. With `--vehicles proxy` the builder fits a solid low-po
 **Limits (v1):** yaw is road-aligned for parked cars (side-view override only when clear); parked tracks can still drift a
 few metres along a curb over a 4 s window when association jumps; no face accumulation / mirroring yet; no Cybercab class
 (YOLO has none); no stock glTF assets. Stretch goals for a later pass.
+
+## Better vehicle models (tag tv2-veh2)
+Rollback: `git checkout pre-tv2-veh2`. Nothing changes by default (`--vehicles` still off).
+
+Phase 2 of solid cars: recognisable low-poly models instead of boxes, cleaner tracks.
+
+- **CC0 models** in `tools/depth3d/models/vehicles/` (Kenney Car Kit 3.1 via OpenGameArt; see
+  `tools/depth3d/models/LICENSES.md`). Quantized glTF: sedan, hatchback, SUV, pickup, van, bus (delivery),
+  truck, cybercab (race-future stand-in). Motorcycle / bicycle stay procedural. Total payload ≈ 724 KB.
+  Copied into each page's `models/` by `vehicles.py --export` / `build.py --vehicles proxy`.
+- **viewer.html:** loads the matching glTF via three.js GLTFLoader, scales to the fitted L×W×H, tints body
+  paint (sampled RGB × palette map), darkens wheels / glass, keeps a light Mark-estimated blue. Model forward
+  is corrected (Kenney +Z → world forward). Instanced by cloning a shared template per shape.
+- **vehicles.py:** shape key from class + size; per-step oriented-box de-dupe of ghosts; parked tracks
+  (travel < 2.5 m over their life) locked to a median pose (0 m drift); moving tracks take yaw from travel
+  direction. On the three playground drives: poses 520→401 / 314→295 / 420→378; parked travel max 0 m.
+
+**Limits:** Cybercab is a size heuristic (low sleek car), not a detector class; no face accumulation yet;
+Kenney bus is a delivery van stand-in; some moving-car yaw can still flip on short tracks.

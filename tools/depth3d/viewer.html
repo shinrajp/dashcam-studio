@@ -41,7 +41,7 @@ html,body{height:100%;background:var(--bg);color:var(--fg);font-family:var(--san
   <p>Where cameras overlap, each spot comes from the camera that sees it sharpest; the road is snapped to the true road plane; neighbouring cameras meet on one surface and fade into each other; brightness is matched between cameras. <b>Camera colours</b> shows which camera drew what.</p>
   <p>Gaps are what no camera saw. The white box is your car.</p>
   <p id="fillNote" hidden><b>Fill blind spots</b> lays the road under the car and behind the bumper from what the cameras filmed at other moments (<span id="realM2"></span> m², real footage). The <span id="estM2"></span> m² no camera ever saw is painted by a diffusion model: <b>estimated, not seen</b>. <b>Mark estimated</b> tints it blue.</p>
-  <p id="vehNote" hidden><b>Solid cars</b> swaps the depth cardboard for a low-poly proxy per tracked vehicle (pose from multi-camera boxes + road / depth; paint sampled from the footage). Proxies are <b>estimated</b> — <b>Mark estimated</b> tints them. Off restores the original depth faces.</p>
+  <p id="vehNote" hidden><b>Solid cars</b> swaps the depth cardboard for a low-poly car model per tracked vehicle (Kenney Car Kit, CC0; pose from multi-camera boxes + road / depth; body tinted with sampled paint). Proxies are <b>estimated</b> — <b>Mark estimated</b> tints them. Off restores the original depth faces.</p>
 </div>
 <div class="bar">
   <button id="play" aria-pressed="false">Play</button>
@@ -61,6 +61,7 @@ html,body{height:100%;background:var(--bg);color:var(--fg);font-family:var(--san
 <script type="module">
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 const $ = (id) => document.getElementById(id), status = $('status');
 $('hide').onclick = () => { $('note').hidden = true; };
 
@@ -115,40 +116,94 @@ carM.add(new THREE.LineSegments(new THREE.EdgesGeometry(carM.geometry), new THRE
 scene.add(carM);
 const ground = new THREE.GridHelper(400, 80, 0x22303a, 0x18222a); ground.position.y = -0.02; scene.add(ground);
 
-// optional solid vehicle proxies (tools/depth3d/vehicles.py, --vehicles proxy): low-poly meshes posed per time step
+// optional solid vehicle proxies (tools/depth3d/vehicles.py, --vehicles proxy): CC0 low-poly glTF (Kenney Car Kit)
 const VEH = await fetch('vehicles.json').then(r => (r.ok ? r.json() : null)).catch(() => null);
 const vehGroup = new THREE.Group(); scene.add(vehGroup);
 let solidOn = false, markVeh = true;
-function makeProxy(v) {
-  const root = new THREE.Group();
-  const col = new THREE.Color(v.rgb[0] / 255, v.rgb[1] / 255, v.rgb[2] / 255);
-  const tint = markVeh ? col.clone().lerp(new THREE.Color(0x4aa3ff), 0.35) : col;
-  const mat = new THREE.MeshBasicMaterial({ color: tint, transparent: true, opacity: markVeh ? 0.88 : 0.95 });
-  const edge = new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.35 });
-  const L = v.L, W = v.W, H = v.H, cls = v.cls;
-  if (cls === 'motorcycle' || cls === 'bicycle') {
-    const body = new THREE.Mesh(new THREE.BoxGeometry(W * 0.7, H * 0.45, L), mat);
-    body.position.y = H * 0.35; root.add(body);
-    const wheel = new THREE.Mesh(new THREE.BoxGeometry(W, H * 0.35, L * 0.22), mat);
-    const w1 = wheel.clone(); w1.position.set(0, H * 0.18, L * 0.32); root.add(w1);
-    const w2 = wheel.clone(); w2.position.set(0, H * 0.18, -L * 0.32); root.add(w2);
-  } else if (cls === 'bus' || cls === 'truck') {
-    const body = new THREE.Mesh(new THREE.BoxGeometry(W, H * 0.85, L), mat);
-    body.position.y = H * 0.5; root.add(body);
-    body.add(new THREE.LineSegments(new THREE.EdgesGeometry(body.geometry), edge));
-  } else if (cls === 'car' || true) {
-    // sedan / default: lower body + cabin
-    const body = new THREE.Mesh(new THREE.BoxGeometry(W, H * 0.45, L), mat);
-    body.position.y = H * 0.28; root.add(body);
-    const cabin = new THREE.Mesh(new THREE.BoxGeometry(W * 0.92, H * 0.42, L * 0.55), mat.clone());
-    cabin.position.set(0, H * 0.68, -L * 0.05); root.add(cabin);
-    body.add(new THREE.LineSegments(new THREE.EdgesGeometry(body.geometry), edge));
-    cabin.add(new THREE.LineSegments(new THREE.EdgesGeometry(cabin.geometry), edge.clone()));
+// Kenney cars face +Z; our yaw=0 is world +Z (= three -Z), so flip π when posing
+const MODEL_FACE = Math.PI;
+const gltfLoader = new GLTFLoader();
+const MODEL_URL = { sedan: 'models/sedan.glb', hatchback: 'models/hatchback.glb', suv: 'models/suv.glb',
+  pickup: 'models/pickup.glb', van: 'models/van.glb', bus: 'models/bus.glb', truck: 'models/truck.glb',
+  cybercab: 'models/cybercab.glb' };
+const modelTpl = {};   // shape → {root: Object3D, size: Vector3}  (unscaled, y-bottom at 0)
+async function loadModels() {
+  if (!VEH) return;
+  const need = new Set();
+  for (const row of VEH.steps) for (const v of row) if (v.shape && MODEL_URL[v.shape]) need.add(v.shape);
+  await Promise.all([...need].map(async (sh) => {
+    try {
+      const g = await gltfLoader.loadAsync(MODEL_URL[sh]);
+      const root = g.scene; root.updateMatrixWorld(true);
+      const box = new THREE.Box3().setFromObject(root);
+      const size = box.getSize(new THREE.Vector3());
+      // shift so wheels sit on y=0 and centre xz at origin
+      root.position.sub(new THREE.Vector3((box.min.x + box.max.x) / 2, box.min.y, (box.min.z + box.max.z) / 2));
+      root.updateMatrixWorld(true);
+      modelTpl[sh] = { root, size: box.getSize(new THREE.Vector3()) };
+    } catch (e) { console.warn('vehicle model', sh, e); }
+  }));
+}
+await loadModels();
+
+function paintMat(base, paint, isGlass) {
+  // MeshBasicMaterial: the replay scene has no lights (depth meshes are unlit too)
+  const map = base.map || null;
+  if (isGlass) {
+    return new THREE.MeshBasicMaterial({ color: 0x1a2228, transparent: true, opacity: markVeh ? 0.55 : 0.75, map: null });
   }
-  root.userData = { id: v.id, L, W, H };
+  const col = paint.clone();
+  if (markVeh) col.lerp(new THREE.Color(0x4aa3ff), 0.28);
+  return new THREE.MeshBasicMaterial({ color: col, map, transparent: markVeh, opacity: markVeh ? 0.92 : 1 });
+}
+function makeProxy(v) {
+  const paint = new THREE.Color(v.rgb[0] / 255, v.rgb[1] / 255, v.rgb[2] / 255);
+  const sh = v.shape || 'sedan';
+  const tpl = modelTpl[sh];
+  if (tpl) {
+    const root = tpl.root.clone(true);
+    const sx = v.W / Math.max(tpl.size.x, 1e-3);
+    const sy = v.H / Math.max(tpl.size.y, 1e-3);
+    const sz = v.L / Math.max(tpl.size.z, 1e-3);
+    root.scale.set(sx, sy, sz);
+    root.traverse(o => {
+      if (!o.isMesh || !o.material) return;
+      const name = ((o.name || '') + ' ' + (o.parent && o.parent.name || '')).toLowerCase();
+      const glass = /glass|window|windshield|screen/.test(name);
+      // body / door get paint; wheels keep map with a dark multiply
+      if (/wheel|tire|tyre/.test(name)) {
+        o.material = new THREE.MeshBasicMaterial({ color: 0x222226, map: o.material.map || null });
+      } else {
+        o.material = paintMat(o.material, paint, glass);
+      }
+    });
+    root.userData = { id: v.id, L: v.L, W: v.W, H: v.H, shape: sh };
+    return root;
+  }
+  // fallback: procedural (motorcycle / missing model)
+  const root = new THREE.Group();
+  const tint = markVeh ? paint.clone().lerp(new THREE.Color(0x4aa3ff), 0.28) : paint;
+  const mat = new THREE.MeshBasicMaterial({ color: tint, transparent: true, opacity: markVeh ? 0.9 : 0.95 });
+  const L = v.L, W = v.W, H = v.H;
+  if (sh === 'motorcycle' || v.cls === 'motorcycle' || v.cls === 'bicycle') {
+    const body = new THREE.Mesh(new THREE.BoxGeometry(W * 0.55, H * 0.35, L * 0.7), mat);
+    body.position.y = H * 0.4; root.add(body);
+    const wheelG = new THREE.CylinderGeometry(H * 0.22, H * 0.22, W * 0.8, 10);
+    wheelG.rotateZ(Math.PI / 2);
+    const wmat = new THREE.MeshBasicMaterial({ color: 0x222226 });
+    for (const z of [L * 0.28, -L * 0.28]) {
+      const w = new THREE.Mesh(wheelG, wmat); w.position.set(0, H * 0.22, z); root.add(w);
+    }
+  } else {
+    const body = new THREE.Mesh(new THREE.BoxGeometry(W, H * 0.42, L), mat);
+    body.position.y = H * 0.28; root.add(body);
+    const cabin = new THREE.Mesh(new THREE.BoxGeometry(W * 0.9, H * 0.4, L * 0.5),
+      new THREE.MeshBasicMaterial({ color: markVeh ? 0x2a4050 : 0x1a2228, transparent: true, opacity: 0.85 }));
+    cabin.position.set(0, H * 0.65, -L * 0.05); root.add(cabin);
+  }
+  root.userData = { id: v.id, L, W, H, shape: sh };
   return root;
 }
-// one Group per time step (built lazily)
 const vehSteps = VEH ? VEH.steps.map(() => null) : [];
 function vehFor(k) {
   if (!VEH) return null;
@@ -156,34 +211,26 @@ function vehFor(k) {
   const g = new THREE.Group();
   for (const v of (VEH.steps[k] || [])) {
     const m = makeProxy(v);
-    // world (x right, y down, z forward) → three (x, -y, -z); yaw is about world +y (down), which is three -y
-    // vehicle forward in world xz at angle yaw from +z toward +x: dir=(sin yaw, cos yaw)
-    // in three: position (x, H/2 up = +H/2 since y flips, -z); rotation about Y by -yaw (three Y is up)
     m.position.set(v.x, 0, -v.z);
-    m.rotation.y = -v.yaw;
+    m.rotation.y = -v.yaw + MODEL_FACE;
     g.add(m);
   }
   g.visible = false; vehGroup.add(g); vehSteps[k] = g; return g;
 }
 function refreshVehMats() {
-  vehGroup.traverse(o => {
-    if (!o.isMesh || !o.material || !o.material.color) return;
-    // rebuild from parent chain is hard; instead re-tint by lerping current toward blue or back — simpler: rebuild step
-  });
-  // recreate visible step so Mark estimated re-applies
-  if (VEH) {
-    for (let k = 0; k < vehSteps.length; k++) {
-      if (!vehSteps[k]) continue;
-      vehGroup.remove(vehSteps[k]);
-      vehSteps[k].traverse(o => { if (o.geometry) o.geometry.dispose(); if (o.material) o.material.dispose(); });
-      vehSteps[k] = null;
-    }
+  if (!VEH) return;
+  for (let k = 0; k < vehSteps.length; k++) {
+    if (!vehSteps[k]) continue;
+    vehGroup.remove(vehSteps[k]);
+    vehSteps[k].traverse(o => { if (o.geometry) o.geometry.dispose(); if (o.material) {
+      if (Array.isArray(o.material)) o.material.forEach(m => m.dispose()); else o.material.dispose();
+    }});
+    vehSteps[k] = null;
   }
 }
-// cardboard mask: drop depth triangles whose centroid xz sits inside a proxy footprint (when Solid cars is on)
 function insideProxy(x, z, v, pad) {
   const dx = x - v.x, dz = z - v.z, c = Math.cos(v.yaw), s = Math.sin(v.yaw);
-  const lr = dx * c + dz * s, fb = -dx * s + dz * c;   // local right, forward
+  const lr = dx * c + dz * s, fb = -dx * s + dz * c;
   return Math.abs(lr) < v.W * 0.5 * pad && Math.abs(fb) < v.L * 0.5 * pad;
 }
 function applyCardboardMask(on) {
@@ -201,7 +248,7 @@ function applyCardboardMask(on) {
       for (let t = 0; t < full.length; t += 3) {
         const a = full[t], b = full[t + 1], c = full[t + 2];
         const x = (pos.getX(a) + pos.getX(b) + pos.getX(c)) / 3;
-        const z = -((pos.getZ(a) + pos.getZ(b) + pos.getZ(c)) / 3);   // three -z → world z
+        const z = -((pos.getZ(a) + pos.getZ(b) + pos.getZ(c)) / 3);
         let hit = false;
         for (const v of vehs) if (insideProxy(x, z, v, 1.12)) { hit = true; break; }
         if (!hit) keep.push(a, b, c);
@@ -219,10 +266,6 @@ if (VEH && VEH.steps && VEH.steps.some(s => s && s.length)) {
     applyCardboardMask(solidOn);
     show(step);
   };
-  // Mark estimated also re-tints proxies
-  const _markBtn = $('mark');
-  const prevMark = _markBtn.onclick;
-  // apply mask once meshes exist (after meshFor loop — we're past it)
   applyCardboardMask(true);
 }
 

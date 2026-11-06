@@ -21,7 +21,7 @@ to write inside it).
 
 Depth only rebuilds the faces a camera saw, so other cars look like cardboard. With `--vehicles proxy` the builder fits a 3D
 oriented box per tracked vehicle (multi-camera boxes lifted to the road / fused depth), samples paint from the footage, and
-writes `vehicles.json`. The viewer then offers **Solid cars** (on by default when the file is present): low-poly sedan / SUV-like
+writes `vehicles.json` and copies CC0 Kenney glTF models into `models/`. The viewer then offers **Solid cars** (on by default when the file is present): low-poly sedan / SUV-like
 / truck / bus / motorcycle meshes replace the cardboard, and depth triangles inside each proxy footprint are dropped. **Mark
 estimated** tints the proxies. Off restores the original depth faces. Geometry with `--vehicles off` (the default) stays
 byte-identical. Re-run on an existing work folder:
