@@ -1213,3 +1213,25 @@ Phase 3: replace the toy-like Kenney meshes with a realistic sports coupe plus a
   sampled paint; glass / rubber / rim / light materials; soft contact-shadow disc under each car. Default
   passenger cars map to the roadster mesh.
 - **vehicles.py:** longest-displacement yaw (fixes short-track flips); shape heuristic prefers roadster.
+
+## track-v2 — vehicle heading (US RHT) + CC0 hypercar roadster (phase 4)
+
+User: cars all faced the same way; asked about right-lane direction. On US right-hand traffic,
+same-direction traffic and **right**-kerb parked cars face with us; oncoming and **left**-kerb
+parked cars (two-way) face us. (Right lane facing opposite would be left-hand traffic.)
+
+**Root cause:** `_fuse_group` clamped every yaw to within ±90° of ego, and `_finalize` snapped
+motion yaw the same way — so oncoming and left-side cars were flipped to face with ego.
+
+**Fix (opt-in `--vehicles proxy` only; flag-off geometry unchanged):**
+- Movers: world-space longest-displacement yaw (no ±90° snap).
+- Parked / short tracks: appearance cue (headlights vs taillights in the upper box band) and
+  US-RHT side-of-road prior (right = with ego, left = against on two-way).
+- Unit test: `tools/depth3d/test_vehicle_heading.py`.
+
+**Roadster model:** replaced the CC BY Ferrari with an **own-work CC0** generic two-seat
+electric hypercar (`models/make_roadster.py` → `vehicles/roadster.glb`): low teardrop body,
+long glass canopy, short overhangs, full-width light bars, dark rear thruster ports, ~9k tris
+Draco. Pearl-white body when sampled paint is light. No trademarks in the mesh.
+
+Rollback: `git checkout pre-tv2-veh4`. Nothing changes by default (`--vehicles` still off).

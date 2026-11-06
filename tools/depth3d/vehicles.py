@@ -8,8 +8,7 @@ With --vehicles off (the default) this module is not run: scene / depth / weight
 draws the proxies on top of the depth mesh and, when Solid cars is on, drops depth triangles whose footprint sits
 inside a proxy so the cardboard faces go away.
 
-No real footage is written; vehicles.json is poses, colours and a shape key only. The viewer loads low-poly CC0
-glTF models from models/ (Kenney Car Kit — see models/LICENSES.md); motorcycle/bicycle stay procedural.
+No real footage is written; vehicles.json is poses, colours and a shape key only. The viewer loads glTF models from models/ (CC0 roadster + CC0 fleet — see models/LICENSES.md); motorcycle/bicycle stay procedural.
 """
 from __future__ import annotations
 
@@ -79,8 +78,14 @@ def _dedupe_step(vehs):
     return keep
 
 
-def _finalize(steps):
-    """parked-lock (median pose), motion yaw for movers, shape key, per-step de-dupe."""
+def _finalize(steps, ego_path=None, two_way=True):
+    """parked-lock, world-space motion yaw for movers, side/appearance yaw for parked, shape, de-dupe.
+
+    ego_path: optional list of (ego_x, ego_z, ego_yaw) per step — used for the side-of-road prior.
+    Movers use the longest world-space displacement direction *without* the old ±90° snap-to-prior
+    that forced every car to face with ego. Poses are already world-frame, so ego motion is not
+    subtracted from travel (that would make parked cars look oncoming).
+    """
     from collections import defaultdict
     poses = defaultdict(list)
     for si, row in enumerate(steps):
@@ -89,33 +94,61 @@ def _finalize(steps):
     locked = {}
     for vid, pts in poses.items():
         xs = [p[1]["x"] for p in pts]; zs = [p[1]["z"] for p in pts]
-        travel = sum(math.hypot(xs[i] - xs[i - 1], zs[i] - zs[i - 1]) for i in range(1, len(xs)))
+        sis = [p[0] for p in pts]
+        # World-frame poses: parked detection and motion yaw use RAW world displacement.
+        # (Subtracting ego motion would make a static world point look like it travels
+        # opposite the ego — the bug that faced every car oncoming.)
+        travel = 0.0
+        for i in range(1, len(xs)):
+            travel += math.hypot(xs[i] - xs[i - 1], zs[i] - zs[i - 1])
+        best_d, best_dx, best_dz = 0.0, 0.0, 0.0
+        for i in range(len(xs)):
+            for j in range(i + 1, len(xs)):
+                dx, dz = xs[j] - xs[i], zs[j] - zs[i]
+                d = math.hypot(dx, dz)
+                if d > best_d:
+                    best_d, best_dx, best_dz = d, dx, dz
+        # side vs ego (median pose)
+        mx, mz = float(np.median(xs)), float(np.median(zs))
+        if ego_path is not None and pts:
+            si_mid = pts[len(pts) // 2][0]
+            if si_mid < len(ego_path):
+                ex, ez, ey = ego_path[si_mid]
+            else:
+                ex, ez, ey = ego_path[-1]
+        else:
+            ex = ez = ey = 0.0
+            # fall back: circular mean of existing yaws as ego stand-in
+            ey = math.atan2(sum(math.sin(p[1]["yaw"]) for p in pts), sum(math.cos(p[1]["yaw"]) for p in pts))
+        side = _side_of_ego(mx, mz, ex, ez, ey)
         if travel < PARKED_TRAVEL_M and len(pts) >= 2:
-            # median pose — stays put for the whole life
-            mid = sorted(pts, key=lambda p: p[1]["x"] + p[1]["z"])[len(pts) // 2][1]
             yaws = [p[1]["yaw"] for p in pts]
-            # circular mean of yaw
-            yaw = math.atan2(sum(math.sin(y) for y in yaws) / len(yaws), sum(math.cos(y) for y in yaws) / len(yaws))
-            locked[vid] = dict(x=float(np.median(xs)), z=float(np.median(zs)), yaw=_wrap(yaw),
+            yaw_mean = math.atan2(sum(math.sin(y) for y in yaws) / len(yaws),
+                                  sum(math.cos(y) for y in yaws) / len(yaws))
+            # appearance over the track's fused poses (face_hint may be absent → side prior)
+            yaw_app = _appearance_facing([p[1] for p in pts])
+            if yaw_app is not None:
+                yaw = yaw_app
+            else:
+                yaw = _yaw_from_side(ey, side, two_way=two_way)
+                # if mean yaw already agrees with prior within 60°, keep the finer mean
+                if abs(_wrap(yaw_mean - yaw)) < math.radians(60):
+                    yaw = yaw_mean
+                elif abs(_wrap(yaw_mean + math.pi - yaw)) < math.radians(60):
+                    yaw = _wrap(yaw_mean + math.pi)
+            locked[vid] = dict(x=mx, z=mz, yaw=_wrap(yaw),
                                L=float(np.median([p[1]["L"] for p in pts])),
                                W=float(np.median([p[1]["W"] for p in pts])),
                                H=float(np.median([p[1]["H"] for p in pts])),
                                rgb=[int(round(x)) for x in np.median([p[1]["rgb"] for p in pts], 0)],
-                               parked=True)
+                               parked=True, side=side)
         else:
-            # motion yaw from the longest single-step (or multi-step) displacement — avoids
-            # short-track yaw flips when the first/last samples are noisy
-            best_d, best_dx, best_dz = 0.0, 0.0, 0.0
-            for i in range(len(xs)):
-                for j in range(i + 1, len(xs)):
-                    dx, dz = xs[j] - xs[i], zs[j] - zs[i]
-                    d = math.hypot(dx, dz)
-                    if d > best_d:
-                        best_d, best_dx, best_dz = d, dx, dz
             if best_d > 1.2:
-                locked[vid] = dict(motion_yaw=_wrap(math.atan2(best_dx, best_dz)), parked=False)
+                # world / compensated motion direction — do NOT flip to match prior yaw
+                locked[vid] = dict(motion_yaw=_wrap(math.atan2(best_dx, best_dz)), parked=False, side=side)
             else:
-                locked[vid] = dict(parked=False)
+                # short moving track: side prior
+                locked[vid] = dict(yaw=_yaw_from_side(ey, side, two_way=two_way), parked=False, side=side)
     out = []
     for row in steps:
         nrow = []
@@ -128,16 +161,15 @@ def _finalize(steps):
                 nv["yaw"] = round(info["yaw"], 4)
                 nv["x"] = round(info["x"], 3); nv["z"] = round(info["z"], 3)
             elif "motion_yaw" in info:
-                # snap yaw to travel direction (pick ±π closest to current)
-                my = info["motion_yaw"]
-                if abs(_wrap(my - nv["yaw"])) > math.pi / 2:
-                    my = _wrap(my + math.pi)
-                nv["yaw"] = round(my, 4)
+                nv["yaw"] = round(info["motion_yaw"], 4)
+            elif "yaw" in info:
+                nv["yaw"] = round(info["yaw"], 4)
             nv["shape"] = _shape(nv["cls"], nv["L"], nv["W"], nv["H"])
             nv["parked"] = bool(info.get("parked"))
+            if "side" in info:
+                nv["side"] = int(info["side"])
             nrow.append(nv)
         out.append(_dedupe_step(nrow))
-    # recount ids after dedupe
     ids = {v["id"] for row in out for v in row}
     return out, len(ids)
 
@@ -221,6 +253,37 @@ def _paint(fused, name, box):
     return [int(med[2]), int(med[1]), int(med[0])]
 
 
+def _face_hint_from_box(fused, name, box):
+    """+1 headlights facing cam, -1 taillights, 0 unknown — from the upper band of the detector box."""
+    import cv2
+    im = cv2.imread(os.path.join(fused, name), cv2.IMREAD_COLOR)
+    if im is None:
+        return 0
+    H, W = im.shape[:2]
+    x0, y0, x1, y1 = [int(v) for v in box]
+    x0 = int(np.clip(x0, 0, W - 1)); x1 = int(np.clip(x1, 0, W))
+    y0 = int(np.clip(y0, 0, H - 1)); y1 = int(np.clip(y1, 0, H))
+    if x1 - x0 < 6 or y1 - y0 < 6:
+        return 0
+    dy = y1 - y0
+    # upper 35% of the box (where light bars sit on a car facing the camera)
+    ya, yb = y0 + int(0.05 * dy), y0 + int(0.40 * dy)
+    patch = im[ya:yb, x0:x1]
+    if patch.size < 20:
+        return 0
+    bgr = patch.reshape(-1, 3).astype(np.float32)
+    med = np.median(bgr, 0)  # BGR
+    b, g, r = float(med[0]), float(med[1]), float(med[2])
+    lum = (r + g + b) / 3.0
+    if r > g + 30 and r > b + 30 and lum < 160:
+        return -1
+    if lum > 165 and (b + g) >= 1.5 * max(r, 1.0):
+        return +1
+    if lum > 190:
+        return +1
+    return 0
+
+
 def _lift(fr, box, Z, rows):
     """view-pixel box → ground (x, z) in world metres + distance + apparent width. Prefer fused depth; fall back to y=0."""
     x0, y0, x1, y1 = box
@@ -292,8 +355,58 @@ def _cluster(obs):
     return groups
 
 
-def _fuse_group(g, ego_yaw):
-    """cluster of lifts → one vehicle dict."""
+def _side_of_ego(x, z, ego_x, ego_z, ego_yaw):
+    """+1 = right of ego (US kerb), -1 = left. Uses road-plane cross product."""
+    fx, fz = math.sin(ego_yaw), math.cos(ego_yaw)
+    # right = rotate fwd +90° in xz: (fz, -fx)
+    lat = (x - ego_x) * fz + (z - ego_z) * (-fx)
+    return 1 if lat >= 0 else -1
+
+
+def _yaw_from_side(ego_yaw, side, two_way=True):
+    """US right-hand traffic prior: right kerb / same-dir = with ego; left on a two-way = against."""
+    if two_way and side < 0:
+        return _wrap(ego_yaw + math.pi)
+    return _wrap(ego_yaw)
+
+
+def _appearance_facing(g):
+    """Vote whether the vehicle faces the observing camera (+1) or away (-1), else 0.
+
+    Front/back cameras: bright/white upper band → headlights facing cam; red upper band → taillights.
+    Stored per-lift as face_hint when available; falls back to rgb redness vs brightness.
+    """
+    votes = []
+    for o in g:
+        hint = o.get("face_hint")
+        if hint is None:
+            r, g_, b = o.get("rgb", [128, 128, 128])
+            lum = (r + g_ + b) / 3.0
+            # crude: very red and not bright → tail; bright and cool → head
+            if r > g_ + 25 and r > b + 25 and lum < 140:
+                hint = -1  # taillights → facing away from a forward-looking cam
+            elif lum > 170 and b >= r - 10:
+                hint = +1  # headlights
+            else:
+                hint = 0
+        cam = o.get("cam", "")
+        if cam in ("front", "back", "left_repeater", "right_repeater", "left_pillar", "right_pillar") and hint:
+            # +1 means facing that camera → vehicle yaw ≈ cam_yaw + π
+            votes.append((hint, o.get("yaw_cam", 0.0), o.get("conf", 0.5)))
+    if not votes:
+        return None
+    # confidence-weighted: convert each vote to a vehicle yaw suggestion
+    sx = sy = wsum = 0.0
+    for hint, yaw_cam, conf in votes:
+        yaw = _wrap(yaw_cam + math.pi) if hint > 0 else _wrap(yaw_cam)
+        sx += conf * math.sin(yaw); sy += conf * math.cos(yaw); wsum += conf
+    if wsum < 1e-6:
+        return None
+    return math.atan2(sx / wsum, sy / wsum)
+
+
+def _fuse_group(g, ego_yaw, ego_xz=(0.0, 0.0), two_way=True):
+    """cluster of lifts → one vehicle dict. Heading allows oncoming (no ±90° ego clamp)."""
     xs = np.array([o["x"] for o in g]); zs = np.array([o["z"] for o in g])
     ws = np.array([o["conf"] for o in g])
     x = float(np.average(xs, weights=ws)); z = float(np.average(zs, weights=ws))
@@ -303,32 +416,34 @@ def _fuse_group(g, ego_yaw):
         vote[o["cls"]] = vote.get(o["cls"], 0) + o["conf"]
     cls = max(vote, key=vote.get)
     L, W, H = SIZE[cls]
-    # apparent widths: if looking roughly at the side, app_w ≈ L; at the rear/front ≈ W
     apps = [o["app_w"] for o in g]
     app = float(np.median(apps))
-    # refine width / length gently from the observation (clamp to class ±35 %)
     if app > 0.5:
-        # if the largest apparent width is well above class W, treat it as a side view of length
         if app > W * 1.25:
             L = float(np.clip(app, L * 0.7, L * 1.35))
         else:
             W = float(np.clip(app, W * 0.7, W * 1.35))
-    # heading: park along the road (ego yaw). A clear side view (≥ 1.4 × class width from a side camera) can
-    # rotate 90°, but we always pick the orientation within ±90° of the ego so proxies don't flip every frame.
-    yaw = ego_yaw
-    side = [o for o in g if o["app_w"] > W * 1.4 and o["cam"] in ("left_repeater", "right_repeater", "left_pillar", "right_pillar")]
-    if side and len(g) >= 1:
-        o = max(side, key=lambda o: o["app_w"])
-        cand = o["yaw_cam"] + math.pi / 2
-        if abs(_wrap(cand - ego_yaw)) > math.pi / 2:
+    side = _side_of_ego(x, z, ego_xz[0], ego_xz[1], ego_yaw)
+    # appearance (head/tail lights) first; else US RHT side-of-road prior
+    yaw_app = _appearance_facing(g)
+    if yaw_app is not None:
+        yaw = yaw_app
+    else:
+        yaw = _yaw_from_side(ego_yaw, side, two_way=two_way)
+    # side-camera length view can nudge toward road-parallel without flipping across traffic
+    side_views = [o for o in g if o["app_w"] > W * 1.4 and o["cam"] in ("left_repeater", "right_repeater", "left_pillar", "right_pillar")]
+    if side_views:
+        o = max(side_views, key=lambda o: o["app_w"])
+        cand = _wrap(o["yaw_cam"] + math.pi / 2)
+        # pick the ±π of cand closest to our chosen yaw (keep oncoming if already set)
+        if abs(_wrap(cand - yaw)) > math.pi / 2:
             cand = _wrap(cand + math.pi)
-        # only take it when it's within 50° of ego (street-parked cars are road-aligned)
-        if abs(_wrap(cand - ego_yaw)) < math.radians(50):
+        if abs(_wrap(cand - yaw)) < math.radians(40):
             yaw = cand
     yaw = _wrap(yaw)
     rgb = [int(round(x)) for x in np.median([o["rgb"] for o in g], 0)]
     return dict(cls=cls, x=x, z=z, yaw=yaw, L=round(L, 2), W=round(W, 2), H=round(H, 2),
-                rgb=rgb, conf=float(sum(ws) / len(ws)), n=len(g), est=True)
+                rgb=rgb, conf=float(sum(ws) / len(ws)), n=len(g), est=True, side=side)
 
 
 def _wrap(a):
@@ -458,6 +573,7 @@ def run(work, page=None, log=print, rig=None):
         return math.atan2(R[0, 2], R[2, 2])
 
     raw_steps = []
+    ego_path = []  # (x, z, yaw) per step for heading priors / ego-compensated motion
     for frames in by_step:
         ey = ego_yaw(frames)
         # ego centre on the road: front camera C projected, then back 2.05 m along heading to the rear axle, +1.4 m to mid
@@ -495,23 +611,26 @@ def run(work, page=None, log=print, rig=None):
                 if abs(lr) < EGO_HALF[0] and abs(fb) < EGO_HALF[1]:
                     continue
                 rgb = _paint(fused, fr["name"], box)
+                face_hint = _face_hint_from_box(fused, fr["name"], box)
                 lifts.append(dict(cam=cam, cls=tr["cls"], conf=float(best.get("conf", 0.5)),
-                                  x=hit["x"], z=hit["z"], app_w=hit["app_w"], rgb=rgb, yaw_cam=yaw_cam))
+                                  x=hit["x"], z=hit["z"], app_w=hit["app_w"], rgb=rgb, yaw_cam=yaw_cam,
+                                  face_hint=face_hint))
         groups = _cluster(lifts)
         # prefer multi-cam groups; keep strong single-cam ones within 25 m
         fused_g = []
         for g in groups:
-            v = _fuse_group(g, ey)
+            v = _fuse_group(g, ey, ego_xz=(float(ego[0]), float(ego[2])), two_way=True)
             if v["n"] >= 2 or (v["conf"] >= 0.45 and math.hypot(v["x"] - ego[0], v["z"] - ego[2]) < 25):
                 fused_g.append(v)
         raw_steps.append(fused_g)
+        ego_path.append((float(ego[0]), float(ego[2]), float(ey)))
 
     steps, n_ids = _smooth(raw_steps)
     for i, row in enumerate(steps):
         steps[i] = [v for v in row if v["L"] >= 1.2]
     # also de-dupe raw per-step before finalize already partly done; finalize locks parked + shapes
     n_before = sum(len(s) for s in steps)
-    steps, n_ids = _finalize(steps)
+    steps, n_ids = _finalize(steps, ego_path=ego_path, two_way=True)
     n_after = sum(len(s) for s in steps)
     parked_n = len({v["id"] for s in steps for v in s if v.get("parked")})
 

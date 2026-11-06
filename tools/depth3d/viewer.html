@@ -41,7 +41,7 @@ html,body{height:100%;background:var(--bg);color:var(--fg);font-family:var(--san
   <p>Where cameras overlap, each spot comes from the camera that sees it sharpest; the road is snapped to the true road plane; neighbouring cameras meet on one surface and fade into each other; brightness is matched between cameras. <b>Camera colours</b> shows which camera drew what.</p>
   <p>Gaps are what no camera saw. The white box is your car.</p>
   <p id="fillNote" hidden><b>Fill blind spots</b> lays the road under the car and behind the bumper from what the cameras filmed at other moments (<span id="realM2"></span> m², real footage). The <span id="estM2"></span> m² no camera ever saw is painted by a diffusion model: <b>estimated, not seen</b>. <b>Mark estimated</b> tints it blue.</p>
-  <p id="vehNote" hidden><b>Solid cars</b> swaps the depth cardboard for a realistic roadster / car model per tracked vehicle (CC BY sports coupe + CC0 fleet; clearcoat paint, glass, contact shadow; pose from multi-camera boxes). Proxies are <b>estimated</b> — <b>Mark estimated</b> tints them. Off restores the original depth faces.</p>
+  <p id="vehNote" hidden><b>Solid cars</b> swaps the depth cardboard for a realistic roadster / car model per tracked vehicle (CC0 teardrop hypercar + CC0 fleet; clearcoat paint, glass, contact shadow; pose from multi-camera boxes). Proxies are <b>estimated</b> — <b>Mark estimated</b> tints them. Off restores the original depth faces.</p>
 </div>
 <div class="bar">
   <button id="play" aria-pressed="false">Play</button>
@@ -130,7 +130,7 @@ const ground = new THREE.GridHelper(400, 80, 0x22303a, 0x18222a); ground.positio
 const VEH = await fetch('vehicles.json').then(r => (r.ok ? r.json() : null)).catch(() => null);
 const vehGroup = new THREE.Group(); scene.add(vehGroup);
 let solidOn = false, markVeh = true;
-const MODEL_FACE = Math.PI;   // Kenney/rgsdev face +Z; Ferrari faces +Z too in three.js example
+const MODEL_FACE = Math.PI;   // rgsdev + CC0 roadster nose +Z; three.js places data +Z at -Z
 const draco = new DRACOLoader();
 draco.setDecoderPath('https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/libs/draco/gltf/');
 const gltfLoader = new GLTFLoader(); gltfLoader.setDRACOLoader(draco);
@@ -160,10 +160,13 @@ await loadModels();
 
 function bodyPaint(paint) {
   const col = paint.clone();
+  // pearl-white default for light sampled paint (hypercar roadster look)
+  const lum = 0.2126 * col.r + 0.7152 * col.g + 0.0722 * col.b;
+  if (lum > 0.55) col.setRGB(0.93, 0.94, 0.97);
   if (markVeh) col.lerp(new THREE.Color(0x4aa3ff), 0.22);
   return new THREE.MeshPhysicalMaterial({
-    color: col, metalness: 0.55, roughness: 0.28, clearcoat: 1.0, clearcoatRoughness: 0.12,
-    envMapIntensity: 1.0, transparent: markVeh, opacity: markVeh ? 0.95 : 1
+    color: col, metalness: 0.55, roughness: lum > 0.55 ? 0.18 : 0.28, clearcoat: 1.0, clearcoatRoughness: 0.1,
+    envMapIntensity: 1.15, transparent: markVeh, opacity: markVeh ? 0.95 : 1
   });
 }
 function glassMat() {
@@ -185,6 +188,7 @@ function classifyPart(name) {
   if (/rim|wheel(?!.*tire)|alloy|chrome|nut/.test(n)) return 'rim';
   if (/light|led|brake|tail|head|signal/.test(n)) return 'light';
   if (/body|paint|coat|boot|bumper|door|hood|bonnet|fender|wing/.test(n)) return 'body';
+  if (/thruster/.test(n)) return 'thruster';
   if (/leather|interior|carpet|seat|steering/.test(n)) return 'interior';
   return 'body';  // default: tint as body (Ferrari Body_Color etc.)
 }
@@ -197,17 +201,20 @@ function styleProxy(root, paint, shape) {
     // Ferrari materials named Body_Color / Glass_Gray / Tires etc.
     const matName = (o.material.name || '').toLowerCase();
     let k = kind;
-    if (/body_color|paint|coat/.test(matName)) k = 'body';
-    else if (/glass/.test(matName)) k = 'glass';
-    else if (/tire|rubber/.test(matName)) k = 'rubber';
-    else if (/chrome|metal|carbon|rim/.test(matName)) k = 'rim';
-    else if (/light|led|tail|signal|projector/.test(matName)) k = 'light';
+    const meshName = (o.name || '').toLowerCase();
+    if (/body_color|paint|coat|^body$/.test(matName) || meshName === 'body') k = 'body';
+    else if (/glass/.test(matName) || meshName === 'glass') k = 'glass';
+    else if (/tire|rubber/.test(matName) || meshName === 'rubber') k = 'rubber';
+    else if (/chrome|metal|carbon|rim/.test(matName) || meshName === 'rim') k = 'rim';
+    else if (/thruster/.test(matName) || meshName === 'thruster') k = 'thruster';
+    else if (/light|led|tail|signal|projector/.test(matName) || /^lights/.test(meshName) || meshName === 'light') k = 'light';
     else if (/leather|interior|carpet/.test(matName)) k = 'interior';
     if (k === 'body') o.material = bodyPaint(paint);
     else if (k === 'glass') o.material = glassMat();
     else if (k === 'rubber') o.material = rubberMat();
     else if (k === 'rim') o.material = rimMat();
-    else if (k === 'light') o.material = lightMat(shape === 'cybercab' ? 0x88ccff : 0xffeedd);
+    else if (k === 'thruster') o.material = new THREE.MeshStandardMaterial({ color: 0x0a0a0c, metalness: 0.75, roughness: 0.35 });
+    else if (k === 'light') o.material = lightMat(/red|tail/.test(matName+meshName) ? 0xff2200 : (shape === 'cybercab' ? 0x88ccff : 0xffeedd));
     else o.material = new THREE.MeshStandardMaterial({ color: 0x222226, metalness: 0.3, roughness: 0.7 });
     o.castShadow = false; o.receiveShadow = false;
   });
