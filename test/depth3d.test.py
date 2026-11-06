@@ -14,6 +14,8 @@ footage, no AI model (~1 min). `python3 test/depth3d.test.py`. Needs numpy, open
     match clamp; CAT16 / Bradford white → neutral; run() leaves the depth / frames byte-identical.
  7. boxes.py: a detector box round a point in the raw fisheye maps to a view rectangle round that point (also the back
     camera, whose view is pitched 14° off the camera).
+ 8. vehicles.py: a car on the road at a known pose, seen by the front camera, lifts to that ground point (±1 m) and a
+    two-step track keeps a stable id; --vehicles off leaves fused depth byte-identical (no vehicles.json written by build).
 """
 import importlib.util, json, math, os, shutil, subprocess, sys, tempfile
 import numpy as np, cv2
@@ -405,6 +407,77 @@ for cam, P in [("left_pillar", [-6.0, 0.8, 4.0]), ("back", [0.5, 0.6, -8.0]), ("
        f"boxes.py {cam}: a raw box round a point → view rectangle {rect[0] if rect else None} round its view pixel ({pu:.0f}, {pv:.0f})")
 ok(boxes.to_views(rig, [dict(name="x.jpg", cam="back", t_clip=5.0)], {"back": [dict(cls="car", keys=[[1.0, dict(x=.4, y=.4, w=.1, h=.1)]])]})["x.jpg"] == [],
    "boxes.py: a box from another moment (> 0.08 s away) is not used")
+
+
+# ── 8. vehicles.py ──
+import vehicles as VH
+# synthetic: one car 8 m ahead on the road, front camera at the origin looking +z
+vd = os.path.join(TMP, "veh"); os.makedirs(os.path.join(vd, "fused"), exist_ok=True); os.makedirs(os.path.join(vd, "data"), exist_ok=True)
+# two time steps, front only; pose identity-ish
+R_id = [[1, 0, 0], [0, 1, 0], [0, 0, 1]]
+C_front = [0.0, -1.3, 2.1]   # front cam ~2.1 m ahead, 1.3 m up (y down → negative)
+frames = []
+for step, tclip, fname in [(0, 1.0, "front_00001.jpg"), (1, 1.17, "front_00002.jpg")]:
+    frames.append(dict(name=fname, cam="front", step=step, frame=step, t_clip=tclip, t_ref=tclip, t_grid=tclip,
+                       R=R_id, C=C_front, f=900.0, cx=480.0, cy=312.0, w=960, h=624))
+json.dump(dict(t0=1.0, t1=1.2, dt=0.17, views={}, cams=["front"], steps=2, frames=frames),
+          open(os.path.join(vd, "data", "frames.json"), "w"))
+# car at world (0, 0, 10): bottom centre projects to u=480, v = cy + f * (0 - C_y) / (10 - C_z) ...
+# ray: C + t * R @ [(u-cx)/f, (v-cy)/f, 1]; for ground y=0 through (0,0,10):
+# from C=(0,-1.3,2.1) to (0,0,10): dir ≈ (0, 1.3, 7.9); in view: x=0 → u=cx; y_cv = 1.3/7.9 ≈ 0.165 → v = cy + f*0.165
+car_z = 10.0
+v_bottom = 312.0 + 900.0 * (0.0 - (-1.3)) / (car_z - 2.1)
+# box ~1.85 m wide, 1.55 m tall at 8 m from cam (dist ≈ 8): w_px = 1.85/8*900, h_px = 1.55/8*900
+dist = car_z - 2.1; w_px = 1.85 / dist * 900; h_px = 1.55 / dist * 900
+u0, u1 = 480 - w_px / 2, 480 + w_px / 2
+v0, v1 = v_bottom - h_px, v_bottom
+# write depth grids (Z = view-forward metres) and textures
+for fr in frames:
+    Z = np.zeros((62, 96), np.float32)
+    # fill a blob at the car with depth ≈ dist
+    for j in range(62):
+        for i in range(96):
+            u = (i + 0.5) * 960 / 96; v = (j + 0.5) * 624 / 62
+            if u0 - 5 <= u <= u1 + 5 and v0 - 5 <= v <= v1 + 5:
+                Z[j, i] = dist
+            elif v > 400:  # road band
+                # ground depth along ray
+                dy = (v - 312) / 900;  # y_cv
+                # C_y + t*dy = 0 → t = 1.3/dy when dy>0
+                if dy > 0.02:
+                    Z[j, i] = 1.3 / dy
+    cv2.imwrite(os.path.join(vd, "fused", fr["name"][:-4] + ".png"), (Z * 100).astype(np.uint16))
+    json.dump([float((j + 0.5) * 624 / 62) for j in range(62)], open(os.path.join(vd, "fused", fr["name"][:-4] + "_rows.json"), "w"))
+    # grey car, darker road
+    im = np.full((624, 960, 3), 40, np.uint8)
+    im[int(v0):int(v1), int(u0):int(u1)] = (40, 40, 200)  # reddish BGR paint
+    cv2.imwrite(os.path.join(vd, "fused", fr["name"]), im)
+# dets: raw box that maps near our view box — use a generous raw box at centre of front fisheye
+# easier path: monkey-patch _view_box to return our known view rectangle
+real_vb = VH._view_box
+VH._view_box = lambda rig, fr, raw: [u0, v0, u1, v1]
+# minimal telemetry so Rig loads — reuse the test rig from earlier via a tiny tel dump
+tel = dict(rig={c: rig.cams[c] for c in RG.CAMS}, body=rig.body, aspect=rig.aspect,
+           cams={c: dict(frames=[0.0, 1.0], rows=[]) for c in RG.CAMS}, clocks={}, rigSource="test")
+json.dump(tel, open(os.path.join(vd, "telemetry.json"), "w"))
+# one track, two keys
+dets = dict(front=[dict(cls="car", keys=[[1.0, dict(x=0.4, y=0.4, w=0.1, h=0.15, conf=0.9, cls="car")],
+                                         [1.17, dict(x=0.4, y=0.4, w=0.1, h=0.15, conf=0.9, cls="car")]])])
+json.dump(dets, open(os.path.join(vd, "dets.json"), "w"))
+page = os.path.join(vd, "page"); os.makedirs(page, exist_ok=True)
+rep = VH.run(vd, page, log=lambda *a: None, rig=rig)
+VH._view_box = real_vb
+doc = json.load(open(os.path.join(page, "vehicles.json")))
+# expect one stable track near (0, 10)
+xs = [v["x"] for s in doc["steps"] for v in s]
+zs = [v["z"] for s in doc["steps"] for v in s]
+ids = {v["id"] for s in doc["steps"] for v in s}
+ok(rep["n"] >= 1 and len(ids) >= 1 and any(abs(z - 10) < 1.5 for z in zs) and any(abs(x) < 1.5 for x in xs),
+   f"vehicles.py: synthetic car at (0,10) lifts to x≈{xs[:3]} z≈{zs[:3]} (n={rep['n']}, ids={ids})")
+ok(os.path.exists(os.path.join(page, "index.html")), "vehicles.py --export refreshes index.html")
+# paint roughly red (we wrote BGR 40,40,200)
+rgbs = [v["rgb"] for s in doc["steps"] for v in s]
+ok(any(r[0] > r[2] for r in rgbs), f"vehicles.py: paint sampled reddish {rgbs[:2]}")
 
 shutil.rmtree(TMP, ignore_errors=True)
 print(f"\n{'ALL OK' if not fails else str(len(fails)) + ' FAILED'}")

@@ -1,6 +1,7 @@
 """pack.py — the replay page (the prototype's pack.py): scene.json (per time step the six frames' pose, intrinsics, depth grid
 size and mesh rows, plus the drive's title and stretch), depth.json and weights.json (base64 grids), tex/ (textures), and
-viewer.html as index.html (three.js 0.160 from a CDN). Everything in the page shows the drive: never commit it."""
+viewer.html as index.html (three.js 0.160 from a CDN). vehicles.json (solid car proxies) is written by vehicles.py, not here.
+Everything in the page shows the drive: never commit it."""
 import base64, json, os, shutil
 import cv2
 

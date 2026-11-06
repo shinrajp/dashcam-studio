@@ -8,13 +8,27 @@ python3 tools/depth3d/build.py "<drive folder>" "<page folder>" --t0 8.5 --t1 12
 
 Options: `--clip <stamp>` (folder with several clips), `--rig rig.json` (a calibrated rig: in-app export or tools/rig output),
 `--delays auto|fit|rig|zero`, `--dt` (seconds between time steps, default 1/6), `--detector <yolo.onnx>` / `--no-detector`,
-`--no-grow`, `--work <dir>` (default `<page folder>.work`), `--clean`, `--depth-stub` (tests only: no AI model).
+`--no-grow`, `--vehicles off|proxy` (solid low-poly cars from the detector tracks; off by default), `--work <dir>` (default `<page folder>.work`), `--clean`, `--depth-stub` (tests only: no AI model).
 
 Steps, modules and what changed against the prototype: `experiments/depth3d/README.md`. Tests: `test/depth3d.test.py`,
 `test/depth3d-e2e.py` (see `test/README.md`).
 
 **The page and the work folder show the drive** — never commit or publish them (the repository is public; the tool refuses
 to write inside it).
+
+
+## Optional: solid vehicle proxies
+
+Depth only rebuilds the faces a camera saw, so other cars look like cardboard. With `--vehicles proxy` the builder fits a 3D
+oriented box per tracked vehicle (multi-camera boxes lifted to the road / fused depth), samples paint from the footage, and
+writes `vehicles.json`. The viewer then offers **Solid cars** (on by default when the file is present): low-poly sedan / SUV-like
+/ truck / bus / motorcycle meshes replace the cardboard, and depth triangles inside each proxy footprint are dropped. **Mark
+estimated** tints the proxies. Off restores the original depth faces. Geometry with `--vehicles off` (the default) stays
+byte-identical. Re-run on an existing work folder:
+
+```bash
+python3 tools/depth3d/vehicles.py "<page folder>.work" --export "<page folder>"
+```
 
 ## Optional: fill blind spots (ground layer)
 

@@ -41,6 +41,7 @@ html,body{height:100%;background:var(--bg);color:var(--fg);font-family:var(--san
   <p>Where cameras overlap, each spot comes from the camera that sees it sharpest; the road is snapped to the true road plane; neighbouring cameras meet on one surface and fade into each other; brightness is matched between cameras. <b>Camera colours</b> shows which camera drew what.</p>
   <p>Gaps are what no camera saw. The white box is your car.</p>
   <p id="fillNote" hidden><b>Fill blind spots</b> lays the road under the car and behind the bumper from what the cameras filmed at other moments (<span id="realM2"></span> m², real footage). The <span id="estM2"></span> m² no camera ever saw is painted by a diffusion model: <b>estimated, not seen</b>. <b>Mark estimated</b> tints it blue.</p>
+  <p id="vehNote" hidden><b>Solid cars</b> swaps the depth cardboard for a low-poly proxy per tracked vehicle (pose from multi-camera boxes + road / depth; paint sampled from the footage). Proxies are <b>estimated</b> — <b>Mark estimated</b> tints them. Off restores the original depth faces.</p>
 </div>
 <div class="bar">
   <button id="play" aria-pressed="false">Play</button>
@@ -50,6 +51,7 @@ html,body{height:100%;background:var(--bg);color:var(--fg);font-family:var(--san
   <button id="tint" aria-pressed="false" title="Tint each camera's part of the scene in its own colour">Camera colours</button>
   <button id="fill" aria-pressed="true" hidden title="Road filmed at other moments under the car and in blind spots; what no camera saw is estimated">Fill blind spots</button>
   <button id="mark" aria-pressed="true" hidden title="Tint the part a diffusion model painted (never seen by a camera)">Mark estimated</button>
+  <button id="solid" aria-pressed="true" hidden title="Replace depth cardboard cars with solid vehicle proxies (estimated pose and paint)">Solid cars</button>
   <div class="track"><input id="pos" type="range" min="0" max="0" value="0" aria-label="Time"><span class="read" id="read"></span></div>
 </div>
 
@@ -112,6 +114,118 @@ const carM = new THREE.Mesh(new THREE.BoxGeometry(2.0, 1.68, 5.06), new THREE.Me
 carM.add(new THREE.LineSegments(new THREE.EdgesGeometry(carM.geometry), new THREE.LineBasicMaterial({ color: 0xffffff })));
 scene.add(carM);
 const ground = new THREE.GridHelper(400, 80, 0x22303a, 0x18222a); ground.position.y = -0.02; scene.add(ground);
+
+// optional solid vehicle proxies (tools/depth3d/vehicles.py, --vehicles proxy): low-poly meshes posed per time step
+const VEH = await fetch('vehicles.json').then(r => (r.ok ? r.json() : null)).catch(() => null);
+const vehGroup = new THREE.Group(); scene.add(vehGroup);
+let solidOn = false, markVeh = true;
+function makeProxy(v) {
+  const root = new THREE.Group();
+  const col = new THREE.Color(v.rgb[0] / 255, v.rgb[1] / 255, v.rgb[2] / 255);
+  const tint = markVeh ? col.clone().lerp(new THREE.Color(0x4aa3ff), 0.35) : col;
+  const mat = new THREE.MeshBasicMaterial({ color: tint, transparent: true, opacity: markVeh ? 0.88 : 0.95 });
+  const edge = new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.35 });
+  const L = v.L, W = v.W, H = v.H, cls = v.cls;
+  if (cls === 'motorcycle' || cls === 'bicycle') {
+    const body = new THREE.Mesh(new THREE.BoxGeometry(W * 0.7, H * 0.45, L), mat);
+    body.position.y = H * 0.35; root.add(body);
+    const wheel = new THREE.Mesh(new THREE.BoxGeometry(W, H * 0.35, L * 0.22), mat);
+    const w1 = wheel.clone(); w1.position.set(0, H * 0.18, L * 0.32); root.add(w1);
+    const w2 = wheel.clone(); w2.position.set(0, H * 0.18, -L * 0.32); root.add(w2);
+  } else if (cls === 'bus' || cls === 'truck') {
+    const body = new THREE.Mesh(new THREE.BoxGeometry(W, H * 0.85, L), mat);
+    body.position.y = H * 0.5; root.add(body);
+    body.add(new THREE.LineSegments(new THREE.EdgesGeometry(body.geometry), edge));
+  } else if (cls === 'car' || true) {
+    // sedan / default: lower body + cabin
+    const body = new THREE.Mesh(new THREE.BoxGeometry(W, H * 0.45, L), mat);
+    body.position.y = H * 0.28; root.add(body);
+    const cabin = new THREE.Mesh(new THREE.BoxGeometry(W * 0.92, H * 0.42, L * 0.55), mat.clone());
+    cabin.position.set(0, H * 0.68, -L * 0.05); root.add(cabin);
+    body.add(new THREE.LineSegments(new THREE.EdgesGeometry(body.geometry), edge));
+    cabin.add(new THREE.LineSegments(new THREE.EdgesGeometry(cabin.geometry), edge.clone()));
+  }
+  root.userData = { id: v.id, L, W, H };
+  return root;
+}
+// one Group per time step (built lazily)
+const vehSteps = VEH ? VEH.steps.map(() => null) : [];
+function vehFor(k) {
+  if (!VEH) return null;
+  if (vehSteps[k]) return vehSteps[k];
+  const g = new THREE.Group();
+  for (const v of (VEH.steps[k] || [])) {
+    const m = makeProxy(v);
+    // world (x right, y down, z forward) → three (x, -y, -z); yaw is about world +y (down), which is three -y
+    // vehicle forward in world xz at angle yaw from +z toward +x: dir=(sin yaw, cos yaw)
+    // in three: position (x, H/2 up = +H/2 since y flips, -z); rotation about Y by -yaw (three Y is up)
+    m.position.set(v.x, 0, -v.z);
+    m.rotation.y = -v.yaw;
+    g.add(m);
+  }
+  g.visible = false; vehGroup.add(g); vehSteps[k] = g; return g;
+}
+function refreshVehMats() {
+  vehGroup.traverse(o => {
+    if (!o.isMesh || !o.material || !o.material.color) return;
+    // rebuild from parent chain is hard; instead re-tint by lerping current toward blue or back — simpler: rebuild step
+  });
+  // recreate visible step so Mark estimated re-applies
+  if (VEH) {
+    for (let k = 0; k < vehSteps.length; k++) {
+      if (!vehSteps[k]) continue;
+      vehGroup.remove(vehSteps[k]);
+      vehSteps[k].traverse(o => { if (o.geometry) o.geometry.dispose(); if (o.material) o.material.dispose(); });
+      vehSteps[k] = null;
+    }
+  }
+}
+// cardboard mask: drop depth triangles whose centroid xz sits inside a proxy footprint (when Solid cars is on)
+function insideProxy(x, z, v, pad) {
+  const dx = x - v.x, dz = z - v.z, c = Math.cos(v.yaw), s = Math.sin(v.yaw);
+  const lr = dx * c + dz * s, fb = -dx * s + dz * c;   // local right, forward
+  return Math.abs(lr) < v.W * 0.5 * pad && Math.abs(fb) < v.L * 0.5 * pad;
+}
+function applyCardboardMask(on) {
+  if (!VEH) return;
+  meshes.forEach((row, k) => {
+    const vehs = VEH.steps[k] || [];
+    row.forEach(m => {
+      const pos = m.geometry.getAttribute('position');
+      const idx = m.geometry.getIndex();
+      if (!m.userData.fullIndex) m.userData.fullIndex = idx ? Array.from(idx.array) : null;
+      const full = m.userData.fullIndex;
+      if (!full) return;
+      if (!on || !vehs.length) { m.geometry.setIndex(full); return; }
+      const keep = [];
+      for (let t = 0; t < full.length; t += 3) {
+        const a = full[t], b = full[t + 1], c = full[t + 2];
+        const x = (pos.getX(a) + pos.getX(b) + pos.getX(c)) / 3;
+        const z = -((pos.getZ(a) + pos.getZ(b) + pos.getZ(c)) / 3);   // three -z → world z
+        let hit = false;
+        for (const v of vehs) if (insideProxy(x, z, v, 1.12)) { hit = true; break; }
+        if (!hit) keep.push(a, b, c);
+      }
+      m.geometry.setIndex(keep);
+    });
+  });
+}
+if (VEH && VEH.steps && VEH.steps.some(s => s && s.length)) {
+  solidOn = true;
+  $('solid').hidden = false; $('vehNote').hidden = false;
+  $('solid').setAttribute('aria-pressed', 'true');
+  $('solid').onclick = () => {
+    solidOn = !solidOn; $('solid').setAttribute('aria-pressed', String(solidOn));
+    applyCardboardMask(solidOn);
+    show(step);
+  };
+  // Mark estimated also re-tints proxies
+  const _markBtn = $('mark');
+  const prevMark = _markBtn.onclick;
+  // apply mask once meshes exist (after meshFor loop — we're past it)
+  applyCardboardMask(true);
+}
+
 // optional ground layer (tools/depth3d ground.py + fill_sd.py): one top-down picture of the road for the whole stretch, laid 4 cm
 // under the road so each moment's own 3D wins where it has the road, and the layer shows only where that moment has none
 const GL = await fetch('ground.json').then(r => (r.ok ? r.json() : null)).catch(() => null);
@@ -130,6 +244,15 @@ if (GL) {
   $('mark').onclick = () => {
     const on = fillM.material.map !== tMark; fillM.material.map = on ? tMark : tReal; fillM.material.needsUpdate = true;
     $('mark').setAttribute('aria-pressed', String(on));
+    markVeh = on; refreshVehMats(); if (solidOn) { vehFor(step); show(step); }
+  };
+}
+// when there is no ground fill, Mark estimated still tints solid-car proxies (and shows the button)
+if (VEH && VEH.steps && VEH.steps.some(s => s && s.length) && $('mark').hidden) {
+  $('mark').hidden = false;
+  $('mark').onclick = () => {
+    markVeh = !markVeh; $('mark').setAttribute('aria-pressed', String(markVeh));
+    refreshVehMats(); if (solidOn) show(step);
   };
 }
 
@@ -141,6 +264,7 @@ function poseOf(k) {
 let step = 0, view = 'chase', playing = false, acc = 0, last = performance.now();
 function show(k) {
   meshes.forEach((row, i) => row.forEach(m => { m.visible = i === k; }));
+  if (VEH) { vehSteps.forEach((g, i) => { if (g) g.visible = false; }); if (solidOn) { const g = vehFor(k); if (g) g.visible = true; } }
   const p = poseOf(k), prev = poseOf(step);
   carM.position.copy(p.mid); carM.lookAt(p.mid.clone().add(p.fwd));
   const d = p.mid.clone().sub(prev.mid); cam3.position.add(d); controls.target.add(d);   // the view follows the car

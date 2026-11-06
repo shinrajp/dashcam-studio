@@ -16,6 +16,7 @@ The folder holds the six files of a clip (<stamp>-front.mp4, -back, -left_pillar
   6. fuse        road snap, road growing (not inside vehicle boxes), soft seams, mesh rows                     fuse.py
   7. colour      per-camera gains on shared road                                                               colour.py
   8. page        scene.json, depth.json, weights.json, tex/, index.html                                        pack.py
+  8b. vehicles  optional solid car proxies from the detector tracks (--vehicles proxy)                        vehicles.py
 
 The page and the work folder show the drive: keep them out of the repository (the tool refuses to write inside it).
 Needs python3 with numpy, opencv-python-headless, onnxruntime; ffmpeg/ffprobe; node.
@@ -26,6 +27,7 @@ HERE = os.path.dirname(os.path.abspath(__file__)); ROOT = os.path.abspath(os.pat
 sys.path.insert(0, HERE)
 from rig import CAMS, Rig, Drive  # noqa: E402
 import dataset, depth, boxes, fuse, colour, pack, wb, delay as delayfit  # noqa: E402
+# vehicles imported lazily when --vehicles proxy (keeps the default path free of the extra module)
 
 
 def log(*a):
@@ -93,6 +95,8 @@ def main(argv=None):
                     help="gains: the viewer's WB-ON gamma gains with camera matching; cat16/bradford: chromatic adaptation (js/colour-constancy.js viewerMatrix, D=0.7)")
     ap.add_argument("--scene-wb-source", default="paint", choices=["paint", "fusion"], help="white estimate: the viewer's paint/mirror tracker, or the paint+lanes+grey world(+FC4) fusion")
     ap.add_argument("--scene-wb-fc4", default=os.path.join(ROOT, "models", "cc", "fc4-squeezenet11-int8.onnx"), help="FC4 ONNX for --scene-wb-source fusion (skipped when missing)")
+    ap.add_argument("--vehicles", default="off", choices=["off", "proxy"],
+                    help="proxy: fit a solid low-poly car per tracked vehicle (vehicles.py) and draw it in the viewer; off (default) leaves depth cardboard and keeps geometry byte-identical")
     ap.add_argument("--work", help="work folder (default <out>.work)"); ap.add_argument("--clean", action="store_true", help="delete the work folder at the end")
     ap.add_argument("--force-in-repo", action="store_true", help="allow writing inside the repository (it is public: never commit drive data)")
     a = ap.parse_args(argv)
@@ -203,6 +207,13 @@ def main(argv=None):
     info = dict(drive=stamp.split("_")[0] if "_" in stamp else stamp, clip=stamp, t0=a.t0, t1=a.t1,
                 model=("a stand-in flat-road depth (test, no AI model)" if a.depth_stub else "an AI depth model (Depth Anything V2 Small)"))
     report["page"] = pack.run(os.path.join(work, "fused"), a.out, info)
+    if a.vehicles == "proxy":
+        import vehicles
+        if not vb:
+            warn("vehicles proxy requested but there are no detector boxes: nothing to place")
+        else:
+            log("[8b/8] solid vehicle proxies")
+            report["vehicles"] = vehicles.run(work, a.out, log=log, rig=rig)
     report["seconds"] = round(time.time() - T, 1)
     clean = lambda o: {k: clean(v) for k, v in o.items()} if isinstance(o, dict) else [clean(v) for v in o] if isinstance(o, list) else \
         (None if isinstance(o, float) and o != o else o)

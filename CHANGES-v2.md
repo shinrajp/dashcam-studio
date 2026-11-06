@@ -1154,3 +1154,26 @@ It got worse on one held-out drive, so it **stays off**. It is off in the viewer
 | clip 1, 0.5–4.5 s (urban turn) | 21.7 | 20.1 | 1.9 % | no red kerb | 19 (17) | 0.252 / 0.261 |
 | clip 2, 8–12 s (slow highway) | 12.4 | 16.2 | 1.8 % | no red kerb | 24 (25) | 0.182 / 0.197 |
 | clip 3, 10–14 s (highway) | 11.9 | 12.3 | 1.1 % | no red kerb | 1 (0) | 0.185 / 0.217 |
+
+## Solid vehicle proxies (tag tv2-veh)
+Rollback: `git checkout pre-tv2-veh`. Nothing changes by default; the new option is `--vehicles proxy`.
+
+Depth only rebuilds the faces a camera saw, so other cars look like cardboard. Stable Diffusion fill paints flat road and
+cannot give them volume. With `--vehicles proxy` the builder fits a solid low-poly car per tracked vehicle.
+
+- **`tools/depth3d/vehicles.py`** (new). Lifts each YOLO track (boxes.py / detect-tracks.py) from the six cameras onto the
+  road (fused depth when the bottom is off the road, else the y = 0 plane), clusters multi-camera observations within 2.4 m,
+  smooths a 3D oriented box along the track (ground x/z, yaw, L/W/H from the class prior refined by apparent width), samples
+  median paint from the box body, and writes `vehicles.json`. Ego-body hits are rejected. One-frame ghosts are dropped.
+  Procedural meshes only (no binary assets). Classes: car, truck, bus, motorcycle, bicycle.
+- **`build.py --vehicles off|proxy`** (default off). Step 8b after pack. Geometry, depth and weights with the flag off stay
+  byte-identical. Re-run on an existing work folder: `python3 tools/depth3d/vehicles.py <work> --export <page>`.
+- **`viewer.html`:** **Solid cars** toggle (on when `vehicles.json` is present). Low-poly sedan / truck / bus / two-wheeler
+  proxies replace the cardboard; depth triangles whose footprint sits inside a proxy are dropped. **Mark estimated** tints
+  the proxies (same control as the road fill). Off restores the original depth faces.
+- **README** documents the flag and the standalone re-run.
+- **Test:** `test/depth3d.test.py` §8 — synthetic car at (0, 10) lifts to within 1.5 m and keeps a stable id; paint sampled.
+
+**Limits (v1):** yaw is road-aligned for parked cars (side-view override only when clear); parked tracks can still drift a
+few metres along a curb over a 4 s window when association jumps; no face accumulation / mirroring yet; no Cybercab class
+(YOLO has none); no stock glTF assets. Stretch goals for a later pass.
