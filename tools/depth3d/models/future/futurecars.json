@@ -1,0 +1,105 @@
+{
+ "note": "AI-generated concept images (GenerateImage edits of user-approved v3 concept boards); 2.5D impostor views, not 3D geometry. Left flank shown; viewer mirrors for the right side.",
+ "cars": {
+  "crossover": {
+   "dims_m": [
+    4.75,
+    1.92,
+    1.62
+   ],
+   "elev_deg": 15,
+   "views": [
+    {
+     "az": 0,
+     "file": "crossover-000.webp",
+     "w": 645,
+     "h": 484,
+     "source": "front, generated extra view (not in approved board)",
+     "tail_px_recoloured": 0
+    },
+    {
+     "az": 45,
+     "file": "crossover-045.webp",
+     "w": 999,
+     "h": 476,
+     "source": "front-left 3/4, derived from approved v3 board",
+     "tail_px_recoloured": 0
+    },
+    {
+     "az": 90,
+     "file": "crossover-090.webp",
+     "w": 1024,
+     "h": 341,
+     "source": "left side, generated extra view (not in approved board)",
+     "tail_px_recoloured": 327
+    },
+    {
+     "az": 135,
+     "file": "crossover-135.webp",
+     "w": 1024,
+     "h": 467,
+     "source": "rear-left 3/4, derived from approved v3 board, tail recoloured red",
+     "tail_px_recoloured": 0
+    },
+    {
+     "az": 180,
+     "file": "crossover-180.webp",
+     "w": 651,
+     "h": 498,
+     "source": "rear, generated extra view (not in approved board)",
+     "tail_px_recoloured": 0
+    }
+   ]
+  },
+  "coupe": {
+   "dims_m": [
+    4.5,
+    1.98,
+    1.18
+   ],
+   "elev_deg": 15,
+   "views": [
+    {
+     "az": 0,
+     "file": "coupe-000.webp",
+     "w": 720,
+     "h": 431,
+     "source": "front, generated extra view (not in approved board)",
+     "tail_px_recoloured": 0
+    },
+    {
+     "az": 45,
+     "file": "coupe-045.webp",
+     "w": 1024,
+     "h": 408,
+     "source": "front-left 3/4, derived from approved v3 board",
+     "tail_px_recoloured": 0
+    },
+    {
+     "az": 90,
+     "file": "coupe-090.webp",
+     "w": 1024,
+     "h": 264,
+     "source": "left side, generated extra view (not in approved board)",
+     "tail_px_recoloured": 275
+    },
+    {
+     "az": 135,
+     "file": "coupe-135.webp",
+     "w": 1024,
+     "h": 372,
+     "source": "rear-left 3/4, derived from approved v3 board, tail recoloured red",
+     "tail_px_recoloured": 0
+    },
+    {
+     "az": 180,
+     "file": "coupe-180.webp",
+     "w": 720,
+     "h": 404,
+     "source": "rear, generated extra view (not in approved board)",
+     "tail_px_recoloured": 0
+    }
+   ]
+  }
+ }
+}

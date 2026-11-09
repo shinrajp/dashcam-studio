@@ -8,7 +8,7 @@ python3 tools/depth3d/build.py "<drive folder>" "<page folder>" --t0 8.5 --t1 12
 
 Options: `--clip <stamp>` (folder with several clips), `--rig rig.json` (a calibrated rig: in-app export or tools/rig output),
 `--delays auto|fit|rig|zero`, `--dt` (seconds between time steps, default 1/6), `--detector <yolo.onnx>` / `--no-detector`,
-`--no-grow`, `--vehicles off|proxy` (solid low-poly cars from the detector tracks; off by default), `--work <dir>` (default `<page folder>.work`), `--clean`, `--depth-stub` (tests only: no AI model).
+`--no-grow`, `--vehicles off|proxy|future` (solid cars from the detector tracks; `future` also shows passenger cars as 2.5D concept-car pictures; off by default), `--work <dir>` (default `<page folder>.work`), `--clean`, `--depth-stub` (tests only: no AI model).
 
 Steps, modules and what changed against the prototype: `experiments/depth3d/README.md`. Tests: `test/depth3d.test.py`,
 `test/depth3d-e2e.py` (see `test/README.md`).

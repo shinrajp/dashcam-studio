@@ -95,8 +95,8 @@ def main(argv=None):
                     help="gains: the viewer's WB-ON gamma gains with camera matching; cat16/bradford: chromatic adaptation (js/colour-constancy.js viewerMatrix, D=0.7)")
     ap.add_argument("--scene-wb-source", default="paint", choices=["paint", "fusion"], help="white estimate: the viewer's paint/mirror tracker, or the paint+lanes+grey world(+FC4) fusion")
     ap.add_argument("--scene-wb-fc4", default=os.path.join(ROOT, "models", "cc", "fc4-squeezenet11-int8.onnx"), help="FC4 ONNX for --scene-wb-source fusion (skipped when missing)")
-    ap.add_argument("--vehicles", default="off", choices=["off", "proxy"],
-                    help="proxy: fit a solid low-poly car per tracked vehicle (vehicles.py) and draw it in the viewer; off (default) leaves depth cardboard and keeps geometry byte-identical")
+    ap.add_argument("--vehicles", default="off", choices=["off", "proxy", "future"],
+                    help="proxy: fit a solid low-poly car per tracked vehicle (vehicles.py) and draw it in the viewer; future: proxy + 2.5D concept-car images (crossover / coupe); off (default) leaves depth cardboard and keeps geometry byte-identical")
     ap.add_argument("--work", help="work folder (default <out>.work)"); ap.add_argument("--clean", action="store_true", help="delete the work folder at the end")
     ap.add_argument("--force-in-repo", action="store_true", help="allow writing inside the repository (it is public: never commit drive data)")
     a = ap.parse_args(argv)
@@ -207,13 +207,13 @@ def main(argv=None):
     info = dict(drive=stamp.split("_")[0] if "_" in stamp else stamp, clip=stamp, t0=a.t0, t1=a.t1,
                 model=("a stand-in flat-road depth (test, no AI model)" if a.depth_stub else "an AI depth model (Depth Anything V2 Small)"))
     report["page"] = pack.run(os.path.join(work, "fused"), a.out, info)
-    if a.vehicles == "proxy":
+    if a.vehicles in ("proxy", "future"):
         import vehicles
         if not vb:
             warn("vehicles proxy requested but there are no detector boxes: nothing to place")
         else:
             log("[8b/8] solid vehicle proxies")
-            report["vehicles"] = vehicles.run(work, a.out, log=log, rig=rig)
+            report["vehicles"] = vehicles.run(work, a.out, log=log, rig=rig, style="future" if a.vehicles == "future" else None)
     report["seconds"] = round(time.time() - T, 1)
     clean = lambda o: {k: clean(v) for k, v in o.items()} if isinstance(o, dict) else [clean(v) for v in o] if isinstance(o, list) else \
         (None if isinstance(o, float) and o != o else o)

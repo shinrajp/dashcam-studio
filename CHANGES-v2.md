@@ -1248,3 +1248,13 @@ Fleet check: every GLB's lowest point is its tyres (no floating wheels).
 
 Rollback: `git checkout pre-tv2-veh5`. Nothing changes by default (`--vehicles` still off).
 
+## track-v2 — concept cars, 2.5D (phase 6, opt-in)
+
+The owner rejected the procedural / Blender cars as ugly and approved two futuristic concept designs instead (a crossover and a low wedge sports coupe, red tail lights). This phase shows **those approved pictures** in the replay; it does not build 3D meshes of them.
+
+- `vehicles.py --style future` (or `build.py --vehicles future`; `vehicles.py X --restyle PAGE --style future` re-tags an existing page without refitting) adds `look` = `crossover` / `coupe` to passenger cars and `style: "future"` to vehicles.json. Poses and shapes are unchanged. Rule: the detector only knows "car" and the height is a fixed prior, so a sports car cannot be recognised; moving sedan-sized cars (shape roadster, L ≥ 4.4 m) get the coupe, parked / compact / SUV cars the crossover. Trucks, buses, vans, pickups and two-wheelers keep their glTF.
+- viewer: **Concept cars (2.5D)** button + note. Each tagged car is a camera-facing picture plane (bottom on the road, at the car's near side, leaning back for high cameras), textured with the nearest of 5 views (0/45/90/135/180°, mirrored for the right flank); above 55° elevation (Top) the 3D fallback (`suv.glb` / `roadster.glb`) is shown. Mark estimated tints the pictures blue. Off → the existing glTF cars.
+- assets: `tools/depth3d/models/future/` (10 WebP views + json, 432 KB) — see models/LICENSES.md (front / side / rear views are generated guesses, not part of the approved boards).
+- Limits: flat pictures — views pop at 22.5° / 67.5° / 112.5° / 157.5°, no parallax inside a car, lighting is the studio's, not the scene's; the crossover / coupe split is a heuristic.
+- Flag off (and `--vehicles proxy`) byte-identical: depth-stub build of 1019 (t 10–11) gives identical scene / depth / weights; vehicles.json from `vehicles.py` on the 1019 work folder is identical to the realcars page.
+

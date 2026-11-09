@@ -42,6 +42,7 @@ html,body{height:100%;background:var(--bg);color:var(--fg);font-family:var(--san
   <p>Gaps are what no camera saw. The white box is your car.</p>
   <p id="fillNote" hidden><b>Fill blind spots</b> lays the road under the car and behind the bumper from what the cameras filmed at other moments (<span id="realM2"></span> m², real footage). The <span id="estM2"></span> m² no camera ever saw is painted by a diffusion model: <b>estimated, not seen</b>. <b>Mark estimated</b> tints it blue.</p>
   <p id="vehNote" hidden><b>Solid cars</b> swaps the depth cardboard for a realistic roadster / car model per tracked vehicle (CC0 teardrop hypercar + CC0 fleet; clearcoat paint, glass, contact shadow; pose from multi-camera boxes). Proxies are <b>estimated</b> — <b>Mark estimated</b> tints them. Off restores the original depth faces.</p>
+  <p id="futNote" hidden><b>Concept cars (2.5D)</b> draws the approved futuristic crossover and sports coupe as <b>AI-generated cut-out pictures</b>, the nearest of 5 views for your viewing angle (mirrored for the right side): flat images, <b>not 3D models</b>. From high above (Top) the 3D car is shown instead. Which car gets which concept is a guess: the detector only knows “car”.</p>
 </div>
 <div class="bar">
   <button id="play" aria-pressed="false">Play</button>
@@ -52,6 +53,7 @@ html,body{height:100%;background:var(--bg);color:var(--fg);font-family:var(--san
   <button id="fill" aria-pressed="true" hidden title="Road filmed at other moments under the car and in blind spots; what no camera saw is estimated">Fill blind spots</button>
   <button id="mark" aria-pressed="true" hidden title="Tint the part a diffusion model painted (never seen by a camera)">Mark estimated</button>
   <button id="solid" aria-pressed="true" hidden title="Replace depth cardboard cars with solid vehicle proxies (estimated pose and paint)">Solid cars</button>
+  <button id="concept" aria-pressed="true" hidden title="Show passenger cars as 2.5D concept-car pictures (flat images picked by viewing angle, not 3D models)">Concept cars (2.5D)</button>
   <div class="track"><input id="pos" type="range" min="0" max="0" value="0" aria-label="Time"><span class="read" id="read"></span></div>
 </div>
 
@@ -140,10 +142,21 @@ const MODEL_URL = {
   truck: 'models/truck.glb', cybercab: 'models/cybercab.glb'
 };
 const modelTpl = {};
+// optional 2.5D concept cars (vehicles.json style "future", vehicles.py --style future): cut-out pictures per view
+const FUT = VEH && VEH.style === 'future' ? await fetch('models/future/futurecars.json').then(r => (r.ok ? r.json() : null)).catch(() => null) : null;
+const futTex = {};
+if (FUT) for (const [car, c] of Object.entries(FUT.cars)) futTex[car] = { dims: c.dims_m, elev: (c.elev_deg || 15) * Math.PI / 180,
+  views: c.views.map(v => { const t = loader.load('models/future/' + v.file); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4; return { ...v, a: v.az * Math.PI / 180, tex: t }; }) };
+let conceptOn = !!FUT;
+const TOP_ELEV = 55 * Math.PI / 180;   // above this the pictures (shot ~15° down) no longer fit: show the 3D fallback
+const lookShape = (look) => (look === 'coupe' ? 'roadster' : 'suv');
 async function loadModels() {
   if (!VEH) return;
   const need = new Set();
-  for (const row of VEH.steps) for (const v of row) if (v.shape && MODEL_URL[v.shape]) need.add(v.shape);
+  for (const row of VEH.steps) for (const v of row) {
+    if (v.shape && MODEL_URL[v.shape]) need.add(v.shape);
+    if (FUT && v.look) need.add(lookShape(v.look));
+  }
   await Promise.all([...need].map(async (sh) => {
     try {
       const g = await gltfLoader.loadAsync(MODEL_URL[sh]);
@@ -231,7 +244,8 @@ function styleProxy(root, paint, shape) {
 
 function makeProxy(v) {
   const paint = new THREE.Color(v.rgb[0] / 255, v.rgb[1] / 255, v.rgb[2] / 255);
-  const sh = v.shape || 'sedan';
+  const imp = conceptOn && FUT && v.look && futTex[v.look];
+  const sh = imp ? lookShape(v.look) : (v.shape || 'sedan');
   const tpl = modelTpl[sh];
   const root = new THREE.Group();
   if (tpl) {
@@ -259,7 +273,39 @@ function makeProxy(v) {
   shadow.scale.set(v.W * 1.05, v.L * 1.05, 1);
   root.add(shadow);
   root.userData = { id: v.id, L: v.L, W: v.W, H: v.H, shape: sh };
+  if (imp) {
+    // a picture plane, bottom edge on the road; turned to the camera and given the nearest view every frame
+    const geo = new THREE.PlaneGeometry(1, 1); geo.translate(0, 0.5, 0);
+    const mesh = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ map: imp.views[0].tex, transparent: true, alphaTest: 0.04, side: THREE.DoubleSide, toneMapped: false }));
+    if (markVeh) mesh.material.color.setRGB(0.82, 0.9, 1.0);
+    mesh.rotation.order = 'YXZ'; mesh.renderOrder = 2;
+    const k = Math.min(1.1, Math.max(0.92, v.L / imp.dims[0]));   // design size, nudged by the fitted length
+    root.userData.imp = { mesh, look: v.look, L: imp.dims[0] * k, W: imp.dims[1] * k, fallback: root.children[0] };
+  }
   return root;
+}
+function updateImpostors() {
+  const g = vehSteps[step];
+  if (!g || !g.visible) return;
+  for (const r of g.children) {
+    const im = r.userData.imp; if (!im) continue;
+    const dx = cam3.position.x - r.position.x, dz = cam3.position.z - r.position.z, dy = cam3.position.y;
+    const ry = r.rotation.y, fx = Math.sin(ry), fz = Math.cos(ry);   // model nose (+Z) in the world
+    let a = Math.atan2(dx * fz - dz * fx, dx * fx + dz * fz);         // camera bearing from the nose, + = car's left
+    const right = a < 0; a = Math.abs(a);
+    const hd = Math.hypot(dx, dz), elev = Math.atan2(dy, hd), top = elev > TOP_ELEV;
+    im.mesh.visible = !top; if (im.fallback) im.fallback.visible = top;
+    if (top) continue;
+    const T = futTex[im.look]; let best = T.views[0];
+    for (const v of T.views) if (Math.abs(v.a - a) < Math.abs(best.a - a)) best = v;
+    if (im.mesh.material.map !== best.tex) { im.mesh.material.map = best.tex; im.mesh.material.needsUpdate = true; }
+    const wid = im.W * Math.abs(Math.cos(best.a)) + im.L * Math.abs(Math.sin(best.a)), hgt = wid * best.h / best.w;
+    const near = 0.45 * (im.W * Math.abs(Math.sin(a)) + im.L * Math.abs(Math.cos(a)));   // plane at the near side: front tyres meet the road
+    im.mesh.position.set(r.position.x + dx / hd * near, 0, r.position.z + dz / hd * near);
+    im.mesh.rotation.y = Math.atan2(dx, dz);
+    im.mesh.rotation.x = -Math.min(0.7, Math.max(0, elev - T.elev));   // lean back toward a high camera
+    im.mesh.scale.set(right ? -wid : wid, hgt, 1);                    // pictures show the left flank: mirror for the right
+  }
 }
 const vehSteps = VEH ? VEH.steps.map(() => null) : [];
 function vehFor(k) {
@@ -271,6 +317,7 @@ function vehFor(k) {
     m.position.set(v.x, 0, -v.z);
     m.rotation.y = -v.yaw + MODEL_FACE;
     g.add(m);
+    if (m.userData.imp) { m.userData.imp.fallback && (m.userData.imp.fallback.visible = false); g.add(m.userData.imp.mesh); }
   }
   g.visible = false; vehGroup.add(g); vehSteps[k] = g; return g;
 }
@@ -328,6 +375,13 @@ if (VEH && VEH.steps && VEH.steps.some(s => s && s.length)) {
     show(step);
   };
   applyCardboardMask(true);
+  if (FUT) {
+    $('concept').hidden = false; $('futNote').hidden = false;
+    $('concept').onclick = () => {
+      conceptOn = !conceptOn; $('concept').setAttribute('aria-pressed', String(conceptOn));
+      refreshVehMats(); show(step);
+    };
+  }
 }
 
 // optional ground layer (tools/depth3d ground.py + fill_sd.py): one top-down picture of the road for the whole stretch, laid 4 cm
@@ -397,6 +451,6 @@ addEventListener('resize', resize); resize();
 show(0); setView('chase'); status.hidden = true;
 renderer.setAnimationLoop((now) => {
   if (playing) { acc += now - last; if (acc > 167) { acc = 0; if (step < STEPS.length - 1) show(step + 1); else { playing = false; $('play').textContent = 'Play'; $('play').setAttribute('aria-pressed', 'false'); } } }
-  last = now; controls.update(); renderer.render(scene, cam3);
+  last = now; controls.update(); if (FUT && solidOn) updateImpostors(); renderer.render(scene, cam3);
 });
 </script>

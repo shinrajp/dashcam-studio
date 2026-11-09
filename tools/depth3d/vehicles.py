@@ -174,6 +174,51 @@ def _finalize(steps, ego_path=None, two_way=True):
     return out, len(ids)
 
 
+FUTURE_LOOKS = ("crossover", "coupe")   # 2.5D concept impostors in models/future/ (viewer "Concept cars (2.5D)")
+COUPE_MIN_L = 4.4                          # moving passenger cars at least this long get the low sports coupe
+
+
+def future_looks(doc):
+    """opt-in (--style future): tag passenger cars with a concept look; poses / shapes stay untouched.
+
+    The detector only says "car" and the height is a fixed prior, so a sports car cannot be told from a
+    crossover. Rule (documented, deterministic): parked cars and short/compact/SUV-sized cars → crossover;
+    moving sedan-sized cars (shape roadster, L >= COUPE_MIN_L) → coupe. Trucks, buses, vans, pickups and
+    two-wheelers keep their glTF model (no look). The viewer falls back to the shape glTF for views the
+    concept images do not cover (high top-down angles)."""
+    n = {"crossover": 0, "coupe": 0}
+    looks = {}
+    for row in doc["steps"]:
+        for v in row:
+            if v.get("cls") != "car" or v.get("shape") in ("van", "pickup", "truck", "bus", "motorcycle"):
+                continue
+            if v["id"] not in looks:
+                sporty = v.get("shape") == "roadster" and not v.get("parked") and v["L"] >= COUPE_MIN_L
+                looks[v["id"]] = "coupe" if sporty else "crossover"
+            v["look"] = looks[v["id"]]
+    for k in looks.values():
+        n[k] += 1
+    doc["style"] = "future"
+    doc["looks"] = n
+    return doc
+
+
+def _copy_future(page):
+    """copy the concept impostor views (webp + futurecars.json) into page/models/future/."""
+    import shutil
+    here = os.path.dirname(os.path.abspath(__file__))
+    src = os.path.join(here, "models", "future")
+    if not os.path.isdir(src):
+        return 0
+    dst = os.path.join(page, "models", "future")
+    os.makedirs(dst, exist_ok=True)
+    n = 0
+    for f in sorted(os.listdir(src)):
+        if f.endswith((".webp", ".json")):
+            shutil.copy2(os.path.join(src, f), os.path.join(dst, f)); n += 1
+    return n
+
+
 def _copy_models(page):
     """copy the CC0 glTF set + licence note into page/models/ for the viewer."""
     import shutil
@@ -540,7 +585,7 @@ def _smooth(steps):
     return out, len(keep_ids)
 
 
-def run(work, page=None, log=print, rig=None):
+def run(work, page=None, log=print, rig=None, style=None):
     """Build vehicles.json from a finished work folder. page: also write into the page folder (for the viewer)."""
     from rig import Rig
 
@@ -636,6 +681,8 @@ def run(work, page=None, log=print, rig=None):
 
     doc = dict(mode="proxy", n=n_ids, models=list(MODELS), sizes={k: list(v) for k, v in SIZE.items()},
                steps=steps, stats=dict(poses_before=n_before, poses_after=n_after, parked=parked_n))
+    if style == "future":
+        future_looks(doc)
     out_work = os.path.join(work, "vehicles.json")
     json.dump(doc, open(out_work, "w"))
     if page:
@@ -645,6 +692,8 @@ def run(work, page=None, log=print, rig=None):
         shutil.copy(os.path.join(os.path.dirname(__file__), "viewer.html"), os.path.join(page, "index.html"))
         n_models = _copy_models(page)
         log(f"  models: {n_models} glTF files → {page}/models/")
+        if style == "future":
+            log(f"  concept looks {doc['looks']}: {_copy_future(page)} files → {page}/models/future/")
     n_veh = sum(len(s) for s in steps)
     log(f"vehicles: {n_ids} tracks, {n_veh} poses over {len(steps)} steps "
         f"(dedupe {n_before}→{n_after}, parked={parked_n}) → {out_work}"
@@ -656,8 +705,22 @@ def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("work", help="build work folder (has dets.json, fused/, data/)")
     ap.add_argument("--export", help="page folder to write vehicles.json + refreshed index.html into")
+    ap.add_argument("--style", default=None, choices=["future"], help="future: tag cars with 2.5D concept looks (crossover / coupe)")
+    ap.add_argument("--restyle", metavar="PAGE", help="only re-tag an existing page's vehicles.json (no refit) with --style, refresh index.html + models")
     a = ap.parse_args(argv)
-    run(a.work, a.export)
+    if a.restyle:
+        import shutil
+        f = os.path.join(a.restyle, "vehicles.json")
+        doc = json.load(open(f))
+        if a.style == "future":
+            future_looks(doc)
+        json.dump(doc, open(f, "w"))
+        shutil.copy(os.path.join(os.path.dirname(__file__), "viewer.html"), os.path.join(a.restyle, "index.html"))
+        _copy_models(a.restyle)
+        n = _copy_future(a.restyle) if a.style == "future" else 0
+        print(f"restyled {f}: looks {doc.get('looks')}, {n} concept files")
+        return
+    run(a.work, a.export, style=a.style)
 
 
 if __name__ == "__main__":

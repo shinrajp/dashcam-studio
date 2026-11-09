@@ -21,6 +21,15 @@ meshes are not endorsed — models are used as generic silhouettes.
 | Licence | [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) (see `vehicles/Rgsdev-License.txt`) |
 | Notes | Converted FBX→glTF, quantized. `cybercab.glb` uses the pack’s Roadster mesh as a compact 2-seat stand-in. Body paint / clearcoat / glass are applied in the viewer. |
 
+## future/ — 2.5D concept cars (crossover, coupe)
+
+| | |
+|---|---|
+| Source | AI-generated images (Grok Bot image tool) of two futuristic concept designs the project owner approved (v3 boards), regenerated with **red** tail / brake lights; background removed with rembg (isnet-general-use), cropped, WebP with alpha |
+| Files | `crossover-{000,045,090,135,180}.webp`, `coupe-{000,045,090,135,180}.webp`, `futurecars.json` (views, design size, provenance) — 432 KB total |
+| Provenance | 045 / 135 follow the approved front / rear three-quarter boards; **000, 090, 180 are generated extra views that were not in the approved boards** (front, side, rear are the image model's guess). Side-view tail glow recoloured to red in code. |
+| Notes | The designs were edited from owner-supplied reference photos; those photos (and any drive footage) are **not** in the repository. No plates, no readable text; wheels carry small generic hub caps. These are pictures, **not 3D geometry**: the viewer shows the nearest view on a camera-facing plane (mirrored for the right flank) and falls back to the glTF for top-down views. |
+
 ## Environment reflections
 
 The viewer uses three.js `RoomEnvironment` (procedural PMREM, MIT) for soft
