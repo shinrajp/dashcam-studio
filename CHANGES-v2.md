@@ -1235,3 +1235,16 @@ long glass canopy, short overhangs, full-width light bars, dark rear thruster po
 Draco. Pearl-white body when sampled paint is light. No trademarks in the mesh.
 
 Rollback: `git checkout pre-tv2-veh4`. Nothing changes by default (`--vehicles` still off).
+
+## track-v2 — Blender-built roadster (phase 5)
+
+User: the phase-4 roadster still looked like a toy. `roadster.glb` is now built in Blender
+(`tools/depth3d/models/make_roadster_blender.py`, own work, CC0): smooth lofted body with
+haunches, boolean-cut wheel arches with dark liners, lathed tyres on 10-spoke rims with brake
+discs sitting inside the arches and touching the ground, tinted teardrop canopy, full-width LED
+light bars, dark intake / diffuser / sills; no thruster slabs. 24,858 tris, Draco ~105 KB.
+Viewer maps the new materials (`trim_black` dark, `brake_disc` metal, `lights_red` red).
+Fleet check: every GLB's lowest point is its tyres (no floating wheels).
+
+Rollback: `git checkout pre-tv2-veh5`. Nothing changes by default (`--vehicles` still off).
+

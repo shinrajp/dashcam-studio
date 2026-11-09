@@ -172,7 +172,7 @@ function bodyPaint(paint) {
 function glassMat() {
   // no transmission (slow on mobile); dark tinted glass with env reflections
   return new THREE.MeshPhysicalMaterial({
-    color: 0x88a0b0, metalness: 0.1, roughness: 0.08, transparent: true, opacity: 0.45, envMapIntensity: 1.4
+    color: 0x18222c, metalness: 0.25, roughness: 0.06, transparent: true, opacity: 0.78, envMapIntensity: 1.6
   });
 }
 function rubberMat() { return new THREE.MeshStandardMaterial({ color: 0x1a1a1c, metalness: 0.1, roughness: 0.85 }); }
@@ -202,14 +202,23 @@ function styleProxy(root, paint, shape) {
     const matName = (o.material.name || '').toLowerCase();
     let k = kind;
     const meshName = (o.name || '').toLowerCase();
-    if (/body_color|paint|coat|^body$/.test(matName) || meshName === 'body') k = 'body';
+    if (/trim_black|liner|^vent$/.test(matName)) k = 'dark';
+    else if (/brake_disc/.test(matName)) k = 'disc';
+    else if (/^rim$/.test(matName)) k = 'rim';
+    else if (/^rubber$/.test(matName)) k = 'rubber';
+    else if (/^lights_red$/.test(matName)) k = 'tail';
+    else if (/^light$/.test(matName)) k = 'light';
+    else if (/body_color|paint|coat|^body$/.test(matName) || meshName === 'body') k = 'body';
     else if (/glass/.test(matName) || meshName === 'glass') k = 'glass';
     else if (/tire|rubber/.test(matName) || meshName === 'rubber') k = 'rubber';
     else if (/chrome|metal|carbon|rim/.test(matName) || meshName === 'rim') k = 'rim';
     else if (/thruster/.test(matName) || meshName === 'thruster') k = 'thruster';
     else if (/light|led|tail|signal|projector/.test(matName) || /^lights/.test(meshName) || meshName === 'light') k = 'light';
     else if (/leather|interior|carpet/.test(matName)) k = 'interior';
-    if (k === 'body') o.material = bodyPaint(paint);
+    if (k === 'dark') o.material = new THREE.MeshStandardMaterial({ color: 0x0b0b0d, metalness: 0.3, roughness: 0.55 });
+    else if (k === 'disc') o.material = new THREE.MeshStandardMaterial({ color: 0x55575c, metalness: 0.8, roughness: 0.4 });
+    else if (k === 'tail') o.material = lightMat(0xff2200);
+    else if (k === 'body') o.material = bodyPaint(paint);
     else if (k === 'glass') o.material = glassMat();
     else if (k === 'rubber') o.material = rubberMat();
     else if (k === 'rim') o.material = rimMat();
@@ -243,7 +252,7 @@ function makeProxy(v) {
   // soft contact shadow (ellipse on the road)
   const shadow = new THREE.Mesh(
     new THREE.CircleGeometry(0.5, 24),
-    new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: markVeh ? 0.28 : 0.4, depth: THREE.DoubleSide })
+    new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: markVeh ? 0.28 : 0.4, depthWrite: false })
   );
   shadow.rotation.x = -Math.PI / 2;
   shadow.position.y = 0.02;

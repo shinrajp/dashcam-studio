@@ -8,9 +8,9 @@ meshes are not endorsed — models are used as generic silhouettes.
 
 | | |
 |---|---|
-| Source | **Own work** — procedural mesh from `models/make_roadster.py` |
+| Source | **Own work** — built in Blender 4.2 by `models/make_roadster_blender.py` (`blender -b --factory-startup -P make_roadster_blender.py`) |
 | Licence | [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) |
-| Notes | Sleek low teardrop body, long glass canopy, short overhangs, full-width light bars, dark rear-corner thruster ports. Pearl-white default when sampled paint is light. ~9k tris, Draco. No manufacturer logos or names in the mesh. Generic “roadster” silhouette only. |
+| Notes | Lofted low body with haunches, wheel arches cut by boolean, real lathed tyres (rounded shoulders) on 10-spoke rims with brake discs, tinted teardrop canopy, full-width LED light bars, dark intake/diffuser/sills. Grounded (tyre contact at y = 0), nose +Z. 24,858 tris, Draco (~105 KB). Pearl white when sampled paint is light. No manufacturer names, logos or badges. |
 
 ## sedan.glb, hatchback.glb, suv.glb, pickup.glb, van.glb, bus.glb, truck.glb, cybercab.glb
 
@@ -28,5 +28,6 @@ reflections — no HDR file ships in the page.
 
 ## Previously
 
+- Phase 4 shipped a simple procedural CC0 roadster (numpy); phase 5 replaced it with the Blender build above.
 - Phase 3 used a CC BY Ferrari sports coupe via three.js examples; replaced in phase 4 with the CC0 own-work hypercar above (user request: Roadster-like teardrop, unbranded).
 - Phase 2 Kenney Car Kit CC0 models were replaced earlier because they read as toys.
